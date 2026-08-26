@@ -336,7 +336,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     // only wakes to remove expired relay authority.
                     guard let policyExpiresAt = Self.relayPolicyOfflineExpiryAttemptDate(
                         policyExpiresAt: Self.earliestRelayPolicyExpiry(
-                            servicePolicyExpiresAt: snapshot.policyExpiresAt,
+                            servicePolicyExpiresAt: self.usesManagedRelayAuthority
+                                ? snapshot.policyExpiresAt
+                                : nil,
                             appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
                         ),
                         retryAt: deactivationRetryAt,
@@ -356,7 +358,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         policyExpiresAt: relayAuthorityExpired
                             ? nil
                             : Self.earliestRelayPolicyExpiry(
-                                servicePolicyExpiresAt: snapshot.policyExpiresAt,
+                                servicePolicyExpiresAt: self.usesManagedRelayAuthority
+                                    ? snapshot.policyExpiresAt
+                                    : nil,
                                 appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
                             ),
                         retryAt: nextRetryAt,
@@ -392,7 +396,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                           revision: revision
                       ) else { return }
                 let wakePolicyExpiresAt = Self.earliestRelayPolicyExpiry(
-                    servicePolicyExpiresAt: wakeSnapshot.policyExpiresAt,
+                    servicePolicyExpiresAt: self.usesManagedRelayAuthority
+                        ? wakeSnapshot.policyExpiresAt
+                        : nil,
                     appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
                 )
                 let deactivationRetryDue = deactivationRetryAt.map {
@@ -515,7 +521,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     let failureDate = clock.now()
                     if Self.shouldDeactivateRelayPolicy(
                         policyExpiresAt: Self.earliestRelayPolicyExpiry(
-                            servicePolicyExpiresAt: snapshot.policyExpiresAt,
+                            servicePolicyExpiresAt: self.usesManagedRelayAuthority
+                                ? snapshot.policyExpiresAt
+                                : nil,
                             appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
                         ),
                         now: failureDate
@@ -631,6 +639,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
               effective.source == .managed,
               let policy = effective.managedPolicy else { return nil }
         return Date(timeIntervalSince1970: TimeInterval(policy.expiresAt))
+    }
+
+    /// Whether the live endpoint currently uses a broker-managed profile.
+    /// Custom relay profiles may retain a managed catalog for display, but its
+    /// catalog expiry is not an authority expiry for the custom endpoint.
+    private var usesManagedRelayAuthority: Bool {
+        relayPolicyAppliedEffective?.source == .managed
     }
 
     /// Whether a failed broker round should park until a path transition.

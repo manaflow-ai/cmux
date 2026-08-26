@@ -382,6 +382,35 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
+    func expireManagedPolicyLeavesCustomRelayProfileUntouched() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        let definition = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .none
+        )
+        let custom = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .custom([definition]),
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: nil,
+            now: fixture.now
+        )
+
+        let expired = await stores.service.expireManagedPolicy(accountID: "account-a")
+        #expect(expired == custom)
+        #expect(expired.source == .custom)
+        #expect(expired.endpointRelayProfile.allowedRelayURLs == [definition.url])
+    }
+
+    @Test
     func implicitRevisionZeroStillRejectsEquivocation() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()

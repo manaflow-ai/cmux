@@ -255,6 +255,13 @@ public actor CmxIrohRelayPolicyService {
     public func expireManagedPolicy(
         accountID: String
     ) async -> CmxIrohEffectiveRelayPolicy {
+        // Custom profiles can retain the managed catalog as metadata, but its
+        // expiry must never disable a valid custom endpoint profile.
+        if let currentEffective,
+           currentEffective.source == .custom
+            || currentEffective.source == .customUnavailable {
+            return currentEffective
+        }
         let operation = beginOperation()
         let persisted = try? await preferenceStore.load(accountID: accountID)
         let configuration = currentEffective?.requestedConfiguration ?? persisted?.requested
