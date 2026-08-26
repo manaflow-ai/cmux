@@ -202,4 +202,53 @@ struct AgentLifecycleReconciliationStateTests {
                 != .needsInput
         )
     }
+
+    @Test("Process exit preserves attention without a known generation")
+    func processExitPreservesUnboundFeedAttention() throws {
+        let panelId = UUID()
+        let generation = AgentProcessGeneration(
+            pid: 800,
+            startSeconds: 80,
+            startMicroseconds: 0
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        #expect(
+            state.recordProcessGeneration(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                generation: generation,
+                isBuiltIn: true
+            )
+        )
+        let token = try #require(
+            state.beginFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                isBuiltIn: true
+            )
+        )
+
+        #expect(
+            state.recordProcessExit(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                generation: generation
+            )
+        )
+        #expect(
+            state.hasFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId
+            ),
+            "An exact process exit cannot prove ownership of a nil-generation attention token."
+        )
+        #expect(
+            state.endFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                token: token
+            )
+        )
+    }
 }

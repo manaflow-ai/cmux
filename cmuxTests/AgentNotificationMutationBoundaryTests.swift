@@ -33,6 +33,53 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Custom remote agent PID registration does not require a local identity")
+    func customRemoteAgentPIDRegistrationAllowsOpaqueNamespace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "remote-custom-agent",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_010,
+            relayID: "custom-remote-pid-registration",
+            relayToken: String(repeating: "p", count: 64),
+            localSocketPath: "/tmp/cmux-custom-remote-pid-registration.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh remote-custom-agent"
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let result = ControlSidebarPanelOwner.workspace(workspace).recordAgentPID(
+            key: "custom.remote-session",
+            pid: 424_242,
+            panelId: panelID,
+            acceptedProcessIdentity: nil,
+            observeProcessExit: false
+        )
+        guard case .accepted = result else {
+            Issue.record("Opaque remote custom PID registration was rejected")
+            return
+        }
+        #expect(workspace.agentPIDs["custom.remote-session"] == 424_242)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey["custom.remote-session"] == nil
+        )
+    }
+
     @Test("Panel transfer preserves lifecycle-owned status without a PID key")
     func panelTransferPreservesLifecycleOwnedStatusWithoutPID() throws {
         let workspace = Workspace()

@@ -998,6 +998,8 @@ def test_codex_deferred_settlement_has_single_live_replay_claim(
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
     env["CMUX_CODEX_PID"] = str(os.getpid())
+    replay_secret = f"deferred-replay-secret-{os.getpid()}"
+    env["CMUX_SOCKET_PASSWORD"] = replay_secret
 
     base_payload = {
         "session_id": session_id,
@@ -1072,6 +1074,45 @@ def test_codex_deferred_settlement_has_single_live_replay_claim(
             for event in candidates
         )
 
+    def replay_child_environment(parent_pid: int) -> str:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            result = subprocess.run(
+                ["/bin/ps", "-ww", "-axo", "pid=,ppid=,command="],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"ps failed while checking deferred replay credentials: {result.stderr}"
+                )
+            for line in result.stdout.splitlines():
+                fields = line.strip().split(None, 2)
+                if len(fields) != 3:
+                    continue
+                try:
+                    child_pid = int(fields[0])
+                    child_parent_pid = int(fields[1])
+                except ValueError:
+                    continue
+                if child_parent_pid != parent_pid or "hooks codex stop" not in fields[2]:
+                    continue
+                child_result = subprocess.run(
+                    ["/bin/ps", "eww", "-p", str(child_pid)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                if child_result.returncode == 0:
+                    return child_result.stdout
+            time.sleep(0.02)
+        raise AssertionError(
+            f"deferred replay child was not observable under parent {parent_pid}"
+        )
+
     raw_response_gate = threading.Event()
     raw_response_gate.set()
     first_process: subprocess.Popen[str] | None = None
@@ -1125,6 +1166,12 @@ def test_codex_deferred_settlement_has_single_live_replay_claim(
                 raise AssertionError(
                     "The first drained SubagentStop never began replaying its "
                     f"durable settlement: {fake.frames[first_start:]!r}"
+                )
+            child_environment = replay_child_environment(first_process.pid)
+            if replay_secret in child_environment:
+                raise AssertionError(
+                    "Deferred settlement replay exposed CMUX_SOCKET_PASSWORD "
+                    f"to its child process: {child_environment!r}"
                 )
 
             second_start = len(fake.frames)
@@ -1401,6 +1448,46 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             work_id="x" * 513,
             env=bounds_env,
         )
+
+        raw_oversized_turn_id = "t" * (512 * 1024)
+        raw_oversized_session_id = "s" * 513
+        raw_turn_session_id = f"structured-work-raw-turn-bound-{os.getpid()}"
+        record_work(
+            source="codex",
+            session_id=raw_turn_session_id,
+            turn_id=raw_oversized_turn_id,
+            work_id="raw-turn-bound-work",
+            env=bounds_env,
+        )
+        raw_turn_state = session_state(
+            bounds_state_dir,
+            "codex",
+            raw_turn_session_id,
+        )
+        raw_turn_keys = set(raw_turn_state.get("activeBackgroundWorkIdsByTurn", {}))
+        raw_turn_keys.update(raw_turn_state.get("backgroundWorkOverflowTurnKeys", []))
+        raw_turn_keys.update(raw_turn_state.get("deferredTurnSettlementsByTurn", {}))
+        if any(len(key.encode("utf-8")) > 512 for key in raw_turn_keys):
+            raise AssertionError(
+                "A raw structured-work turn id exceeded the durable key bound: "
+                f"{raw_turn_state!r}"
+            )
+        record_work(
+            source="codex",
+            session_id=raw_oversized_session_id,
+            turn_id="bounded-session-turn",
+            work_id="bounded-session-work",
+            env=bounds_env,
+        )
+        raw_session_file = json.loads(
+            (bounds_state_dir / "codex-hook-sessions.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if raw_oversized_session_id in raw_session_file.get("sessions", {}):
+            raise AssertionError(
+                "An oversized structured-work session id entered durable state"
+            )
 
         active_id_turn = "structured-work-active-id-bound"
         for index in range(65):
