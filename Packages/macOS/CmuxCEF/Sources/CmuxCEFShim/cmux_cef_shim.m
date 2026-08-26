@@ -24,6 +24,7 @@
 #include "include/capi/cef_life_span_handler_capi.h"
 #include "include/capi/cef_request_context_capi.h"
 #include "include/capi/cef_request_handler_capi.h"
+#include "include/capi/views/cef_fill_layout_capi.h"
 #include "include/capi/views/cef_browser_view_capi.h"
 #include "include/capi/views/cef_browser_view_delegate_capi.h"
 #include "include/capi/views/cef_window_capi.h"
@@ -341,6 +342,12 @@ static void CEF_CALLBACK window_delegate_on_window_created(
   // add_child_view retains the view; release the factory's caller-owned
   // reference once the window has adopted it.
   ((cef_base_ref_counted_t *)view)->release((cef_base_ref_counted_t *)view);
+  cef_fill_layout_t *fill_layout = panel->set_to_fill_layout(panel);
+  if (fill_layout) {
+    ((cef_base_ref_counted_t *)fill_layout)
+        ->release((cef_base_ref_counted_t *)fill_layout);
+  }
+  panel->layout(panel);
   // Deliberately not shown here: the window would appear at its initial
   // bounds before the pane adopts it. CEFBrowserHostView orders it in once
   // it is positioned over the pane rect.

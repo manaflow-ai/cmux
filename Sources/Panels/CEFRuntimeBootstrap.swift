@@ -79,7 +79,7 @@ enum CEFRuntimeBootstrap {
     }
 
     /// Removes CEF data for one profile after all of its panes have stopped.
-    static func removeProfileData(for profileID: UUID) {
+    static func removeProfileData(for profileID: UUID) async {
         let fileManager = FileManager.default
         if profileID == BrowserProfileRepository.builtInDefaultProfileID {
             let root = URL(fileURLWithPath: rootCachePath, isDirectory: true)
@@ -90,12 +90,17 @@ enum CEFRuntimeBootstrap {
             ) else { return }
             // Named profiles live below Profiles/; the remaining root entries
             // belong to CEF's shared default request context.
-            for entry in entries where entry.lastPathComponent != "Profiles" {
-                try? fileManager.removeItem(at: entry)
-            }
+            let entriesToRemove = entries.filter { $0.lastPathComponent != "Profiles" }
+            await Task.detached(priority: .utility) {
+                let fileManager = FileManager.default
+                for entry in entriesToRemove { try? fileManager.removeItem(at: entry) }
+            }.value
             return
         }
-        try? fileManager.removeItem(atPath: profileCachePath(for: profileID))
+        let profileURL = URL(fileURLWithPath: profileCachePath(for: profileID), isDirectory: true)
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: profileURL)
+        }.value
     }
 
     /// Initializes CEF on first use.

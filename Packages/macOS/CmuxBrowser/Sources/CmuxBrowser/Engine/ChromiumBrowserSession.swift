@@ -57,6 +57,9 @@ public actor ChromiumBrowserSession {
     /// replacement cannot race Chromium's profile lock. Identity keys keep a
     /// late callback from touching a newer generation.
     var pendingProcesses: [ObjectIdentifier: Process] = [:]
+    /// Keeps the duplicated stderr reader alive for the entire child lifetime,
+    /// not only until the startup handshake completes.
+    var diagnostics: ChromiumProcessDiagnostics?
 
     /// Creates one managed Chromium child-process session.
     ///
@@ -226,6 +229,7 @@ public actor ChromiumBrowserSession {
                 throw CancellationError()
             }
             process = child
+            self.diagnostics = diagnostics
 
             let startup = try await startupCoordinator.establishConnection(
                 transport: debuggingTransport,
@@ -399,6 +403,7 @@ public actor ChromiumBrowserSession {
             return
         }
         self.process = nil
+        diagnostics = nil
         connection?.close()
         connection = nil
         connectionGeneration = nil

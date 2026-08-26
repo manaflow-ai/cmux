@@ -12,6 +12,7 @@ import CmuxCEF
 final class CEFBrowserHostView: NSView {
     private weak var cefWindow: NSWindow?
     private var windowObservers: [NSObjectProtocol] = []
+    private var cefWindowObservers: [NSObjectProtocol] = []
     private var isAdopted = false
 
     /// Whether this pane currently owns the visible browser surface. CEF's
@@ -54,11 +55,30 @@ final class CEFBrowserHostView: NSView {
         for observer in windowObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        for observer in cefWindowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     /// Attaches the CEF browser window to this pane.
     func attach(cefWindow: NSWindow) {
+        for observer in cefWindowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        cefWindowObservers = []
         self.cefWindow = cefWindow
+        // Page clicks are delivered to the adopted child window, not this
+        // anchor view. Observe its key transition so cmux selection/focus
+        // state follows the native CEF responder chain.
+        cefWindowObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: cefWindow,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onFocus?() }
+            }
+        )
         reconcile()
     }
 
@@ -69,6 +89,10 @@ final class CEFBrowserHostView: NSView {
             cefWindow.orderOut(nil)
         }
         cefWindow = nil
+        for observer in cefWindowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        cefWindowObservers = []
         isAdopted = false
     }
 

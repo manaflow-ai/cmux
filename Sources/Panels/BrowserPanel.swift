@@ -429,14 +429,10 @@ final class BrowserProfileStore: ObservableObject {
         repository.canRenameProfile(id: id)
     }
 
-    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
+    func deleteProfile(id: UUID) async -> BrowserProfileDefinition? {
         let result = repository.deleteProfile(id: id)
         if result != nil {
-            ChromiumBrowserSession.removeOwnedProfileData(
-                for: id,
-                environment: .cmuxLive
-            )
-            CEFRuntimeBootstrap.removeProfileData(for: id)
+            await removeChromiumProfileData(for: id)
         }
         mirrorPublishedState()
         return result
@@ -445,14 +441,20 @@ final class BrowserProfileStore: ObservableObject {
     func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
         let result = await repository.clearProfileData(id: id)
         if result != nil {
-            ChromiumBrowserSession.removeOwnedProfileData(
-                for: id,
-                environment: .cmuxLive
-            )
-            CEFRuntimeBootstrap.removeProfileData(for: id)
+            await removeChromiumProfileData(for: id)
         }
         mirrorPublishedState()
         return result
+    }
+
+    private func removeChromiumProfileData(for profileID: UUID) async {
+        if let directory = ChromiumBrowserSession.ownedProfileDataURL(
+            for: profileID,
+            environment: .cmuxLive
+        ) {
+            await BrowserProfileFileRemover().removeItemIfExists(at: directory)
+        }
+        await CEFRuntimeBootstrap.removeProfileData(for: profileID)
     }
 
     func noteUsed(_ id: UUID) {
@@ -3539,7 +3541,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let resolvedEngine = Self.effectiveBrowserEngine(
             requested: requestedEngine,
             isRemoteWorkspace: isRemoteWorkspace,
-            isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive
+            isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive,
+            initialURL: initialURL ?? initialRequest?.url
         )
         self.engineKind = resolvedEngine
         self.chromiumStorageID = chromiumStorageID ?? UUID()

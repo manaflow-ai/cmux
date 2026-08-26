@@ -93,6 +93,12 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
         isClosed = true
         activeWriteTimeoutTask?.cancel()
         activeWriteTimeoutTask = nil
+        if let activeWrite {
+            self.activeWrite = nil
+            activeWrite.continuation.resume(
+                throwing: CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
+            )
+        }
         responseReadSource.cancel()
         let queued = pendingWrites
         pendingWrites.removeAll()

@@ -32,6 +32,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var devTools: CEFDevToolsClient?
     private var eventTask: Task<Void, Never>?
     private var startupTask: Task<Void, Never>?
+    private var stopCompletionTask: Task<Void, Never>?
     private var documentScriptRemovalTask: Task<Void, Never>?
     private var colorSchemeTask: Task<Void, Never>?
     private var hasStarted = false
@@ -76,6 +77,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     deinit {
         startupTask?.cancel()
+        stopCompletionTask?.cancel()
         documentScriptRemovalTask?.cancel()
         colorSchemeTask?.cancel()
         // The lifecycle owner requests `close()` while isolated to the main
@@ -152,13 +154,23 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     func stop() {
         let browser = beginStopRequest()
-        browser?.close()
-        finishStop()
+        guard let browser else {
+            finishStop()
+            return
+        }
+        stopCompletionTask?.cancel()
+        stopCompletionTask = Task { @MainActor [weak self, browser] in
+            await browser.closeAndWait()
+            guard let self else { return }
+            self.finishStop()
+        }
     }
 
     /// Closes CEF and waits for its asynchronous `.closed` callback before
     /// exposing a policy/workspace transition to the rest of cmux.
     func stopAndWait() async {
+        stopCompletionTask?.cancel()
+        stopCompletionTask = nil
         let browser = beginStopRequest()
         if let browser {
             await browser.closeAndWait()
@@ -182,6 +194,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     }
 
     private func finishStop() {
+        stopCompletionTask = nil
         browser = nil
         devTools = nil
         remoteDebuggingEndpoint = nil

@@ -11,13 +11,15 @@ extension BrowserPanel {
     static func effectiveBrowserEngine(
         requested: BrowserEngineKind,
         isRemoteWorkspace: Bool,
-        isURLAllowlistActive: Bool = false
+        isURLAllowlistActive: Bool = false,
+        initialURL: URL? = nil
     ) -> BrowserEngineKind {
         // CEF and the streamed child do not yet expose a request-interception
         // seam for page-initiated redirects/links. A configured URL allowlist
         // is therefore a security boundary: fail closed to WebKit, whose
         // navigation delegate enforces it for every request.
-        requested == .chromium && (isRemoteWorkspace || isURLAllowlistActive)
+        let isTrustedCmuxScheme = initialURL?.scheme?.lowercased() == "cmux-diff-viewer"
+        requested == .chromium && (isRemoteWorkspace || isURLAllowlistActive || isTrustedCmuxScheme)
             ? .webkit
             : requested
     }
