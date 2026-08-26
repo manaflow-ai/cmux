@@ -130,6 +130,10 @@ export const DESKTOP_VNC_HEAL_COMMAND = [
 
 const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
+// Desktop/port panes are long-lived surfaces a person leaves open for days; a
+// 12h token turned every long-lived pane into a silent white screen at hour
+// twelve. The wrapper page shows an honest expiry screen when this lapses.
+const PREVIEW_OPEN_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
 const HEALTH_RETRY_ATTEMPTS = 12;
@@ -317,6 +321,11 @@ function daemonBinaryBase64Gzip(): Promise<string> {
   return cachedDaemonB64;
 }
 
+// Warm the payload cache at module init so the first create after a boot does not
+// pay the read+encode on its critical path. A missing daemon config just leaves the
+// cache empty here; create() surfaces the real configuration error to the caller.
+void daemonBinaryBase64Gzip().catch(() => undefined);
+
 export class BlaxelProvider implements VMProvider {
   readonly id = "blaxel" as const;
 
@@ -370,11 +379,38 @@ export class BlaxelProvider implements VMProvider {
           if (!sandboxUrl) {
             throw new Error("create response is missing metadata.url for the sandbox API");
           }
-          await timedStep("bootstrap_daemon", () => this.bootstrapDaemon(name, sandboxUrl));
           // The daemon preview is minted through the same branded path attach uses, so a
           // machine is born at https://<name>.vm.cmux.sh (or <name>-cmux.preview.bl.run)
-          // rather than an opaque hash it would then keep for life.
-          const previewUrl = await timedStep("ensure_preview", () => this.ensurePreview(name));
+          // rather than an opaque hash it would then keep for life. The preview lives on
+          // the control plane and only needs the sandbox to exist, so it is created in
+          // parallel with the in-sandbox daemon bootstrap.
+          // Both branches settle before any rollback (allSettled, not all): a
+          // fast-failing bootstrap must not start deleting the sandbox while the
+          // preview POST is still in flight, or the late preview recreates the
+          // orphaned branded route the rollback exists to remove.
+          const [bootstrapResult, previewResult] = await Promise.allSettled([
+            timedStep("bootstrap_daemon", () => this.bootstrapDaemon(name, sandboxUrl)),
+            timedStep("ensure_preview", () => this.ensurePreview(name)),
+          ]);
+          // A machine that failed to bootstrap must not survive as an orphaned
+          // sandbox (its previews die with it); the durable home volume is kept —
+          // a retried create with the same volume reattaches it.
+          // A rollback failure means the sandbox is now leaked on the provider:
+          // log it loudly (the original create error still propagates) so the
+          // orphan is findable instead of silently accumulating.
+          const rollback = () =>
+            this.destroy(name).catch((cleanupErr) => {
+              console.error(`[blaxel] create rollback failed; sandbox ${name} may be orphaned`, cleanupErr);
+            });
+          if (bootstrapResult.status === "rejected") {
+            await rollback();
+            throw bootstrapResult.reason;
+          }
+          if (previewResult.status === "rejected") {
+            await rollback();
+            throw previewResult.reason;
+          }
+          const previewUrl = previewResult.value;
           span.setAttribute("cmux.vm.id", name);
           return {
             provider: "blaxel",
@@ -395,19 +431,23 @@ export class BlaxelProvider implements VMProvider {
 
   private async bootstrapDaemon(name: string, sandboxUrl: string): Promise<void> {
     const b64 = await timedStep("daemon_binary_encode", () => daemonBinaryBase64Gzip());
-    await timedStep("daemon_upload", () => blaxelFetch(
-      "PUT",
-      // Leading slash after /filesystem: relative paths root at /blaxel, absolute paths need
-      // the extra separator (`/filesystem//tmp/...`).
-      `${sandboxUrl}/filesystem//tmp/cmuxd.b64`,
-      { content: b64, permissions: "0600" },
-      { timeoutMs: 180_000 },
-    ));
-    await blaxelFetch(
-      "PUT",
-      `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`,
-      { content: SMART_SLEEP_SCRIPT, permissions: "0755" },
-    );
+    // Both filesystem writes are independent; the install exec below is the barrier
+    // that needs them on disk.
+    await Promise.all([
+      timedStep("daemon_upload", () => blaxelFetch(
+        "PUT",
+        // Leading slash after /filesystem: relative paths root at /blaxel, absolute paths need
+        // the extra separator (`/filesystem//tmp/...`).
+        `${sandboxUrl}/filesystem//tmp/cmuxd.b64`,
+        { content: b64, permissions: "0600" },
+        { timeoutMs: 180_000 },
+      )),
+      blaxelFetch(
+        "PUT",
+        `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`,
+        { content: SMART_SLEEP_SCRIPT, permissions: "0755" },
+      ),
+    ]);
     const install = await timedStep("daemon_install", () => this.sandboxExec(
       sandboxUrl,
       `base64 -d /tmp/cmuxd.b64 | gunzip > ${CMUXD_BINARY_PATH} && chmod 755 ${CMUXD_BINARY_PATH} && rm /tmp/cmuxd.b64 && chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux && ${CMUXD_BINARY_PATH} version`,
@@ -415,19 +455,25 @@ export class BlaxelProvider implements VMProvider {
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `daemon install in ${name} failed: ${install.stderr || install.stdout}`);
     }
-    await timedStep("daemon_start", () => this.startDaemonProcess(sandboxUrl));
-    await timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl));
-    // Runtime state, so it re-applies on resurrection too (this method runs on both paths).
-    // Must precede the VNC heal: the heal only succeeds once the hostname resolves.
-    await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
-    await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
-    // Agents and dev essentials come with the machine, installed in the background so attach
-    // is never delayed. The .bashrc seed is write-once: /root persists, and a user's edits win.
-    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-      name: "cmux-provision",
-      command: CMUX_PROVISION_COMMAND,
-      waitForCompletion: false,
-    }).catch(() => undefined);
+    // Everything after the install is mutually independent: the daemon and watcher
+    // processes, the hostname→VNC-heal chain (ordered within itself — the heal only
+    // succeeds once the hostname resolves; runtime state, so it re-applies on
+    // resurrection too), and the background provision process (agents and dev
+    // essentials come with the machine without delaying attach; the .bashrc seed is
+    // write-once — /root persists, and a user's edits win).
+    await Promise.all([
+      timedStep("daemon_start", () => this.startDaemonProcess(sandboxUrl)),
+      timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl)),
+      (async () => {
+        await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
+        await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
+      })(),
+      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+        name: "cmux-provision",
+        command: CMUX_PROVISION_COMMAND,
+        waitForCompletion: false,
+      }).catch(() => undefined),
+    ]);
   }
 
   // The daemon itself is NOT keepAlive: while every shell is idle and no client is attached,
@@ -970,8 +1016,12 @@ export class BlaxelProvider implements VMProvider {
     return url;
   }
 
-  private async mintPreviewToken(vmId: string, previewName = CMUXD_PREVIEW_NAME): Promise<string> {
-    const expiresAt = new Date(Date.now() + PREVIEW_TOKEN_TTL_SECONDS * 1000).toISOString();
+  private async mintPreviewToken(
+    vmId: string,
+    previewName = CMUXD_PREVIEW_NAME,
+    ttlSeconds = PREVIEW_TOKEN_TTL_SECONDS,
+  ): Promise<string> {
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     const created = await blaxelFetch<{ spec?: { token?: string } }>(
       "POST",
       `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews/${previewName}/tokens`,
@@ -1018,9 +1068,10 @@ export class BlaxelProvider implements VMProvider {
         await this.getSandbox(vmId);
         const previewName = `port-${port}`;
         const url = await this.ensurePreview(vmId, previewName, port);
-        const token = await this.mintPreviewToken(vmId, previewName);
+        const expiresAtMs = Date.now() + PREVIEW_OPEN_TOKEN_TTL_SECONDS * 1000;
+        const token = await this.mintPreviewToken(vmId, previewName, PREVIEW_OPEN_TOKEN_TTL_SECONDS);
         const openUrl = `${url.replace(/\/+$/, "")}/?bl_preview_token=${encodeURIComponent(token)}`;
-        return { url, token, openUrl };
+        return { url, token, openUrl, expiresAtMs };
       },
     );
   }

@@ -366,7 +366,10 @@ impl Relay {
         }
 
         if tokio::time::timeout(WRITER_SHUTDOWN_TIMEOUT, &mut writer).await.is_err() {
+            // `abort` only schedules cancellation. Await the handle so the
+            // writer task is not detached while it still owns the socket.
             writer.abort();
+            let _ = tokio::time::timeout(WRITER_SHUTDOWN_TIMEOUT, writer).await;
         }
     }
 
