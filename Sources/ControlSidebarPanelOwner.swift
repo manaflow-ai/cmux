@@ -120,10 +120,19 @@ enum ControlSidebarPanelOwner {
         let isBuiltIn = AgentHibernationLifecycleStatusKeys(
             rawValue: statusKey
         ).isAllowed
-        guard let acceptedProcessIdentity,
-              usesRemoteProcessNamespace
-                || AgentPIDProcessIdentity(pid: pid)
-                    == acceptedProcessIdentity else {
+        let hasMatchingLocalProcessIdentity = acceptedProcessIdentity != nil
+            && AgentPIDProcessIdentity(pid: pid) == acceptedProcessIdentity
+        // Custom integrations may only have a numeric PID in a remote
+        // namespace. The command coordinator does not require a generation
+        // for those keys, so preserve that opaque PID while retaining the
+        // exact-generation requirement for every built-in key.
+        let allowsOpaqueRemoteCustomPID = usesRemoteProcessNamespace
+            && !isBuiltIn
+            && acceptedProcessIdentity == nil
+        guard (acceptedProcessIdentity != nil
+                && (usesRemoteProcessNamespace
+                    || hasMatchingLocalProcessIdentity))
+                || allowsOpaqueRemoteCustomPID else {
             switch self {
             case .workspace(let workspace):
                 if isBuiltIn {

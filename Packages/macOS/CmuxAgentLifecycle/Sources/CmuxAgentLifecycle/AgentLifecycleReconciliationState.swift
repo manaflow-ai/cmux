@@ -226,8 +226,14 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
         entry.suppressesLifecycleUntilNextHook = false
         entry.feedAttentionTokens = Set(
             entry.feedAttentionTokens.filter {
-                $0.processGeneration != nil
-                    && $0.processGeneration != generation
+                // A nil-generation token is deliberately unbound. An exact
+                // process exit cannot prove that it belongs to the exiting
+                // generation, so preserve it for an explicit owner-scoped
+                // conclusion instead of dropping a still-visible prompt.
+                guard let tokenGeneration = $0.processGeneration else {
+                    return true
+                }
+                return tokenGeneration != generation
             }
         )
         setEntry(entry, key: key, panelId: panelId)

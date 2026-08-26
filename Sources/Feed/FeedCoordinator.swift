@@ -1499,8 +1499,12 @@ extension FeedCoordinator {
                         ) != nil {
             ControlSidebarPanelOwner.workspace(fallbackWorkspace)
         } else {
+            // `workspaceId` on the immutable target is the source identity
+            // captured when the decision began. A moved panel may now belong
+            // to a different workspace or a window Dock, so resolve through
+            // the mutable destination owner recorded with the pending state.
             TerminalController.shared.controlSidebarResolvePanelOwner(
-                target: .workspace(target.workspaceId),
+                target: .workspace(pendingState.statusOwnerId),
                 panelID: target.panelId
             )
         }
