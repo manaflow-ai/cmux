@@ -1417,6 +1417,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// longer realign the grid or scrollback, so delivery requests a full
     /// replay instead.
     var terminalRenderGridHistoryContinuityBySurfaceID: [String: UInt64]
+    /// Chain identity (epoch + revision) of the last delivered render-grid
+    /// frame per surface. Every delta names the revision it was diffed
+    /// against; a mismatch means a frame was missed (including in-place
+    /// repaints invisible to the history chain) and delivery requests a full
+    /// replay instead of patching.
+    var terminalRenderGridRevisionContinuityBySurfaceID: [String: MobileTerminalRenderGridRevisionContinuity]
     /// Surfaces whose local mirror lost (or never had) its deep scrollback:
     /// cold attach and post-rebuild resets. Only these replays request the
     /// full hydration window; steady-state replays (barrier follow-ups, theme
@@ -1759,6 +1765,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        self.terminalRenderGridRevisionContinuityBySurfaceID = [:]
         self.terminalMirrorHydrationNeededSurfaceIDs = []
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
@@ -10590,6 +10597,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenBySurfaceID = [:]
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        terminalRenderGridRevisionContinuityBySurfaceID = [:]
         terminalMirrorHydrationNeededSurfaceIDs = []
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
@@ -13164,6 +13172,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
         diagnosedTerminalOutputSurfaceIDs.remove(surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -13223,6 +13232,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         diagnosedTerminalOutputSurfaceIDs.remove(surfaceID)
         recordAppEvent(

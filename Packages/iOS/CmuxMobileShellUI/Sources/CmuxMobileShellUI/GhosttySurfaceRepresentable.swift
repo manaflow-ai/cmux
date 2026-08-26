@@ -638,9 +638,21 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                        // Render-grid bytes paint absolute rows of the frame's
+                        // grid; the contract makes the surface refuse to paint
+                        // them onto a mismatched or freshly reflowed local grid
+                        // (the apply fails and the reset path replays).
+                        let renderGridContract = chunk.sourceRenderGridFrame.map {
+                            RenderGridApplyContract(
+                                columns: $0.columns,
+                                rows: $0.rows,
+                                isDelta: !$0.full
+                            )
+                        }
                         let applied = await surfaceView.processOutputAndWait(
                             chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
+                            terminalConfigTheme: chunk.terminalConfigTheme,
+                            renderGridContract: renderGridContract
                         )
                         guard applied else {
                             store.terminalOutputDidReset(
@@ -1087,9 +1099,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
 
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                // Same grid contract as the legacy path: the verified resize
+                // above targets the frame's grid, and painting must fail
+                // (reset + replay) if the surface could not reach it or a
+                // delta rides a reflowed grid.
                 let applied = await surfaceView.processOutputAndWait(
                     chunk.data,
-                    terminalConfigTheme: chunk.terminalConfigTheme
+                    terminalConfigTheme: chunk.terminalConfigTheme,
+                    renderGridContract: RenderGridApplyContract(
+                        columns: frame.columns,
+                        rows: frame.rows,
+                        isDelta: !frame.full
+                    )
                 )
                 guard !Task.isCancelled else { return false }
                 guard applied else {
