@@ -502,7 +502,8 @@ class GhosttyApp {
         @MainActor () -> Void
     private static let maximumDeferredConfigurationSurfaceCreations = 256
     private static let maximumDeferredConfigurationSurfaceCreationsPerTurn = 8
-    private let deferredConfigurationSurfaceCreationScheduler =
+    @MainActor
+    private lazy var deferredConfigurationSurfaceCreationScheduler =
         MainActorDeferredActionScheduler()
     private var deferredConfigurationSurfaceCreationOrder: [UUID] = []
     private var deferredConfigurationSurfaceCreations:
@@ -607,6 +608,7 @@ class GhosttyApp {
         scheduleDeferredConfigurationSurfaceCreations()
     }
 
+    @MainActor
     private func scheduleDeferredConfigurationSurfaceCreations() {
         guard !deferredConfigurationSurfaceCreationOrder.isEmpty,
               !deferredConfigurationSurfaceCreationScheduler.isScheduled else {
@@ -619,6 +621,7 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func drainDeferredConfigurationSurfaceCreations() {
         var drained = 0
         while drained < Self.maximumDeferredConfigurationSurfaceCreationsPerTurn,

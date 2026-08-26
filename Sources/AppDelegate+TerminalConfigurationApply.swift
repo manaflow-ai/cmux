@@ -47,7 +47,7 @@ extension AppDelegate {
             for panelID in workspace.panels.keys {
                 for panel in workspace.terminalPanels(
                     projectedFromPanelID: panelID
-                ) where panel.hostedView.isVisibleInUI {
+                ) where panel.surface.isRendererPortalVisible {
                     append(panel.surface)
                 }
             }

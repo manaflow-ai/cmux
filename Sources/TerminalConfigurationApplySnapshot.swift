@@ -1,3 +1,4 @@
+import Foundation
 import CmuxTerminal
 
 /// Shared immutable config-derived values plus bounded per-surface retry state.
