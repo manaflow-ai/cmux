@@ -7,12 +7,13 @@ struct ArtifactSidebarPanelView: View {
     let model: ArtifactSidebarModel
     let workspace: ArtifactSidebarWorkspace?
     let isVisible: Bool
+    let chromeBackgroundColor: NSColor
     let onOpenArtifact: (ArtifactSidebarRowSnapshot) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             searchHeader
-                .rightSidebarChromeBottomBorder()
+                .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
             content
         }
         .task(id: ArtifactSidebarBinding(

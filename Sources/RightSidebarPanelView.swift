@@ -389,6 +389,7 @@ struct RightSidebarPanelView: View {
                     model: artifactSidebarModel,
                     workspace: artifactWorkspace,
                     isVisible: fileExplorerState.isVisible,
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onOpenArtifact: onOpenArtifact
                 )
             case .feed:

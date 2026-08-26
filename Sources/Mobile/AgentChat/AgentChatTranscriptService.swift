@@ -170,7 +170,7 @@ final class AgentChatTranscriptService {
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     var failedResolutions: Set<String> = []
-    private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
+    let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
     private struct ProseTurnState {

@@ -1,14 +1,17 @@
 import Foundation
 
 /// Identifies shell redirection targets without guessing command-specific flag semantics.
-struct ShellArtifactMutationPathDetector: Sendable {
+public struct ShellArtifactMutationPathDetector: Sendable {
+    /// Creates a stateless shell mutation-path detector.
+    public init() {}
+
     func paths(in command: String) -> [String] {
         let tokens = tokenize(command)
         return paths(in: tokens)
     }
 
     /// Returns mutation targets only when one successful status attributes execution directly.
-    func pathsAttributedToSuccessfulCommand(in command: String) -> [String] {
+    public func pathsAttributedToSuccessfulCommand(in command: String) -> [String] {
         let tokens = tokenize(command)
         guard !tokens.contains(where: { token in
             if case .boundary = token { return true }
