@@ -193,11 +193,16 @@ struct TranscriptToolCompletion: Sendable {
             .prefix(400)
             .lowercased()
         let lines = prefix.split(whereSeparator: \.isNewline)
-        // Inspect only the envelope header and its first payload line. Deeper
-        // lines are often arbitrary grep/read output and must not turn a
-        // successful tool into a failure merely because they contain words
-        // such as "error" or "failed".
-        return lines.prefix(2).contains { Self.isFailureEnvelopeLine($0) }
+        guard let firstLine = lines.first else { return false }
+        if Self.isFailureEnvelopeLine(firstLine) { return true }
+        // A few providers wrap a failure in an `Output:`/`Result:` envelope.
+        // Only inspect that envelope's final line; all other payload lines may
+        // be arbitrary grep/read data and are not failure evidence.
+        guard firstLine == "output:" || firstLine == "result:",
+              let finalLine = lines.dropFirst().last else {
+            return false
+        }
+        return Self.isFailureEnvelopeLine(finalLine)
     }
 
     private static func isFailureEnvelopeLine(_ line: Substring) -> Bool {
