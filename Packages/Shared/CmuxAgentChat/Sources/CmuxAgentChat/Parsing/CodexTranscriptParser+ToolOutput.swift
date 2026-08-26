@@ -32,9 +32,21 @@ extension CodexTranscriptParser {
         return deduplicatedPaths(paths)
     }
 
-    func deduplicatedPaths(_ paths: [String]) -> [String] {
+    func deduplicatedPaths(
+        _ paths: [String],
+        maximumCount: Int = ChatToolReferencedPathExtractor.maximumPathCount
+    ) -> [String] {
         var seen: Set<String> = []
-        return paths.filter { !$0.isEmpty && seen.insert($0).inserted }
+        let limit = min(maximumCount, ChatToolReferencedPathExtractor.maximumPathCount)
+        guard limit > 0 else { return [] }
+        var result: [String] = []
+        result.reserveCapacity(min(paths.count, limit))
+        for path in paths {
+            guard !path.isEmpty, seen.insert(path).inserted else { continue }
+            result.append(path)
+            if result.count == limit { break }
+        }
+        return result
     }
 
     static func isApplyPatchTool(_ name: String) -> Bool {

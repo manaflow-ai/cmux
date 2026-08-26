@@ -2,72 +2,148 @@ import Foundation
 
 struct ChatToolReferencedPathExtractor: Sendable {
     private static let pathKeys: Set<String> = ["file_path", "notebook_path", "path"]
+    /// Maximum number of distinct structured paths retained from one tool
+    /// input. The bound is enforced while walking the JSON tree so a hostile
+    /// array cannot first materialize an unbounded intermediate path list.
+    static let maximumPathCount = 1_024
 
-    func referencedPaths(in value: TranscriptJSONValue?) -> [String]? {
+    func referencedPaths(
+        in value: TranscriptJSONValue?,
+        maximumCount: Int = Self.maximumPathCount
+    ) -> [String]? {
         guard let value else { return nil }
+        let limit = min(maximumCount, Self.maximumPathCount)
+        guard limit > 0 else { return nil }
         var paths: [String] = []
-        appendReferencedPaths(in: value, key: nil, into: &paths)
-        let deduplicated = deduplicated(paths)
-        return deduplicated.isEmpty ? nil : deduplicated
+        paths.reserveCapacity(limit)
+        var seen: Set<String> = []
+        seen.reserveCapacity(limit)
+        _ = appendReferencedPaths(
+            in: value,
+            key: nil,
+            into: &paths,
+            seen: &seen,
+            maximumCount: limit
+        )
+        return paths.isEmpty ? nil : paths
     }
 
+    @discardableResult
     private func appendReferencedPaths(
         in value: TranscriptJSONValue,
         key: String?,
-        into paths: inout [String]
-    ) {
+        into paths: inout [String],
+        seen: inout Set<String>,
+        maximumCount: Int
+    ) -> Bool {
+        guard paths.count < maximumCount else { return true }
         if let key, Self.pathKeys.contains(key) {
-            appendStringValues(in: value, into: &paths)
-            return
+            return appendStringValues(
+                in: value,
+                into: &paths,
+                seen: &seen,
+                maximumCount: maximumCount
+            )
         }
         switch value {
         case .object(let object):
             for (childKey, childValue) in object {
-                appendReferencedPaths(in: childValue, key: childKey, into: &paths)
+                if appendReferencedPaths(
+                    in: childValue,
+                    key: childKey,
+                    into: &paths,
+                    seen: &seen,
+                    maximumCount: maximumCount
+                ) {
+                    return true
+                }
             }
         case .array(let array):
             for item in array {
-                appendReferencedPaths(in: item, key: nil, into: &paths)
+                if appendReferencedPaths(
+                    in: item,
+                    key: nil,
+                    into: &paths,
+                    seen: &seen,
+                    maximumCount: maximumCount
+                ) {
+                    return true
+                }
             }
         case .string(let string):
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
             if Self.isAbsolutePathValue(trimmed),
                !trimmed.contains(where: \.isWhitespace) {
-                paths.append(trimmed)
+                return append(
+                    trimmed,
+                    into: &paths,
+                    seen: &seen,
+                    maximumCount: maximumCount
+                )
             }
         case .number, .bool, .null:
-            return
+            break
         }
+        return paths.count >= maximumCount
     }
 
-    private func appendStringValues(in value: TranscriptJSONValue, into paths: inout [String]) {
+    @discardableResult
+    private func appendStringValues(
+        in value: TranscriptJSONValue,
+        into paths: inout [String],
+        seen: inout Set<String>,
+        maximumCount: Int
+    ) -> Bool {
+        guard paths.count < maximumCount else { return true }
         switch value {
         case .string(let string):
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                paths.append(trimmed)
+                return append(
+                    trimmed,
+                    into: &paths,
+                    seen: &seen,
+                    maximumCount: maximumCount
+                )
             }
         case .array(let array):
             for item in array {
-                appendStringValues(in: item, into: &paths)
+                if appendStringValues(
+                    in: item,
+                    into: &paths,
+                    seen: &seen,
+                    maximumCount: maximumCount
+                ) {
+                    return true
+                }
             }
         case .object(let object):
             for child in object.values {
-                appendStringValues(in: child, into: &paths)
+                if appendStringValues(
+                    in: child,
+                    into: &paths,
+                    seen: &seen,
+                    maximumCount: maximumCount
+                ) {
+                    return true
+                }
             }
         case .number, .bool, .null:
-            return
+            break
         }
+        return paths.count >= maximumCount
     }
 
-    private func deduplicated(_ paths: [String]) -> [String] {
-        var seen: Set<String> = []
-        var result: [String] = []
-        for path in paths where !seen.contains(path) {
-            seen.insert(path)
-            result.append(path)
-        }
-        return result
+    private func append(
+        _ path: String,
+        into paths: inout [String],
+        seen: inout Set<String>,
+        maximumCount: Int
+    ) -> Bool {
+        guard paths.count < maximumCount else { return true }
+        guard seen.insert(path).inserted else { return false }
+        paths.append(path)
+        return paths.count >= maximumCount
     }
 
     private static func isAbsolutePathValue(_ value: String) -> Bool {

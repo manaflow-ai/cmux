@@ -2,7 +2,7 @@ import Foundation
 
 /// A transcript-derived path with de-duplicated provenance and its last position.
 public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identifiable {
-    private static let maximumDerivedPathCount = 1_024
+    private static let maximumDerivedPathCount = ChatToolReferencedPathExtractor.maximumPathCount
     private static let maximumCanonicalAliasCount = 2_048
 
     /// Canonical display path when the file exists, otherwise its lexical path.

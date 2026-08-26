@@ -346,6 +346,23 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.referencedPaths == ["/repo/main.swift"])
     }
 
+    @Test("Structured tool path extraction is bounded while preserving first-seen order")
+    func structuredToolPathsAreBounded() {
+        let paths = (0..<2_000).map { "/repo/structured-\($0).txt" }
+        let line = assistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_many_paths", "name": "Read",
+             "input": ["path": paths]],
+        ])
+        let result = parser.parse(lines: [line], startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.referencedPaths?.count == ChatToolReferencedPathExtractor.maximumPathCount)
+        #expect(tool.referencedPaths?.first == paths.first)
+        #expect(tool.referencedPaths?.last == paths[ChatToolReferencedPathExtractor.maximumPathCount - 1])
+    }
+
     @Test("ChatToolUse wire coding preserves optional referenced paths and decodes legacy payloads")
     func toolReferencedPathsWireCoding() throws {
         let coding = ChatWireCoding()
