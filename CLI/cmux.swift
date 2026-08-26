@@ -424,6 +424,11 @@ final class ClaudeHookSessionStore {
     // Preserve the previous 128 ordinary scopes and reserve one overflow slot.
     private static let maxClaudeTaskSyncScopes = 129
     private static let claudeTaskSyncOverflowScopeSuffix = ":<task-sync-overflow>"
+    // Keep cross-process task hooks bounded while allowing unrelated Claude
+    // task stores to make progress independently. A hash slot is sufficient
+    // here because the durable claim/state lock still serializes mutations
+    // within each store and a collision only causes short-lived contention.
+    private static let claudeTaskSyncLockSlotCount = 32
     // Legacy cleanup sends these destinations in 64-item batches; cap the
     // aggregate proof so batching remains bounded without rejecting a second
     // batch outright.
@@ -514,17 +519,24 @@ final class ClaudeHookSessionStore {
     /// absolute deadline.
     func withClaudeTaskSyncLock<T>(
         deadlineUptime: TimeInterval,
-        scope _: String? = nil,
+        scope: String? = nil,
         _ body: () throws -> T
     ) throws -> T {
         try checkLockDeadline()
-        // Keep one fixed lease file for this state store. The task-store scope
-        // still namespaces claims and owners, but must not become part of the
-        // filename: profiles and relay identities can change over time, and a
-        // per-scope path would leak one inode per identity forever. Task hooks
-        // are short-lived, so serializing the bounded cross-process section on
-        // this shared file is preferable to unbounded lock-file growth.
-        let lockPath = statePath + ".task-sync.lock"
+        // Derive a bounded slot from the task-store identity. Including a
+        // domain separator keeps this filename namespace independent from the
+        // ownership/claim keys persisted in the state file.
+        let normalizedScope = scope?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let digest = SHA256.hash(
+            data: Data("cmux.claude-task-sync-lock.v1\0\(normalizedScope)".utf8)
+        )
+        let digestPrefix = digest.prefix(MemoryLayout<UInt64>.size)
+            .reduce(UInt64(0)) { partial, byte in
+                (partial << 8) | UInt64(byte)
+            }
+        let slot = digestPrefix % UInt64(Self.claudeTaskSyncLockSlotCount)
+        let lockPath = statePath + ".task-sync.lock.\(slot)"
         let parentPath = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
         try fileManager.createDirectory(
             at: parentPath,
@@ -4112,19 +4124,23 @@ final class ClaudeHookSessionStore {
     /// It fails open when the event cannot identify a session/workspace, when no
     /// active session is registered yet, or when either side lacks a turnId so
     /// multi-turn continuations can proceed after Stop clears the active turn.
+    /// ``allowEndedSession`` is reserved for SessionEnd after the exact record
+    /// has been consumed; the active surface/workspace proof still gates cleanup.
     func isCurrent(
         sessionId: String?,
         workspaceId: String,
         surfaceId: String? = nil,
-        turnId: String? = nil
+        turnId: String? = nil,
+        allowEndedSession: Bool = false
     ) throws -> Bool {
         guard let normalizedSessionId = normalizeOptional(sessionId),
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return true
         }
         return try withLockedState { state in
-            guard state.endedSessionIDs[normalizedSessionId] == nil,
-                  state.endedSessionGenerationStarts[normalizedSessionId] == nil else {
+            guard allowEndedSession
+                    || (state.endedSessionIDs[normalizedSessionId] == nil
+                        && state.endedSessionGenerationStarts[normalizedSessionId] == nil) else {
                 return false
             }
             // The pane's own active boundary decides first: a hook is stale when a
@@ -29948,7 +29964,8 @@ struct CMUXCLI {
                     turnId: parsedInput.turnId,
                     workspaceId: workspaceId,
                     surfaceId: cleanupSurfaceId,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    allowEndedSession: true
                 )
                 let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -30300,7 +30317,8 @@ struct CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
         surfaceId: String?,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        allowEndedSession: Bool = false
     ) -> Bool {
         shouldApplyClaudeHookVisibleMutation(
             sessionStore: sessionStore,
@@ -30308,7 +30326,8 @@ struct CMUXCLI {
             turnId: parsedInput.turnId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            telemetry: telemetry
+            telemetry: telemetry,
+            allowEndedSession: allowEndedSession
         )
     }
 
@@ -30318,14 +30337,16 @@ struct CMUXCLI {
         turnId: String?,
         workspaceId: String,
         surfaceId: String?,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        allowEndedSession: Bool = false
     ) -> Bool {
         do {
             return try sessionStore.isCurrent(
                 sessionId: sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                turnId: turnId
+                turnId: turnId,
+                allowEndedSession: allowEndedSession
             )
         } catch {
             telemetry.breadcrumb(
