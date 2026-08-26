@@ -806,12 +806,32 @@ final class ClaudeHookSessionStore {
         return try withLockedState(deadline: deadline, persist: false) { state in
             let key = cursorPendingSurfaceKey(workspaceId: workspaceId, surfaceId: surfaceId)
             let indexed = state.pendingCursorApprovalSessionsBySurface[key] ?? []
-            return indexed.contains { candidate in
-                    guard state.sessions[candidate]?.pendingCursorShellApprovals?.isEmpty == false else {
-                        return false
-                    }
-                    return excluded.map { candidate != $0 } ?? true
+            let indexedMatch = indexed.contains { candidate in
+                guard let record = state.sessions[candidate],
+                      record.pendingCursorShellApprovals?.isEmpty == false,
+                      cursorPendingSurfaceKey(
+                          workspaceId: record.workspaceId,
+                          surfaceId: record.surfaceId
+                      ) == key else {
+                    return false
                 }
+                return excluded.map { candidate != $0 } ?? true
+            }
+            if indexedMatch { return true }
+            // An older writer can move a pending record before it updates the
+            // side index. The index is repaired on the next persistent write;
+            // scan the bounded state as a correctness fallback so a stale
+            // index can never hide a sibling approval in the meantime.
+            return state.sessions.contains { candidate, record in
+                guard excluded.map({ candidate != $0 }) ?? true,
+                      record.pendingCursorShellApprovals?.isEmpty == false else {
+                    return false
+                }
+                return cursorPendingSurfaceKey(
+                    workspaceId: record.workspaceId,
+                    surfaceId: record.surfaceId
+                ) == key
+            }
         }
     }
 
