@@ -85,7 +85,11 @@ struct TerminalStartupRestoreFailureTests {
         restored.terminalStartupRestoreCoordinator.commitPendingRestores(
             panelIDs: [restoredPanelID]
         )
-        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        // Topology publication alone does not admit an ownership-sensitive
+        // resume. The deferred resolver must still accept or cancel it from
+        // the fresh shared index before the runtime can start.
+        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] != nil)
     }
 
     @Test("Failed Dock adoption clears source-owned hibernation tracking")
