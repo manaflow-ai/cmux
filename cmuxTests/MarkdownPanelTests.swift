@@ -875,6 +875,9 @@ final class MarkdownPanelTests: XCTestCase {
         let configuration = WKWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
         coordinator.filePath = markdownURL.path
+        // Exercise the descriptor-confined artifact image path, whose
+        // validation and staging must remain off the main actor.
+        coordinator.allowedLocalResourceRoot = directoryURL
         configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
         let webView = MarkdownWebView(frame: frame, configuration: configuration)
         coordinator.webView = webView

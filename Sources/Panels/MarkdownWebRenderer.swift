@@ -548,15 +548,22 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 let mimeType = fileURL
                     .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
                 if let fileURL,
-                   let allowedLocalResourceRoot,
-                   let opened = ArtifactSidebarFileAccess().openedFile(
-                       for: fileURL,
-                       artifactRoot: allowedLocalResourceRoot
-                   ) {
+                   let allowedLocalResourceRoot {
                     return Task { @MainActor in
-                        guard let temporaryURL = await opened.makeTemporaryPreviewURLAsync(
-                            maximumBytes: 8 * 1024 * 1024
-                        ) else {
+                        // Descriptor validation and the bounded staging copy
+                        // both run behind the async utility seam. Never open,
+                        // stat, or resolve an artifact path synchronously on
+                        // the main actor while WebKit is requesting images.
+                        guard let temporaryURL = await ArtifactSidebarFileAccess()
+                            .makeTemporaryPreviewURLAsync(
+                                for: fileURL,
+                                artifactRoot: allowedLocalResourceRoot,
+                                maximumBytes: 8 * 1024 * 1024
+                            ) else {
+                            return ImageLoadResult(data: Data(), mimeType: mimeType)
+                        }
+                        guard !Task.isCancelled else {
+                            try? FileManager.default.removeItem(at: temporaryURL)
                             return ImageLoadResult(data: Data(), mimeType: mimeType)
                         }
                         defer {
@@ -610,6 +617,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let markdownFilePath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !markdownFilePath.isEmpty else {
                 return nil
+            }
+
+            // Artifact roots are validated by `makeTemporaryPreviewURLAsync`,
+            // which opens the descriptor and resolves containment off-main. Keep
+            // this parser branch filesystem-free so a WebKit image request never
+            // performs synchronous artifact I/O on the main actor.
+            if allowedLocalResourceRoot != nil {
+                guard Self.localImageMimeType(for: fileURL.pathExtension) != nil else {
+                    return nil
+                }
+                return fileURL
             }
 
             let markdownDirectory = URL(fileURLWithPath: markdownFilePath)
