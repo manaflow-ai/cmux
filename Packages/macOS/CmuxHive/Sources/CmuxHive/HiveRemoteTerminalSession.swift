@@ -139,7 +139,13 @@ public final class HiveRemoteTerminalSession {
                 }
             }
             do {
-                try await self.requestReplay()
+                guard try await self.requestReplay() else {
+                    self.frameQueueNeedsReplay = true
+                    self.replayRetryAttempt += 1
+                    let attempt = self.replayRetryAttempt
+                    await self.retryDelay(attempt)
+                    return
+                }
                 self.replayRetryAttempt = 0
                 if self.phase == .reattaching {
                     self.phase = .live
@@ -275,7 +281,12 @@ public final class HiveRemoteTerminalSession {
                 // clients retain the legacy per-session subscription path.
                 subscription = try await subscribeToFrames()
                 do {
-                    try await requestReplay()
+                    guard try await requestReplay() else {
+                        subscription.cancel()
+                        phase = .reattaching
+                        await retryDelay(consecutiveFailures + 1)
+                        continue
+                    }
                 } catch {
                     subscription.cancel()
                     throw error
@@ -358,8 +369,8 @@ public final class HiveRemoteTerminalSession {
         )
     }
 
-    private func requestReplay() async throws {
-        guard !replayInFlight else { return }
+    private func requestReplay() async throws -> Bool {
+        guard !replayInFlight else { return false }
         replayInFlight = true
         frameQueueNeedsReplay = false
         var replaySucceeded = false
@@ -413,6 +424,7 @@ public final class HiveRemoteTerminalSession {
             applyFrame(bufferedFrame)
         }
         replaySucceeded = true
+        return true
     }
 
     private func enqueueFrame(_ frame: MobileTerminalRenderGridFrame) {
