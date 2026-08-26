@@ -68,6 +68,14 @@ public actor CmxIrohClientRuntime {
     let broker: any CmxIrohClientBrokerServing
     let configuration: CmxIrohClientRuntimeConfiguration
     var endpointRelayProfile: CmxIrohEndpointRelayProfile
+    /// Whether this runtime binds its endpoint with the managed relays
+    /// withheld and installs them only after ``start()`` has an acknowledged
+    /// broker registration. True exactly when no cached binding proves the
+    /// broker has already seen this endpoint: a fresh endpoint that dials an
+    /// admission-gated relay before its registration lands is denied by the
+    /// relay's allow hook, and that deny is negatively cached, so one lost
+    /// race costs the whole activation.
+    let withholdsManagedRelaysUntilRegistered: Bool
     var managedRelayURLs: Set<String>
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let protocolConfiguration: CmxIrohProtocolConfiguration
@@ -144,10 +152,22 @@ public actor CmxIrohClientRuntime {
         handlePolicyInvalidation: @escaping PolicyInvalidationHandler = {}
     ) throws {
         let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile()
+        // A cached binding proves the broker has acknowledged this endpoint,
+        // so its relay dials pass the allow hook immediately. Without one the
+        // endpoint binds relay-less and `start()` installs the managed relays
+        // only after registration is acknowledged, ordering the first relay
+        // dial after broker admission. Custom relays are user-operated and
+        // not admission-gated by the cmux broker, so they stay installed at
+        // bind (a broker outage must not disable them).
+        let withholdsManagedRelaysUntilRegistered = configuration.cachedBinding == nil
+            && endpointRelayProfile.source == .managed
+            && !endpointRelayProfile.activeRelays.isEmpty
         let endpointConfiguration = CmxIrohEndpointConfiguration(
             secretKey: configuration.identity.secretKey,
             alpns: [protocolConfiguration.alpn],
-            relayProfile: endpointRelayProfile
+            relayProfile: withholdsManagedRelaysUntilRegistered
+                ? .unavailableManagedSelection
+                : endpointRelayProfile
         )
         let supervisor = CmxIrohEndpointSupervisor(
             factory: factory,
@@ -167,6 +187,7 @@ public actor CmxIrohClientRuntime {
         self.broker = broker
         self.configuration = configuration
         self.endpointRelayProfile = endpointRelayProfile
+        self.withholdsManagedRelaysUntilRegistered = withholdsManagedRelaysUntilRegistered
         managedRelayURLs = configuration.managedRelayURLs
         self.pendingRevocations = pendingRevocations
         self.protocolConfiguration = protocolConfiguration
@@ -489,6 +510,19 @@ public actor CmxIrohClientRuntime {
             )
             try requireCurrent(revision)
             try await install(policy: policy, revision: revision)
+            if withholdsManagedRelaysUntilRegistered {
+                // The broker has now acknowledged this endpoint's binding
+                // (a fresh endpoint cannot reach here otherwise: cooldown
+                // and offline fallbacks both require prior broker proof).
+                // Installing the managed relays only now guarantees the
+                // first relay dial cannot race the relay's allow hook into
+                // a negatively cached deny.
+                try await connectivityEngine.replaceRelayProfile(
+                    endpointRelayProfile,
+                    expectedIdentity: endpointID
+                )
+                try requireCurrent(revision)
+            }
             if !protocolConfiguration.allowsNATTraversalAfterAdmission {
                 guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
