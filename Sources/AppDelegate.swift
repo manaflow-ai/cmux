@@ -8400,6 +8400,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
                 return true
             }
+            // Base opened through the cmux-tui daemon: the pane owns the session, so the
+            // workspace carries a binding instead of a remote configuration.
+            if workspace.cloudVMBinding?.isBase == true {
+                return true
+            }
             guard let remote = workspace.remoteConfiguration else { return false }
             return remote.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
                 remote.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false

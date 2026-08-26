@@ -2345,6 +2345,24 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
+/// A cloud machine bound to a workspace through the cmux-tui remote daemon
+/// (`cmux vm shell`/`vm new`/`vm base open`). See `Workspace.cloudVMBinding`.
+struct WorkspaceCloudVMBinding: Equatable, Sendable {
+    let vmID: String
+    /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
+    let isBase: Bool
+
+    /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
+    static func normalizedVMID(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
     enum BrowserPanelCreationPolicy {
         case userInitiated
@@ -2796,6 +2814,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
+    /// The cloud machine whose cmux-tui session runs in this workspace's pane. Unlike
+    /// `remoteConfiguration` (app-managed SSH/websocket transports) the session belongs
+    /// to the pane's own `cmux vm-tui-connect` process, so this binding is what the
+    /// Machines panel, the sidebar cloud button, and `cmux vm desktop` use to find the
+    /// machine's workspace. Set through `workspace.cloud_vm_bind`; not persisted, since
+    /// the pane's one-shot link cannot be replayed on restore.
+    @Published var cloudVMBinding: WorkspaceCloudVMBinding?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness
@@ -6366,6 +6391,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             payload["has_ssh_options"] = false
             payload["local_proxy_port"] = NSNull()
             payload["persistent_daemon_slot"] = NSNull()
+        }
+        // A cmux-tui workspace reports its machine under the same key the managed
+        // transports use, so `cmux vm desktop`/the Machines panel find it either way.
+        if let binding = cloudVMBinding {
+            if remoteConfiguration?.managedCloudVMID?.isEmpty != false {
+                payload["managed_cloud_vm_id"] = binding.vmID
+            }
+            payload["cloud_vm_id"] = binding.vmID
+            payload["cloud_vm_base"] = binding.isBase
+            payload["cloud_vm_transport"] = "cmux-remote"
+        } else {
+            payload["cloud_vm_id"] = NSNull()
+            payload["cloud_vm_base"] = NSNull()
+            payload["cloud_vm_transport"] = NSNull()
         }
         return payload
     }

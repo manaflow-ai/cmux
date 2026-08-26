@@ -57494,6 +57494,23 @@
         }
       }
     },
+    "cli.vm.attach.cmuxTuiOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ attaches only through its cmux-tui daemon. Run `cmux vm tui %1$@`; if that reports no client, install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh` or point CMUX_TUI_CLIENT at a binary."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は cmux-tui デーモン経由でのみ接続できます。`cmux vm tui %1$@` を実行してください。クライアントが見つからない場合は `curl -fsSL https://cmux.com/tui/install-static.sh | sh` でインストールするか、CMUX_TUI_CLIENT にバイナリを指定してください。"
+          }
+        }
+      }
+    },
     "cli.vm.create.createdCloudVM": {
       "extractionState": "manual",
       "localizations": {
@@ -57828,19 +57845,19 @@
         }
       }
     },
-    "cli.vm.tui.clientMissing": {
+    "cli.vm.tui.clientMissingSearched": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No cmux-tui client found. Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
+            "value": "No cmux-tui client found (searched: %1$@). Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui クライアントが見つかりません。`curl -fsSL https://cmux.com/tui/install-static.sh | sh` でインストールするか、CMUX_TUI_CLIENT にバイナリを指定してください。"
+            "value": "cmux-tui クライアントが見つかりません（検索したパス: %1$@）。`curl -fsSL https://cmux.com/tui/install-static.sh | sh` でインストールするか、CMUX_TUI_CLIENT にバイナリを指定してください。"
           }
         }
       }

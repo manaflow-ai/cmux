@@ -1,7 +1,9 @@
 import Foundation
 
-/// `cmux vm tui <id>` — attach to a cloud machine through its cmux-tui remote daemon
-/// (Phase 1 of the cmuxd-remote → cmux-tui migration, docs/cloud-cmux-tui-daemon.md).
+/// Cloud machines attach through their cmux-tui remote daemon
+/// (docs/cloud-cmux-tui-daemon.md). This is the one open path every entrypoint
+/// shares — `cmux vm shell|new|fork|restore|base open|base reset`, the Machines
+/// panel, and the sidebar cloud button all land in `openVMTuiWorkspace`.
 ///
 /// The control plane returns a tokenized `/v1/link` route and, for a device that has
 /// not enrolled with this machine's daemon yet, a single-use invitation. A workspace
@@ -20,6 +22,19 @@ extension CMUXCLI {
         let clientPath: String
         let stateDir: String
         let deviceName: String
+    }
+
+    /// How an entrypoint wants the machine's workspace shaped; the session itself is
+    /// the same cmux-tui link in every case.
+    struct VMTuiOpenOptions {
+        /// Sidebar title; nil means `vm:<id>`.
+        var workspaceName: String? = nil
+        /// A workspace the app pre-created with a Cloud VM loading pane (`--workspace`):
+        /// the link replaces that pane instead of opening a new workspace.
+        var targetWorkspaceId: String? = nil
+        /// Base — the single persistent cloud workspace — is pinned to the top and
+        /// bound as base so the sidebar cloud button reuses it.
+        var pinAsBase: Bool = false
     }
 
     struct VMTuiDeviceRecord: Codable {
@@ -89,6 +104,13 @@ extension CMUXCLI {
     /// executable but not a client.
     func locateCmuxTuiClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         let fm = FileManager.default
+        return cmuxTuiClientCandidates(environment: environment)
+            .first { fm.isExecutableFile(atPath: $0) && Self.cmuxTuiClientProbe(at: $0) != nil }
+    }
+
+    /// Every path `locateCmuxTuiClient` considers, in order — the same list a
+    /// missing-client error reports so the fix is obvious.
+    func cmuxTuiClientCandidates(environment: [String: String] = ProcessInfo.processInfo.environment) -> [String] {
         var candidates: [String] = []
         if let bundled = resolvedExecutableURL()?.deletingLastPathComponent().appendingPathComponent("cmux-tui").path {
             candidates.append(bundled)
@@ -103,13 +125,28 @@ extension CMUXCLI {
         for dir in (environment["PATH"] ?? "").split(separator: ":") where !dir.isEmpty {
             candidates.append(URL(fileURLWithPath: String(dir), isDirectory: true).appendingPathComponent("cmux-tui").path)
         }
-        return candidates.first { fm.isExecutableFile(atPath: $0) && Self.cmuxTuiClientProbe(at: $0) != nil }
+        return candidates
     }
 
     struct CmuxTuiClientProbe {
         let buildIdentity: String?
         let remoteProtocol: Int?
         let version: String?
+        /// Transport capabilities the client advertises (`direct-ws-user-agent`, …);
+        /// forwarded to the control plane, which picks the machine host by them.
+        let capabilities: [String]
+    }
+
+    /// The `capabilities` array of a probe: lowercase slugs only, in order, deduplicated.
+    static func cmuxTuiProbeCapabilities(_ raw: Any?) -> [String] {
+        guard let entries = raw as? [Any] else { return [] }
+        var seen = Set<String>()
+        return entries.compactMap { entry -> String? in
+            guard let token = (entry as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+                  seen.insert(token).inserted else { return nil }
+            return token
+        }
     }
 
     /// `remote-probe --json` of a candidate binary; nil unless it is a cmux-tui client.
@@ -136,7 +173,8 @@ extension CMUXCLI {
         return CmuxTuiClientProbe(
             buildIdentity: object["build_identity"] as? String,
             remoteProtocol: (object["remote_protocol"] as? Int) ?? (object["remote_protocol"] as? Double).map(Int.init),
-            version: object["version"] as? String
+            version: object["version"] as? String,
+            capabilities: cmuxTuiProbeCapabilities(object["capabilities"])
         )
     }
 
@@ -169,24 +207,46 @@ extension CMUXCLI {
 
     struct VMTuiOpenResult {
         let workspaceId: String
+        let workspaceRef: String?
+        let windowId: String?
+        /// The pane running the cmux-tui client; keyboard focus belongs here even after
+        /// a desktop split opens beside it.
+        let terminalSurfaceId: String?
         let session: String
         let enrolling: Bool
     }
 
-    /// `cmux vm shell` prefers this path: when the deployment runs the cmux-tui daemon,
-    /// every shell is a cmux-tui session. Returns nil only when the control plane says
-    /// the machine's deployment has no cmux-tui pin, so the caller can fall back to the
-    /// legacy cmuxd-remote websocket attach for machines that predate the migration.
-    func openVMShellViaCmuxTuiIfAvailable(vmId: String, windowRaw: String?, client: SocketClient) throws -> VMTuiOpenResult? {
+    /// The shared cloud open path (`vmOpenShell`) calls this first for every entrypoint.
+    /// Returns nil only when the control plane says the machine's deployment does not
+    /// run cmux-tui at all (providers that predate the migration), so the caller may
+    /// fall back to their transport. Any other failure — including a machine that
+    /// reports it attaches through cmux-tui only — surfaces as-is; nothing falls back
+    /// to a websocket attach the backend will refuse.
+    func openVMShellViaCmuxTuiIfAvailable(
+        vmId: String,
+        windowRaw: String?,
+        options: VMTuiOpenOptions = VMTuiOpenOptions(),
+        client: SocketClient
+    ) throws -> VMTuiOpenResult? {
         do {
-            return try openVMTuiWorkspace(vmId: vmId, windowRaw: windowRaw, client: client)
+            return try openVMTuiWorkspace(vmId: vmId, windowRaw: windowRaw, options: options, client: client)
         } catch let error as CLIError where Self.isCmuxTuiUnavailable(error) {
             return nil
         }
     }
 
+    /// Backend code the control plane returns when a machine refuses the legacy attach
+    /// because it runs cmux-tui only; it means "use cmux-tui", never "fall back".
+    static let vmAttachTransportUnsupportedCode = "vm_attach_transport_unsupported"
+
     static func isCmuxTuiUnavailable(_ error: CLIError) -> Bool {
+        if error.vmBackendCode == vmAttachTransportUnsupportedCode {
+            return false
+        }
         let text = error.message.lowercased()
+        if text.contains(vmAttachTransportUnsupportedCode) || text.contains("cmux-tui only") {
+            return false
+        }
         return text.contains("not enabled for this deployment")
             || text.contains("not supported by this deployment")
             || text.contains("does not run the cmux-tui")
@@ -222,24 +282,40 @@ extension CMUXCLI {
         print(String(format: template, vmId, mode))
     }
 
-    func openVMTuiWorkspace(vmId: String, windowRaw: String?, client: SocketClient) throws -> VMTuiOpenResult {
+    func openVMTuiWorkspace(
+        vmId: String,
+        windowRaw: String?,
+        options: VMTuiOpenOptions = VMTuiOpenOptions(),
+        client: SocketClient
+    ) throws -> VMTuiOpenResult {
+        let startedAt = Date()
         let known = Self.loadVMTuiDevices()[vmId]
+        // Probe the local client before asking the control plane: what it can do
+        // (`capabilities`) decides which machine host the route points at. A missing
+        // client is still only reported once the machine is confirmed reachable
+        // through cmux-tui, so deployments without the daemon fall back cleanly.
+        let clientPath = locateCmuxTuiClient()
+        let clientProbe = clientPath.flatMap { Self.cmuxTuiClientProbe(at: $0) }
         var infoParams: [String: Any] = ["id": vmId]
         if let known {
             infoParams["device_fingerprint"] = known.deviceFingerprint
         }
-        // Ask the control plane first: a missing client binary should only be reported
-        // when this machine can actually be reached through cmux-tui.
+        if let capabilities = clientProbe?.capabilities, !capabilities.isEmpty {
+            infoParams["client_capabilities"] = capabilities
+        }
         let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 16 * 60)
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }
-        guard let clientPath = locateCmuxTuiClient(), let clientProbe = Self.cmuxTuiClientProbe(at: clientPath) else {
-            throw CLIError(message: CMUXDiffViewerLocalization.string(
-                "cli.vm.tui.clientMissing",
-                defaultValue: "No cmux-tui client found. Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
-            ))
+        guard let clientPath, let clientProbe else {
+            let searched = cmuxTuiClientCandidates().joined(separator: ", ")
+            let template = CMUXDiffViewerLocalization.string(
+                "cli.vm.tui.clientMissingSearched",
+                defaultValue: "No cmux-tui client found (searched: %1$@). Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
+            )
+            throw CLIError(message: String(format: template, searched))
         }
+        logVMTiming("cmux_remote_info", vmID: vmId, transport: "cmux-remote", startedAt: startedAt)
         try Self.checkCmuxTuiCompatibility(client: clientProbe, daemon: info["daemon_build"] as? [String: Any])
         let session = (info["session"] as? String) ?? "cloud"
         let invitation = info["invitation"] as? [String: Any]
@@ -264,21 +340,97 @@ extension CMUXCLI {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
 
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        var params: [String: Any] = [
-            "initial_command": "\(shellQuote(executablePath)) vm-tui-connect --config \(shellQuote(configURL.path))",
-            "title": "vm:\(vmId)",
-        ]
-        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
-        let created = try client.sendV2(method: "workspace.create", params: params)
-        guard let workspaceId = created["workspace_id"] as? String, !workspaceId.isEmpty else {
-            throw CLIError(message: "workspace.create did not return workspace_id")
+        let initialCommand = "\(shellQuote(executablePath)) vm-tui-connect --config \(shellQuote(configURL.path))"
+        let workspaceId: String
+        let workspaceRef: String?
+        let windowId: String?
+        let terminalSurfaceId: String?
+        let didCreateWorkspace: Bool
+        if let target = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines), !target.isEmpty {
+            // The app pre-created this workspace with a loading pane; the link takes
+            // that pane's place (no new workspace, no title change).
+            let ready = try client.sendV2(
+                method: "workspace.cloud_vm_terminal_ready",
+                params: ["workspace_id": target, "initial_command": initialCommand, "focus": true]
+            )
+            workspaceId = (ready["workspace_id"] as? String) ?? target
+            workspaceRef = ready["workspace_ref"] as? String
+            windowId = (ready["window_id"] as? String) ?? windowRaw
+            terminalSurfaceId = ready["surface_id"] as? String
+            didCreateWorkspace = false
+        } else {
+            let requestedTitle = options.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            var params: [String: Any] = [
+                "initial_command": initialCommand,
+                "title": requestedTitle.isEmpty ? "vm:\(vmId)" : requestedTitle,
+            ]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
+            let created = try client.sendV2(method: "workspace.create", params: params)
+            guard let createdId = created["workspace_id"] as? String, !createdId.isEmpty else {
+                throw CLIError(message: "workspace.create did not return workspace_id")
+            }
+            workspaceId = createdId
+            workspaceRef = created["workspace_ref"] as? String
+            windowId = created["window_id"] as? String
+            terminalSurfaceId = created["surface_id"] as? String
+            didCreateWorkspace = true
         }
-        _ = try? client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
-        return VMTuiOpenResult(workspaceId: workspaceId, session: session, enrolling: invitationUri != nil)
+        do {
+            // The binding is how the app finds this machine's workspace again (Machines
+            // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
+            _ = try client.sendV2(
+                method: "workspace.cloud_vm_bind",
+                params: ["workspace_id": workspaceId, "vm_id": vmId, "base": options.pinAsBase]
+            )
+            if options.pinAsBase {
+                try pinWorkspaceToTop(workspaceId: workspaceId, windowId: windowId, client: client)
+            }
+        } catch {
+            if didCreateWorkspace {
+                _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            }
+            throw error
+        }
+        var selectParams: [String: Any] = ["workspace_id": workspaceId]
+        if let windowId, !windowId.isEmpty {
+            selectParams["window_id"] = windowId
+        }
+        _ = try? client.sendV2(method: "workspace.select", params: selectParams)
+        logVMTiming(
+            "complete",
+            vmID: vmId,
+            transport: "cmux-remote",
+            startedAt: startedAt,
+            extra: "workspace=\(String(workspaceId.prefix(8)))"
+        )
+        return VMTuiOpenResult(
+            workspaceId: workspaceId,
+            workspaceRef: workspaceRef,
+            windowId: windowId,
+            terminalSurfaceId: terminalSurfaceId,
+            session: session,
+            enrolling: invitationUri != nil
+        )
     }
 
     // MARK: - cmux vm-tui-connect --config <file>  (runs inside the pane)
 
+    /// The argv the pane hands to the cmux-tui client. Pure, so the exec line can be
+    /// checked without a pane.
+    static func vmTuiConnectArguments(config: VMTuiConnectConfig, inviteFilePath: String?) -> [String] {
+        var arguments = ["remote", "connect", config.route, "--device-name", config.deviceName, "--state-dir", config.stateDir]
+        if let inviteFilePath, !inviteFilePath.isEmpty {
+            arguments += ["--invite-file", inviteFilePath]
+        }
+        return arguments
+    }
+
+    /// Replaces this process with the cmux-tui client. The pane's foreground process is
+    /// the client from its very first tty read: spawning it as a child and moving it to
+    /// the foreground afterwards raced its `tcsetattr` (raw mode) against the handoff,
+    /// which intermittently left the tty cooked — keystrokes line-buffered or swallowed.
+    /// Enrollment approval, which used to poll from a thread here, runs in a detached
+    /// helper (`vm-tui-approve`) so nothing in this process has to outlive the exec.
     func runVMTuiConnect(commandArgs: [String], client: SocketClient) throws {
         let (configPath, _) = parseOption(commandArgs, name: "--config")
         guard let configPath, !configPath.isEmpty else {
@@ -297,87 +449,117 @@ extension CMUXCLI {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             inviteURL = url
         }
-        defer { if let inviteURL { try? FileManager.default.removeItem(at: inviteURL) } }
-
-        var arguments = ["remote", "connect", config.route, "--device-name", config.deviceName, "--state-dir", config.stateDir]
-        if let inviteURL {
-            arguments += ["--invite-file", inviteURL.path]
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: config.clientPath)
-        process.arguments = arguments
-        process.standardInput = FileHandle.standardInput
-        process.standardOutput = FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
 
         cliWriteStderr(String(format: CMUXDiffViewerLocalization.string(
             "cli.vm.tui.connecting",
             defaultValue: "Connecting to %1$@ through cmux-tui…"
         ), config.vmId) + "\n")
 
-        // Foundation spawns the child in its own process group, so the interactive TUI
-        // would be a background job of the pane and SIGTTIN-stop on its first tty read.
-        // Hand the terminal foreground to the child for its lifetime, as the other
-        // interactive-child CLI paths do.
-        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
-        var didForegroundChild = false
-        try cliRunProcess(process)
-        if originalForegroundProcessGroup > 0 {
-            let childProcessGroup = getpgid(process.processIdentifier)
-            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
-                do {
-                    try setTerminalForegroundProcessGroup(childProcessGroup)
-                } catch {
-                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
-                    process.terminate()
-                    throw CLIError(message: "vm-tui-connect: couldn't hand the terminal to cmux-tui; aborting to avoid a hang (\(String(describing: error)))")
-                }
-                _ = Darwin.kill(-childProcessGroup, SIGCONT)
-                didForegroundChild = true
-            }
-        }
-        defer {
-            if didForegroundChild {
-                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
-            }
-        }
-
         // While the client claims the invitation, approve the pending enrollment through
         // the app: the control plane minted this invitation for the signed-in user, so
-        // approving the claim is the honest encoding of "already authenticated". Nothing
-        // is printed while the TUI owns the terminal; the device record is saved silently.
+        // approving the claim is the honest encoding of "already authenticated". The
+        // helper owns the invite file's lifetime and removes it once the claim is
+        // approved or the window closes.
         if let invitationId = config.invitationId, !invitationId.isEmpty {
-            let vmId = config.vmId
-            let approver = Thread {
-                let deadline = Date().addingTimeInterval(Self.vmTuiApprovalTimeoutSeconds)
-                while Date() < deadline, process.isRunning {
-                    Thread.sleep(forTimeInterval: Self.vmTuiApprovalPollSeconds)
-                    guard let result = try? client.sendV2(
-                        method: "vm.cmux_remote_approve",
-                        params: ["id": vmId, "invitation_id": invitationId],
-                        responseTimeout: 60
-                    ) else { continue }
-                    if (result["state"] as? String) == "approved" {
-                        if let fingerprint = result["device_fingerprint"] as? String, !fingerprint.isEmpty {
-                            Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: fingerprint)
-                        }
-                        return
-                    }
-                }
+            var approverArguments = ["vm-tui-approve", "--id", config.vmId, "--invitation-id", invitationId]
+            if let inviteURL {
+                approverArguments += ["--invite-file", inviteURL.path]
             }
-            approver.start()
+            let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+            do {
+                try Self.spawnDetachedVMTuiApprover(
+                    executablePath: executablePath,
+                    arguments: approverArguments,
+                    socketPath: client.socketPath
+                )
+            } catch {
+                if let inviteURL { try? FileManager.default.removeItem(at: inviteURL) }
+                throw error
+            }
         }
 
-        process.waitUntilExit()
-        let status = process.terminationStatus
-        if status != 0 {
-            throw CLIError(
-                message: String(format: CMUXDiffViewerLocalization.string(
-                    "cli.vm.tui.clientExited",
-                    defaultValue: "cmux-tui exited with status %1$d. Re-run `cmux vm tui %2$@` to reconnect."
-                ), status, config.vmId),
-                exitCode: status > 0 ? status : 1
-            )
+        let arguments = Self.vmTuiConnectArguments(config: config, inviteFilePath: inviteURL?.path)
+        try execInteractiveProgram(launchPath: config.clientPath, arguments: arguments)
+    }
+
+    /// Spawns `cmux vm-tui-approve …` in its own session with stdio on /dev/null, so it
+    /// survives the pane's exec and never touches the tty the client is about to own.
+    static func spawnDetachedVMTuiApprover(executablePath: String, arguments: [String], socketPath: String) throws {
+        var fileActions: posix_spawn_file_actions_t?
+        guard posix_spawn_file_actions_init(&fileActions) == 0 else {
+            throw CLIError(message: "vm-tui-connect: couldn't prepare the enrollment approver (file actions)")
+        }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+        for fd in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            let status = "/dev/null".withCString { path in
+                posix_spawn_file_actions_addopen(&fileActions, fd, path, fd == STDIN_FILENO ? O_RDONLY : O_WRONLY, 0)
+            }
+            guard status == 0 else {
+                throw CLIError(message: "vm-tui-connect: couldn't detach the enrollment approver from the terminal")
+            }
+        }
+        var attributes: posix_spawnattr_t?
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            throw CLIError(message: "vm-tui-connect: couldn't prepare the enrollment approver (attributes)")
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+        guard posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0 else {
+            throw CLIError(message: "vm-tui-connect: couldn't give the enrollment approver its own session")
+        }
+
+        // Same socket the pane talks to; CMUX_SOCKET (the ambient terminal's socket) must
+        // not win over it, as the CLI's other child spawns also ensure.
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        let environmentStrings = environment.map { "\($0.key)=\($0.value)" }
+        var argv = ([executablePath] + arguments).map { strdup($0) }
+        var envp = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv { free(item) }
+            for item in envp { free(item) }
+        }
+        argv.append(nil)
+        envp.append(nil)
+        var pid: pid_t = 0
+        let status = posix_spawn(&pid, executablePath, &fileActions, &attributes, &argv, &envp)
+        guard status == 0 else {
+            throw CLIError(message: "vm-tui-connect: couldn't start the enrollment approver: \(String(cString: strerror(status)))")
+        }
+    }
+
+    // MARK: - cmux vm-tui-approve --id <vm> --invitation-id <id> [--invite-file <path>]  (detached)
+
+    /// Approves a pending cmux-tui enrollment through the app while the pane's client
+    /// claims the invitation. Silent: it owns no terminal. Ends when the claim is
+    /// approved or `vmTuiApprovalTimeoutSeconds` pass, and deletes the invite file
+    /// either way.
+    func runVMTuiApprove(commandArgs: [String], client: SocketClient) throws {
+        let (vmIdOpt, rest0) = parseOption(commandArgs, name: "--id")
+        let (invitationOpt, rest1) = parseOption(rest0, name: "--invitation-id")
+        let (inviteFileOpt, _) = parseOption(rest1, name: "--invite-file")
+        guard let vmId = vmIdOpt, !vmId.isEmpty, let invitationId = invitationOpt, !invitationId.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm-tui-approve --id <vm> --invitation-id <id> [--invite-file <path>]")
+        }
+        defer {
+            if let inviteFileOpt, !inviteFileOpt.isEmpty {
+                try? FileManager.default.removeItem(atPath: inviteFileOpt)
+            }
+        }
+        let deadline = Date().addingTimeInterval(Self.vmTuiApprovalTimeoutSeconds)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: Self.vmTuiApprovalPollSeconds)
+            guard let result = try? client.sendV2(
+                method: "vm.cmux_remote_approve",
+                params: ["id": vmId, "invitation_id": invitationId],
+                responseTimeout: 60
+            ) else { continue }
+            if (result["state"] as? String) == "approved" {
+                if let fingerprint = result["device_fingerprint"] as? String, !fingerprint.isEmpty {
+                    Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: fingerprint)
+                }
+                return
+            }
         }
     }
 }

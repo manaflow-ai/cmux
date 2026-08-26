@@ -4287,7 +4287,12 @@ struct CMUXCLI {
     /// Streams the VM's desktop (noVNC) into a browser split beside the shell. Best effort:
     /// a machine without a desktop, or a backend without open-port, just skips the split.
     @discardableResult
-    private func openVMDesktopSplit(vmId: String, client: SocketClient, workspaceId: String? = nil) throws -> Bool {
+    private func openVMDesktopSplit(
+        vmId: String,
+        client: SocketClient,
+        workspaceId: String? = nil,
+        terminalSurfaceId: String? = nil
+    ) throws -> Bool {
         let payload = try client.sendV2(
             method: "vm.open_port",
             params: ["id": vmId, "port": Self.cloudVMDesktopPort],
@@ -4306,6 +4311,11 @@ struct CMUXCLI {
             params["workspace_id"] = workspaceId
         }
         let opened = try? client.sendV2(method: "browser.open_split", params: params)
+        // The split takes focus as any new pane does; the person opened a shell, so
+        // typing must keep landing in the terminal, not the desktop.
+        if opened != nil, let terminalSurfaceId, !terminalSurfaceId.isEmpty {
+            _ = try? client.sendV2(method: "surface.focus", params: ["surface_id": terminalSurfaceId])
+        }
         return opened != nil
     }
 
@@ -5754,9 +5764,9 @@ struct CMUXCLI {
                     print("  provider \(provider) · \(image)")
                     break
                 }
-                // Create the VM then drop the user into a cmux-managed workspace. Managed
-                // Cloud VMs use the cmuxd-remote WebSocket PTY so they can reconnect and
-                // attach from mobile clients without minting foreground SSH passwords.
+                // Create the VM then drop the user into its workspace through the shared
+                // open path: the machine's cmux-tui remote daemon, the same session
+                // `cmux vm shell`, Base, and the Machines panel use.
                 let createdMessage = String(
                     format: String(
                         localized: "cli.vm.create.createdCloudVM",
@@ -5769,7 +5779,7 @@ struct CMUXCLI {
                 // a failed attach must not make the next `vm new` replay this create and
                 // "create" the same machine again.
                 Self.clearVMCreateIdempotency(idempotency)
-                let createdWorkspaceId = try vmOpenShell(
+                let createdWorkspace = try vmOpenShell(
                     id: id,
                     workspaceName: "vm:\(id)",
                     windowRaw: targetWindow,
@@ -5783,7 +5793,12 @@ struct CMUXCLI {
                 // A machine with a screen shows it: stream the noVNC desktop into a browser
                 // split beside the shell so the workspace opens as terminal + desktop.
                 if Self.cloudVMImageHasDesktop(image) {
-                    _ = try? openVMDesktopSplit(vmId: id, client: client, workspaceId: createdWorkspaceId)
+                    _ = try? openVMDesktopSplit(
+                        vmId: id,
+                        client: client,
+                        workspaceId: createdWorkspace?.workspaceId,
+                        terminalSurfaceId: createdWorkspace?.terminalSurfaceId
+                    )
                 }
 
             case "desktop", "vnc":
@@ -5929,34 +5944,31 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                // Cloud shells are cmux-tui sessions wherever the deployment runs the
-                // cmux-tui daemon; the cmuxd-remote websocket attach remains only for
-                // deployments without a cmux-tui pin (docs/cloud-cmux-tui-daemon.md).
-                let shellWorkspaceId: String?
-                if let opened = try openVMShellViaCmuxTuiIfAvailable(vmId: vmId, windowRaw: windowOpt ?? windowId, client: client) {
-                    shellWorkspaceId = opened.workspaceId
-                    if jsonOutput {
-                        print(jsonString(["ok": true, "vm_id": vmId, "workspace_id": opened.workspaceId, "transport": "cmux-remote", "enrolling": opened.enrolling]))
-                    }
-                } else {
-                    shellWorkspaceId = try vmOpenShell(
-                        id: vmId,
-                        workspaceName: "vm:\(vmId)",
-                        windowRaw: windowOpt ?? windowId,
-                        forceSSH: false,
-                        shouldPinWorkspaceToTop: false,
-                        client: client,
-                        jsonOutput: jsonOutput,
-                        idFormat: idFormat
-                    )
-                }
+                // One open path for every entrypoint (vmOpenShell): the machine's
+                // cmux-tui remote daemon, with the legacy transports only for
+                // deployments that do not run it (docs/cloud-cmux-tui-daemon.md).
+                let shellWorkspace = try vmOpenShell(
+                    id: vmId,
+                    workspaceName: "vm:\(vmId)",
+                    windowRaw: windowOpt ?? windowId,
+                    forceSSH: false,
+                    shouldPinWorkspaceToTop: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
                 if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
                    let image = status["image"] as? String,
                    Self.cloudVMImageHasDesktop(image) {
                     // The screen belongs beside the shell it was opened with, not in
                     // whatever workspace holds focus once the attach settles.
-                    let desktopWorkspace = shellWorkspaceId ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
-                    _ = try? openVMDesktopSplit(vmId: vmId, client: client, workspaceId: desktopWorkspace)
+                    let desktopWorkspace = shellWorkspace?.workspaceId ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
+                    _ = try? openVMDesktopSplit(
+                        vmId: vmId,
+                        client: client,
+                        workspaceId: desktopWorkspace,
+                        terminalSurfaceId: shellWorkspace?.terminalSurfaceId
+                    )
                 }
 
             case "tui":
@@ -6583,6 +6595,8 @@ struct CMUXCLI {
             try runVMPtyAttach(commandArgs: commandArgs, client: client)
         case "vm-tui-connect":
             try runVMTuiConnect(commandArgs: commandArgs, client: client)
+        case "vm-tui-approve":
+            try runVMTuiApprove(commandArgs: commandArgs, client: client)
         case "vm-ssh-attach":
             // Hidden compatibility alias for workspaces created before the split helper was
             // nested under `cmux vm`.
@@ -11767,7 +11781,7 @@ struct CMUXCLI {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    private func pinWorkspaceToTop(workspaceId: String, windowId: String?, client: SocketClient) throws {
+    func pinWorkspaceToTop(workspaceId: String, windowId: String?, client: SocketClient) throws {
         var params: [String: Any] = ["workspace_id": workspaceId]
         if let windowId, !windowId.isEmpty {
             params["window_id"] = windowId
@@ -12560,7 +12574,7 @@ struct CMUXCLI {
     /// Open an interactive cmux-managed shell on a cloud VM. The managed Cloud VM path requires
     /// cmuxd-remote WebSocket attach so reconnects, mobile attach, and notification fanout all
     /// use the same session primitive. SSH remains an explicit manual fallback.
-    private func logVMTiming(
+    func logVMTiming(
         _ stage: String,
         vmID: String,
         provider: String? = nil,
@@ -12587,8 +12601,14 @@ struct CMUXCLI {
         cliDebugLog(parts.joined(separator: " "))
     }
 
-    /// Returns the id of the workspace hosting the shell when it is a cmux-managed
-    /// WebSocket workspace (nil for SSH sessions, which own their own workspace flow).
+    /// The workspace an open landed in (nil for SSH sessions, which own their own
+    /// workspace flow) and, for cmux-tui sessions, the pane running the client.
+    struct VMOpenedWorkspace {
+        let workspaceId: String
+        let terminalSurfaceId: String?
+    }
+
+    /// Opens the machine's workspace through the shared cloud open path; see the body.
     @discardableResult
     private func vmOpenShell(
         id: String,
@@ -12600,7 +12620,7 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
-    ) throws -> String? {
+    ) throws -> VMOpenedWorkspace? {
         if forceSSH {
             let sshInfoStartedAt = Date()
             let response = try client.sendV2(
@@ -12631,12 +12651,64 @@ struct CMUXCLI {
             return nil
         }
 
+        // Every cloud entrypoint lands here, and the machine's cmux-tui remote daemon is
+        // the session for all of them: `vm new`, `vm shell`, `vm fork`, `vm restore`,
+        // Base (sidebar cloud button, `vm base open|reset`), and the Machines panel.
+        // The websocket/SSH transports below remain only for deployments whose control
+        // plane reports no cmux-tui at all; a cmux-tui-only machine never reaches them.
         let attachInfoStartedAt = Date()
-        let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
-            vmID: id,
-            usesDefaultFreestyleSSHD: true,
+        if let opened = try openVMShellViaCmuxTuiIfAvailable(
+            vmId: id,
+            windowRaw: windowRaw,
+            options: VMTuiOpenOptions(
+                workspaceName: workspaceName,
+                targetWorkspaceId: targetWorkspaceId,
+                pinAsBase: shouldPinWorkspaceToTop
+            ),
             client: client
-        )
+        ) {
+            logVMTiming("attach_info", vmID: id, transport: "cmux-remote", startedAt: attachInfoStartedAt)
+            var payload: [String: Any] = [
+                "ok": true,
+                "vm_id": id,
+                "workspace_id": opened.workspaceId,
+                "workspace_ref": opened.workspaceRef ?? NSNull(),
+                "window_id": opened.windowId ?? NSNull(),
+                "transport": "cmux-remote",
+                "session": opened.session,
+                "enrolling": opened.enrolling,
+            ]
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? opened.workspaceId
+                print("OK workspace=\(workspaceHandle) transport=cmux-remote")
+            }
+            return VMOpenedWorkspace(workspaceId: opened.workspaceId, terminalSurfaceId: opened.terminalSurfaceId)
+        }
+        let response: [String: Any]
+        do {
+            response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
+                vmID: id,
+                usesDefaultFreestyleSSHD: true,
+                client: client
+            )
+        } catch let error as CLIError where error.vmBackendCode == Self.vmAttachTransportUnsupportedCode
+            || error.message.contains(Self.vmAttachTransportUnsupportedCode) {
+            // The control plane said the daemon was unavailable a moment ago and now
+            // says the machine is cmux-tui only: name the real fix instead of an attach
+            // error nobody can act on.
+            throw CLIError(
+                message: String(
+                    format: String(
+                        localized: "cli.vm.attach.cmuxTuiOnly",
+                        defaultValue: "%1$@ attaches only through its cmux-tui daemon. Run `cmux vm tui %1$@`; if that reports no client, install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh` or point CMUX_TUI_CLIENT at a binary."
+                    ),
+                    id
+                ),
+                vmBackendCode: error.vmBackendCode
+            )
+        }
         let transport = (response["transport"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? "ssh"
@@ -12657,7 +12729,7 @@ struct CMUXCLI {
                         """
                 )
             }
-            return try runVMPtyWebSocketWorkspace(
+            let workspaceId = try runVMPtyWebSocketWorkspace(
                 id: id,
                 endpoint: endpoint,
                 workspaceName: workspaceName,
@@ -12668,6 +12740,7 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
             )
+            return VMOpenedWorkspace(workspaceId: workspaceId, terminalSurfaceId: nil)
         }
         let options = try vmSSHOptions(
             fromAttachInfo: response,
@@ -15549,7 +15622,7 @@ struct CMUXCLI {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func execInteractiveProgram(
+    func execInteractiveProgram(
         launchPath: String,
         arguments: [String]
     ) throws -> Never {

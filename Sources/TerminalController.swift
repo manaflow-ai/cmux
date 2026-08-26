@@ -2577,6 +2577,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
         case "workspace.cloud_vm_terminal_ready":
             return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
+        case "workspace.cloud_vm_bind":
+            return v2Result(id: id, self.v2WorkspaceCloudVMBind(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
 
@@ -2844,6 +2846,7 @@ class TerminalController {
             "workspace.create",
             "workspace.cloud_vm_open",
             "workspace.cloud_vm_terminal_ready",
+            "workspace.cloud_vm_bind",
             "workspace.env",
             "workspace.select",
             "workspace.current",

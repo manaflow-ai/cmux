@@ -188,8 +188,17 @@ extension TerminalController {
             }
             let deviceFingerprint = Self.socketWorkerString(params["device_fingerprint"])
                 ?? Self.socketWorkerString(params["deviceFingerprint"])
+            // What the local cmux-tui client can do (`remote-probe --json` capabilities);
+            // VMClient validates the tokens before they reach the control plane.
+            let clientCapabilities = Self.socketWorkerStringArray(
+                params["client_capabilities"] ?? params["clientCapabilities"]
+            )
             return v2VmCall(id: id) {
-                let endpoint = try await VMClient.shared.openCmuxRemote(id: vmId, deviceFingerprint: deviceFingerprint)
+                let endpoint = try await VMClient.shared.openCmuxRemote(
+                    id: vmId,
+                    deviceFingerprint: deviceFingerprint,
+                    clientCapabilities: clientCapabilities
+                )
                 var payload: [String: Any] = [
                     "transport": "cmux-remote",
                     "route": endpoint.route,

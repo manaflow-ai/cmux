@@ -739,11 +739,36 @@ actor VMClient {
         return try decodeAttachEndpoint(obj)
     }
 
-    func openCmuxRemote(id: String, deviceFingerprint: String? = nil) async throws -> VMCmuxRemoteEndpoint {
+    /// Transport capabilities a cmux-tui client may advertise (`remote-probe --json` →
+    /// `capabilities`). The control plane keys routing on them — `direct-ws-user-agent`
+    /// earns the branded machine host — so only well-formed tokens travel: short
+    /// lowercase slugs, deduplicated in order, capped like the server's validator.
+    static func sanitizedClientCapabilities(_ raw: [String]) -> [String] {
+        var seen = Set<String>()
+        var tokens: [String] = []
+        for entry in raw {
+            let token = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+                  seen.insert(token).inserted else { continue }
+            tokens.append(token)
+            if tokens.count == 16 { break }
+        }
+        return tokens
+    }
+
+    func openCmuxRemote(
+        id: String,
+        deviceFingerprint: String? = nil,
+        clientCapabilities: [String] = []
+    ) async throws -> VMCmuxRemoteEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         var body: [String: Any] = ["transport": "cmux-remote"]
         if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["deviceFingerprint"] = deviceFingerprint
+        }
+        let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
+        if !capabilities.isEmpty {
+            body["clientCapabilities"] = capabilities
         }
         let (data, http) = try await request(
             "POST",
