@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import subprocess
 import tempfile
 import time
@@ -1510,7 +1511,12 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert 'dist_tag="next"' in text
     assert 'dist_tag="latest"' in text
     assert 'if [[ "$version" == *-rc.* ]]' in text
-    assert text.count('npm publish --provenance --tag "$DIST_TAG"') == 2
+    # --access public is required for the first publish of each new unscoped
+    # cmux-relay package name under --provenance and is a no-op afterwards.
+    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 1
+    assert 'npm publish --provenance --tag "$DIST_TAG"' not in text.replace(
+        'npm publish --provenance --access public --tag "$DIST_TAG"', ""
+    )
     assert "npm publish --provenance dist/npm-packages" not in text
 
     # Same provenance posture as the TUI publisher: trusted-publisher
@@ -1522,7 +1528,11 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert "runs-on: ubuntu-latest" in text
     assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
     assert "attest_packages: true" in text
-    assert "include_windows: true" in text
+    # The Rust machine relay has no Windows PTY backend yet. Its stable npm
+    # publisher must build and publish Unix packages only; Windows stays on
+    # the Node rollback lane until a tested backend exists.
+    assert "include_windows: false" in text
+    assert "cmux-relay-win32-x64" not in text
     assert "package_pypi: false" in text
     assert "validate_package_contract.py" in text
     assert "--install-npm-relay-package cmux-relay-linux-x64" in text
@@ -1531,6 +1541,69 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     assert '--source-digest "$GITHUB_SHA"' in text
     assert '--source-ref "$GITHUB_REF"' in text
     assert "persist-credentials: false" in text
+
+
+def test_relay_launcher_rc_fallback_never_relaxes_stable() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # The Rust cutover has one launcher plus four Unix target packages. Every
+    # package uses the same idempotent publish path for both `next` and
+    # `latest`; there is no local-tarball or failed-launcher fallback. A
+    # fallback could report a release as usable while the launcher is absent
+    # from the registry, so the workflow must fail closed instead.
+    publish_section = text.split(
+        "- name: Publish five Unix relay packages idempotently", 1
+    )[1].split("- name: Audit published npm signatures and provenance", 1)[0]
+    package_lines = re.findall(
+        r"^\s+(cmux-relay(?:-(?:darwin-arm64|darwin-x64|linux-x64|linux-arm64))?)\s*$",
+        publish_section,
+        re.MULTILINE,
+    )
+    assert package_lines == [
+        "cmux-relay-darwin-arm64",
+        "cmux-relay-darwin-x64",
+        "cmux-relay-linux-x64",
+        "cmux-relay-linux-arm64",
+        "cmux-relay",
+    ]
+    assert 'elif [[ "$DIST_TAG" == "next" ]]' not in text
+    assert "LAUNCHER_PUBLISHED" not in text
+    assert "npm install -g ./dist/npm-packages/cmux-relay" not in text
+    assert "cmux-relay-win32-x64" not in text
+    assert 'publish_if_missing "$package"' in publish_section
+    assert "version_exists" in publish_section
+    assert "registry_integrity" in publish_section
+    assert "Audit published npm signatures and provenance" in text
+    assert text.count("cmux-relay --version") == 1
+
+
+def test_relay_attestations_survive_a_skipped_windows_build() -> None:
+    text = workflow("cmux-tui-build-package.yml")
+
+    # A skipped optional build-windows poisons the implicit success() on
+    # transitive dependents. verify-linux-packages and attest-npm-packages
+    # must carry always() plus explicit needs.result gates so a Unix-only
+    # release tag still attests binaries for its own commit; without this,
+    # the publish job's --source-digest verification can only ever match a
+    # stale attestation from an older byte-identical build (rc.3 regression,
+    # run 32935658524).
+    for job_anchor in ("  verify-linux-packages:", "  attest-npm-packages:"):
+        section = text.split(job_anchor, 1)[1].split("runs-on:", 1)[0]
+        assert "always() &&" in section
+        assert "needs.package.result == 'success'" in section
+
+
+def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
+    builder = ROOT / "cmux-tui" / "dist" / "scripts" / "package_npm.py"
+    namespace = runpy.run_path(str(builder), run_name="cmux_tui_package_npm_test")
+    version_re = namespace["VERSION_RE"]
+    assert isinstance(version_re, re.Pattern)
+
+    assert version_re.fullmatch("0.12.1")
+    assert version_re.fullmatch("0.12.1-rc.1")
+    assert version_re.fullmatch("0.12.1-nightly.20260825.7")
+    assert not version_re.fullmatch("0.12.1-rc")
+    assert not version_re.fullmatch("0.12.1-rc.0.extra")
 
 
 if __name__ == "__main__":

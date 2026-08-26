@@ -79,7 +79,12 @@ const packages = {
   "linux-x64": "cmux-relay-linux-x64",
   "linux-arm64": "cmux-relay-linux-arm64",
 };
-const pkg = packages[`${process.platform}-${process.arch}`];
+const key = `${process.platform}-${process.arch}`;
+if (process.platform === "win32") {
+  console.error("cmux-relay: unsupported_platform (the Rust machine relay requires a Unix PTY backend).");
+  process.exit(1);
+}
+const pkg = packages[key];
 const executable = process.env.CMUX_RELAY_FIXTURE_EXECUTABLE || __filename;
 if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executable)) {
   console.error(
@@ -87,8 +92,12 @@ if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executab
   );
   process.exit(2);
 }
-const binary = require.resolve(`${pkg}/bin/cmux-relay`);
-const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+const binary = require.resolve(`${pkg}/bin/chatmux-relay`);
+const runtime = require.resolve(`${pkg}/bin/cmux-tui`);
+const result = spawnSync(binary, process.argv.slice(2), {
+  stdio: "inherit",
+  env: { ...process.env, CHATMUX_RELAY_CMUX_TUI: runtime },
+});
 if (result.signal) process.kill(process.pid, result.signal);
 process.exit(result.status === null ? 1 : result.status);
 ''',
@@ -169,12 +178,13 @@ def make_npm_packages(root: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-relay"],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
                 }
             )
             + "\n"
         )
-        write_relay_binary_fixture(package / "bin/cmux-relay")
+        write_relay_binary_fixture(package / "bin/chatmux-relay")
+        write_executable(package / "bin/cmux-tui")
 
     launcher = root / "cmux"
     launcher.mkdir()
@@ -352,13 +362,15 @@ def test_relay_launcher_preserves_native_signal_exit_status(tmp_path: Path) -> N
     relay_package = launcher_root / "node_modules" / host_npm_target().replace(
         "cmux-tui", "cmux-relay"
     )
-    relay_binary = relay_package / "bin" / "cmux-relay"
+    relay_binary = relay_package / "bin" / "chatmux-relay"
     relay_binary.parent.mkdir(parents=True)
     relay_binary.write_text(
         "#!/usr/bin/env node\nprocess.kill(process.pid, 'SIGTERM');\n",
         encoding="utf-8",
     )
     relay_binary.chmod(0o755)
+    runtime_binary = relay_package / "bin" / "cmux-tui"
+    write_executable(runtime_binary, "cmux-tui 1.2.3")
 
     result = subprocess.run(
         ["node", str(launcher)],
@@ -381,6 +393,17 @@ def test_pypi_contract_requires_all_six_wheels_and_metadata(tmp_path: Path) -> N
     )
 
     assert result.returncode == 0, result.stderr
+
+    import zipfile
+
+    wheel = next(wheels.glob("*.whl"))
+    dist_info = f"cmux-{VERSION}.dist-info"
+    with zipfile.ZipFile(wheel) as archive:
+        metadata = archive.read(f"{dist_info}/METADATA").decode("utf-8")
+    assert "Description-Content-Type: text/markdown\n" in metadata
+    description = metadata.split("\n\n", 1)[1].strip()
+    assert description.startswith("# cmux\n")
+    assert "python -m pip install cmux" in description
 
     wheel = next(wheels.glob("*macosx_11_0_arm64.whl"))
     wheel.unlink()

@@ -16,10 +16,17 @@ import UIKit
 /// guide can lie at the screen bottom) and while the chrome is hidden (the
 /// guide's safe-area fallback cannot seat an invisible dock flush with the
 /// screen edge), the seat falls back to the notification-driven constant
-/// from the keyboard-pinning rebuild (#10518), with `keyboardDidChangeFrame`
-/// disagreement reseats. ``MobileKeyboardFrameTracker`` heals the keyboard
-/// MODEL (height and visibility, for the toolbar toggle and diagnostics)
-/// after transitions missed while detached, on every OS.
+/// from the keyboard-pinning rebuild (#10518). On iOS ≤26 that fallback
+/// consumes the full notification stream (`keyboardDidChangeFrame`
+/// disagreement reseats, steady-state tracker heals). The iOS 27 seat
+/// trusts ONLY `keyboardWillChangeFrame` payloads and rebases interrupted
+/// legs from live presentation frames: that OS misreports keyboard frames
+/// outside the will transaction, so a did-frame reseat or a steady-state
+/// re-derivation moves a perfectly settled dock (#9958/#10006 shipped the
+/// will-only contract; #10518 recorded the misreporting when it quarantined
+/// the rebuilt path away from iOS 27). ``MobileKeyboardFrameTracker`` heals
+/// the keyboard MODEL (height and visibility, for the toolbar toggle and
+/// diagnostics) after transitions missed while detached, on every OS.
 ///
 /// Terminal presentation: the grid never resizes for the keyboard (see
 /// `TerminalLetterboxGeometry.terminalContainerSize`); the full-height
@@ -66,6 +73,10 @@ public final class GhosttySurfaceHostView: UIView {
     /// env or the Settings > Developer override) so CI simulators can
     /// exercise the notification path end to end.
     private let usesKeyboardGuideSeat: Bool
+    /// Whether the notification seat trusts only `keyboardWillChangeFrame`
+    /// payloads (the iOS 27 contract: did frames and steady-state
+    /// re-derivations misreport there and move a settled dock).
+    private let seatTrustsOnlyWillFrames: Bool
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
@@ -95,25 +106,29 @@ public final class GhosttySurfaceHostView: UIView {
         self.keyboardFrameTracker = keyboardFrameTracker
         var debugForceLegacy = false
         var debugForceRebuild = false
+        var debugForceIOS27Seat = false
         #if DEBUG
         debugForceLegacy = UITestConfig.forceLegacyKeyboardDock
         debugForceRebuild = UITestConfig.forceRebuildKeyboardDock
             || defaults.bool(forKey: "cmux.mobile.debug.forceRebuildKeyboardDock.v1")
+        debugForceIOS27Seat = UITestConfig.forceIOS27KeyboardSeat
         #else
         _ = defaults
         #endif
         // "Legacy" retains its pre-#10518 meaning: the guide-seated dock.
         // Any rebuild force or the remote kill switch selects the
-        // notification seat; iOS 27 always uses it (the guide lies there).
-        if debugForceLegacy {
-            usesKeyboardGuideSeat = true
-        } else if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 {
-            usesKeyboardGuideSeat = false
-        } else if debugForceRebuild || keyboardDockRebuildRevertEnabled {
-            usesKeyboardGuideSeat = false
-        } else {
-            usesKeyboardGuideSeat = true
-        }
+        // notification seat; iOS 27 always uses it (the guide lies there)
+        // and additionally trusts only will payloads (the rest of that OS's
+        // keyboard frame stream misreports; see the header).
+        let seatSelection = TerminalKeyboardSeatSelection(
+            osMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+            remoteRebuildRevert: keyboardDockRebuildRevertEnabled,
+            debugForceLegacy: debugForceLegacy,
+            debugForceRebuild: debugForceRebuild,
+            debugForceIOS27Seat: debugForceIOS27Seat
+        )
+        usesKeyboardGuideSeat = seatSelection.usesKeyboardGuideSeat
+        seatTrustsOnlyWillFrames = seatSelection.seatTrustsOnlyWillFrames
         super.init(frame: surfaceView.frame)
 
         backgroundColor = surfaceView.backgroundColor
@@ -131,6 +146,10 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
+        // The artifact chip joins the dock in this host's keyboard-invariant
+        // chrome space: the render wrapper slides under a keyboard, the
+        // chrome must not.
+        surfaceView.moveArtifactChip(to: self)
         if usesKeyboardGuideSeat {
             keyboardLayoutGuide.followsUndockedKeyboard = true
             keyboardLayoutGuide.usesBottomSafeArea = true
@@ -226,8 +245,14 @@ public final class GhosttySurfaceHostView: UIView {
         // Re-derive the keyboard MODEL from the tracker whenever this host is
         // laid out outside a keyboard transition: a notification can arrive
         // while the host still has pre-layout bounds, and the overlap captured
-        // then goes stale the moment the host's own frame changes.
-        healKeyboardModelFromTracker()
+        // then goes stale the moment the host's own frame changes. NOT on the
+        // will-only seat: iOS 27 misreports frames outside the will
+        // transaction, and re-deriving from a misreported record moves a
+        // settled dock. Attach recovery (`didMoveToWindow`) still heals
+        // transitions missed while detached.
+        if !seatTrustsOnlyWillFrames {
+            healKeyboardModelFromTracker()
+        }
         syncDockSeatAuthority()
         syncPresentationCaps()
         if hostOwnsDockSeat {
@@ -285,6 +310,16 @@ public final class GhosttySurfaceHostView: UIView {
     /// attached toggle is always leg-owned before any layout pass runs — this
     /// only corrects state from transitions the host missed while detached or
     /// captured against stale bounds.
+    ///
+    /// The will-only seat still runs this at ATTACH (`didMoveToWindow`) even
+    /// though the tracker records `did` frames iOS 27 can misreport: the
+    /// record read at attach is a settled end frame, a misreported one is
+    /// corrected by the next will leg, and skipping recovery would instead
+    /// wedge the dock indefinitely after a workspace switch mid-transition
+    /// (the pre-#10518 failure mode). Only the steady-state re-derivation in
+    /// `layoutSubviews` is gated off for will-only seats, because there a
+    /// misreported record moves an already-settled dock with no later will
+    /// to fix it.
     private func healKeyboardModelFromTracker() {
         guard let overlap = keyboardFrameTracker.currentOverlap(in: self) else { return }
         surfaceView.setHostedKeyboardState(
@@ -313,6 +348,13 @@ public final class GhosttySurfaceHostView: UIView {
     /// normal leg with a short curve because `did` payloads carry no
     /// animation duration of their own.
     @objc private func keyboardDidChangeFrame(_ notification: Notification) {
+        // The will-only seat never acts on `did` frames: iOS 27 misreports
+        // them (they can disagree with the settled keyboard), and one
+        // misreported disagreement hops a perfectly seated dock right after
+        // the toggle. iOS ≤26 notification seats keep the reseat: their
+        // frames are trustworthy, and UIKit really does re-seat a keyboard
+        // whose layout changed mid-presentation.
+        guard !seatTrustsOnlyWillFrames else { return }
         guard window != nil,
               let transition = MobileKeyboardTransition(notification: notification) else { return }
         let targetHeight = max(0, transition.overlap(in: self))
@@ -355,6 +397,13 @@ public final class GhosttySurfaceHostView: UIView {
             // are keyboard-independent, so the wrapper's new frame comes out
             // of that same transaction. Nothing to retarget or animate here.
             return
+        }
+        if seatTrustsOnlyWillFrames, keyboardTransitionActive {
+            // A reversal arrived while the previous leg is still animating.
+            // Fold the live presentation frames into the constraint model
+            // first, so the new leg starts every owned layer from one edge
+            // (the #10006 reversal contract the iOS 27 seat shipped with).
+            rebaseInterruptedKeyboardLegFromLiveFrames()
         }
         keyboardTransitionGeneration &+= 1
         let generation = keyboardTransitionGeneration
@@ -419,6 +468,38 @@ public final class GhosttySurfaceHostView: UIView {
         }
     }
 
+    /// Folds the live presentation frames of an interrupted keyboard leg
+    /// into the constraint model before the next leg begins (will-only
+    /// seat).
+    ///
+    /// A reversal arrives while the previous leg still has separate Core
+    /// Animation presentation trees for the dock, the clip boundary, and
+    /// the render wrapper. `.beginFromCurrentState` retargets each layer
+    /// from its own presentation frame, but their MODEL edges still hold
+    /// the old leg's target, and iOS 27 has been observed landing those
+    /// layers on different timelines (the one-frame seams the #10006 rebase
+    /// eliminated). Folding the live dock bottom into the seat constraint
+    /// and laying out without actions re-derives the clip and wrapper
+    /// models from that same live edge, so the new transaction moves every
+    /// owned layer from one consistent frame.
+    private func rebaseInterruptedKeyboardLegFromLiveFrames() {
+        guard let liveDockTop = surfaceView.hostedBottomDockPresentationTop(in: self) else { return }
+        let liveDockBottom = liveDockTop + surfaceView.hostedBottomDockFrame.height
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            dockBottomConstraint.constant = liveDockBottom - bounds.maxY
+            // The clip bottom and the render wrapper are constrained to the
+            // dock; lay out before stripping animations so their model edges
+            // land on the same live edge the dock was folded to.
+            layoutIfNeeded()
+            terminalClipView.layer.removeAllAnimations()
+            surfaceView.removeHostedBottomDockAnimations()
+            terminalPresentationView.layer.removeAllAnimations()
+        }
+        CATransaction.commit()
+    }
+
     private func seatDockWithoutAnimation() {
         syncDockSeatAuthority()
         syncPresentationCaps()
@@ -457,6 +538,7 @@ public final class GhosttySurfaceHostView: UIView {
 
     #if DEBUG
     var debugUsesNotificationKeyboardDock: Bool { hostOwnsDockSeat }
+    var debugSeatTrustsOnlyWillFrames: Bool { seatTrustsOnlyWillFrames }
     /// The expected render-to-dock seam for the CURRENT state: how much of
     /// the live intrusion the blank band absorbs. Mirrors what the inequality
     /// system produces, for the probe's gap == slack contract.

@@ -33,7 +33,9 @@ permissions: {}
 
 concurrency:
   group: cmux-tui-release-${{ github.ref }}
-  cancel-in-progress: true
+  # A stable build/publish run must finish before a recovery dispatch starts;
+  # cancelling it can strand an immutable tag with only partial registries.
+  cancel-in-progress: false
 
 jobs:
   version:
@@ -99,12 +101,50 @@ jobs:
       TAG: ${{ github.ref_name }}
       VERSION: ${{ inputs.version }}
       ARTIFACT_RUN_ID: ${{ github.run_id }}
+      SOURCE_SHA: ${{ github.sha }}
       PUBLISH_NPM: ${{ inputs.publish_npm }}
       PUBLISH_PYPI: ${{ inputs.publish_pypi }}
     steps:
       - name: Dispatch registry publishers
         run: |
           set -euo pipefail
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Discovery only — NEVER wait for the publisher's conclusion here:
+          # each publisher's validate-version step waits for THIS run to
+          # conclude successfully, so a dispatcher that watches the
+          # publisher deadlocks the release (both sides poll each other;
+          # the publisher's shorter timeout loses). Broke 0.13.0; the
+          # publishers self-guard with their own validation + gated
+          # environments, and this run's summary links the runs.
+          record_publisher() {
+            local workflow="$1"
+            local label="$2"
+            local run_id=""
+            local delay=2
+            local discovery_deadline=$((SECONDS + 300))
+            while (( SECONDS < discovery_deadline )); do
+              run_id="$(
+                gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" \
+                  --event workflow_dispatch --limit 50 --json databaseId,headSha,headBranch,status,conclusion,createdAt \
+                  --jq '.[] | select(.headBranch == env.TAG and .headSha == env.SOURCE_SHA and .createdAt >= env.STARTED_AT) | .databaseId' \
+                  | head -n 1
+              )"
+              run_id="${run_id//[[:space:]]/}"
+              if [[ -n "$run_id" ]]; then
+                break
+              fi
+              sleep "$delay"
+              (( delay = delay < 30 ? delay * 2 : 30 ))
+            done
+            if [[ -z "$run_id" ]]; then
+              echo "$label publisher run was not visible after dispatch" >&2
+              return 1
+            fi
+            echo "$label publisher run dispatched: $run_id"
+            echo "- $label publisher run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
+          }
+          export TAG SOURCE_SHA STARTED_AT="$started_at"
+
           if [[ "$PUBLISH_NPM" == "true" ]]; then
             gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
               -f version="$VERSION" \
@@ -127,3 +167,9 @@ jobs:
               echo "- Dispatched PyPI publisher"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$PUBLISH_NPM" == "true" ]]; then
+            record_publisher tui-publish-npm.yml "npm"
+          fi
+          if [[ "$PUBLISH_PYPI" == "true" ]]; then
+            record_publisher tui-publish-pypi.yml "PyPI"
+          fi

@@ -4960,6 +4960,24 @@ impl ContextMenu {
             level.ensure_selection_visible();
         }
     }
+
+    fn select_first(&mut self) {
+        let Some(level) = self.levels.last_mut() else { return };
+        if let Some(index) = level.items.iter().position(MenuItem::selectable) {
+            level.selected = index;
+            level.selection_active = true;
+            level.ensure_selection_visible();
+        }
+    }
+
+    fn select_last(&mut self) {
+        let Some(level) = self.levels.last_mut() else { return };
+        if let Some(index) = level.items.iter().rposition(MenuItem::selectable) {
+            level.selected = index;
+            level.selection_active = true;
+            level.ensure_selection_visible();
+        }
+    }
 }
 
 fn pane_context_menu_groups(
@@ -18528,6 +18546,14 @@ impl App {
                 menu.select_next();
                 Ok(RenderAction::Draw)
             }
+            KeyCode::Home => {
+                menu.select_first();
+                Ok(RenderAction::Draw)
+            }
+            KeyCode::End => {
+                menu.select_last();
+                Ok(RenderAction::Draw)
+            }
             KeyCode::Left if menu.search.is_some() => {
                 menu.handle_search_key(&key);
                 Ok(RenderAction::Draw)
@@ -28231,6 +28257,11 @@ mod tests {
         menu.select_previous();
         assert_eq!(menu.selected_action(), Some(MenuAction::CloseTab(7)));
 
+        menu.select_last();
+        assert_eq!(menu.selected_action(), Some(MenuAction::NewTab(7)));
+        menu.select_first();
+        assert_eq!(menu.selected_action(), Some(MenuAction::RenameTab(7)));
+
         menu.levels[0].selected = usize::MAX;
         menu.select_previous();
         menu.select_next();
@@ -28241,6 +28272,33 @@ mod tests {
         empty.select_previous();
         empty.select_next();
         assert_eq!(empty.selected_action(), None);
+    }
+
+    #[test]
+    fn context_menu_home_and_end_keys_jump_to_action_rows() {
+        let mux = Mux::new("context-menu-home-end-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.menu = Some(ContextMenu::at(
+            10,
+            5,
+            vec![
+                vec![MenuAction::RenameTab(7), MenuAction::CloseTab(7)],
+                Vec::new(),
+                vec![MenuAction::NewTab(7)],
+            ],
+        ));
+
+        app.handle_menu_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::NewTab(7))
+        );
+
+        app.handle_menu_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::RenameTab(7))
+        );
     }
 
     #[test]
@@ -38080,7 +38138,7 @@ mod tests {
         app.focus = FocusTarget::MachineRail;
         app.config.keys.apply_for_test(&HashMap::from([(
             "provider-menu".to_string(),
-            serde_json::Value::String("x".to_string()),
+            Value::String("x".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
@@ -38096,7 +38154,7 @@ mod tests {
         app.sync_layout((100, 16));
         app.config.keys.apply_for_test(&HashMap::from([(
             "provider-menu".to_string(),
-            serde_json::Value::String("j".to_string()),
+            Value::String("j".to_string()),
         )]));
 
         app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();

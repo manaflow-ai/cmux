@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-UNIX_INSTALLER = ROOT / "web/public/tui/install.sh"
-WINDOWS_INSTALLER = ROOT / "web/public/tui/install.ps1"
+UNIX_INSTALLER = ROOT / "web/public/tui/install-static.sh"
+WINDOWS_INSTALLER = ROOT / "web/public/tui/install-static.ps1"
 
 
 def write_executable(path: Path, contents: str) -> None:

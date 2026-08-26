@@ -53,8 +53,8 @@ actor AppContextSerialGate {
 /// Test-only main-window context seams, kept in the test target per the
 /// debug-seam policy and reaching internal AppDelegate state via
 /// `@testable import`. Tests register a windowless context and tear it down
-/// through the same removal path the real window-close flow uses, including
-/// per-window Dock teardown.
+/// through the recoverable removal path used while SwiftUI replaces a context.
+/// Tests that model an authoritative close also forget the resulting route.
 extension AppDelegate {
     @discardableResult
     func registerMainWindowContextForTesting(

@@ -88,7 +88,9 @@ jobs:
       version: ${{ needs.version.outputs.version }}
       package_npm: true
       package_pypi: false
-      include_windows: true
+      # The Rust machine relay is Unix-only until a tested Windows PTY backend
+      # exists. Windows remains on the Node rollback lane during cutover.
+      include_windows: false
       attest_packages: true
 
   publish:
@@ -136,9 +138,61 @@ jobs:
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.version }}" \
-            --include-windows \
             --install-npm-package cmux-tui-linux-x64 \
             --install-npm-relay-package cmux-relay-linux-x64
+
+      - name: Preflight trusted publishing contract
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          : "${ACTIONS_ID_TOKEN_REQUEST_URL:?GitHub OIDC URL is unavailable; keep npm publishing disabled}"
+          : "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?GitHub OIDC token request permission is unavailable}"
+          [[ "$(npm config get registry)" == "https://registry.npmjs.org/" ]] || {
+            echo "npm registry is not registry.npmjs.org" >&2
+            exit 1
+          }
+          npm_version="$(npm --version)"
+          node - "$npm_version" <<'NODE'
+          const [major, minor, patch] = process.argv[2].split(".").map(Number);
+          if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) {
+            throw new Error(`npm ${process.argv[2]} is too old for trusted publishing (need >= 11.5.1)`);
+          }
+          NODE
+
+          packages=(
+            cmux-relay
+            cmux-relay-darwin-arm64
+            cmux-relay-darwin-x64
+            cmux-relay-linux-x64
+            cmux-relay-linux-arm64
+          )
+          for package in "${packages[@]}"; do
+            package_json="dist/npm-packages/$package/package.json"
+            [[ -f "$package_json" ]] || { echo "missing package metadata: $package_json" >&2; exit 1; }
+            node - "$package_json" "$package" "$VERSION" <<'NODE'
+          const fs = require("node:fs");
+          const [path, expectedName, expectedVersion] = process.argv.slice(2);
+          const metadata = JSON.parse(fs.readFileSync(path, "utf8"));
+          if (metadata.name !== expectedName || metadata.version !== expectedVersion) {
+            throw new Error(`${path}: package identity/version does not match the release`);
+          }
+          if (metadata.repository?.url !== "git+https://github.com/manaflow-ai/cmux.git") {
+            throw new Error(`${path}: repository.url must identify manaflow-ai/cmux for provenance`);
+          }
+          NODE
+            npm pack --dry-run --ignore-scripts --json "dist/npm-packages/$package" >/dev/null
+          done
+
+          {
+            echo "### npm trusted-publisher preflight"
+            echo
+            echo "- OIDC token request and npm >= 11.5.1 are present."
+            echo "- Five Unix package identities, versions, repository URLs, and tarballs passed local checks."
+            echo "- Account-side npm trust must exist for every package: repository manaflow-ai/cmux, workflow relay-publish-npm.yml, environment npm-tui, publish permission."
+            echo "- Windows Rust machine relay is intentionally absent; keep the Node rollback publisher until a tested Windows PTY backend is released."
+            echo "- The registry does not expose a read-only trust-list endpoint to this OIDC job; maintainer account configuration remains a release gate."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify relay npm package attestations
         env:
@@ -147,7 +201,8 @@ jobs:
           set -euo pipefail
           mapfile -d '' binaries < <(
             find dist/npm-packages -type f \
-              -path '*/cmux-relay-*/bin/cmux-relay*' \
+              \( -path '*/cmux-relay-*/bin/chatmux-relay*' -o \
+                 -path '*/cmux-relay-*/bin/cmux-tui*' \) \
               -print0 | sort -z
           )
           ((${#binaries[@]} > 0))
@@ -160,9 +215,10 @@ jobs:
               --source-ref "$GITHUB_REF"
           done
 
-      - name: Publish relay platform packages
+      - name: Publish five Unix relay packages idempotently
         env:
           DIST_TAG: ${{ needs.version.outputs.dist_tag }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           packages=(
@@ -170,56 +226,191 @@ jobs:
             cmux-relay-darwin-x64
             cmux-relay-linux-x64
             cmux-relay-linux-arm64
-            cmux-relay-win32-x64
+            cmux-relay
           )
-          for package in "${packages[@]}"; do
-            echo "Publishing $package@$DIST_TAG"
-            if ! npm publish --provenance --tag "$DIST_TAG" "dist/npm-packages/$package"; then
-              cat >&2 <<'EOF'
-          npm publish failed.
 
-          For the first publish of the cmux-relay package names from this
-          repository, add npm Trusted Publishers for:
-          - cmux-relay
-          - cmux-relay-darwin-arm64
-          - cmux-relay-darwin-x64
-          - cmux-relay-linux-x64
-          - cmux-relay-linux-arm64
-          - cmux-relay-win32-x64
+          local_integrity() {
+            local package="$1"
+            local pack_root
+            local metadata
+            local tarball
+            pack_root="$(mktemp -d)"
+            metadata="$(npm pack --ignore-scripts --json --pack-destination "$pack_root" "dist/npm-packages/$package")"
+            tarball="$(node - "$metadata" <<'NODE'
+          const metadata = JSON.parse(process.argv[2]);
+          if (!Array.isArray(metadata) || metadata.length !== 1 || typeof metadata[0].filename !== "string") {
+            throw new Error("npm pack returned an unexpected result");
+          }
+          process.stdout.write(metadata[0].filename);
+          NODE
+            )"
+            node - "$pack_root/$tarball" <<'NODE'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+          const digest = crypto.createHash("sha512").update(fs.readFileSync(process.argv[2])).digest("base64");
+          process.stdout.write(`sha512-${digest}`);
+          NODE
+          }
 
-          Trusted publisher settings for each package:
-          - Repository: manaflow-ai/cmux
-          - Workflow: relay-publish-npm.yml
-          - Environment: npm-tui
+          registry_integrity() {
+            local package="$1"
+            local value
+            value="$(npm view "$package@$VERSION" dist.integrity --json 2>/dev/null || true)"
+            printf '%s' "$value" | tr -d '"[:space:]'
+          }
 
-          The cmux-relay launcher name itself is owned by the chatmux repo's
-          Node publisher until the R5 owner switch (chatmux
-          docs/RELAY-RUST.md); its trusted publisher must be moved to this
-          repository before the first stable cmux-relay-vX.Y.Z tag.
-          EOF
-              exit 1
+          version_exists() {
+            local package="$1"
+            local output
+            local error_file
+            error_file="$(mktemp)"
+            if output="$(npm view "$package@$VERSION" version --json 2>"$error_file")"; then
+              rm -f "$error_file"
+              normalized="$(printf '%s' "$output" | tr -d '"[:space:]')"
+              if [[ "$normalized" == "$VERSION" ]]; then
+                return 0
+              fi
+              echo "npm view returned unexpected version $normalized for $package@$VERSION" >&2
+              return 2
             fi
+            if grep -Eq 'E404|404 Not Found|No match found' "$error_file"; then
+              rm -f "$error_file"
+              return 1
+            fi
+            cat "$error_file" >&2
+            rm -f "$error_file"
+            return 2
+          }
+
+          publish_if_missing() {
+            local package="$1"
+            local expected_integrity
+            local existing_integrity
+            expected_integrity="$(local_integrity "$package")"
+            if version_exists "$package"; then
+              existing_integrity="$(registry_integrity "$package")"
+              if [[ -z "$existing_integrity" || "$existing_integrity" != "$expected_integrity" ]]; then
+                echo "$package@$VERSION exists with a different package integrity" >&2
+                echo "expected=$expected_integrity actual=${existing_integrity:-missing}" >&2
+                return 1
+              fi
+              echo "Skipping $package@$VERSION: already published with matching integrity"
+              return 0
+            else
+              case "$?" in
+                1) ;;
+                *) echo "Could not determine whether $package@$VERSION exists" >&2; return 1 ;;
+              esac
+            fi
+
+            echo "Publishing $package@$VERSION with dist-tag $DIST_TAG"
+            if npm publish --provenance --access public --tag "$DIST_TAG" "dist/npm-packages/$package"; then
+              return 0
+            fi
+            # A network failure after npm accepted the publish can leave the
+            # version immutable in the registry. Re-read before failing so a
+            # retry is safe and does not publish a second time.
+            if version_exists "$package" && [[ "$(registry_integrity "$package")" == "$expected_integrity" ]]; then
+              echo "Treating $package@$VERSION as published after a late registry response with matching integrity"
+              return 0
+            fi
+            echo "npm publish failed for $package@$VERSION" >&2
+            return 1
+          }
+
+          for package in "${packages[@]}"; do
+            publish_if_missing "$package"
           done
 
-      - name: Publish relay launcher package
-        env:
-          DIST_TAG: ${{ needs.version.outputs.dist_tag }}
-        run: npm publish --provenance --tag "$DIST_TAG" dist/npm-packages/cmux-relay
-
-      - name: Smoke install from the registry
+      - name: Audit published npm signatures and provenance
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          # Registry propagation can lag the publish by a few seconds.
-          for attempt in $(seq 1 10); do
-            if npm install -g "cmux-relay@$VERSION"; then
-              break
-            fi
-            if [[ "$attempt" == "10" ]]; then
-              echo "npm install -g cmux-relay@$VERSION never resolved" >&2
-              exit 1
-            fi
-            sleep 15
+          packages=(
+            cmux-relay
+            cmux-relay-darwin-arm64
+            cmux-relay-darwin-x64
+            cmux-relay-linux-x64
+            cmux-relay-linux-arm64
+          )
+          audit_root="$(mktemp -d)"
+          trap 'rm -rf "$audit_root"' EXIT
+          cd "$audit_root"
+          npm init -y --silent >/dev/null
+          wait_for_provenance() {
+            local package="$1"
+            local deadline=$((SECONDS + 180))
+            local provenance
+            while (( SECONDS < deadline )); do
+              provenance="$(npm view "$package@$VERSION" dist.attestations.provenance.predicateType --json 2>/dev/null || true)"
+              if [[ "$provenance" == *"slsa.dev/provenance"* ]]; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "$package@$VERSION did not expose npm provenance within 180 seconds" >&2
+            return 1
+          }
+          for package in "${packages[@]}"; do
+            wait_for_provenance "$package"
+            # --force permits metadata-only verification of packages whose
+            # os/cpu fields do not match this Linux audit runner. Scripts stay
+            # disabled; no package executable runs here.
+            npm install --ignore-scripts --force --save-exact "$package@$VERSION" >/dev/null
           done
-          cmux-relay --version
+          # npm 11.5.1 (the minimum version required for trusted publishing)
+          # does not know --include-attestations. The metadata poll above is
+          # the provenance assertion; this command verifies registry
+          # signatures with the supported client.
+          npm audit signatures --json > audit-signatures.json
+          node - audit-signatures.json <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          if (report.invalid?.length || report.missing?.length) {
+            throw new Error(`npm signature audit reported invalid or missing entries: ${JSON.stringify({ invalid: report.invalid, missing: report.missing })}`);
+          }
+          NODE
+
+  smoke:
+    name: smoke published launcher (${{ matrix.os }})
+    needs:
+      - version
+      - publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            package: cmux-relay-linux-x64
+          - os: macos-14
+            package: cmux-relay-darwin-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm with OIDC-compatible registry client
+        run: npm install -g npm@11.5.1
+
+      - name: Install and run relay launcher
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          PLATFORM_PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          # Install the exact platform package as a direct dependency so this
+          # smoke proves the launcher resolves the package for each OS family.
+          npm install --global --ignore-scripts --force "cmux-relay@$VERSION" "$PLATFORM_PACKAGE@$VERSION"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cmux-relay.cmd --version
+          else
+            cmux-relay --version
+          fi

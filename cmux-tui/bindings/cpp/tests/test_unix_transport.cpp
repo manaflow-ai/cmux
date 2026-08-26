@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include "cmux/resource.hpp"
+#include "cmux/raw/client_core.hpp"
 #include "cmux/transport.hpp"
 #include "socket_path_internal.hpp"
 
@@ -572,6 +573,49 @@ TEST("custom transports bypass derived session validation") {
     CHECK(!client);
     CHECK_EQ(client.error().code, cmux::ErrorCode::connection);
     CHECK_EQ(client.error().message, std::string("custom transport reached"));
+}
+
+TEST("legacy socket fallback preserves a custom stream transport factory") {
+    std::lock_guard lock(environment_mutex);
+    ScopedEnvironment environment({"CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET", "XDG_RUNTIME_DIR", "TMPDIR"});
+    environment.unset("CMUX_TUI_SOCKET");
+    environment.unset("CMUX_MUX_SOCKET");
+    environment.unset("XDG_RUNTIME_DIR");
+    environment.unset("TMPDIR");
+    const auto session =
+        std::string("cpp-stream-factory-") + std::to_string(static_cast<unsigned long>(::getpid()));
+    const auto directory = std::filesystem::path(
+        "/tmp/cmux-tui-" + std::to_string(static_cast<unsigned long>(::getuid())));
+    const auto path = directory / (session + ".sock");
+    std::error_code ignored;
+    std::filesystem::create_directories(directory, ignored);
+    std::filesystem::remove(path, ignored);
+    const int listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    CHECK(listener >= 0);
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::memcpy(address.sun_path, path.c_str(), path.string().size() + 1);
+    CHECK(::bind(
+        listener, reinterpret_cast<const sockaddr*>(&address),
+        static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + path.string().size() + 1)) == 0);
+    CHECK(::listen(listener, 1) == 0);
+
+    cmux::raw::ClientOptions options;
+    options.session = session;
+    options.timeout = std::chrono::seconds(1);
+    options.stream_transport_factory = []() -> cmux::Result<std::unique_ptr<cmux::Transport>> {
+        return cmux::make_error(cmux::ErrorCode::connection, "custom stream factory reached");
+    };
+    auto client = cmux::raw::detail::ClientCore::connect(std::move(options));
+    CHECK(client);
+    auto stream = client.value().open_stream("stream", {}, {}, std::chrono::milliseconds(100));
+    CHECK(!stream);
+    CHECK_EQ(stream.error().code, cmux::ErrorCode::connection);
+    CHECK_EQ(stream.error().message, std::string("custom stream factory reached"));
+
+    ::close(listener);
+    std::filesystem::remove(path, ignored);
+    std::filesystem::remove(directory, ignored);
 }
 
 TEST("Unix transport assembles partial JSON-lines frames") {

@@ -51,7 +51,7 @@ RELAY_TARGETS = [
 ]
 
 VERSION_RE = re.compile(
-    r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
+    r"^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
 )
 
 
@@ -68,7 +68,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         required=True,
-        help="Package version in X.Y.Z or X.Y.Z-nightly.YYYYMMDD.N form.",
+        help=(
+            "Package version in X.Y.Z, X.Y.Z-rc.N, or "
+            "X.Y.Z-nightly.YYYYMMDD.N form."
+        ),
     )
     parser.add_argument(
         "--out",
@@ -142,9 +145,17 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
         src = binaries_dir / f"chatmux-relay-{target['rust_target']}{ext}"
         if not src.is_file():
             raise SystemExit(f"missing relay binary: {src}")
+        tui_src = binaries_dir / f"cmux-tui-{target['rust_target']}{ext}"
+        if not tui_src.is_file():
+            raise SystemExit(f"missing cmux-tui runtime for relay: {tui_src}")
         package_dir = out_dir / target["package"]
         recreate_dir(package_dir)
-        copy_executable(src, package_dir / "bin" / f"cmux-relay{ext}")
+        copy_executable(src, package_dir / "bin" / f"chatmux-relay{ext}")
+        # The machine relay must never silently fall back to a shell when its
+        # matching cmux-tui runtime is absent. Keep the exact runtime in the
+        # platform package. The launcher resolves this bundled binary from the
+        # same platform package, so a separate TUI package is not needed.
+        copy_executable(tui_src, package_dir / "bin" / f"cmux-tui{ext}")
         write_json(
             package_dir / "package.json",
             {
@@ -159,7 +170,7 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
                 "license": "MIT",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-relay{ext}"],
+                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}"],
             },
         )
 
@@ -212,7 +223,10 @@ def package_launcher(version: str, out_dir: Path, include_windows: bool) -> None
 def main() -> None:
     args = parse_args()
     if not VERSION_RE.fullmatch(args.version):
-        raise SystemExit("--version must match X.Y.Z or X.Y.Z-nightly.YYYYMMDD.N")
+        raise SystemExit(
+            "--version must match X.Y.Z, X.Y.Z-rc.N, or "
+            "X.Y.Z-nightly.YYYYMMDD.N"
+        )
 
     binaries_dir = args.binaries_dir.resolve()
     out_dir = args.out.resolve()

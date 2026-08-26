@@ -27,7 +27,9 @@ struct WorkspaceTitleMenuContent: View {
                         )
                     }
                     .accessibilityIdentifier("MobileWorkspaceTitleCustomizeMenuItem")
-                } else if canRenameWorkspace {
+                }
+
+                if canRenameWorkspace {
                     Button(action: presentRename) {
                         Label(
                             L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),

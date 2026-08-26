@@ -21,10 +21,10 @@ EXECUTABLES = (
     "cmux-tui-linux-arm64/bin/cmux-tui",
     "cmux-tui-linux-arm64/bin/cmux-tui-hook",
     "cmux/bin/cmux.js",
-    "cmux-relay-darwin-arm64/bin/cmux-relay",
-    "cmux-relay-darwin-x64/bin/cmux-relay",
-    "cmux-relay-linux-x64/bin/cmux-relay",
-    "cmux-relay-linux-arm64/bin/cmux-relay",
+    "cmux-relay-darwin-arm64/bin/chatmux-relay",
+    "cmux-relay-darwin-x64/bin/chatmux-relay",
+    "cmux-relay-linux-x64/bin/chatmux-relay",
+    "cmux-relay-linux-arm64/bin/chatmux-relay",
     "cmux-relay/bin/cmux-relay.js",
 )
 
@@ -66,6 +66,10 @@ function isEphemeralNpxPath(value) {
 }
 
 const executable = process.env.CMUX_RELAY_FIXTURE_EXECUTABLE || __filename;
+if (process.platform === "win32") {
+  console.error("cmux-relay: unsupported_platform (the Rust machine relay requires a Unix PTY backend).");
+  process.exit(1);
+}
 if (process.argv.slice(2).includes("--autostart") && isEphemeralNpxPath(executable)) {
   console.error(
     "Install cmux-relay globally (npm install --global cmux-relay) before --autostart.",
@@ -79,8 +83,7 @@ process.stdout.write("cmux relay launcher 1.2.3\n");
     path.chmod(0o755)
 
 
-def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:
-    packages = tmp_path / "npm-packages"
+def make_package_fixture(packages: Path) -> None:
     for name, (os_name, cpu) in TARGETS.items():
         package = packages / name
         package.mkdir(parents=True, exist_ok=True)
@@ -133,15 +136,18 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-relay"],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
                 }
             )
             + "\n"
         )
-        executable = package / "bin" / "cmux-relay"
+        executable = package / "bin" / "chatmux-relay"
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text("#!/bin/sh\nexit 0\n")
         executable.chmod(0o755)
+        runtime = package / "bin" / "cmux-tui"
+        runtime.write_text("#!/bin/sh\nexit 0\n")
+        runtime.chmod(0o755)
 
     relay_launcher = packages / "cmux-relay"
     relay_launcher.mkdir(parents=True, exist_ok=True)
@@ -163,6 +169,11 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
     relay_launcher_bin.parent.mkdir(parents=True, exist_ok=True)
     write_relay_launcher_fixture(relay_launcher_bin)
 
+
+def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:
+    packages = tmp_path / "npm-packages"
+    make_package_fixture(packages)
+
     archive = tmp_path / "npm-packages.tar.gz"
     created = run_helper(
         "create", "--packages-dir", packages, "--archive", archive
@@ -179,6 +190,39 @@ def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> Non
     for relative_path in EXECUTABLES:
         mode = (packages / relative_path).stat().st_mode
         assert mode & stat.S_IXUSR, relative_path
+
+
+def test_archive_bytes_are_independent_of_modes_and_output_name(tmp_path: Path) -> None:
+    first_packages = tmp_path / "first" / "npm-packages"
+    second_packages = tmp_path / "second" / "npm-packages"
+    make_package_fixture(first_packages)
+    make_package_fixture(second_packages)
+
+    # Equivalent package trees may arrive with different umasks after a
+    # self-hosted artifact hop.  The archive name is also caller-controlled.
+    (second_packages / "cmux").chmod(0o700)
+    (second_packages / "cmux" / "package.json").chmod(0o600)
+    (second_packages / "cmux" / "bin" / "cmux.js").chmod(0o711)
+
+    first_archive = tmp_path / "first-name.tar.gz"
+    second_archive = tmp_path / "second-name.tar.gz"
+    first = run_helper(
+        "create",
+        "--packages-dir",
+        first_packages,
+        "--archive",
+        first_archive,
+    )
+    second = run_helper(
+        "create",
+        "--packages-dir",
+        second_packages,
+        "--archive",
+        second_archive,
+    )
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert first_archive.read_bytes() == second_archive.read_bytes()
 
 
 def test_extract_rejects_paths_outside_package_root(tmp_path: Path) -> None:
@@ -236,6 +280,8 @@ def test_pypi_build_runs_full_wheel_contract_before_smoke() -> None:
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         test_archive_round_trip_preserves_package_executables(Path(directory))
+    with tempfile.TemporaryDirectory() as directory:
+        test_archive_bytes_are_independent_of_modes_and_output_name(Path(directory))
     with tempfile.TemporaryDirectory() as directory:
         test_extract_rejects_paths_outside_package_root(Path(directory))
     test_publish_workflows_restore_the_mode_preserving_archive()

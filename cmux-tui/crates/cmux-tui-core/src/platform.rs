@@ -5,6 +5,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub mod transport {
     use std::io::{self, Read, Write};
@@ -822,6 +823,35 @@ pub fn home_dir() -> Option<PathBuf> {
     })
 }
 
+static LAUNCH_CWD: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Pin the process working directory before anything can change it. Entry
+/// points call this at startup so `default_terminal_cwd` keeps answering with
+/// the directory the user launched from.
+pub fn capture_launch_cwd() {
+    let _ = LAUNCH_CWD.get_or_init(|| std::env::current_dir().ok());
+}
+
+/// Directory a new terminal starts in when its creator names none: where the
+/// user launched `cmux`, not $HOME. The value is pinned at daemon startup, so
+/// clients attaching to an existing session never move it. A filesystem root
+/// or a launch directory that no longer exists falls back to $HOME so a
+/// durable session that outlives its worktree still spawns terminals.
+pub fn default_terminal_cwd() -> Option<String> {
+    let launch = LAUNCH_CWD.get_or_init(|| std::env::current_dir().ok()).clone();
+    default_terminal_cwd_from(launch.as_deref())
+}
+
+fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
+    if let Some(dir) = launch
+        && dir.parent().is_some()
+        && dir.is_dir()
+    {
+        return Some(dir.to_string_lossy().into_owned());
+    }
+    home_dir().map(|path| path.to_string_lossy().into_owned())
+}
+
 /// Convert a terminal-reported OSC 7 working directory into a local path.
 ///
 /// Shells normally report `file://host/path`. A URI from another host cannot
@@ -962,6 +992,22 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_terminal_cwd_prefers_a_live_launch_directory() {
+        let dir = std::env::temp_dir().canonicalize().unwrap();
+        assert_eq!(default_terminal_cwd_from(Some(&dir)), Some(dir.to_string_lossy().into_owned()));
+    }
+
+    #[test]
+    fn default_terminal_cwd_rejects_roots_and_vanished_directories() {
+        let root = if cfg!(windows) { PathBuf::from("C:\\") } else { PathBuf::from("/") };
+        let home = home_dir().map(|path| path.to_string_lossy().into_owned());
+        assert_eq!(default_terminal_cwd_from(Some(&root)), home);
+        let gone = std::env::temp_dir().join(format!("cmux-cwd-gone-{}", std::process::id()));
+        assert_eq!(default_terminal_cwd_from(Some(&gone)), home);
+        assert_eq!(default_terminal_cwd_from(None), home);
+    }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]

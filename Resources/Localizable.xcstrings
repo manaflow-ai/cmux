@@ -37700,6 +37700,57 @@
         }
       }
     },
+    "cli.error.clearNotificationsCorrelationKeyInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid notification correlation key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知相関キーが無効です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsCorrelationKeyRequiresPanel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key requires --panel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key には --panel が必要です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        }
+      }
+    },
     "cli.error.markNotificationReadSelector": {
       "extractionState": "manual",
       "localizations": {
@@ -49193,6 +49244,91 @@
         }
       }
     },
+    "cli.mobile.compatibleTags.applied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted Mac dev tags for paired phones: %@ (pushed to connected device(s))."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの iPhone に許可した Mac 開発タグ: %@（接続中のデバイスへ送信済み）。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.appliedNoDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted Mac dev tags for paired phones: %@ (applies when a phone next connects)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの iPhone に許可した Mac 開発タグ: %@（次回接続時に適用されます）。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No additional Mac dev tags are granted to this Mac's paired phones."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のペアリング済み iPhone に追加で許可された Mac 開発タグはありません。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(none)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（なし）"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux mobile compatible-tags [list|set <tags...>|add <tags...>|remove <tags...>|clear]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux mobile compatible-tags [list|set <タグ...>|add <タグ...>|remove <タグ...>|clear]"
+          }
+        }
+      }
+    },
     "cli.mobile.setFont.applied": {
       "extractionState": "manual",
       "localizations": {
@@ -54117,6 +54253,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.inputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 切断中に入力した内容は破棄されます。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.recovered": {
       "extractionState": "manual",
       "localizations": {
@@ -55543,6 +55696,23 @@
         }
       }
     },
+    "cli.ssh.terminalExitPrompt.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] press Enter to close this pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 閉じるには Enter を押してください。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.bridgeClosedReattaching": {
       "extractionState": "manual",
       "localizations": {
@@ -55556,6 +55726,283 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH disconnected (%s); retry %s in %ss; input discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH が切断されました（%s）。%s 回目を %s 秒後に再試行します。入力は破棄されます。"
+          }
+        },
+        "ar": {"stringUnit": {"state": "translated", "value": "[cmux] انقطع اتصال SSH (%s)؛ إعادة المحاولة %s خلال %s ث؛ سيتم تجاهل الإدخال."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "[cmux] SSH veza je prekinuta (%s); pokušaj %s za %s s; unos se odbacuje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "[cmux] SSH afbrudt (%s); prøver igen %s om %s s; input kasseres."}},
+        "de": {"stringUnit": {"state": "translated", "value": "[cmux] SSH getrennt (%s); Versuch %s in %s s; Eingaben werden verworfen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "[cmux] SSH desconectado (%s); reintento %s en %s s; la entrada se descarta."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "[cmux] SSH déconnecté (%s) ; nouvelle tentative %s dans %s s ; saisie ignorée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "[cmux] SSH disconnesso (%s); nuovo tentativo %s tra %s s; input scartato."}},
+        "km": {"stringUnit": {"state": "translated", "value": "[cmux] SSH បានផ្តាច់ (%s); ព្យាយាមម្ដងទៀត %s ក្នុង %s វិ; ទិន្នន័យបញ្ចូលត្រូវបានបោះចោល។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "[cmux] SSH 연결 끊김(%s); %s번째 재시도를 %s초 후 수행합니다; 입력은 버립니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "[cmux] SSH frakoblet (%s); prøver igjen %s om %s s; inndata forkastes."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "[cmux] SSH rozłączone (%s); ponowna próba %s za %s s; dane wejściowe zostaną odrzucone."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "[cmux] SSH desconectado (%s); nova tentativa %s em %s s; entrada descartada."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "[cmux] SSH отключён (%s); повторная попытка %s через %s с; ввод будет отброшен."}},
+        "th": {"stringUnit": {"state": "translated", "value": "[cmux] SSH ถูกตัดการเชื่อมต่อ (%s); ลองใหม่ครั้งที่ %s ใน %s วินาที; อินพุตจะถูกทิ้ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "[cmux] SSH bağlantısı kesildi (%s); %s. deneme %s sn içinde; girdi atılacak."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "[cmux] SSH від’єднано (%s); повторна спроба %s через %s с; введення буде відкинуто."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "[cmux] SSH 已断开（%s）；重试第 %s 次（%s 秒后）；输入将被丢弃。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "[cmux] SSH 已中斷（%s）；重試第 %s 次（%s 秒後）；輸入將被捨棄。"}}
+      }
+    },
+    "cli.sshPtyAttach.retryReason.hostUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "host unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストに接続できません"
+          }
+        },
+        "ar": {"stringUnit": {"state": "translated", "value": "المضيف غير قابل للوصول"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "host nije dostupan"}},
+        "da": {"stringUnit": {"state": "translated", "value": "værten kan ikke nås"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Host nicht erreichbar"}},
+        "es": {"stringUnit": {"state": "translated", "value": "host inaccesible"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "hôte inaccessible"}},
+        "it": {"stringUnit": {"state": "translated", "value": "host non raggiungibile"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចចូលដល់ម៉ាស៊ីន"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "호스트에 연결할 수 없음"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "vert utilgjengelig"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "host nieosiągalny"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "host inacessível"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "хост недоступен"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เข้าถึงโฮสต์ไม่ได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "ana bilgisayara ulaşılamıyor"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "хост недоступний"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主机不可达"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "主機無法連線"}}
+      }
+    },
+    "cli.sshPtyAttach.retryReason.controlMasterUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication/control unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証または制御接続を利用できません"
+          }
+        },
+        "ar": {"stringUnit": {"state": "translated", "value": "مصادقة/تحكم SSH غير متاح"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "SSH autentikacija/kontrola nije dostupna"}},
+        "da": {"stringUnit": {"state": "translated", "value": "SSH-godkendelse/-kontrol er utilgængelig"}},
+        "de": {"stringUnit": {"state": "translated", "value": "SSH-Authentifizierung/-Steuerung nicht verfügbar"}},
+        "es": {"stringUnit": {"state": "translated", "value": "autenticación/control SSH no disponible"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "authentification/contrôle SSH indisponible"}},
+        "it": {"stringUnit": {"state": "translated", "value": "autenticazione/controllo SSH non disponibile"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនមានការផ្ទៀងផ្ទាត់/ការគ្រប់គ្រង SSH"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 인증/제어를 사용할 수 없음"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "SSH-autentisering/-kontroll utilgjengelig"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "uwierzytelnianie/kontrola SSH niedostępna"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "autenticação/controle SSH indisponível"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "аутентификация/управление SSH недоступны"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การยืนยันตัวตน/การควบคุม SSH ใช้งานไม่ได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "SSH kimlik doğrulama/kontrolü kullanılamıyor"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "автентифікація/керування SSH недоступні"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "SSH 身份验证/控制不可用"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "SSH 驗證/控制無法使用"}}
+      }
+    },
+    "cli.sshPtyAttach.retryReason.daemonNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote service is starting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートサービスを起動しています"
+          }
+        },
+        "ar": {"stringUnit": {"state": "translated", "value": "الخدمة البعيدة قيد التشغيل"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "udaljena usluga se pokreće"}},
+        "da": {"stringUnit": {"state": "translated", "value": "fjerntjenesten starter"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Remote-Dienst wird gestartet"}},
+        "es": {"stringUnit": {"state": "translated", "value": "el servicio remoto se está iniciando"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "le service distant démarre"}},
+        "it": {"stringUnit": {"state": "translated", "value": "il servizio remoto si avvia"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សេវាពីចម្ងាយកំពុងចាប់ផ្តើម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "원격 서비스 시작 중"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "fjerntjenesten starter"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "usługa zdalna uruchamia się"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "o serviço remoto está iniciando"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "удалённая служба запускается"}},
+        "th": {"stringUnit": {"state": "translated", "value": "กำลังเริ่มบริการระยะไกล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "uzak hizmet başlatılıyor"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "віддалена служба запускається"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "远程服务正在启动"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "遠端服務正在啟動"}}
+      }
+    },
+    "cli.sshPtyAttach.retryReason.bridgeClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connection interrupted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が中断されました"
+          }
+        },
+        "ar": {"stringUnit": {"state": "translated", "value": "انقطع الاتصال"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "veza je prekinuta"}},
+        "da": {"stringUnit": {"state": "translated", "value": "forbindelsen blev afbrudt"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verbindung unterbrochen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "conexión interrumpida"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "connexion interrompue"}},
+        "it": {"stringUnit": {"state": "translated", "value": "connessione interrotta"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការតភ្ជាប់ត្រូវបានផ្អាក"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결 중단"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "tilkoblingen ble avbrutt"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "połączenie przerwane"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "conexão interrompida"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "соединение прервано"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การเชื่อมต่อถูกขัดจังหวะ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bağlantı kesildi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "з’єднання перервано"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接中断"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線中斷"}}
+      }
+    },
+    "cli.sshPtyAttach.retryReason.noProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote service made no progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートサービスから進展がありません"
+          }
+        },
+        "ar": {"stringUnit": {"state": "translated", "value": "لم تتقدم الخدمة البعيدة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "udaljena usluga nije napredovala"}},
+        "da": {"stringUnit": {"state": "translated", "value": "fjerntjenesten gjorde ingen fremskridt"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Remote-Dienst kommt nicht voran"}},
+        "es": {"stringUnit": {"state": "translated", "value": "el servicio remoto no avanzó"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "le service distant n’avance pas"}},
+        "it": {"stringUnit": {"state": "translated", "value": "il servizio remoto non avanza"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សេវាពីចម្ងាយមិនមានការរីកចម្រើន"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "원격 서비스가 진행되지 않음"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "fjerntjenesten gjorde ingen fremgang"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "usługa zdalna nie robi postępów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "o serviço remoto não avançou"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "удалённая служба не продвигается"}},
+        "th": {"stringUnit": {"state": "translated", "value": "บริการระยะไกลไม่คืบหน้า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "uzak hizmet ilerleme göstermedi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "віддалена служба не просувається"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "远程服务没有进展"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "遠端服務沒有進展"}}
+      }
+    },
+    "cli.sshPtyAttach.terminalInputFlushFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "SSH terminal input could not be reset; reconnecting."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ターミナル入力をリセットできませんでした。再接続します。"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إعادة ضبط إدخال طرفية SSH؛ جارٍ إعادة الاتصال."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ulaz SSH terminala nije moguće resetovati; ponovno povezivanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "SSH-terminalinput kunne ikke nulstilles; opretter forbindelse igen."}},
+        "de": {"stringUnit": {"state": "translated", "value": "SSH-Terminaleingabe konnte nicht zurückgesetzt werden; Verbindung wird wiederhergestellt."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo restablecer la entrada del terminal SSH; reconectando."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’entrée du terminal SSH n’a pas pu être réinitialisée ; reconnexion."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Impossibile reimpostare l’input del terminale SSH; riconnessione."}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចកំណត់ការបញ្ចូលស្ថានីយ SSH ឡើងវិញបានទេ; កំពុងភ្ជាប់ឡើងវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 터미널 입력을 재설정할 수 없습니다. 다시 연결합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "SSH-terminalinndata kunne ikke tilbakestilles; kobler til på nytt."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie można zresetować wejścia terminala SSH; ponowne łączenie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível redefinir a entrada do terminal SSH; reconectando."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось сбросить ввод терминала SSH; выполняется переподключение."}},
+        "th": {"stringUnit": {"state": "translated", "value": "รีเซ็ตอินพุตเทอร์มินัล SSH ไม่ได้ กำลังเชื่อมต่อใหม่"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "SSH terminal girişi sıfırlanamadı; yeniden bağlanılıyor."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося скинути ввід термінала SSH; повторне підключення."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法重置 SSH 终端输入；正在重新连接。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法重設 SSH 終端輸入；正在重新連線。"}}
+      }
+    },
+    "cli.sshPtyAttach.terminalInputTransitionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "SSH terminal input could not enter reconnect mode."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH ターミナル入力を再接続モードに切り替えられませんでした。"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إدخال طرفية SSH في وضع إعادة الاتصال."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ulaz SSH terminala nije moguće prebaciti u režim ponovnog povezivanja."}},
+        "da": {"stringUnit": {"state": "translated", "value": "SSH-terminalinput kunne ikke skifte til genforbindelsestilstand."}},
+        "de": {"stringUnit": {"state": "translated", "value": "SSH-Terminaleingabe konnte nicht in den Wiederverbindungsmodus wechseln."}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo cambiar la entrada del terminal SSH al modo de reconexión."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’entrée du terminal SSH n’a pas pu passer en mode reconnexion."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Impossibile passare l’input del terminale SSH alla modalità di riconnessione."}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនអាចប្តូរការបញ្ចូលស្ថានីយ SSH ទៅរបៀបភ្ជាប់ឡើងវិញបានទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "SSH 터미널 입력을 재연결 모드로 전환할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "SSH-terminalinndata kunne ikke gå inn i tilkoblingsmodus."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie można przełączyć wejścia terminala SSH w tryb ponownego łączenia."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Não foi possível colocar a entrada do terminal SSH no modo de reconexão."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось перевести ввод терминала SSH в режим переподключения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไม่สามารถเปลี่ยนอินพุตเทอร์มินัล SSH เป็นโหมดเชื่อมต่อใหม่ได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "SSH terminal girişi yeniden bağlanma moduna geçirilemedi."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося перевести ввід термінала SSH у режим повторного підключення."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法将 SSH 终端输入切换到重连模式。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法將 SSH 終端輸入切換至重新連線模式。"}}
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedReattachingInputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s). Input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。切断中に入力した内容は破棄されます。"
           }
         }
       }
@@ -55628,6 +56075,40 @@
         }
       }
     },
+    "cli.sshPtyAttach.flushInputUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal SSH input flush does not accept arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部 SSH 入力フラッシュは引数を受け付けません。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.flushInputFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルの入力を安全に破棄できませんでした。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
       "extractionState": "manual",
       "localizations": {
@@ -55692,6 +56173,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputTransitionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputGuardFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be protected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を保護できなかったため、SSH の再接続を停止しました。"
           }
         }
       }
@@ -171822,6 +172337,57 @@
         }
       }
     },
+    "settings.betaFeatures.cloudMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.cloudMachines.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides every Cloud Machines surface unless remote rollout enables it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートロールアウトで有効化されない限り、クラウドマシンのすべての画面を非表示にします。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.cloudMachines.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにクラウドを表示し、クラウドマシンの設定、パレットコマンド、新規ワークスペースの項目も有効にします。"
+          }
+        }
+      }
+    },
     "settings.betaFeatures.customSidebars": {
       "extractionState": "manual",
       "localizations": {
@@ -181956,13 +182522,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. Still listening on %lld."
+            "value": "Port %lld is in use. The pairing listener is still on %lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。引き続きポート %lld で待ち受けています。"
+            "value": "ポート %lld は使用中です。ペアリングリスナーは引き続きポート %lld で待ち受けています。"
           }
         }
       }
@@ -181973,13 +182539,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved. Will use port %lld when iOS Pairing is on."
+            "value": "Saved. The pairing listener will use port %lld when iOS Pairing is on."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存しました。iOS ペアリングを有効にするとポート %lld を使用します。"
+            "value": "保存しました。iOS ペアリングを有効にするとペアリングリスナーはポート %lld を使用します。"
           }
         }
       }
@@ -181990,13 +182556,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
+            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合は再バインドして、接続中のデバイスは新しいポートで再接続します。"
+            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合はペアリングリスナーを直ちに再バインドして、接続中のデバイスは新しいポートで再接続します。Iroh エンドポイントは次回の cmux 起動時に新しいポートを使用します。"
           }
         }
       }
@@ -182007,13 +182573,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. Listening on %lld instead."
+            "value": "Port %lld is in use. The pairing listener is on %lld instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。代わりにポート %lld で待ち受けています。"
+            "value": "ポート %lld は使用中です。ペアリングリスナーは代わりにポート %lld で待ち受けています。"
           }
         }
       }
@@ -182041,13 +182607,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Listening on port %lld."
+            "value": "Pairing listener on port %lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld で待ち受けています。"
+            "value": "ペアリングリスナーはポート %lld で待ち受けています。"
           }
         }
       }
@@ -182075,13 +182641,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferred TCP port for the iOS pairing listener (1–65535)."
+            "value": "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS ペアリングリスナーの優先 TCP ポート（1〜65535）。"
+            "value": "iOS ペアリングリスナー（TCP）と、Direct アドレスの接続先となる Iroh エンドポイント（UDP）の優先ポート（1〜65535）。"
           }
         }
       }
@@ -182160,13 +182726,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reachable addresses yet. Pairing over the network needs Tailscale running on this Mac."
+            "value": "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "到達可能なアドレスがまだありません。ネットワーク経由のペアリングには、この Mac で Tailscale が動作している必要があります。"
+            "value": "到達可能なアドレスがまだありません。Iroh 経路にはこの Mac が cmux アカウントにサインインしていることが、Tailscale 経路にはこの Mac で Tailscale が動作していることが必要です。"
           }
         }
       }
@@ -201116,13 +201682,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines"
+            "value": "Cloud"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドマシン"
+            "value": "クラウド"
           }
         }
       }
@@ -264080,6 +264646,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "close_workspaces はブール値である必要があります"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.cannotDeleteEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete every workspace in a window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ内のすべてのワークスペースは削除できません"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.couldNotCloseEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not close every workspace in the group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内のすべてのワークスペースを閉じられませんでした"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.emptyPinnedCannotUngroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pinned empty group can only be removed with Delete Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のピン留めグループは「グループを削除」でのみ削除できます"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.noWorkspacesToClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group has no workspaces to close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループに閉じるワークスペースがありません"
           }
         }
       }

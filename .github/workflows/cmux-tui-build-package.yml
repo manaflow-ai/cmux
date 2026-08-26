@@ -704,19 +704,21 @@ jobs:
           import os
           root = pathlib.Path('dist/npm-packages')
           suffix = ['-win32-x64'] if os.environ['INCLUDE_WINDOWS'] == 'true' else []
-          expected = {
+          relay_packages = {
               f'cmux-relay-{platform}'
               for platform in ('darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64')
           }
-          expected.update(f'cmux-relay{item}' for item in suffix)
+          relay_packages.update(f'cmux-relay{item}' for item in suffix)
+          expected = relay_packages
           launcher = json.loads((root / 'cmux-relay' / 'package.json').read_text())
           assert launcher['bin']['cmux-relay'] == 'bin/cmux-relay.js'
           assert set(launcher['optionalDependencies']) == expected
           assert (root / 'cmux-relay' / 'bin/cmux-relay.js').stat().st_mode & stat.S_IXUSR
-          for name in launcher['optionalDependencies']:
+          for name in relay_packages:
               manifest = json.loads((root / name / 'package.json').read_text())
               assert manifest['version'] == launcher['version']
-              assert (root / name / 'bin' / ('cmux-relay.exe' if 'win32' in name else 'cmux-relay')).stat().st_mode & stat.S_IXUSR
+              assert (root / name / 'bin' / ('chatmux-relay.exe' if 'win32' in name else 'chatmux-relay')).stat().st_mode & stat.S_IXUSR
+              assert (root / name / 'bin' / ('cmux-tui.exe' if 'win32' in name else 'cmux-tui')).stat().st_mode & stat.S_IXUSR
           PY
 
       - name: Archive npm package directories with executable modes
@@ -777,7 +779,17 @@ jobs:
     needs:
       - plan-build
       - package
-    if: ${{ inputs.package_npm || inputs.package_pypi }}
+    # always() + explicit needs results: without it, the implicit success()
+    # is poisoned transitively by a skipped build-windows (include_windows
+    # false), this job skips, and attest-npm-packages skips with it — leaving
+    # a release tag with no fresh attestations for its own commit.
+    if: >-
+      ${{
+        always() &&
+        (inputs.package_npm || inputs.package_pypi) &&
+        needs.plan-build.result == 'success' &&
+        needs.package.result == 'success'
+      }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
@@ -844,8 +856,12 @@ jobs:
     needs:
       - package
       - verify-linux-packages
+    # always() for the same reason as verify-linux-packages: the explicit
+    # needs.result checks below are the real gate, and the implicit success()
+    # must not skip attestations because an optional Windows build skipped.
     if: >-
       ${{
+        always() &&
         inputs.attest_packages &&
         inputs.package_npm &&
         needs.package.result == 'success' &&
@@ -892,7 +908,8 @@ jobs:
         with:
           subject-path: |
             dist/npm-packages/cmux-tui-*/bin/cmux-tui*
-            dist/npm-packages/cmux-relay-*/bin/cmux-relay*
+            dist/npm-packages/cmux-relay-*/bin/chatmux-relay*
+            dist/npm-packages/cmux-relay-*/bin/cmux-tui*
 
       - name: Retry native npm package binary attestation
         if: steps.attest-native-npm-packages.outcome == 'failure'
@@ -900,7 +917,8 @@ jobs:
         with:
           subject-path: |
             dist/npm-packages/cmux-tui-*/bin/cmux-tui*
-            dist/npm-packages/cmux-relay-*/bin/cmux-relay*
+            dist/npm-packages/cmux-relay-*/bin/chatmux-relay*
+            dist/npm-packages/cmux-relay-*/bin/cmux-tui*
 
       - name: Verify native npm package attestations
         env:
@@ -910,7 +928,8 @@ jobs:
           mapfile -d '' binaries < <(
             find dist/npm-packages -type f \
               \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
-                 -path '*/cmux-relay-*/bin/cmux-relay*' \) \
+                 -path '*/cmux-relay-*/bin/chatmux-relay*' -o \
+                 -path '*/cmux-relay-*/bin/cmux-tui*' \) \
               -print0 | sort -z
           )
           ((${#binaries[@]} > 0))

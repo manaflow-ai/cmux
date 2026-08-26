@@ -8,6 +8,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openVmPort, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
 
 
 export async function POST(
@@ -63,7 +64,17 @@ export async function POST(
           providerVmId: id,
           port,
         }));
-        return jsonResponse(endpoint);
+        // People see and keep openUrl, so it points at the cmux desktop
+        // wrapper (`cmux_token` on our origin, honest expiry screen); the raw
+        // gateway URL and token stay available for programmatic callers.
+        const wrapped = desktopWrapperUrl({
+          origin: new URL(request.url).origin,
+          vmId: id,
+          upstreamUrl: endpoint.url,
+          token: endpoint.token,
+          expiresAtMs: endpoint.expiresAtMs,
+        });
+        return jsonResponse(wrapped ? { ...endpoint, openUrl: wrapped } : endpoint);
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
