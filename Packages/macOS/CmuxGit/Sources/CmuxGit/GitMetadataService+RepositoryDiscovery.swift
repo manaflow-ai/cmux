@@ -63,7 +63,7 @@ extension GitMetadataService {
             branchContext: branchContext,
             deadline: deadline
         )
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {

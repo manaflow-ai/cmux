@@ -269,6 +269,7 @@ extension GitMetadataService {
         var previousPathBytes: [UInt8] = []
 
         for _ in 0..<entryCount {
+            guard !WorkspaceChangesCancellationSignal.isCurrentCancelled else { return nil }
             guard offset + 62 <= contentEnd else { return nil }
             let entryStart = offset
             let mtimeSeconds = readBigEndianUInt32(bytes, at: offset + 8)

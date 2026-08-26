@@ -303,7 +303,7 @@ extension GitMetadataService {
             includeConditionalPathsForWatch: true,
             deadline: deadline
         )
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
@@ -325,7 +325,7 @@ extension GitMetadataService {
         maximumEntryCount: Int,
         maximumFileByteCount: Int
     ) async -> (header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?) {
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
@@ -364,7 +364,7 @@ extension GitMetadataService {
         visitedRoots: Set<String>,
         remainingRepositoryCount: Int
     ) {
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
@@ -399,7 +399,7 @@ extension GitMetadataService {
         safetyConfiguration: GitMetadataSafetyConfiguration,
         watchInputs: GitMetadataWatchInputs
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: watchInputs.deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {

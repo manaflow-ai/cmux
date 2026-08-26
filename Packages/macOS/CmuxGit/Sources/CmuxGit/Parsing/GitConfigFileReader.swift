@@ -46,6 +46,10 @@ nonisolated struct GitConfigFileReader: Sendable {
         deadline: DispatchTime? = nil
     ) -> ReadResult {
         let maximumByteCount = max(0, maximumByteCount)
+        guard !WorkspaceChangesCancellationSignal.isCurrentCancelled,
+              deadline.map({ $0 > DispatchTime.now() }) ?? true else {
+            return .unavailable(consumedByteCount: 0)
+        }
         let descriptor = Darwin.open(
             url.path,
             O_RDONLY | O_NONBLOCK | O_CLOEXEC
@@ -73,7 +77,8 @@ nonisolated struct GitConfigFileReader: Sendable {
         data.reserveCapacity(min(maximumByteCount, chunkByteCount))
         var buffer = [UInt8](repeating: 0, count: chunkByteCount)
         while data.count <= maximumByteCount {
-            if let deadline, deadline <= DispatchTime.now() {
+            if WorkspaceChangesCancellationSignal.isCurrentCancelled
+                || (deadline.map({ $0 <= DispatchTime.now() }) == true) {
                 return .unavailable(consumedByteCount: data.count)
             }
             let count = buffer.withUnsafeMutableBytes { bytes in
@@ -102,7 +107,8 @@ nonisolated struct GitConfigFileReader: Sendable {
         at url: URL,
         deadline: DispatchTime?
     ) -> mode_t? {
-        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
+        guard !WorkspaceChangesCancellationSignal.isCurrentCancelled,
+              deadline.map({ $0 > DispatchTime.now() }) ?? true else {
             return nil
         }
         let descriptor = Darwin.open(

@@ -64,8 +64,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         let metadataSentinelParentPaths = Array(Set(result.missingConfigParentPaths))
             .sorted()
             .prefix(Self.maximumIncludedFileCount)
-        var paths = Array(metadataSentinelParentPaths)
-            + result.configURLs.map { $0.standardizedFileURL.path }
         let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
             .appendingPathComponent("config.worktree")
             .standardizedFileURL
@@ -79,15 +77,13 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 rootWatchPaths.append(worktreeConfigURL.deletingLastPathComponent().path)
             }
         }
-        if !result.isComplete {
-            // The caller promotes the repository root to a conservative,
-            // throttled watcher when this bounded walk is incomplete.
-            paths = rootWatchPaths + paths
-        } else {
-            // Keep a parent sentinel when extensions.worktreeConfig is enabled
-            // but config.worktree has not been created yet.
-            paths.append(contentsOf: rootWatchPaths)
-        }
+        // Keep the mandatory repository config roots ahead of optional include
+        // sentinels so the bounded path list can never evict them.
+        let paths = rootWatchPaths
+            + Array(metadataSentinelParentPaths)
+            + result.configURLs.map { $0.standardizedFileURL.path }
+        // For an incomplete walk the caller adds its conservative root safety
+        // valve; complete walks retain only these bounded exact paths.
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
         return WatchPathResult(

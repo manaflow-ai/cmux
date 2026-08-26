@@ -80,7 +80,10 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
             0,
             Self.maximumReferenceCandidateCount - Self.systemGitPaths.count
         )
-        for path in Self.preferredGitPaths where result.count < maximumUserCandidateCount {
+        // Leave one slot for an absolute PATH candidate whenever one exists;
+        // package-manager installs and version-manager shims are both common.
+        let preferredCandidateLimit = max(0, maximumUserCandidateCount - 1)
+        for path in Self.preferredGitPaths where result.count < preferredCandidateLimit {
             guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
         }
         if let searchPath = environment["PATH"] {
@@ -100,6 +103,11 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
                     break
                 }
             }
+        }
+        // If PATH had no usable entry, fill the remaining user slot with the
+        // next known installation before appending system fallbacks.
+        for path in Self.preferredGitPaths where result.count < maximumUserCandidateCount {
+            guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
         }
         for path in Self.systemGitPaths {
             guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }

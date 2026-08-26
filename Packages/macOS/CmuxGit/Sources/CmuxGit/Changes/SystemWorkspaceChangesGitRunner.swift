@@ -33,10 +33,11 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         executableURL: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         boundedCommandWallTimeLimit: TimeInterval = 30,
-        isolateRepositoryConfig: Bool = false
+        isolateRepositoryConfig: Bool = false,
+        fallbackExecutableURLs: [URL]? = nil
     ) {
         let candidates = if let executableURL {
-            [executableURL]
+            [executableURL] + (fallbackExecutableURLs ?? [])
         } else {
             SystemGitExecutableResolver(environment: environment).executableURLs()
         }

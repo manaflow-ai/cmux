@@ -19,12 +19,14 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
         probesReferenceFormat: Bool = true
     ) {
         let resolver = SystemGitExecutableResolver(environment: environment)
-        self.runners = resolver.referenceExecutableURLs().map { executableURL in
+        let executableURLs = resolver.referenceExecutableURLs()
+        self.runners = executableURLs.enumerated().map { index, executableURL in
             SystemWorkspaceChangesGitRunner(
                 executableURL: executableURL,
                 environment: environment,
                 boundedCommandWallTimeLimit: wallTimeLimit,
-                isolateRepositoryConfig: isolateRepositoryConfig
+                isolateRepositoryConfig: isolateRepositoryConfig,
+                fallbackExecutableURLs: Array(executableURLs.dropFirst(index + 1))
             ) as any WorkspaceChangesGitRunning
         }
         self.probesReferenceFormat = probesReferenceFormat
@@ -76,7 +78,12 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
             }
             return runner
         }
-        return nil
+        // `--show-ref-format` is newer than the standard plumbing commands.
+        // Keep the first bounded runner as a compatibility fallback when the
+        // optional capability probe is unsupported; its process runner can
+        // still fall through to later executables on an actual backend error.
+        guard deadline > DispatchTime.now() else { return nil }
+        return first
     }
 
     /// Returns the injected runner without requiring a repository probe.

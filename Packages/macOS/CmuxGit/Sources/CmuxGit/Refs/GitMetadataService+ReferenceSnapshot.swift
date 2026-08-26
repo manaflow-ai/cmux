@@ -8,20 +8,22 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         deadline: DispatchTime? = nil
     ) async -> String? {
-        let didAcquire = if let deadline {
-            await referenceSnapshotLimiter.acquire(until: deadline)
+        let wallTimeLimit = safetyConfiguration.gitStatusWallTime
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + wallTimeLimit)
+        let didAcquire = if deadline != nil {
+            await referenceSnapshotLimiter.acquire(until: effectiveDeadline)
         } else {
             await referenceSnapshotLimiter.acquire()
         }
         guard didAcquire else { return nil }
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
-        let wallTimeLimit = safetyConfiguration.gitStatusWallTime
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: effectiveDeadline)
         let output = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
                     let output = cancellationSignal.withCurrentBinding {
                         let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
-                        let deadline = deadline ?? (DispatchTime.now() + wallTimeLimit)
+                        let deadline = effectiveDeadline
                         for runner in selector.candidateRunners.prefix(4) {
                             let now = DispatchTime.now()
                             guard deadline > now else { break }
@@ -107,7 +109,7 @@ extension GitMetadataService {
                 currentCommit: nil
             )
         }
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         let snapshot = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
