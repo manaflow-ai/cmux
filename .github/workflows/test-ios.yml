@@ -179,7 +179,7 @@ jobs:
         run: |
           # Pure shell-model queue and ordering regressions live in this package.
           # Keep them beside the shell package gate so input framing stays covered.
-          swift test --package-path Packages/iOS/CmuxMobileShellModel
+          swift test --package-path Packages/Shared/CmuxMobileShellModel
 
   ios-simulator:
     needs: detect-ios-changes

@@ -184,6 +184,12 @@ final class HiveComputerMirrorController {
             cmuxDebugLog("hive.mirror.attach.noSession device=\(deviceID.prefix(8))")
             return nil
         }
+        // A failed session remains cached so every window shares one transport,
+        // but an attach from the sidebar Retry action must explicitly restart
+        // that failed attempt before rebuilding the mirror around it. New
+        // sessions are already connecting; active/reconnecting sessions keep
+        // their in-flight lifecycle untouched.
+        _ = session.reconnectIfNeeded()
         // Another Open/Retry call may have installed the same mirror while
         // embeddedSession() suspended. Reuse that winner instead of creating
         // an unreachable duplicate with live tasks and workspaces.

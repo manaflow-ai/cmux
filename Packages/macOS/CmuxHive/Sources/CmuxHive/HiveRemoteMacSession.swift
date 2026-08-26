@@ -126,6 +126,26 @@ public final class HiveRemoteMacSession {
         }
     }
 
+    /// Restarts a cached session only when it is no longer usable.
+    ///
+    /// Embedded viewers retain one session per paired computer so multiple
+    /// windows share the same transport. A failed or explicitly disconnected
+    /// session therefore needs an explicit retry seam; callers must not call
+    /// ``connect()`` on every lookup because an active session may already be
+    /// carrying live terminals.
+    ///
+    /// - Returns: `true` when a new connection attempt was started.
+    @discardableResult
+    public func reconnectIfNeeded() -> Bool {
+        switch phase {
+        case .idle, .failed:
+            connect()
+            return true
+        case .connecting, .reconnecting, .connected:
+            return false
+        }
+    }
+
     /// Tear down the session (window closed).
     public func disconnect() async {
         let pendingConnect = connectTask

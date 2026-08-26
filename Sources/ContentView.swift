@@ -1899,7 +1899,10 @@ struct ContentView: View {
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
-            NotificationsPage(selection: $sidebarSelectionState.selection)
+            NotificationsPage(
+                isFocused: sidebarSelectionState.selection == .notifications,
+                isVisibleInUI: sidebarState.isVisible
+            )
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
