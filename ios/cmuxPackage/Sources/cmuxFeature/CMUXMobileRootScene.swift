@@ -37,10 +37,7 @@ public struct CMUXMobileRootScene: View {
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
     package let signOutHook: MobileSignOutHook
-    private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
-    private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
-    private let personalIrohForget: (any MobileIrohMacForgetting)?
-    /// The same policy instance used by the process-wide Iroh discovery runtime.
+    /// The process-wide Mac-instance admission policy.
     private let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
@@ -113,14 +110,8 @@ public struct CMUXMobileRootScene: View {
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
-    ///   - personalIrohRouteCatalog: Authenticated personal-account Iroh routes
-    ///     to merge when refreshing paired Macs and listing live candidates.
-    ///   - personalIrohDiscovery: Live same-account Mac discovery used before
-    ///     presenting QR pairing.
-    ///   - personalIrohForget: Revokes a hidden computer's account bindings when
-    ///     the user forgets it from the Computers screen.
     ///   - buildCompatibilityPolicy: Shared Mac-instance admission policy used
-    ///     by Iroh discovery, persistence, and connection validation.
+    ///     by persistence and connection validation.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
     public init(
@@ -135,9 +126,6 @@ public struct CMUXMobileRootScene: View {
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
-        personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
-        personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
-        personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog
@@ -153,9 +141,6 @@ public struct CMUXMobileRootScene: View {
         self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
-        self.personalIrohRouteCatalog = personalIrohRouteCatalog
-        self.personalIrohDiscovery = personalIrohDiscovery
-        self.personalIrohForget = personalIrohForget
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
@@ -186,9 +171,6 @@ public struct CMUXMobileRootScene: View {
         self.reachability = reachability
         self.analytics = analytics
         self.signOutHook = signOutHook
-        self.personalIrohRouteCatalog = nil
-        self.personalIrohDiscovery = nil
-        self.personalIrohForget = nil
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
@@ -244,9 +226,7 @@ public struct CMUXMobileRootScene: View {
     /// service is failure-tolerant, so a missing API base URL or a registry
     /// outage simply means reconnect falls back to local paired-Mac routes.
     @MainActor
-    private func makeDeviceRegistry(
-        pairedMacStore: (any MobilePairedMacStoring)?
-    ) -> (any DeviceRegistryRefreshing)? {
+    private func makeDeviceRegistry() -> (any DeviceRegistryRefreshing)? {
         let baseURL = auth.config.apiBaseURL
         guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else {
             return nil
@@ -258,7 +238,7 @@ public struct CMUXMobileRootScene: View {
             deviceID: appNamespace.deviceRegistryDeviceID(
                 keychainAccessGroup: auth.keychainAccessGroup,
                 deviceWitness: deviceWitness,
-                evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe()
+                evidence: KeychainIdentityEvidenceProbe()
             ),
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
@@ -266,30 +246,7 @@ public struct CMUXMobileRootScene: View {
             ),
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
-        guard let personalIrohRouteCatalog else { return teamRegistry }
-        return PersonalIrohDeviceRegistryDecorator(
-            base: teamRegistry,
-            catalog: personalIrohRouteCatalog,
-            knownRoutes: { macDeviceID, instanceTag in
-                guard let pairedMacStore else { return nil }
-                let userID = await coordinator.currentUser?.id
-                let teamID = await coordinator.resolvedTeamID
-                let pairedMacs = try? await pairedMacStore.loadAll(
-                    stackUserID: userID,
-                    teamID: teamID
-                )
-                let targetID = CmxMacAppInstanceIdentity(
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag
-                ).id
-                return pairedMacs?.first(where: {
-                    CmxMacAppInstanceIdentity(
-                        macDeviceID: $0.macDeviceID,
-                        instanceTag: $0.instanceTag
-                    ).id == targetID
-                })?.routes
-            }
-        )
+        return teamRegistry
     }
 
     /// Build the live presence subscription client (the `workers/presence`
@@ -476,22 +433,12 @@ public struct CMUXMobileRootScene: View {
             buildScope: buildScope,
             buildCompatibilityPolicy: buildCompatibilityPolicy
         )
-        let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
+        let deviceRegistry = makeDeviceRegistry()
         let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
-        let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
-        #if DEBUG
-        if UITestConfig.successfulComputerForgetEnabled {
-            resolvedPersonalIrohForget = SuccessfulComputerForgetUITestStub()
-        } else {
-            resolvedPersonalIrohForget = personalIrohForget
-        }
-        #else
-        resolvedPersonalIrohForget = personalIrohForget
-        #endif
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -499,8 +446,6 @@ public struct CMUXMobileRootScene: View {
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
-            personalIrohDiscovery: personalIrohDiscovery,
-            personalIrohForget: resolvedPersonalIrohForget,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },

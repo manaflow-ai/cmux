@@ -199,6 +199,13 @@ public struct MobileAuthComposition {
         taskOwner.observeRestore(using: coordinator)
     }
 
+    /// Revalidate the restored session on a real foreground return, so a
+    /// token that went stale while the app was backgrounded refreshes before
+    /// the shell dials. Coalesces with any in-flight revalidation.
+    public func revalidateSessionOnForeground() {
+        taskOwner.revalidateSession(using: coordinator)
+    }
+
     private static var isDevelopmentBuild: Bool {
         #if DEBUG
         true

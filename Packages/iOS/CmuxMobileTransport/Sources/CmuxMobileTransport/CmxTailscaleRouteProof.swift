@@ -197,7 +197,7 @@ struct CmxTailscaleRouteProofValidator {
             guard authorization.authorizes(host: host, port: port) else {
                 throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
             }
-        case .stackBearer, .transportAdmission:
+        case .stackBearer:
             throw CmxTailscaleRouteProofError.unsupportedAuthorizationMode
         }
         guard let peerAddress = CmxTailscaleIPAddress(host) else {
