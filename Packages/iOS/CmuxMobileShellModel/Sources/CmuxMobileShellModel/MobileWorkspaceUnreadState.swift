@@ -1,13 +1,13 @@
 /// The unread indicator state one workspace row (or group header) renders,
 /// mirroring the Mac sidebar badge: unread rows show the exact count when the
-/// Mac reports one, and fall back to the plain dot against Macs old enough to
-/// emit only the boolean.
+/// Mac reports one; against Macs old enough to emit only the boolean, the
+/// badge shows the minimum count that boolean implies (1).
 public struct MobileWorkspaceUnreadState: Hashable, Sendable {
     /// Whether any unread activity exists (drives indicator visibility).
     public var isUnread: Bool
     /// The exact unread count, when known. `nil` means "unread, amount
-    /// unknown" (old Mac), which renders as the count-less dot. Read rows
-    /// always know their count is 0.
+    /// unknown" (old Mac); the badge then renders the implied minimum, 1.
+    /// Read rows always know their count is 0.
     public var count: Int?
 
     /// Creates an unread state.

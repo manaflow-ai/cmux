@@ -2,10 +2,11 @@ import CmuxMobileShellModel
 import SwiftUI
 
 /// The single unread indicator for workspace rows: an accent badge showing the
-/// exact unread count (parity with the Mac sidebar's workspace unread badge),
-/// in a fixed-width gutter to the LEFT of the workspace icon. Against a Mac
-/// old enough not to report the count, it falls back to the original
-/// iMessage-style dot.
+/// unread count (parity with the Mac sidebar's workspace unread badge, which
+/// is always numeric), in a fixed-width gutter to the LEFT of the workspace
+/// icon. Against a Mac old enough to report only the boolean, the badge shows
+/// the minimum count that boolean implies (1) — never a count-less dot, so
+/// marking a workspace unread reads "1" exactly like the Mac.
 ///
 /// Every row renders this gutter (the indicator is just hidden when read), so
 /// read and unread rows keep their icon and text columns aligned. Shared by
@@ -19,8 +20,6 @@ struct WorkspaceUnreadDot: View {
     /// or nothing. All overflow goes toward the rail, which `WorkspaceRow`'s
     /// layout math reserves via `badgeDiameter`.
     static let gutterWidth: CGFloat = 10
-    /// Diameter of the count-less fallback dot.
-    static let dotDiameter: CGFloat = 11
     /// Diameter of the count badge, matching the Mac sidebar badge's 16pt
     /// side. Fixed like the Mac's: multi-digit counts scale their text down
     /// rather than widening the circle, so columns never shift.
@@ -41,9 +40,12 @@ struct WorkspaceUnreadDot: View {
         )
     }
 
+    /// The number the badge shows: the exact count when known, otherwise the
+    /// minimum an unread boolean implies (1). A `0` from a skewed payload also
+    /// clamps to 1 — an unread row must never render an empty circle.
     private var badgeCount: Int? {
-        guard unread.isUnread, let count = unread.count, count > 0 else { return nil }
-        return count
+        guard unread.isUnread else { return nil }
+        return max(unread.count ?? 1, 1)
     }
 
     var body: some View {
@@ -59,16 +61,11 @@ struct WorkspaceUnreadDot: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                     .frame(width: Self.badgeDiameter - 3)
-            } else {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: Self.dotDiameter, height: Self.dotDiameter)
-                    .opacity(unread.isUnread ? 1 : 0)
             }
         }
-        // One fixed badge-sized box for every indicator kind: the dot centers
-        // in it, so dot rows and badge rows share the same indicator center
-        // while the box's leading edge pins the margin.
+        // A fixed badge-sized box whose leading edge pins the margin; any
+        // future indicator variant must center in it so every row shares one
+        // indicator center.
         .frame(width: Self.badgeDiameter, height: Self.badgeDiameter)
         .frame(width: Self.gutterWidth, alignment: .leading)
         .offset(x: -CGFloat(leftShift))
