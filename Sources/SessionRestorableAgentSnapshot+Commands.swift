@@ -12,20 +12,20 @@ extension SessionRestorableAgentSnapshot {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: SnapshotCodingKeys.self)
-        var kind = try container.decode(RestorableAgentKind.self, forKey: .kind)
+        let persistedKind = try container.decode(String.self, forKey: .kind)
         let registration = try container.decodeIfPresent(
-            CmuxVaultAgentRegistration.self,
+            SessionPersistedVaultAgentRegistration.self,
             forKey: .registration
-        )
-        // Registry-detected snapshots persist `.custom(id)`, whose raw string
-        // collapses to the native case on decode when the id matches a
-        // built-in raw value. Restore the write-side identity whenever that
-        // collapse would change restore semantics (relaunch-only natives such
-        // as Ollama), so a stored custom registration keeps owning resume.
-        if kind.restoreMode == .relaunchCommand,
-           let registration,
-           registration.id == kind.rawValue {
-            kind = .custom(registration.id)
+        )?.registration
+        guard let kind = RestorableAgentKind(
+            persistedRawValue: persistedKind,
+            registration: registration
+        ) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription: "Invalid restorable agent kind '\(persistedKind)'"
+            )
         }
         self.init(
             kind: kind,
@@ -42,19 +42,29 @@ extension SessionRestorableAgentSnapshot {
     }
 
     var resumeCommand: String? {
+        resumeCommand(includeWorkingDirectoryPrefix: true)
+    }
+
+    func resumeCommand(
+        includeWorkingDirectoryPrefix: Bool,
+        restoringWorkingDirectory: String? = nil
+    ) -> String? {
+        let effectiveWorkingDirectory = restoringWorkingDirectory ?? workingDirectory
         if kind.restoreMode == .relaunchCommand {
             return AgentRelaunchCommandBuilder().shellCommand(
                 kind: kind,
                 launchCommand: launchCommand,
-                workingDirectory: workingDirectory
+                workingDirectory: effectiveWorkingDirectory,
+                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
             )
         }
         return AgentResumeCommandBuilder.resumeShellCommand(
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: effectiveWorkingDirectory,
             registrationOverride: registration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
             observedPermissionMode: permissionMode
         )
     }

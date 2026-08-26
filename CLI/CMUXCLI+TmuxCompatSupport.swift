@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -76,26 +77,31 @@ extension CMUXCLI {
     /// the pane exits before the real command runs; that is why Claude Code
     /// 2.1.183 teammates never opened a split pane (issue #6447).
     ///
-    /// Every command is run through `/bin/sh -c '<command>'`, so Ghostty execs a
-    /// shell rather than a builtin/expression/assignment-prefix. The whole command
-    /// is single-quoted, so it round-trips verbatim regardless of operators or
-    /// quoting — there is no attempt to classify which commands "need" a shell,
-    /// which was unreliable (tmux shell-commands can hide operators with no
-    /// surrounding whitespace). Commands that are already a shell invocation (e.g.
-    /// OMO's `/bin/sh -c "…"`) are simply run through one more shell, which execs
-    /// straight into them.
+    /// Every command is run through `/bin/sh -lc '<command>'`, so Ghostty execs a
+    /// login shell rather than a builtin/expression/assignment-prefix. The `-l`
+    /// is important: Ghostty's `exec -l` only changes argv[0], and does not make
+    /// macOS `/bin/sh` read `/etc/profile` when it is given a non-interactive `-c`
+    /// command. The login shell therefore runs `path_helper` and restores the
+    /// user's full login PATH before the command starts (issue #10189). The whole
+    /// command is single-quoted, so it round-trips verbatim regardless of
+    /// operators or quoting — there is no attempt to classify which commands
+    /// "need" a shell, which was unreliable (tmux shell-commands can hide
+    /// operators with no surrounding whitespace). Commands that are already a
+    /// shell invocation (e.g. OMO's `/bin/sh -c "…"`) are simply run through one
+    /// more shell, which execs straight into them.
     ///
     /// A POSIX shell (`/bin/sh`) is used deliberately rather than the user's
     /// `$SHELL`: the commands being wrapped are POSIX `sh` syntax (Claude Code's
     /// `cd … && env …`, and the no-command fallback `exec ${SHELL:-/bin/sh} -l`),
-    /// and `csh`/`tcsh` login shells cannot parse `${VAR:-default}` parameter
-    /// expansion or `NAME=value` command prefixes. `/bin/sh` is always present and
-    /// runs the bodies correctly for every user. `-l` is not passed (`/bin/sh`
-    /// does not take it); on macOS Ghostty already supplies a login-style argv0.
+    /// and `csh`/`tcsh` cannot parse `${VAR:-default}` parameter expansion or
+    /// `NAME=value` command prefixes. `/bin/sh` is always present and runs the
+    /// bodies correctly for every user; its login mode is a shell-independent way to
+    /// invoke macOS `path_helper` without asking the user's shell to parse a
+    /// POSIX command body.
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return command }
-        return "/bin/sh -c \(tmuxShellQuote(trimmed))"
+        return "/bin/sh -lc \(tmuxShellQuote(trimmed))"
     }
 
     /// Like `tmuxShellInvokedStartCommand`, but first exports `prependEnv` inside
@@ -122,11 +128,14 @@ extension CMUXCLI {
     ///
     /// Teammate panes are respawned by cmux's surface layer, not by `cmux
     /// claude-teams`, so they do NOT inherit the launcher environment the lead
-    /// got from `configureClaudeTeamsEnvironment`. The one variable that matters
-    /// for startup is `CLAUDE_CODE_SANDBOXED`: Claude Code short-circuits its
-    /// interactive "Do you trust this folder?" gate on it, and a teammate that
-    /// hits that gate hangs forever (its pane opens but it never checks in —
-    /// issue #6447). Re-supply it so teammates start the same way the lead does.
+    /// got from `configureClaudeTeamsEnvironment`. The launcher records a
+    /// replay-safe snapshot in
+    /// ``ClaudeTeamsRespawnEnvironmentTransport/environmentKey``;
+    /// re-supply that snapshot so PATH-based tools and allowlisted Claude
+    /// configuration match the lead without copying secrets or surface identity.
+    /// `CLAUDE_CODE_SANDBOXED` is handled alongside it: Claude Code short-circuits
+    /// its interactive "Do you trust this folder?" gate on that variable, and a
+    /// teammate that hits the gate hangs forever (issue #6447).
     ///
     /// That trust gate is a real safety boundary, so it is only waived when the
     /// user already opted into skipping safety prompts. The opt-in is NOT inferred
@@ -146,10 +155,17 @@ extension CMUXCLI {
     /// it correctly falls back to Claude's trust prompt rather than silently bypassing
     /// the trust boundary outside an explicit opt-in.
     func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
-        guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" else {
-            return []
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let transport = ClaudeTeamsRespawnEnvironmentTransport()
+        var environment = transport.decodedEnvironment(
+            from: processEnvironment[ClaudeTeamsRespawnEnvironmentTransport.environmentKey]
+        )
+        if processEnvironment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" {
+            environment["CLAUDE_CODE_SANDBOXED"] = "1"
         }
-        return [(key: "CLAUDE_CODE_SANDBOXED", value: "1")]
+        return environment.keys.sorted().compactMap { key in
+            environment[key].map { (key: key, value: $0) }
+        }
     }
 
     func tmuxShellWords(_ commandText: String) -> [String] {
@@ -415,12 +431,4 @@ extension CMUXCLI {
         return ordered.joined(separator: ":")
     }
 
-    struct TmuxCompatFocusedContext {
-        let socketPath: String
-        let workspaceId: String
-        let windowId: String?
-        let paneHandle: String
-        let paneId: String?
-        let surfaceId: String?
-    }
 }

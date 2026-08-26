@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { eq, sql } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { env } from "../../../env";
@@ -9,10 +9,20 @@ import { cloudDb } from "../../../../db/client";
 import { stripeWebhookEvents } from "../../../../db/schema";
 import { captureBillingError } from "../../../../services/errors";
 import {
+  captureStripeBillingEvent as captureStripeBillingEventDefault,
+  type StripeBillingAnalyticsSubject,
+} from "../../../../services/analytics/stripeBilling";
+import {
   applySubscriptionUpdate as applySubscriptionUpdateDefault,
   isCmuxCheckoutSession,
+  isActiveStripeSubscriptionStatus,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
+import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
+import {
+  revokeRouteTokensForTeam as revokeRouteTokensForTeamDefault,
+  revokeRouteTokensForUser as revokeRouteTokensForUserDefault,
+} from "../../../../services/coderouter/repository";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
   recordSpanError,
@@ -20,8 +30,6 @@ import {
   withApiRouteSpan,
 } from "../../../../services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type StripeWebhookDependencies = {
   webhookSecret: () => string | undefined;
@@ -30,6 +38,11 @@ type StripeWebhookDependencies = {
   db: typeof cloudDb;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
+  sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
+  revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
+  revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
+  captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
+  defer: (task: () => Promise<void>) => void;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -39,6 +52,11 @@ const defaultDependencies: StripeWebhookDependencies = {
   db: cloudDb,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
+  sendProSignupWelcome: sendProSignupWelcomeDefault,
+  revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
+  revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
+  captureStripeBillingEvent: captureStripeBillingEventDefault,
+  defer: (task) => after(task),
 };
 
 export const POST = makeStripeWebhookHandler();
@@ -96,11 +114,12 @@ export function makeStripeWebhookHandler(
       }
 
       try {
-        const result = await processStripeEvent(event, dependencies);
+        const { analytics, ...result } = await processStripeEvent(event, dependencies);
         await db
           .update(stripeWebhookEvents)
           .set({ processedAt: sql`now()`, error: null })
           .where(eq(stripeWebhookEvents.id, event.id));
+        if (analytics) dependencies.defer(analytics);
         return NextResponse.json({ ok: true, ...result });
       } catch (error) {
         recordSpanError(span, error);
@@ -124,43 +143,162 @@ export function makeStripeWebhookHandler(
 async function processStripeEvent(
   event: Stripe.Event,
   dependencies: StripeWebhookDependencies,
-): Promise<{ processed?: string; skipped?: string }> {
+): Promise<{
+  processed?: string;
+  skipped?: string;
+  analytics?: () => Promise<void>;
+}> {
   switch (event.type) {
-    case "checkout.session.completed": {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded": {
       const session = event.data.object;
       if (!isCmuxCheckoutSession(session)) return { skipped: "foreign_checkout" };
       const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
         expand: ["subscription", "customer"],
       });
+      if (!checkoutPaymentSettled(expanded)) {
+        return { skipped: "checkout_payment_pending" };
+      }
       const result = await dependencies.recordCheckoutCompletion({
         session: expanded,
         subscription: expandedSubscription(expanded),
         customer: expandedCustomer(expanded),
       });
       if (result && "skipped" in result) return { skipped: result.skipped };
-      return { processed: "checkout.session.completed" };
+      if (result.scope === "user" && isPersonalProCheckout(expanded)) {
+        // Keep the Stripe event retryable until Resend accepts the message.
+        // The checkout-session id is also the provider idempotency key, so a
+        // redelivery retries the same email operation without duplicating it.
+        await dependencies.sendProSignupWelcome({
+          session: expanded,
+          stackUserId: result.stackUserId,
+        });
+      }
+      const subscription = expandedSubscription(expanded);
+      const subscriptionStatus = subscription?.status ?? "unknown";
+      const subject = analyticsSubject(
+        result,
+        isActiveStripeSubscriptionStatus(subscriptionStatus),
+        subscriptionStatus,
+      );
+      return {
+        processed: event.type,
+        analytics: () => dependencies.captureStripeBillingEvent(event, subject),
+      };
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      const result = await dependencies.applySubscriptionUpdate(event.data.object);
+      // Stripe can deliver events late or out of order. Always reconcile the
+      // provider's current object rather than allowing an older event payload
+      // to overwrite a newer entitlement state.
+      const subscription = await dependencies.stripe().subscriptions.retrieve(
+        event.data.object.id,
+      );
+      const result = await applySubscriptionEntitlementUpdate(
+        subscription,
+        dependencies,
+      );
       return "skipped" in result
         ? { skipped: "subscription_unmapped" }
-        : { processed: event.type };
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, subscription.status),
+            ),
+          };
     }
     case "invoice.paid":
     case "invoice.payment_failed": {
       const subscriptionId = invoiceSubscriptionId(event.data.object);
       if (!subscriptionId) return { skipped: "invoice_without_subscription" };
       const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
-      const result = await dependencies.applySubscriptionUpdate(subscription);
+      const result = await applySubscriptionEntitlementUpdate(
+        subscription,
+        dependencies,
+      );
       return "skipped" in result
         ? { skipped: "invoice_subscription_unmapped" }
-        : { processed: event.type };
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, subscription.status),
+            ),
+          };
+    }
+    case "charge.refunded": {
+      const charge = event.data.object as Stripe.Charge & {
+        invoice?: string | Stripe.Invoice | null;
+      };
+      const invoiceId = stringId(charge.invoice);
+      if (!invoiceId) return { skipped: "refund_without_invoice" };
+      const invoice = await dependencies.stripe().invoices.retrieve(invoiceId);
+      const subscriptionId = invoiceSubscriptionId(invoice);
+      if (!subscriptionId) return { skipped: "refund_without_subscription" };
+      const subscription = await dependencies.stripe().subscriptions.retrieve(
+        subscriptionId,
+      );
+      // Refunds do not inherently revoke a subscription. Re-applying Stripe's
+      // current subscription state preserves that policy while mapping the
+      // event to the correct privacy-safe analytics principal.
+      const result = await applySubscriptionEntitlementUpdate(
+        subscription,
+        dependencies,
+      );
+      return "skipped" in result
+        ? { skipped: "refund_subscription_unmapped" }
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, subscription.status),
+            ),
+          };
     }
     default:
       return { skipped: "event_type" };
   }
+}
+
+function analyticsSubject(
+  result:
+    | { readonly scope: "user"; readonly stackUserId: string }
+    | { readonly scope: "team"; readonly stackTeamId: string },
+  isActive: boolean,
+  status: string,
+): StripeBillingAnalyticsSubject {
+  return result.scope === "user"
+    ? { scope: "user", stackUserId: result.stackUserId, isActive, status }
+    : { scope: "team", stackTeamId: result.stackTeamId, isActive, status };
+}
+
+async function applySubscriptionEntitlementUpdate(
+  subscription: Stripe.Subscription,
+  dependencies: StripeWebhookDependencies,
+) {
+  const result = await dependencies.applySubscriptionUpdate(subscription);
+  if (
+    !("skipped" in result)
+    && !result.isActive
+  ) {
+    if (result.scope === "user") {
+      await dependencies.revokeCoderouterRouteTokens(result.stackUserId);
+    } else {
+      await dependencies.revokeCoderouterTeamRouteTokens(result.stackTeamId);
+    }
+  }
+  return result;
+}
+
+function isPersonalProCheckout(session: Stripe.Checkout.Session): boolean {
+  return session.metadata?.app === "cmux" && session.metadata?.plan === "pro";
+}
+
+function checkoutPaymentSettled(session: Stripe.Checkout.Session): boolean {
+  return session.payment_status === "paid"
+    || session.payment_status === "no_payment_required";
 }
 
 function expandedSubscription(session: Stripe.Checkout.Session): Stripe.Subscription | null {

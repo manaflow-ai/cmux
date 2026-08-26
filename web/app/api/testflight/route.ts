@@ -1,16 +1,24 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 import { localizedVaultPath, vaultSignInHref } from "../../lib/vault-auth";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
+import { cloudDb } from "../../../db/client";
 import { locales, routing } from "../../../i18n/routing";
-import { enrollTester, removeTester } from "../../../services/asc/testflight";
+import {
+  enrollTester,
+  recordProTestflightEnrollmentEmail,
+  removeProTesterAccess,
+  removeTester,
+} from "../../../services/asc/testflight";
 import { isAscConfigured } from "../../../services/asc/client";
-import { isTestflightEligible } from "../../../services/billing/pro";
+import {
+  isTestflightEligible,
+  type ProMetadataJson,
+} from "../../../services/billing/pro";
 import { captureAscError } from "../../../services/errors";
+import { withAccountDeletionUserMutation } from "../../../services/account/deletionLock";
 import { browserMutationOriginAllowed } from "../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type TestflightAction = "join" | "leave";
 
@@ -31,7 +39,8 @@ export async function POST(request: NextRequest) {
       return testflightRedirect(request, "unavailable");
     }
 
-    const user = await getStackServerApp().getUser({ or: "return-null" });
+    const stackApp = getStackServerApp();
+    const user = await stackApp.getUser({ or: "return-null" });
     if (!user || user.isAnonymous) {
       return NextResponse.redirect(
         new URL(vaultSignInHref(localizedVaultPath(requestLocale(request), "/dashboard/testflight")), request.url),
@@ -44,20 +53,78 @@ export async function POST(request: NextRequest) {
       return testflightRedirect(request, "unavailable");
     }
 
-    const email = normalizedEmail(user.primaryEmail);
-    if (!email) return testflightRedirect(request, "needs_email");
+    const result = await withAccountDeletionUserMutation(
+      cloudDb(),
+      user.id,
+      async (mutationLease) => {
+        if (action === "join") {
+          const email = normalizedEmail(user.primaryEmail);
+          if (!email) return "needs_email" as const;
+          if (!(await isTestflightEligible(user))) {
+            return "ineligible" as const;
+          }
+          // Eligibility checks and other billing paths can update Stack
+          // metadata. Reload before recording exact TestFlight ownership.
+          const freshUser = await stackApp.getUser(user.id);
+          if (!freshUser || freshUser.id !== user.id) {
+            return "error" as const;
+          }
+          const freshEmail = normalizedEmail(freshUser.primaryEmail);
+          if (!freshEmail) return "needs_email" as const;
+          // Persist the exact address before the ASC mutation. If ASC fails, a
+          // retry is harmless; if it succeeds, future email changes cannot
+          // orphan this Pro-group enrollment.
+          await recordProTestflightEnrollmentEmail(
+            freshUser,
+            freshEmail,
+            mutationLease,
+          );
+          const name = splitDisplayName(freshUser.displayName);
+          await mutationLease.refresh();
+          await enrollTester(freshEmail, name.firstName, name.lastName);
+          if (!(await isTestflightEligible(freshUser))) {
+            // Protect against a non-cooperating eligibility writer. The shared
+            // lock handles cmux billing updates; this compensation closes any
+            // remaining change that becomes visible during ASC enrollment.
+            const compensationUser = await stackApp.getUser(user.id);
+            await removeProTesterAccess(
+              freshEmail,
+              compensationUser?.clientReadOnlyMetadata ??
+                freshUser.clientReadOnlyMetadata,
+              removeTester,
+              compensationUser
+                ? {
+                    beforeExternalMutation: mutationLease.refresh,
+                    updateMetadata: (clientReadOnlyMetadata) =>
+                      compensationUser.update({
+                        clientReadOnlyMetadata:
+                          clientReadOnlyMetadata as ProMetadataJson,
+                      }),
+                  }
+                : undefined,
+            );
+            return "ineligible" as const;
+          }
+          return "joined" as const;
+        }
 
-    if (action === "join") {
-      if (!(await isTestflightEligible(user))) {
-        return testflightRedirect(request, "ineligible");
-      }
-      const name = splitDisplayName(user.displayName);
-      await enrollTester(email, name.firstName, name.lastName);
-      return testflightRedirect(request, "joined");
-    }
-
-    await removeTester(email);
-    return testflightRedirect(request, "left");
+        const freshUser = await stackApp.getUser(user.id);
+        if (!freshUser) return "error" as const;
+        await removeProTesterAccess(
+          normalizedEmail(freshUser.primaryEmail),
+          freshUser.clientReadOnlyMetadata,
+          removeTester,
+          {
+            beforeExternalMutation: mutationLease.refresh,
+            updateMetadata: (clientReadOnlyMetadata) => freshUser.update({
+              clientReadOnlyMetadata: clientReadOnlyMetadata as ProMetadataJson,
+            }),
+          },
+        );
+        return "left" as const;
+      },
+    );
+    return testflightRedirect(request, result);
   } catch (error) {
     captureAscError(error, {
       route: "/api/testflight",

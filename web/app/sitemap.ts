@@ -3,13 +3,27 @@ import {
   fallbackContentLocales,
   englishFallbackContentLocales,
   featureWorkflowContentLocales,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
 import { comparePages, comparePath } from "./lib/compare-pages";
+import {
+  DOWNLOAD_PLATFORMS,
+  PLATFORM_DOWNLOADS,
+} from "./lib/download";
+import { genericCodingAgents } from "../i18n/coding-agents";
+import {
+  changelogPath,
+  changelogVersionPath,
+} from "./lib/changelog";
+import { changelogStore } from "./lib/changelog-store";
 
+/** Builds localized sitemap entries, excluding unreleased download pages. */
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://cmux.com";
+  const changelog = changelogStore.versions();
+  const latestChangelogDate = changelog[0]?.date ?? "2026-03-18";
 
   const paths: Array<{
     path: string;
@@ -20,10 +34,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }> = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
     { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/browser", lastModified: "2026-08-05", changeFrequency: "weekly" as const, priority: 0.9 },
+    ...DOWNLOAD_PLATFORMS.map((platform) => ({
+      path: PLATFORM_DOWNLOADS[platform].page,
+      lastModified: "2026-08-04",
+      changeFrequency: "weekly" as const,
+      priority: 0.9,
+    })),
     { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9, locales: fallbackContentLocales },
     { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/blog", lastModified: "2026-07-04", changeFrequency: "weekly" as const, priority: 0.8 },
-    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog", lastModified: "2026-07-29", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog/367-billion-tokens", lastModified: "2026-07-29", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
+    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-23", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/blog/cmux-fork", lastModified: "2026-07-15", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-home", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -44,7 +66,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/blog/cmd-shift-u", lastModified: "2026-03-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/docs/base", lastModified: "2026-06-25", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/workspace-groups", lastModified: "2026-06-09", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/configuration", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/textbox", lastModified: "2026-05-26", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -60,13 +81,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/notifications", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/remote-tmux", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8, locales: remoteTmuxDocsLocales },
+    { path: "/docs/managed-policies", lastModified: "2026-08-18", changeFrequency: "monthly" as const, priority: 0.8, locales: managedPoliciesDocsLocales },
     { path: "/docs/ios", lastModified: "2026-06-21", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-opencode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-codex", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-pi", lastModified: "2026-07-07", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/docs/agent-integrations/oh-my-claudecode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/docs/changelog", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.5 },
+    { path: changelogPath, lastModified: latestChangelogDate, changeFrequency: "weekly" as const, priority: 0.5 },
+    ...changelog.map((release) => ({
+      path: changelogVersionPath(release.version),
+      lastModified: release.date,
+      changeFrequency: "never" as const,
+      priority: 0.4,
+    })),
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
@@ -86,6 +114,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/agents/claude-code", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/codex", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/opencode", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/agents/pi", lastModified: "2026-08-03", changeFrequency: "monthly" as const, priority: 0.6 },
+    ...genericCodingAgents.map((agent) => ({
+      path: `/agents/${agent.slug}`,
+      lastModified: "2026-08-03",
+      changeFrequency: "monthly" as const,
+      priority: 0.5,
+    })),
     { path: "/agents/gemini-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
@@ -95,9 +130,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
-  // Legal pages and the Base docs page are English-only, so they only get one entry.
+  // Legal pages are English-only, so they only get one entry.
   // The SEO landing pages are localized, so they go through the per-locale loop.
-  const englishOnly = new Set(["/docs/base", "/terms-of-service", "/eula"]);
+  const englishOnly = new Set([
+    "/terms-of-service",
+    "/eula",
+  ]);
 
   const entries: MetadataRoute.Sitemap = [];
 

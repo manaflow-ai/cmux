@@ -8,6 +8,19 @@ import Foundation
 /// that file's doc comment for the overview.
 extension TerminalController {
 
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: String(
+                localized: "socket.surface.resume.agentSessionEndedMustBeBoolean",
+                defaultValue: "agent_session_ended must be a boolean"
+            ),
+            launchCommandMustBeValid: String(
+                localized: "socket.surface.resume.launchCommandMustBeValid",
+                defaultValue: "launch_command.arguments must be a non-empty array of strings"
+            )
+        )
+    }
+
     // MARK: - move (bridge to still-app-side v2SurfaceMove)
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
@@ -27,57 +40,6 @@ extension TerminalController {
         case let .err(code, message, data):
             return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
         }
-    }
-
-    // MARK: - reorder
-
-    func controlSurfaceReorder(
-        surfaceID: UUID,
-        inputs: ControlSurfaceReorderInputs,
-        requestedFocus: Bool
-    ) -> ControlSurfaceReorderResolution {
-        let focus = v2FocusAllowed(requested: requestedFocus)
-        guard locateRemoteTmuxMirrorContainer(surfaceID) == nil else {
-            return .surfaceNotFound(surfaceID)
-        }
-        guard let app = AppDelegate.shared,
-              let located = app.locateSurface(surfaceId: surfaceID),
-              let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              let sourcePane = ws.paneId(forPanelId: surfaceID) else {
-            return .surfaceNotFound(surfaceID)
-        }
-
-        let targetIndex: Int
-        if let index = inputs.index {
-            targetIndex = index
-        } else if let beforeSurfaceID = inputs.beforeSurfaceID {
-            guard let anchorPane = ws.paneId(forPanelId: beforeSurfaceID),
-                  anchorPane == sourcePane,
-                  let anchorIndex = ws.indexInPane(forPanelId: beforeSurfaceID) else {
-                return .anchorNotInSamePane
-            }
-            targetIndex = anchorIndex
-        } else if let afterSurfaceID = inputs.afterSurfaceID {
-            guard let anchorPane = ws.paneId(forPanelId: afterSurfaceID),
-                  anchorPane == sourcePane,
-                  let anchorIndex = ws.indexInPane(forPanelId: afterSurfaceID) else {
-                return .anchorNotInSamePane
-            }
-            targetIndex = anchorIndex + 1
-        } else {
-            // Unreachable: the coordinator enforces exactly-one-target.
-            return .reorderFailed
-        }
-
-        guard ws.reorderSurface(panelId: surfaceID, toIndex: targetIndex, focus: focus) else {
-            return .reorderFailed
-        }
-        return .reordered(
-            windowID: located.windowId,
-            workspaceID: ws.id,
-            paneID: sourcePane.id,
-            surfaceID: surfaceID
-        )
     }
 
     // MARK: - refresh
@@ -201,7 +163,7 @@ extension TerminalController {
             }
             // `surface.trigger_flash` is not focus intent: flash a visible Dock
             // panel if it is already rendered, but never reveal/raise its window.
-            dock.triggerFocusFlash(panelId: surfaceId)
+            dock.triggerUserInitiatedFocusFlash(panelId: surfaceId)
             return .flashed(
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
@@ -223,9 +185,9 @@ extension TerminalController {
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
         if ws.panels[target.surfaceID] != nil {
-            ws.triggerFocusFlash(panelId: target.surfaceID)
+            ws.triggerUserInitiatedFocusFlash(panelId: target.surfaceID)
         } else {
-            target.panel.triggerFlash(reason: .navigation)
+            target.panel.triggerFlash(reason: .userInitiated)
         }
         return .flashed(
             windowID: v2ResolveWindowId(tabManager: tabManager),

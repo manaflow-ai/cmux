@@ -9,6 +9,7 @@ import {
 type FakeRow = {
   id: string;
   deviceCodeHash: string;
+  client: "cmux-vault" | "subrouter";
   status: string;
   userId: string | null;
   expiresAt: Date;
@@ -24,7 +25,7 @@ function fakeRepository(row: FakeRow): CliAuthRepository {
             row.status === "approved" &&
             row.expiresAt.getTime() > now.getTime()
           ) {
-            return { id: row.id, userId: row.userId };
+            return { id: row.id, userId: row.userId, client: row.client };
           }
           return null;
         },
@@ -48,11 +49,17 @@ function fakeRepository(row: FakeRow): CliAuthRepository {
 
 function countingMinter(
   tokens: CliAuthTokens | null,
-): { minter: CliAuthTokenMinter; calls: string[] } {
-  const calls: string[] = [];
+): {
+  minter: CliAuthTokenMinter;
+  calls: Array<{ userId: string; client: "cmux-vault" | "subrouter" }>;
+} {
+  const calls: Array<{
+    userId: string;
+    client: "cmux-vault" | "subrouter";
+  }> = [];
   return {
-    minter: async (userId) => {
-      calls.push(userId);
+    minter: async (userId, client) => {
+      calls.push({ userId, client });
       return tokens;
     },
     calls,
@@ -66,6 +73,7 @@ function approvedRow(): FakeRow {
   return {
     id: "request-1",
     deviceCodeHash: "hash-1",
+    client: "subrouter",
     status: "approved",
     userId: "user-1",
     expiresAt: LATER,
@@ -79,10 +87,11 @@ describe("vault CLI auth claim", () => {
 
     await expect(claimCliAuthTokens(fakeRepository(row), minter, "hash-1", NOW)).resolves.toEqual({
       status: "approved",
+      client: "subrouter",
       accessToken: "access-1",
       refreshToken: "refresh-1",
     });
-    expect(calls).toEqual(["user-1"]);
+    expect(calls).toEqual([{ userId: "user-1", client: "subrouter" }]);
     expect(row.status).toBe("claimed");
   });
 
@@ -95,7 +104,7 @@ describe("vault CLI auth claim", () => {
     await expect(claimCliAuthTokens(repository, minter, "hash-1", NOW)).resolves.toEqual({
       status: "expired",
     });
-    expect(calls).toEqual(["user-1"]);
+    expect(calls).toEqual([{ userId: "user-1", client: "subrouter" }]);
   });
 
   test("pending row stays pending and never mints", async () => {
@@ -135,6 +144,7 @@ describe("vault CLI auth claim", () => {
     const succeeding = countingMinter({ accessToken: "access-2", refreshToken: "refresh-2" });
     await expect(claimCliAuthTokens(repository, succeeding.minter, "hash-1", NOW)).resolves.toEqual({
       status: "approved",
+      client: "subrouter",
       accessToken: "access-2",
       refreshToken: "refresh-2",
     });

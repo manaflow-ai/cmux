@@ -1,284 +1,206 @@
-# Binding Generation Contract
+# SDK contract
 
-Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
+cmux ships handwritten resource APIs for Rust, Python, TypeScript, Go, Java,
+C++20, and Zig. Each package also contains a generated private-protocol layer
+under an explicit `raw` namespace.
 
-All bindings must expose the implemented protocol v7 commands, events, and transports. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+The split is deliberate:
 
-## Shared Requirements
+- [`resource-operations-v2.json`](resource-operations-v2.json) defines the
+  stable public operations, selectors, fields, results, errors, and streams.
+- Public resource handles, options, lifecycle, errors, and conveniences are
+  handwritten in each language.
+- Mechanical protocol-v12 models are generated deterministically and exposed
+  only through `raw`.
+- A catalog descriptor in every package proves that all 124 transported
+  operations have the same class and wire name.
+- The six sidebar plugin operations are local CLI/filesystem APIs. Transported
+  SDK roots expose sidebar views, not plugin resource handles.
 
-Bindings must preserve wire names and schemas. They may expose idiomatic method names, but every method must map to exactly one command in `commands.md`.
+Code generation is a repository build tool. It is never a consumer dependency
+and does not define the public API.
 
-Bindings must:
+## Shared behavior
 
-| Requirement | Contract |
+Every high-level SDK must provide:
+
+| Area | Contract |
 | --- | --- |
-| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features |
-| Error handling | Preserve the server error string and expose a typed transport vs command distinction |
-| Events | Route response lines and event lines correctly on full-duplex connections |
-| Attach | Preserve attach ordering for the selected mode: v5 `vt-state`, then `output`, then `detached`; v6 byte mode `vt-state`, then `(resized | output | colors-changed | scroll-changed)*`, then `detached`; v7 render mode `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |
-| Title changes | Decode `title-changed` as a typed event with `surface` and an optional `title`; protocol v7 guarantees the authoritative title, while v5-v6 omit it |
-| JSON mode | Provide a way to send raw command JSON for forward compatibility |
-| Timeouts | Let callers configure request timeout without changing wire schema |
-| Ids | Use numeric ids for v5 and `IdRef` where supported by the negotiated protocol |
+| IDs | Distinct typed wrappers for every opaque resource prefix; no numeric or abbreviated forms |
+| Selectors | ID, `current`, or exact name; name lookup returns all matches |
+| Handles | Machine, session, workspace, screen, pane, tab, terminal, browser, and auxiliary resource handles |
+| Routing | Session resources always carry machine and session selectors; direct opaque targets require no hidden lookup |
+| Names | Exact bytes, including empty, whitespace, and Unicode; duplicate names stay ambiguous |
+| Commands | Exact argument arrays, target-platform shell scripts, and explicitly selected shell executables |
+| Mutations | Secure 128-bit default idempotency keys; explicit keys use 1 to 128 UTF-8 bytes, contain non-whitespace, and exclude Unicode control scalars; optional expected revision, one wire request, and no implicit retry |
+| Results | Flat `value`, `generation`, decimal-string `revision`, and `replayed` fields |
+| Errors | Transport, timeout, decode, and structured resource errors retain code, message, details, and retryability |
+| Streams | Typed items, explicit cancellation, bounded unread queues, structured end state, and per-stream overflow isolation |
+| Evolution | Unknown stream variants retain their discriminator and complete raw object; malformed known variants fail decoding |
+| Secrets | Pairing codes and renderer tokens are redacted from formatting and errors |
+| Raw access | Private protocol-v12 APIs are reachable only through a package path containing `raw` |
 
-## Protocol v7 SDK Expectations
+Decimal wire values remain strings. TypeScript never converts them to
+`number`; Java uses `BigInteger`; other SDKs validate canonical unsigned
+decimal text before an optional native conversion.
 
-SDKs that expose protocol v7 should provide a version-gated render attachment iterator whose first item is typed `render-state` and whose later union is `render-delta | scroll-changed | detached`; it must preserve plain UTF-8 run text, exact optional fields, resolved colors, row indexes, and unknown-event fallback without routing render events through a VT emulator. Subscribe APIs should default to `tree_events:"coarse"` and expose explicit `"deltas"` opt-in. Delta event unions add every workspace/screen/pane/tab lifecycle event with typed subject and parent ids plus the exact `list-workspaces` entity payload, while retaining `tree-changed` as an explicit resync case rather than an ordinary-change dependency. Detailed per-language API design, generated models, and conformance fixtures are deferred to a later SDK round.
+The server may return `mutation.indeterminate` after a crash around an external
+effect. SDKs retain the structured error and never repeat that key
+automatically.
 
-## Rust
+## Commands
 
-Rust bindings should use typed request and response structs with Serde serialization. Public methods should return `Result<T, CmuxError>`, where `CmuxError` separates command errors, decode errors, connection errors, timeouts, and protocol-version errors.
-
-Method names use snake_case. Wire command names remain kebab-case through Serde attributes. Events should be a non-exhaustive enum with typed payload structs and an `Unknown` variant for forward compatibility.
-
-Streaming APIs should use an iterator or channel for blocking clients and may offer async adapters later. The first generated binding can be synchronous because the implemented server is synchronous.
-
-## Python
-
-Python bindings should provide a synchronous client and dataclasses for command results and events. Method names use snake_case, such as `read_screen(surface)` and `list_workspaces()`.
-
-Errors should derive from a common `CmuxError`, with subclasses for `CommandError`, `ConnectionError`, `ProtocolError`, and `TimeoutError`. The server error string must be available as a property.
-
-The client should support context-manager usage to close sockets deterministically. Event streams should be Python iterators yielding dataclass event objects. Raw JSON access should remain available for scripts.
-
-## TypeScript
-
-TypeScript bindings should expose promise-based command methods and discriminated unions for results and events. The `event` field is the event discriminator. Command errors should reject with a typed error carrying the server message and optional command id.
-
-The `cmux` package is the frontend client library. Its package root conditionally exports a browser-safe ESM entry, while `cmux/node` explicitly exports the Node entry with the default Unix-socket behavior. Shared modules must not import Node builtins at module scope.
-
-All clients accept a `Transport` with this contract:
-
-```ts
-interface Transport {
-  send(json: string): void;
-  onMessage(handler: (json: string) => void): () => void;
-  onClose(handler: () => void): () => void;
-  onError(handler: (error: Error) => void): () => void;
-  close(): void;
-}
-```
-
-`UnixSocketTransport` frames each JSON message as one line. `WebSocketTransport` frames each JSON message as one text frame, uses the browser global by default, and accepts an injected WebSocket-compatible constructor in Node without requiring a runtime dependency.
-
-`CmuxRequest` is discriminated by exact wire `cmd`; `CmuxEvent` is discriminated by exact wire `event` and retains an unknown-event fallback. `request({cmd,...params})` infers successful response data from the request member. Typed command methods remain the preferred surface.
-
-`attachSurface()` yields an async iterable. In byte mode, its `vt-state.data`, `output.data`, and `resized.replay` values are decoded to `Uint8Array` without relying on `Buffer` in shared browser code. In protocol-v7 render mode, run text remains a JavaScript string and is never base64-decoded. Wire event types continue to expose their exact fields.
-
-Generated types must preserve exact field optionality. Unknown event names should be represented as `{ event: string; [key: string]: unknown }` rather than being dropped.
-
-## Go
-
-Go bindings should use `context.Context` on every command method. Method names use exported Go style, such as `ReadScreen(ctx, surface)` and `ListWorkspaces(ctx)`.
-
-Errors should support `errors.Is` or `errors.As` for command error, connection error, timeout, and protocol mismatch. Command result structs should use JSON tags matching wire names.
-
-Event and attach streams should expose receive methods that take a context and return typed event interfaces or structs. Callers must be able to close the client and unblock pending reads.
-
-## Java
-
-Java bindings should provide a client with builder-based configuration:
+An exact command preserves every argument and does not invoke a shell:
 
 ```text
-CmuxClient.builder().session("main").build()
+["printf", "%s\n", "$HOME"]
 ```
 
-Command request objects with more than one optional parameter should use builders. Simple commands may be direct methods. Results should be immutable value objects.
+A shell command asks the server to use the target platform's default shell
+with `-lc`. Choosing a specific executable sends the exact array:
 
-Errors should use checked or clearly documented runtime exceptions with separate types for command errors, transport errors, decode errors, and protocol mismatch. Event streams should use an iterator, callback interface, or Java Flow publisher, with the simplest synchronous option generated first.
+```text
+["/bin/zsh", "-lc", "printf ready"]
+```
 
-## Conformance Suite
+SDKs never read, expand, or transmit the caller's `$SHELL`.
 
-Every generated binding and CLI implementation must pass the same conformance suite against a real headless server. The suite lives under `cmux-tui/bindings/conformance/` and is run with:
+## Streams
+
+The public stream families are:
+
+- session snapshots and atomic resource-change batches;
+- styled terminal render snapshots, patches, and scroll state;
+- browser state and frames;
+- styled sidebar render snapshots, patches, and scroll state.
+
+Each stream has a caller-generated typed ID. The server installs its event tap
+before acknowledging the open request and releases the initial snapshot after
+that response. Cancellation is connection-local. A queue holds at most 256
+messages and 16 MiB. Overflow ends only that stream with a gap and recovery
+cursor.
+
+## Language mapping
+
+| Language | Public style | Owned lifetime | Minimum | Runtime dependencies |
+| --- | --- | --- | --- | --- |
+| Rust | `Result`, typed handles, blocking iterators | `Client` and stream objects | Rust 1.88 | `serde`, `serde_json`, `getrandom`, narrow Unix support |
+| Python | typed classes and dataclasses, sync plus `asyncio` facade | context-managed clients and iterators | Python 3.9 | standard library |
+| TypeScript | branded IDs, promises, discriminated unions, async iterables | client, stream, and `AbortSignal` | Node 20 or browser ESM | none |
+| Go | generic typed selectors, `context.Context`, typed stream receivers | client, context, and stream cancellation | Go 1.22 | standard library |
+| Java | immutable values, builders, `BigInteger`, synchronous streams | `AutoCloseable` client and streams | Java 17 | standard library |
+| C++ | value types, `result<T>`, `std::variant`, move-only RAII streams | RAII client and streams | C++20, CMake 3.20 | standard library |
+| Zig | typed IDs, error unions, explicit allocator-owned values | explicit `deinit` | Zig 0.15.2 | standard library |
+
+### Rust
+
+The `cmux-sdk` package exports crate `cmux`. Resource handles clone without
+I/O. Mutation helpers create one secure key; `_with` variants accept explicit
+mutation options. Typed streams are owned iterators with cancellation handles.
+The optional `cmux-sidebar` package applies terminal-style render patches to a
+Ratatui buffer and forwards typed input without adding Ratatui to the base SDK.
+Private models live under `cmux::raw`.
+
+### Python
+
+`cmux.Client` is synchronous and supports `with`. `cmux.aio.Client` mirrors the
+resource graph for `asyncio`. Cancellation closes its dedicated connection and
+releases reader threads. The package supports Python 3.9 without runtime
+dependencies. Private models live under `cmux.raw`.
+
+### TypeScript
+
+The `cmux-sdk` package root exports the portable client. `cmux-sdk/browser` is
+browser-safe ESM and accepts an injected WebSocket transport. `cmux-sdk/node`
+adds Unix socket discovery. Shared modules import no Node built-ins.
+Stream APIs are `AsyncIterable`, accept `AbortSignal`, and preserve decimal
+strings. Private models live under `cmux-sdk/raw`.
+
+### Go
+
+Package `cmux` accepts `context.Context` on blocking operations. Context
+cancellation stops local waiting and closes dedicated streams; it does not
+claim to cancel an already executing mutation. A dial function can inject a
+transport on Windows and in tests. Private models live under `cmux/raw`.
+
+### Java
+
+Package `com.cmux` uses builders for requests with several optional fields and
+immutable results. `Client` and `ResourceStream` support
+try-with-resources. A transport can be injected for WebSockets, non-Unix
+platforms, and tests. Private models live under `com.cmux.raw`.
+
+### C++20
+
+Headers under `cmux` expose native C++ value types and no Rust ABI.
+`cmux::result<T>` separates typed failure categories. The default transport is
+Unix JSON Lines; applications inject other transports. Private headers live
+under `cmux/raw`.
+
+### Zig
+
+Public methods accept an explicit allocator for owned data. Results and streams
+require `deinit`. Errors retain structured remote fields and secret values are
+zeroized when their owning values are released. Private modules live under
+`raw`.
+
+## Transport parity
+
+Unix sockets use one JSON object per line. WebSockets use one JSON object per
+text frame. Both carry the same `cmux.protocol/2` envelopes and ordering.
+Transport-specific code may frame and authenticate a connection; it may not
+change operation parameters or results.
+
+Public clients must bound:
+
+- one request to 4 MiB;
+- one response or stream envelope to 16 MiB;
+- pending response routing;
+- unread messages and bytes independently for each stream.
+
+Closing a client unblocks pending reads and releases owned transports.
+
+## Deterministic raw generation
+
+The raw generator:
+
+1. consumes the reviewed protocol-v12 schema;
+2. renders each selected language twice and requires byte equality;
+3. stages all outputs before changing the checkout;
+4. writes atomically;
+5. deletes only files owned by the previous manifest;
+6. records schema and output hashes;
+7. fails CI when checked-in output drifts.
+
+Regenerate:
 
 ```bash
-python3 cmux-tui/bindings/conformance/runner.py
+python3 cmux-tui/bindings/codegen/generate.py --write
 ```
 
-### Fixture File Format
+Verify without writing:
 
-Conformance fixtures use a file wrapper:
-
-```text
-object{
-  defaults?: object{timeout_ms?: uint64},
-  fixtures: array<Fixture>
-}
+```bash
+python3 cmux-tui/bindings/codegen/generate.py --check
 ```
 
-`Fixture`:
+## Acceptance
 
-```text
-object{
-  name: string,
-  requires?: object{commands?: array<string>},
-  timeout_ms?: uint64,
-  steps: array<Step>
-}
-```
+Each language must pass:
 
-`requires.commands` is a fixture-level skip gate. Before running the fixture, the runner probes each command. If the server lacks a required command, the fixture is reported as `SKIP`, not `PASS` and not `FAIL`. Skipped fixtures are counted separately in the summary and indicate an honest coverage gap for the tested server.
+- unit tests for IDs, selectors, requests, results, errors, redaction, and
+  unknown variants;
+- exact fake-server transcripts for ordering, cancellation, timeout, overflow,
+  and idempotency;
+- clean package installation and an external consumer build;
+- catalog descriptor parity for every transported operation;
+- a live isolated server flow that creates, runs, reads, mutates, streams, and
+  closes resources;
+- its minimum compiler or runtime version.
 
-A command step sends one command and checks the response:
+The repository-level boundary checker rejects private resource fields,
+private identity forms, raw imports, and missing operation descriptors from
+high-level packages.
 
-```text
-object{
-  type: "command",
-  request: object,
-  expect: object,
-  match?: "exact"|"partial",
-  bind?: object<string,string>,
-  timeout_ms?: uint64
-}
-```
-
-`match:"exact"` requires exact JSON equality. `match:"partial"` requires the expected object to be a recursive subset of the actual object. For arrays in partial mode, expected entries match by index and extra actual entries are ignored.
-
-`bind` maps variable names to JSON paths evaluated against that step's command response. Paths are dot-separated and start at the response object, such as `data.surface` or `data.workspaces[0].screens[0].panes[0].id`. A later request, expectation, or event predicate may use `"$name"` to substitute the bound JSON value. Missing paths fail the fixture.
-
-Every step has a timeout. `timeout_ms` on the step wins; otherwise the fixture runner uses `defaults.timeout_ms`; otherwise it uses 5000 ms.
-
-A `wait_contains` step repeats a command until the response value at `path` contains `contains` or the timeout expires:
-
-```text
-object{
-  type: "wait_contains",
-  request: object,
-  path: string,
-  contains: string,
-  timeout_ms?: uint64
-}
-```
-
-This is used for PTY output assertions where `send` and terminal rendering are asynchronous.
-
-### Event Transcript Format
-
-Event expectation steps use `type:"expect_events"`, a stream name, and an `expect` array. Matching is an in-order subsequence over the event stream. Each expected event is a partial match: specified fields must equal after variable substitution, unspecified fields are ignored. Unrelated interleaved events are tolerated. The step fails if the subsequence is not observed before timeout.
-
-A stream step opens a persistent stream, usually by sending `subscribe`:
-
-```json
-{"type":"stream","name":"events","request":{"id":3,"cmd":"subscribe"},"expect":{"id":3,"ok":true},"match":"partial"}
-```
-
-### Worked Fixture: Subscribe And New Tab
-
-This fixture uses only protocol v5 commands and can run against a headless server.
-
-```json
-{
-  "defaults": { "timeout_ms": 5000 },
-  "fixtures": [
-    {
-      "name": "subscribe-new-tab",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": {
-            "workspace0": "data.workspaces[0].id",
-            "screen0": "data.workspaces[0].screens[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id"
-          }
-        },
-        {
-          "type": "stream",
-          "name": "events",
-          "request": { "id": 3, "cmd": "subscribe" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "new-tab", "pane": "$pane0" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial",
-          "bind": { "surface1": "data.surface" }
-        },
-        {
-          "type": "expect_events",
-          "stream": "events",
-          "expect": [
-            { "event": "tree-changed" }
-          ]
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "list-workspaces" },
-          "expect": {
-            "id": 5,
-            "ok": true,
-            "data": {
-              "workspaces": [
-                {
-                  "id": "$workspace0",
-                  "screens": [
-                    {
-                      "id": "$screen0",
-                      "panes": [
-                        {
-                          "id": "$pane0",
-                          "active_tab": 1,
-                          "tabs": [
-                            { "surface": "$surface0" },
-                            { "surface": "$surface1" }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          "match": "partial"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### Attach Transcript Format
-
-Attach fixtures validate the replay ordering contract:
-
-```json
-{
-  "name": "attach-replay-then-live",
-  "surface_setup": {"cmd": "run", "command": "printf before; read x; printf after"},
-  "attach": {"cmd": "attach-surface", "surface": "$surface0"},
-  "expect_prefix": [{"event": "vt-state", "surface": "$surface0"}],
-  "actions": [{"cmd": "send", "surface": "$surface0", "text": "x\r"}],
-  "expect_later": [{"event": "output", "surface": "$surface0"}]
-}
-```
-
-For protocol v5, setup uses implemented commands rather than proposed `run`.
-
-### End-to-End Scenario
-
-Each binding must replay this scenario against a real headless server:
-
-1. Connect to the server and call `identify`.
-2. Create a workspace with `new-workspace`.
-3. Send a shell command that prints a unique marker.
-4. Wait for the marker using either proposed `wait-for` when available or a `read-screen` polling loop on v5.
-5. Read the screen and assert the marker is present.
-6. Rename the surface.
-7. Subscribe and trigger a resize.
-8. Assert one `surface-resized` event arrives for the changed size and no second event arrives for the same size.
-9. Attach to the surface and assert `vt-state` precedes live `output`.
-10. Close the workspace and assert the tree no longer contains it.
-
-The suite must fail if a binding drops unknown events, loses command ids, cannot distinguish command errors from transport failures, or assumes `attach-surface` response arrives before `vt-state` on a v5 server.
+The next likely SDKs are C# and Swift. They should follow this contract only
+after the seven initial packages and protocol have shipped stable.

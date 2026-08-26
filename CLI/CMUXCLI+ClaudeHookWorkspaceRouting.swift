@@ -76,15 +76,25 @@ extension CMUXCLI {
         client: SocketClient,
         includeAmbientTTY: Bool = true
     ) -> CallerTerminalBinding? {
-        guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY),
-              let payload = try? client.sendV2(method: "debug.terminals") else {
+        guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY) else {
             return nil
         }
+        return uniqueCallerTerminalBindingByTTY(ttyName: ttyName, client: client)
+    }
+
+    func uniqueCallerTerminalBindingByTTY(
+        ttyName: String,
+        client: SocketClient,
+        workspaceId: String? = nil
+    ) -> CallerTerminalBinding? {
+        guard let payload = try? client.sendV2(method: "debug.terminals") else { return nil }
         let terminals = payload["terminals"] as? [[String: Any]] ?? []
+        let scopedWorkspaceId = normalizedHandleValue(workspaceId)
         var matched: [CallerTerminalBinding] = []
         for terminal in terminals {
             guard normalizedTTYName(terminal["tty"] as? String) == ttyName,
                   let workspaceId = normalizedHandleValue(terminal["workspace_id"] as? String),
+                  scopedWorkspaceId == nil || workspaceId == scopedWorkspaceId,
                   let surfaceId = normalizedHandleValue(terminal["surface_id"] as? String) else {
                 continue
             }

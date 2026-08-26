@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxTerminal
 import SwiftUI
 
@@ -20,18 +21,66 @@ struct DockPanelView: View {
     var rightSidebarOwnsInputFocus: Bool = false
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
+    @State private var appearanceRevision: UInt = 0
+    @State private var unreadProjection: DockUnreadPanelProjection
     @State private var visibilityHostId = UUID()
+
+    @MainActor
+    init(
+        store: DockSplitStore,
+        isSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        rootDirectory: String?,
+        windowAppearance: WindowAppearanceSnapshot,
+        rightSidebarOwnsInputFocus: Bool = false,
+        unreadSource: SidebarUnreadModel
+    ) {
+        self.store = store
+        self.isSidebarVisible = isSidebarVisible
+        self.mode = mode
+        self.rootDirectory = rootDirectory
+        self.windowAppearance = windowAppearance
+        self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
+        _unreadProjection = State(initialValue: DockUnreadPanelProjection(
+            source: unreadSource,
+            workspaceID: store.workspaceId,
+            panelIDs: Set(store.panels.keys),
+            isActive: isSidebarVisible && mode == .dock,
+            agentAttentionSource: store.agentNeedsInputAttention
+        ))
+    }
 
     private var appearance: PanelAppearance {
         PanelAppearance.fromConfig(appearanceConfig)
     }
 
+    private var resolvedChromeBackgroundIdentity: String {
+        windowAppearance.resolvedChromeBackgroundColor.hexString(includeAlpha: true)
+    }
+
     var body: some View {
         content
-        .background(Color(nsColor: appearance.backgroundColor))
+        // Bonsplit and hosted panel subtrees may create their own AppKit
+        // hosting boundary. Re-inject the snapshot authority at the Dock root
+        // so none of that chrome falls back to macOS's ambient appearance.
+        .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
+        // The window root (or the right-sidebar material) owns the backdrop.
+        // Bonsplit terminal surfaces are intentionally clear, so a concrete
+        // composited chrome color here would cut them off from that owner.
+        .background(
+            WindowBackdropLayer(role: .bonsplitChrome, snapshot: windowAppearance)
+        )
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
+        )
+        .background(
+            DockUnreadProjectionContextBridge(
+                projection: unreadProjection,
+                panelIDs: Set(store.panels.keys),
+                isActive: isSidebarVisible && mode == .dock
+            )
+            .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("DockPanel")
         .onAppear {
@@ -59,12 +108,22 @@ struct DockPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
         }
+        .onChange(of: windowAppearance.resolvedColorScheme) { _, _ in
+            // The Dock's Bonsplit controller is an AppKit subtree and does not
+            // inherit SwiftUI's environment automatically. Re-apply its
+            // concrete chrome whenever the shared theme authority changes.
+            refreshAppearance(reason: "resolvedColorSchemeChanged")
+        }
+        .onChange(of: resolvedChromeBackgroundIdentity) { _, _ in
+            refreshAppearance(reason: "resolvedChromeBackgroundChanged")
+        }
     }
 
     private func refreshAppearance(reason: String) {
         let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
         appearanceConfig = next
-        store.applyGhosttyChrome(from: next)
+        appearanceRevision &+= 1
+        store.applyGhosttyChrome(from: next, windowAppearance: windowAppearance)
     }
 
     @ViewBuilder
@@ -79,89 +138,18 @@ struct DockPanelView: View {
             DockSplitContentView(
                 store: store,
                 appearance: appearance,
+                appearanceRevision: appearanceRevision,
                 windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+                unreadPanelIDs: unreadProjection.unreadPanelIDs
             )
-        }
-    }
-}
-
-/// Renders the Dock's Bonsplit tree, reusing `PanelContentView` so Dock
-/// terminals and browsers render identically to main-area panes.
-private struct DockSplitContentView: View {
-    let store: DockSplitStore
-    let appearance: PanelAppearance
-    let windowAppearance: WindowAppearanceSnapshot
-    let rightSidebarOwnsInputFocus: Bool
-
-    /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
-    /// Dock surfaces never overlay main-area surfaces.
-    private static let portalPriority = 1
-
-    var body: some View {
-        BonsplitView(controller: store.bonsplitController) { tab, paneId in
-            dockContent(tab: tab, paneId: paneId)
-        } emptyPane: { paneId in
-            DockEmptyPaneView(
-                onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
-        }
-    }
-
-    @ViewBuilder
-    private func dockContent(tab: Bonsplit.Tab, paneId: PaneID) -> some View {
-        if let panel = store.panel(for: tab.id) {
-            let isFocused = store.panelIsActiveInVisibleDockPane(panel.id) && rightSidebarOwnsInputFocus
-            let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-            let isVisibleInUI = store.panelIsSelectedInVisibleDockPane(panel.id)
-            let isSplit = store.bonsplitController.allPaneIds.count > 1
-            PanelContentView(
-                panel: panel,
-                workspaceId: store.workspaceId,
-                paneId: paneId,
-                isFocused: isFocused,
-                isSelectedInPane: isSelectedInPane,
-                isVisibleInUI: isVisibleInUI,
-                portalPriority: Self.portalPriority,
-                isSplit: isSplit,
-                appearance: appearance,
-                windowAppearance: windowAppearance,
-                customSidebarTabManager: nil,
-                hasUnreadNotification: false,
-                terminalAgentContext: "",
-                paneOwnershipOverride: isVisibleInUI,
-                terminalPaneOwnershipResolver: {
-                    guard store.paneId(forPanelId: panel.id)?.id == paneId.id else { return false }
-                    return store.panelIsSelectedInVisibleDockPane(panel.id)
-                },
-                onFocus: {
-                    store.bonsplitController.focusPane(paneId)
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-                },
-                onRequestPanelFocus: {
-                    store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-                    store.focusPanel(panel.id)
-                },
-                onResumeAgentHibernation: {},
-                onAutoResumeAgentHibernation: {},
-                onTriggerFlash: {}
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
-        } else {
-            DockEmptyPaneView(
-                onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
-            )
-            .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
     }
 }
 
 /// Shown in an empty Dock pane (initial empty Dock, or a freshly split pane).
 /// Offers the same in-app create affordances as the tab-bar split buttons.
-private struct DockEmptyPaneView: View {
+struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
 
@@ -280,7 +268,7 @@ final class DockKeyboardFocusView: NSView {
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
         if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+        guard let ghosttyView = responder.cmuxStrictOwningGhosttyView(),
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }

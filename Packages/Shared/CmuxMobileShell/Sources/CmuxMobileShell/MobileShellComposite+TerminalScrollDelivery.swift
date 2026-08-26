@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileRPC
 import Foundation
 import OSLog
@@ -8,6 +9,15 @@ private let terminalScrollDeliveryLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// The phone owns primary-screen scrolling for this surface: screen-anchored
+    /// render grid with a CONFIRMED primary screen. The same condition suppresses
+    /// the Mac scroll RPC in `scrollTerminal` and routes the local mirror's
+    /// pixel-precise scroll path.
+    public func ownsLocalPrimaryScreenScroll(surfaceID: String) -> Bool {
+        usesScreenAnchoredRenderGrid
+            && terminalActiveScreenBySurfaceID[surfaceID] == .primary
+    }
+
     /// Forward a scroll gesture to the Mac's real surface. libghostty does the
     /// mode-correct thing: normal screen moves the viewport into scrollback;
     /// alt screen + mouse reporting encodes mouse-wheel to the PTY for the
@@ -19,6 +29,19 @@ extension MobileShellComposite {
     /// in flight, newer deltas are summed into the next request instead of
     /// piling up stale scroll packets.
     public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
+        // Screen-anchored sessions own primary-screen scrolling: the gesture
+        // already moved the local mirror's viewport over locally accumulated
+        // scrollback, the Mac's viewport is not shared, and no prefetch window
+        // is needed. Only alternate-screen scrolls still round-trip (they are
+        // mouse-wheel input for the TUI, not viewport movement). Suppress only
+        // on a CONFIRMED primary screen: with no per-surface entry yet (before
+        // the first frame, after surface removal) the screen is unknown, and
+        // dropping what may be alternate-screen wheel input would eat TUI
+        // scrolling, while forwarding a primary-screen scroll merely moves the
+        // Mac's own viewport, which screen-anchored frames ignore.
+        if ownsLocalPrimaryScreenScroll(surfaceID: surfaceID) {
+            return
+        }
         var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]
             ?? TerminalScrollbackPrefetchState()
         let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
@@ -65,6 +88,11 @@ extension MobileShellComposite {
     private func performTerminalScroll(_ delivery: TerminalScrollDelivery) async {
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: delivery.surfaceID) else {
+            recordAppEvent(
+                .terminalScrollFailed,
+                correlationID: delivery.surfaceID,
+                failure: .offline
+            )
             return
         }
         do {
@@ -85,6 +113,10 @@ extension MobileShellComposite {
                 params: params
             )
             let data = try await client.sendRequest(request)
+            recordAppEvent(
+                .terminalScrollSent,
+                correlationID: delivery.surfaceID
+            )
             guard let maxScrollbackRows = delivery.maxScrollbackRows,
                   maxScrollbackRows > 0,
                   remoteClient === client else {
@@ -102,6 +134,11 @@ extension MobileShellComposite {
             )
         } catch {
             terminalScrollDeliveryLog.error("scroll forward failed surface=\(delivery.surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            recordAppEvent(
+                .terminalScrollFailed,
+                correlationID: delivery.surfaceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
         }
     }
 }

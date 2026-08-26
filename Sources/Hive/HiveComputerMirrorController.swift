@@ -493,7 +493,8 @@ final class HiveComputerMirrorController {
                 remotePaneId: index,
                 title: terminal.title,
                 focus: false,
-                onInput: { data in
+                onInput: { input in
+                    guard case let .bytes(data) = input else { return }
                     let text = String(decoding: data, as: UTF8.self)
                     guard !text.isEmpty else { return }
                     Task { @MainActor in terminalSession.send(text: text) }

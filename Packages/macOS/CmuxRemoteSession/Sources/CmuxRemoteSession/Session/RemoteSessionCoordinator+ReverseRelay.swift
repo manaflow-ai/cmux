@@ -1,17 +1,15 @@
 internal import CmuxFoundation
+internal import CmuxRemoteWorkspace
 internal import OSLog
-public import CmuxRemoteWorkspace
-public import Foundation
+internal import Foundation
 
 nonisolated private let remoteRelayLogger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteRelay")
 
 // The reverse CLI relay: a remote `127.0.0.1:<relayPort>` listener forwarded
-// back to the local CLI relay server, preferring an `ssh -O forward` on the
-// user's existing ControlMaster and falling back to a standalone `ssh -N -R`
-// transport. Faithful lift: argv composition, metadata install scripts,
-// stderr capture caps, restart cadence (2s), and every debug-log line are
-// pinned legacy behavior. The legacy restart `asyncAfter` work item became
-// an injected-clock task with a token guard (strictly tighter cancel).
+// back to the local CLI relay server. It prefers `ssh -O forward` on the
+// already-authenticated shared ControlMaster, preserving password/MFA hosts,
+// and falls back to a coordinator-owned standalone `ssh -N -R` transport.
+// Standalone stderr capture caps and restart cadence (2s) are pinned behavior.
 extension RemoteSessionCoordinator {
     func startReverseRelayLocked(remotePath: String) {
         guard !isStopping else { return }
@@ -28,8 +26,37 @@ extension RemoteSessionCoordinator {
         }
         guard reverseRelayProcess == nil else { return }
         guard reverseRelayControlMasterForwardSpec == nil else { return }
+        guard controlMasterReapState.startupPhase
+            .allowsRelayLaunch else { return }
+        // A new relay attempt owns readiness from this point forward.  The
+        // daemon hello may already be valid, but the local proxy cannot use
+        // the remote listener until the forward and metadata transaction
+        // complete.
+        reverseRelayReady = false
 
         cancelReverseRelayRestartLocked()
+        launchReverseRelayLocked(
+            remotePath: remotePath,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath
+        )
+    }
+
+    /// Starts the relay on the authenticated shared master or its standalone fallback.
+    func launchReverseRelayLocked(
+        remotePath: String,
+        relayPort: Int,
+        relayID: String,
+        relayToken: String,
+        localSocketPath: String
+    ) {
+        guard !isStopping, daemonReady, reverseRelayProcess == nil else { return }
+        guard reverseRelayControlMasterForwardSpec == nil else { return }
+        guard controlMasterReapState.startupPhase
+            .allowsRelayLaunch else { return }
+
         var relayServer: RemoteCLIRelayServer?
         do {
             let server = try ensureCLIRelayServerLocked(
@@ -44,11 +71,14 @@ extension RemoteSessionCoordinator {
                 relayPort: relayPort,
                 persistentDaemonSlot: configuration.persistentDaemonSlot
             )
-            let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
 
-            if startReverseRelayViaControlMasterLocked(forwardSpec: forwardSpec, relayPort: relayPort) {
+            let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
+            switch startReverseRelayViaControlMasterLocked(
+                forwardSpec: forwardSpec,
+                relayPort: relayPort
+            ) {
+            case .started:
                 cliRelayServer = relayServer
-                reverseRelayStderrBuffer = ""
                 do {
                     try installRemoteRelayMetadataLocked(
                         remotePath: remotePath,
@@ -62,76 +92,74 @@ extension RemoteSessionCoordinator {
                     scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
                     return
                 }
+                reverseRelayReady = true
+                restoreReadyDaemonStatusLocked()
                 recordHeartbeatActivityLocked()
+                // A relay restart can happen after the original bootstrap
+                // caller has returned; reacquire the proxy/PTY bridge now
+                // that the forward and metadata invariant is restored.
+                startProxyLocked()
                 debugLog(
                     "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
                     "target=\(configuration.displayTarget) controlMaster=1"
                 )
                 return
-            }
-
-            let process = Process()
-            let stderrPipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = reverseRelayArguments(relayPort: relayPort, localRelayPort: localRelayPort)
-            process.environment = configuration.sshProcessEnvironment
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = stderrPipe
-
-            process.terminationHandler = { [weak self] terminated in
-                self?.queue.async {
-                    self?.handleReverseRelayTerminationLocked(process: terminated)
-                }
-            }
-
-            try process.run()
-            if let startupFailure = Self.reverseRelayStartupFailureDetail(
-                process: process,
-                stderrPipe: stderrPipe
-            ) {
-                let retryDelay = 2.0
-                let retrySeconds = max(1, Int(retryDelay.rounded()))
+            case .bindingConflict(let detail, let controlPath):
                 debugLog(
-                    "remote.relay.startFailed relayPort=\(relayPort) " +
-                    "error=\(startupFailure)"
+                    "remote.relay.startFailed relayPort=\(relayPort) error=\(detail)"
                 )
-                if let relayServer {
-                    relayServer.stop()
-                    if cliRelayServer === relayServer {
-                        cliRelayServer = nil
-                    }
-                }
-                publishDaemonStatus(
-                    .error,
-                    detail: "Remote SSH relay unavailable: \(startupFailure) (retry in \(retrySeconds)s)"
-                )
-                scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
-                return
-            }
-            installReverseRelayStderrHandlerLocked(stderrPipe)
-            reverseRelayProcess = process
-            cliRelayServer = relayServer
-            reverseRelayStderrPipe = stderrPipe
-            reverseRelayStderrBuffer = ""
-            do {
-                try installRemoteRelayMetadataLocked(
+                if beginInheritedControlMasterReapIfNeededLocked(
+                    startupFailure: detail,
                     remotePath: remotePath,
                     relayPort: relayPort,
-                    relayID: relayID,
-                    relayToken: relayToken
+                    resolvedControlPath: controlPath
+                ) {
+                    return
+                }
+                publishReverseRelayFailureLocked(
+                    remotePath: remotePath
                 )
-            } catch {
-                debugLog("remote.relay.metadata.error \(error.localizedDescription)")
-                stopReverseRelayLocked()
-                scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
                 return
+            case .unavailable:
+                break
             }
-            recordHeartbeatActivityLocked()
-            debugLog(
-                "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
-                "target=\(configuration.displayTarget) controlMaster=0"
+
+            let relayArguments = reverseRelayArguments(
+                relayPort: relayPort,
+                localRelayPort: localRelayPort
             )
+            let process = try reverseRelayLauncher.launch(
+                arguments: relayArguments,
+                environment: configuration.sshProcessEnvironment,
+                startupMarker: Self.reverseRelayForwardSuccessMarker(
+                    relayPort: relayPort,
+                    localRelayPort: localRelayPort
+                ),
+                startupHandler: { [weak self] readyProcess in
+                    guard let coordinator = self else { return }
+                    coordinator.queue.async {
+                        coordinator.handleStandaloneReverseRelayReadyLocked(
+                            process: readyProcess,
+                            remotePath: remotePath,
+                            relayPort: relayPort,
+                            localRelayPort: localRelayPort,
+                            relayID: relayID,
+                            relayToken: relayToken
+                        )
+                    }
+                },
+                terminationHandler: { [weak self] terminated, stderrDetail in
+                    guard let coordinator = self else { return }
+                    coordinator.queue.async {
+                        coordinator.handleReverseRelayTerminationLocked(
+                            process: terminated,
+                            stderrDetail: stderrDetail
+                        )
+                    }
+                }
+            )
+            reverseRelayProcess = process
+            cliRelayServer = relayServer
         } catch {
             debugLog(
                 "remote.relay.startFailed relayPort=\(relayPort) " +
@@ -147,33 +175,52 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    private func installReverseRelayStderrHandlerLocked(_ stderrPipe: Pipe) {
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            switch handle.readAvailableDataOrEndOfFile() {
-            case .data(let data):
-                self?.queue.async {
-                    guard let self else { return }
-                    if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                        self.reverseRelayStderrBuffer.append(chunk)
-                        if self.reverseRelayStderrBuffer.count > 8192 {
-                            self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
-                        }
-                    }
-                }
-            case .wouldBlock:
-                return
-            case .endOfFile:
-                handle.readabilityHandler = nil
-            }
+    func handleStandaloneReverseRelayReadyLocked(
+        process: any RemoteReverseRelayProcess,
+        remotePath: String,
+        relayPort: Int,
+        localRelayPort: Int,
+        relayID: String,
+        relayToken: String
+    ) {
+        guard reverseRelayProcess === process,
+              process.isRunning,
+              !isStopping,
+              daemonReady else {
+            return
         }
+        do {
+            try installRemoteRelayMetadataLocked(
+                remotePath: remotePath,
+                relayPort: relayPort,
+                relayID: relayID,
+                relayToken: relayToken
+            )
+        } catch {
+            debugLog("remote.relay.metadata.error \(error.localizedDescription)")
+            stopReverseRelayLocked()
+            scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+            return
+        }
+        reverseRelayReady = true
+        restoreReadyDaemonStatusLocked()
+        recordHeartbeatActivityLocked()
+        // The relay is now a usable transport.  This is the first point at
+        // which a proxy/PTY bridge may be acquired for a standalone fallback.
+        startProxyLocked()
+        debugLog(
+            "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
+            "target=\(configuration.displayTarget) controlMaster=0"
+        )
     }
 
-    private func handleReverseRelayTerminationLocked(process: Process) {
+    func handleReverseRelayTerminationLocked(
+        process: any RemoteReverseRelayProcess,
+        stderrDetail: String?
+    ) {
         guard reverseRelayProcess === process else { return }
-        let stderrDetail = Self.bestErrorLine(stderr: reverseRelayStderrBuffer)
-        reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         reverseRelayProcess = nil
-        reverseRelayStderrPipe = nil
+        reverseRelayReady = false
 
         guard !isStopping else { return }
         guard let remotePath = daemonRemotePath,
@@ -181,7 +228,19 @@ extension RemoteSessionCoordinator {
 
         let detail = stderrDetail ?? "status=\(process.terminationStatus)"
         debugLog("remote.relay.exit \(detail)")
-        scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+        publishReverseRelayFailureLocked(remotePath: remotePath)
+    }
+
+    private func publishReverseRelayFailureLocked(
+        remotePath: String
+    ) {
+        let retryDelay = 2.0
+        // Relay startup is itself retryable.  Keep the sidebar in the
+        // reconnecting phase until the bounded supervisor gives up; otherwise
+        // a short ControlMaster handoff paints a false daemon error.
+        publishDaemonStatus(.bootstrapping, detail: nil)
+        publishState(.reconnecting, detail: nil)
+        scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
     }
 
     func scheduleReverseRelayRestartLocked(remotePath: String, delay: TimeInterval) {
@@ -224,24 +283,39 @@ extension RemoteSessionCoordinator {
 
     @discardableResult
     func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) -> Bool {
-        reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
+        cancelReverseRelayStartupLocked()
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
         }
         reverseRelayProcess = nil
+        reverseRelayReady = false
         stopReverseRelayViaControlMasterLocked()
-        reverseRelayStderrPipe = nil
-        reverseRelayStderrBuffer = ""
         cliRelayServer?.stop()
         cliRelayServer = nil
         return removeRemoteRelayMetadataLocked(cleanupScope: cleanupScope)
     }
 
+    /// Drops only local state after the shared master has already exited.
+    ///
+    /// Remote metadata intentionally survives so a persistent daemon and its
+    /// pinned lease remain available to the reconnecting transport.
+    func invalidateReverseRelayAfterControlMasterReapLocked() {
+        cancelReverseRelayRestartLocked()
+        if let reverseRelayProcess, reverseRelayProcess.isRunning {
+            reverseRelayProcess.terminate()
+        }
+        reverseRelayProcess = nil
+        reverseRelayControlMasterForwardSpec = nil
+        reverseRelayReady = false
+        cliRelayServer?.stop()
+        cliRelayServer = nil
+    }
+
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
-        // Fallback standalone transport when dynamic forwarding through an existing
-        // control master is unavailable.
-        var args: [String] = ["-N", "-T", "-S", "none"]
-        args += sshCommonArguments(batchMode: true)
+        // Fallback only: `-S none` prevents accidental adoption of a shared
+        // transport after `-O forward` proved unavailable.
+        var args: [String] = ["-N", "-T", "-S", "none", "-v"]
+        args += sshCommonArguments(batchMode: true, dropControlPath: true)
         args += [
             "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
@@ -251,109 +325,12 @@ extension RemoteSessionCoordinator {
         return args
     }
 
-    private func startReverseRelayViaControlMasterLocked(forwardSpec: String, relayPort: Int) -> Bool {
-        guard let arguments = configuration.reverseRelayControlMasterArguments(
-            controlCommand: "forward",
-            forwardSpec: forwardSpec
-        ) else {
-            return false
-        }
-
-        cancelStaleReverseRelayViaControlMasterLocked(relayPort: relayPort)
-        do {
-            var result = try sshExec(arguments: arguments, timeout: 6)
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                    ?? "ssh exited \(result.status)"
-                debugLog("remote.relay.controlmaster.forwardFailed \(detail) \(debugConfigSummary())")
-                guard cleanupStaleRemoteRelayListenerLocked(relayPort: relayPort) else {
-                    return false
-                }
-
-                result = try sshExec(arguments: arguments, timeout: 6)
-                guard result.status == 0 else {
-                    let retryDetail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                        ?? "ssh exited \(result.status)"
-                    debugLog("remote.relay.controlmaster.forwardRetryFailed \(retryDetail) \(debugConfigSummary())")
-                    return false
-                }
-                reverseRelayControlMasterForwardSpec = forwardSpec
-                return true
-            }
-            reverseRelayControlMasterForwardSpec = forwardSpec
-            return true
-        } catch {
-            debugLog("remote.relay.controlmaster.forwardFailed \(error.localizedDescription) \(debugConfigSummary())")
-            return false
-        }
-    }
-
-    private func cancelStaleReverseRelayViaControlMasterLocked(relayPort: Int) {
-        guard let arguments = configuration.reverseRelayControlMasterCancelArguments(relayPort: relayPort) else {
-            return
-        }
-        do {
-            let result = try sshExec(arguments: arguments, timeout: 4)
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                    ?? "ssh exited \(result.status)"
-                debugLog("remote.relay.controlmaster.cancelStaleIgnored \(detail) \(debugConfigSummary())")
-                return
-            }
-            debugLog("remote.relay.controlmaster.cancelStale relayPort=\(relayPort) \(debugConfigSummary())")
-        } catch {
-            debugLog("remote.relay.controlmaster.cancelStaleIgnored \(error.localizedDescription) \(debugConfigSummary())")
-        }
-    }
-
-    private func cleanupStaleRemoteRelayListenerLocked(relayPort: Int) -> Bool {
-        guard let script = Self.remoteStaleRelayListenerCleanupScript(
-            relayPort: relayPort,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
-        ) else {
-            debugLog("remote.relay.remoteListener.cleanupSkipped reason=no-persistent-slot relayPort=\(relayPort)")
-            return false
-        }
-
-        let command = "sh -c \(script.shellSingleQuoted)"
-        do {
-            let result = try sshExec(
-                arguments: ["-S", "none"] + sshCommonArguments(batchMode: true, dropControlPath: true) + [
-                    configuration.destination,
-                    command,
-                ],
-                timeout: 8
-            )
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                    ?? "ssh exited \(result.status)"
-                debugLog("remote.relay.remoteListener.cleanupFailed relayPort=\(relayPort) \(detail) \(debugConfigSummary())")
-                return false
-            }
-
-            let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            if output.isEmpty {
-                debugLog("remote.relay.remoteListener.cleanupNoop relayPort=\(relayPort) \(debugConfigSummary())")
-            } else {
-                debugLog("remote.relay.remoteListener.cleanup relayPort=\(relayPort) \(output.debugLogSnippet()) \(debugConfigSummary())")
-            }
-            return true
-        } catch {
-            debugLog("remote.relay.remoteListener.cleanupFailed relayPort=\(relayPort) \(error.localizedDescription) \(debugConfigSummary())")
-            return false
-        }
-    }
-
-    private func stopReverseRelayViaControlMasterLocked() {
-        guard let forwardSpec = reverseRelayControlMasterForwardSpec else { return }
-        reverseRelayControlMasterForwardSpec = nil
-        guard let arguments = configuration.reverseRelayControlMasterArguments(
-            controlCommand: "cancel",
-            forwardSpec: forwardSpec
-        ) else {
-            return
-        }
-        _ = try? sshExec(arguments: arguments, timeout: 4)
+    static func reverseRelayForwardSuccessMarker(
+        relayPort: Int,
+        localRelayPort: Int
+    ) -> String {
+        "remote forward success for: listen 127.0.0.1:\(relayPort), " +
+            "connect 127.0.0.1:\(localRelayPort)"
     }
 
     private func ensureCLIRelayServerLocked(localSocketPath: String, relayID: String, relayToken: String) throws -> RemoteCLIRelayServer {
@@ -488,32 +465,27 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    /// Waits a short grace period for an `ssh -N -R` relay transport that may
-    /// fail immediately (port already bound, auth failure); returns the best
-    /// stderr line when it exited within the grace period, or `nil` while it
-    /// keeps running. Static and pinned by tests; the bounded semaphore wait
-    /// rides the real termination signal.
-    public static func reverseRelayStartupFailureDetail(
-        process: Process,
-        stderrPipe: Pipe,
-        gracePeriod: TimeInterval = reverseRelayStartupGracePeriod
+    /// Returns whether OpenSSH reported that this relay's remote listener is
+    /// already bound.
+    static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
+        reverseRelayPortBindingFailureLine(in: detail, relayPort: relayPort) != nil
+    }
+
+    /// Extracts the exact bind diagnostic from standalone or multiplexed
+    /// OpenSSH stderr. Multiplexing adds a prefix and may append a later
+    /// summary line, so classification must inspect every line.
+    static func reverseRelayPortBindingFailureLine(
+        in detail: String,
+        relayPort: Int
     ) -> String? {
-        if process.isRunning {
-            let originalTerminationHandler = process.terminationHandler
-            let exitSemaphore = DispatchSemaphore(value: 0)
-            process.terminationHandler = { terminated in
-                originalTerminationHandler?(terminated)
-                exitSemaphore.signal()
+        let expected = "remote port forwarding failed for listen port \(relayPort)"
+        return detail
+            .split(whereSeparator: \.isNewline)
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            if !process.isRunning {
-                exitSemaphore.signal()
-            }
-            guard exitSemaphore.wait(timeout: .now() + max(0, gracePeriod)) == .success else {
-                return nil
-            }
-        }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
+            .first(where: {
+                $0 == expected || $0.hasSuffix(": \(expected)")
+            })
     }
 }

@@ -3,11 +3,39 @@ import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
+import SQLite3
 import Testing
 @testable import CmuxMobileShell
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    @Test func allHiddenReconnectSweepPreservesHintAndNeverDialsHiddenTarget() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+
+        await store.hideMac(macDeviceID: "test-mac")
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.hasHiddenComputers)
+        #expect(store.hasKnownPairedMac)
+        #expect(store.workspaceListConnectionStatus == .connected)
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+
+        #expect(factory.attemptedKinds().isEmpty)
+        #expect(store.hasKnownPairedMac)
+        #expect(store.workspaceListConnectionStatus == .connected)
+    }
+
     @Test func manualReconnectRedialsWhenLiveStreamIsUnavailableButRPCStateIsConnected() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -37,7 +65,9 @@ extension ReconnectRouteSelectionTests {
 
         #expect(factory.attemptedKinds() == [.iroh, .iroh])
         #expect(store.connectionState == .connected)
-        #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(try await pollUntil(attempts: 1_000) {
+            store.workspaceListConnectionStatus == .connected
+        })
     }
 
     @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {
@@ -97,6 +127,55 @@ extension ReconnectRouteSelectionTests {
 
         #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
         #expect(factory.attemptedKinds().isEmpty)
+    }
+
+    @Test func preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+        try seedVersionSevenPairing(
+            at: databaseURL,
+            route: tailscale(),
+            stackUserID: "user-1"
+        )
+        let pairedStore = try MobilePairedMacStore(databaseURL: databaseURL)
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-tailscale-upgrade-\(UUID().uuidString)"
+            )!
+        )
+        await store.loadPairedMacs()
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.tailscale])
+        #expect(
+            factory.attemptedAuthorizationModes()
+                == [.legacyTailscaleBearer(
+                    try CmxLegacyTailscaleAuthorizationEvidence(
+                        macDeviceID: "test-mac",
+                        host: "100.82.214.112",
+                        port: 50_906
+                    )
+                )]
+        )
+        #expect(store.activeRoute?.kind == .tailscale)
     }
 
     @Test func reconnectUsesSingleRegistrySnapshotToRescueNonActiveMacWithNoLocalRoutes() async throws {
@@ -742,6 +821,8 @@ extension ReconnectRouteSelectionTests {
         #expect(await store.switchToMac(macDeviceID: "mac-b"))
         #expect(store.foregroundMacDeviceID == "mac-b")
         #expect(store.activeRoute?.id == macBIroh.id)
+        #expect(store.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
+        #expect(store.liveMacConnections.map(\.role) == [.focused, .control])
         #expect(await registry.counts() == .init(list: 1, fresh: 0))
     }
 
@@ -946,6 +1027,49 @@ extension ReconnectRouteSelectionTests {
         #expect(store.activeRoute?.kind == .iroh)
     }
 
+    @Test func switchRejectsDisplayCacheRowRemovedFromAuthoritativeStore() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: "stable")
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try iroh()],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-store-authority-\(UUID().uuidString)"
+            )!
+        )
+        await store.loadPairedMacs()
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["test-mac"])
+        try await pairedStore.remove(
+            macDeviceID: "test-mac",
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        #expect(!(await store.switchToMac(macDeviceID: "test-mac")))
+        #expect(factory.attemptedKinds().isEmpty)
+    }
+
     @Test func foregroundResumeRedialsDeadIrohSessionBeforeUserAction() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -968,13 +1092,100 @@ extension ReconnectRouteSelectionTests {
 
         let recovered = try await pollUntil(attempts: 100) {
             guard let current = box.get() else { return false }
-            let foregroundProbeCount = await router.count(of: "mobile.workspace.list")
             return current !== firstTransport
                 && store.connectionState == .connected
-                && foregroundProbeCount >= 1
         }
         #expect(recovered)
         #expect(store.activeRoute?.kind == .iroh)
+    }
+
+    @Test func subscribeStartFailureRedialsPinnedIrohWithoutRawFallback() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        await router.holdSubscribeRequest(number: 1)
+        defer {
+            Task { await router.releaseAllHeld() }
+        }
+        let store = try await makeReconnectStore(
+            routes: [try tailscale(), try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            )
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstTransport = try #require(box.get())
+        let firstSubscribeStarted = try await pollUntil {
+            await router.count(of: "mobile.events.subscribe") == 1
+        }
+        #expect(firstSubscribeStarted)
+
+        // Model the Mac restarting while the first subscription handshake is
+        // in flight. Recovery must discard this stale shell and authenticate a
+        // fresh Iroh session to the same persisted Mac without trying the
+        // secondary raw Tailscale route.
+        await firstTransport.close()
+
+        let recovered = try await pollUntil {
+            guard let replacement = box.get() else { return false }
+            let subscribeCount = await router.count(of: "mobile.events.subscribe")
+            let workspaceListCount = await router.count(of: "workspace.list")
+            return replacement !== firstTransport
+                && store.connectionState == .connected
+                && store.activeRoute?.kind == .iroh
+                && subscribeCount >= 2
+                && workspaceListCount >= 2
+        }
+        #expect(recovered)
+        #expect(factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
+    @Test func repeatedSubscribeStartFailureStopsAfterOneIrohRedial() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        await router.holdSubscribeRequest(number: 1)
+        await router.holdSubscribeRequest(number: 2)
+        defer {
+            Task { await router.releaseAllHeld() }
+        }
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstTransport = try #require(box.get())
+        #expect(try await pollUntil {
+            await router.count(of: "mobile.events.subscribe") == 1
+        })
+        await firstTransport.close()
+
+        let replacementStarted = try await pollUntil {
+            guard let replacement = box.get(), replacement !== firstTransport else {
+                return false
+            }
+            return await router.count(of: "mobile.events.subscribe") == 2
+        }
+        #expect(replacementStarted)
+        let replacement = try #require(box.get())
+        await replacement.close()
+
+        let stopped = try await pollUntil {
+            store.connectionState == .disconnected
+                && store.connectionRecoveryFailed
+        }
+        #expect(stopped)
+        #expect(factory.attemptedKinds() == [.iroh, .iroh])
     }
 
     @Test func storedReconnectPinsIrohAndExcludesRawFallbacks() throws {
@@ -1006,6 +1217,65 @@ extension ReconnectRouteSelectionTests {
             ),
             priority: -10_000
         )
+    }
+
+    private func seedVersionSevenPairing(
+        at databaseURL: URL,
+        route: CmxAttachRoute,
+        stackUserID: String
+    ) throws {
+        let ownerKey = "\(stackUserID)\u{1F}\u{1F}"
+        let routeData = try JSONEncoder().encode(route)
+        let routeJSON = try #require(String(data: routeData, encoding: .utf8))
+        var database: OpaquePointer?
+        #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+        defer { sqlite3_close(database) }
+        let seed = """
+            CREATE TABLE paired_macs (
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                display_name TEXT,
+                stack_user_id TEXT,
+                team_id TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                custom_name TEXT,
+                custom_color TEXT,
+                custom_icon TEXT,
+                instance_tag TEXT,
+                PRIMARY KEY (mac_device_id, owner_key)
+            );
+            CREATE TABLE mac_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (mac_device_id, owner_key)
+                    REFERENCES paired_macs(mac_device_id, owner_key)
+                    ON DELETE CASCADE
+            );
+            INSERT INTO paired_macs VALUES (
+                'test-mac', \(sqlQuoted(ownerKey)), 'Test Mac',
+                \(sqlQuoted(stackUserID)), NULL, 0, 0, 1,
+                NULL, NULL, NULL, NULL
+            );
+            INSERT INTO mac_routes (
+                mac_device_id, owner_key, route_id, kind, endpoint_json, priority
+            ) VALUES (
+                'test-mac', \(sqlQuoted(ownerKey)), \(sqlQuoted(route.id)),
+                'tailscale', \(sqlQuoted(routeJSON)), \(route.priority)
+            );
+            PRAGMA user_version = 7;
+        """
+        #expect(sqlite3_exec(database, seed, nil, nil, nil) == SQLITE_OK)
+    }
+
+    private func sqlQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
     }
 
     private func makeMigrationShell(

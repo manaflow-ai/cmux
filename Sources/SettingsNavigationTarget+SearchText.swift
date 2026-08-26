@@ -20,6 +20,8 @@ extension SettingsNavigationTarget {
             return "\(title) ios iphone ipad mobile pairing local network sync"
         case .computers:
             return "\(title) computers devices macs remote pair unpair presence online offline tailscale hive"
+        case .cloudMachines:
+            return "\(title) cloud machines vm virtual machine persistent computer plan upgrade fleet"
         case .networking:
             return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
         case .workspaceColors:

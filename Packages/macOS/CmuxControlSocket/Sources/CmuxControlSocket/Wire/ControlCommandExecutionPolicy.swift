@@ -75,7 +75,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Socket-worker methods; internal so package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -95,12 +95,26 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Provider discovery may read configuration or run `opencode models`;
+        // it must never hold the main actor while waiting for process I/O.
+        "mobile.task.models.list",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Same profile as set_font: UserDefaults reads/writes plus a push
+        // event through thread-safe MobileHostService statics.
+        "mobile.compatible_tags.get",
+        "mobile.compatible_tags.set",
+        // Panel artifact reads are mobile data-plane file IO for non-terminal
+        // surfaces. Keep them on the worker lane so markdown/file-preview panes
+        // reach TerminalController's mobile.panel.artifact.* dispatcher instead
+        // of the main-actor switch returning method_not_found.
+        "mobile.panel.artifact.stat",
+        "mobile.panel.artifact.fetch",
+        "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
         // `surface.read_text` reads a terminal's visible or full-scrollback
@@ -117,6 +131,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // SSH-session attach resolves ownership and reads the remote PTY
+        // registry before any surface mutation; keep the bounded remote query
+        // off the main actor.
+        "surface.ssh_session_attach.resolve",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
@@ -126,6 +144,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        // Persistent readiness authenticates against broker-owned lifecycle
+        // state. The broker serializes that state on its own queue, so this
+        // command must never make the main actor wait behind tunnel work.
+        // Parsing and authentication run here; the final workspace/Dock
+        // mutation takes one synchronous controlResolveOnMain hop.
+        "workspace.remote.terminal_session_launching",
+        "workspace.remote.terminal_session_connected",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",
@@ -135,12 +160,20 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "sidebar.custom.reload",
         "sidebar.custom.select",
         "sidebar.custom.open",
+        // Window screenshot capture waits for ScreenCaptureKit's async
+        // compositor before falling back to AppKit. Keep that wait on the
+        // socket worker so WebKit-backed panels can render on the main actor.
+        "debug.window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // DEBUG builds close the selected mobile transport through its normal
+        // connection-owned shutdown path, which awaits asynchronous writers.
+        // Keep that wait off the main actor.
+        "debug.mobile.transport.disconnect",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a
@@ -207,7 +240,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.state.load",
         "browser.addinitscript",
         "browser.addscript",
-        "browser.addstyle",
+        "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so
@@ -215,6 +248,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // (cmux-zsh-integration.zsh `_cmux_report_tty_once`) still returns
         // only after the TTY registration is visible to later commands.
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -263,7 +298,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
-    ]
+    ]).union(simulatorMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's
@@ -281,6 +316,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "system.ping",
         "system.capabilities",
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -376,6 +413,17 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "clear_notifications",
     ]
 
+    /// The v1 agent-journal family: `agent_journal_append` commits one
+    /// semantic agent event to the append-only journal and replies with the
+    /// committed sequence — the emitting hook's durable acknowledgement. The
+    /// body runs on the socket worker (parse + one bounded SQLite
+    /// transaction); it is deliberately NOT main-thread callable so the
+    /// durability fsync can never run inline on the main thread. Internal
+    /// (not private) so the package tests can pin the exact set.
+    static let agentJournalV1Commands: Set<String> = [
+        "agent_journal_append",
+    ]
+
     /// The v1 terminal-read family (tranche C): `read_screen` is the v1 twin
     /// of `surface.read_text` — the Ghostty FFI capture takes one minimal
     /// `v2MainSync` hop and the (possibly multi-MB) tail/merge/base64
@@ -383,6 +431,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// tests can pin the exact set.
     static let terminalReadV1Commands: Set<String> = [
         "read_screen",
+    ]
+
+    /// The v1 diagnostic-read family. These commands await actor-owned
+    /// diagnostic snapshots, so they run on the socket worker and are not
+    /// callable from the main thread.
+    static let diagnosticReadV1Commands: Set<String> = [
+        "iroh_diag",
     ]
 
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2
@@ -413,18 +468,29 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "send_workspace",
     ]
 
+    /// Configuration commands that block their socket worker until the main
+    /// actor commits the requested runtime update.
+    static let configurationMutationV1Commands: Set<String> = [
+        "reload_config",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
-    /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry, notification, terminal-read, resolution-read, and
-    /// terminal-send families. Internal (not private) so the package tests
-    /// can pin the exact set.
+    /// actor: `ping` (the dispatcher's former hard-coded fast path),
+    /// `screenshot` (which waits for ScreenCaptureKit's async compositor),
+    /// plus the blocking configuration mutations and the sidebar telemetry,
+    /// notification, terminal-read, resolution-read, and terminal-send
+    /// families. Internal (not private) so the package tests can pin the exact
+    /// set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
+            .union(agentJournalV1Commands)
             .union(terminalReadV1Commands)
+            .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
-            .union(["ping"])
+            .union(configurationMutationV1Commands)
+            .union(["ping", "screenshot"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
     /// thread. Must be a subset of ``socketWorkerV1Commands``, and is

@@ -8,6 +8,7 @@ import {
 } from "@/i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({
   params,
@@ -56,9 +57,7 @@ export default function CmuxForkPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-07-14" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-07-14" />
 
       <video
         src="/blog/cmux-fork.mp4"

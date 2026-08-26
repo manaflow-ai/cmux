@@ -14,6 +14,7 @@ extension BackingUpPairedMacStore {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let team = await resolvedTeam(teamID)
         let existing: [MobilePairedMac]
         if let account = stackUserID, !account.isEmpty {
@@ -30,7 +31,13 @@ extension BackingUpPairedMacStore {
         }
         let previousActive = markActive == true ? existing.first(where: \.isActive) : nil
         let existedBeforeWrite = existing.contains {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         let wrote = try await inner.upsertRoutesIfAuthorized(
             macDeviceID: macDeviceID,

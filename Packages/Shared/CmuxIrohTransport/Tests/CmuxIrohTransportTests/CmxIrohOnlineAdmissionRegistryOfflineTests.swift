@@ -7,6 +7,38 @@ import Testing
 
 extension CmxIrohOnlineAdmissionRegistryTests {
     @Test
+    func offlinePairRequiresThirtySecondsOfLeaseRemainingAtAdmission() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let nearlyExpiredBroker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery())]
+        )
+        let viableBroker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery())]
+        )
+
+        #expect(
+            await fixture.registry(
+                broker: nearlyExpiredBroker
+            ).authorizeOfflinePair(
+                try fixture.offlinePair(
+                    initiatorLifetime: 29,
+                    acceptorLifetime: 29
+                )
+            ) == .denied
+        )
+        #expect(
+            await fixture.registry(
+                broker: viableBroker
+            ).authorizeOfflinePair(
+                try fixture.offlinePair(
+                    initiatorLifetime: 31,
+                    acceptorLifetime: 31
+                )
+            ).isAccepted
+        )
+    }
+
+    @Test
     func activeOfflinePairAcceptsUntilEarlierAttestationExpiry() async throws {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(responses: [.success(try fixture.discovery())])
@@ -26,9 +58,12 @@ extension CmxIrohOnlineAdmissionRegistryTests {
     func connectivityAllowsVerifiedOfflinePairUntilEarlierExpiry() async throws {
         let fixture = try OnlineAdmissionFixture()
         let clock = OnlineAdmissionManualClock(now: fixture.now)
-        let broker = OnlineAdmissionBroker(responses: [.failure(.connectivity)])
+        let broker = OnlineAdmissionBroker(responses: [
+            .failure(.connectivity),
+            .failure(.connectivity),
+        ])
         let registry = fixture.registry(broker: broker, clock: clock)
-        let pair = try fixture.offlinePair(initiatorLifetime: 90, acceptorLifetime: 20)
+        let pair = try fixture.offlinePair(initiatorLifetime: 90, acceptorLifetime: 31)
         let lease = try #require(
             await registry.authorizeOfflinePair(pair).lease
         )
@@ -36,16 +71,21 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         await registry.monitor(
             lease,
             connection: fixture.connection()
-        ) { await closeRecorder.close() }
+        ) { reason in await closeRecorder.close(reason: reason) }
         await clock.waitUntilSleeping()
 
-        #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(20)])
-        clock.advance(by: 20)
+        #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(30)])
+        clock.advance(by: 30)
+        await broker.waitForCallCount(2)
+        await clock.waitUntilSleeping()
+        #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(31)])
+        clock.advance(by: 1)
         await closeRecorder.waitUntilClosed()
 
         #expect(await closeRecorder.count() == 1)
+        #expect(await closeRecorder.observedReasons() == [.leaseExpired])
         #expect(await registry.authorizeOfflinePair(pair) == .denied)
-        #expect(await broker.callCount() == 1)
+        #expect(await broker.callCount() == 2)
     }
 
     @Test(arguments: [
@@ -148,7 +188,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         await registry.monitor(
             lease,
             connection: fixture.connection()
-        ) { await closeRecorder.close() }
+        ) { reason in await closeRecorder.close(reason: reason) }
         await clock.waitUntilSleeping()
 
         #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(30)])
@@ -316,7 +356,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         await registry.monitor(
             lease,
             connection: fixture.connection()
-        ) { await closeRecorder.close() }
+        ) { reason in await closeRecorder.close(reason: reason) }
         await clock.waitUntilSleeping()
         await broker.suspend()
 

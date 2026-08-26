@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -39,6 +40,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            dispatch: .pinned(marker: "cmux-grok-hook-v2"),
             publishesStopNotification: false,
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
@@ -93,8 +95,12 @@ extension CMUXCLI {
                 .init(agentEvent: "afterAgentResponse", cmuxSubcommand: "agent-response"),
                 .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
-            ],
-            feedHookEvents: ["beforeShellExecution"]
+                .init(
+                    agentEvent: "postToolUseFailure",
+                    cmuxSubcommand: "shell-failed",
+                    matcher: "Shell"
+                ),
+            ]
         ),
         AgentHookDef(
             name: "gemini", displayName: "Gemini", statusKey: "gemini",
@@ -142,8 +148,8 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
-            sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["PreToolUse", "PostToolUse"]
+            dispatch: .pinned(marker: "cmux-antigravity-hook-v2"),
+            sessionEndIsTurnBoundary: true
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
@@ -160,6 +166,7 @@ extension CMUXCLI {
         AgentHookDef(
             name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
             configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            createConfigDirIfMissing: true,
             binaryName: "hermes",
             sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
             hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
@@ -229,8 +236,11 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
-            configDir: ".kimi", configFile: "config.toml", configDirEnvOverride: "KIMI_SHARE_DIR",
-            createConfigDirIfMissing: true, binaryName: "kimi",
+            configDir: KimiConfigLocationResolver.kimiCodeConfigDirectory,
+            configFile: KimiConfigLocationResolver.configFileName,
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedKimiConfigDirectory().path },
+            binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
             hookMarker: "cmux hooks kimi", format: .tomlArrayTable,
             events: [

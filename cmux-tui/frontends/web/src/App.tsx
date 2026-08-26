@@ -2,6 +2,7 @@ import { useReducer } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ConnectScreen } from "./components/ConnectScreen";
 import { ClientsIndicator } from "./components/ClientsIndicator";
+import { RenderGraphicsBudgetProvider } from "./components/RenderGraphics";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TerminalPane } from "./components/TerminalPane";
@@ -12,6 +13,14 @@ import { t } from "./i18n";
 import { drawerReducer } from "./lib/mobile";
 
 export default function App() {
+  return (
+    <RenderGraphicsBudgetProvider>
+      <AppContent />
+    </RenderGraphicsBudgetProvider>
+  );
+}
+
+function AppContent() {
   useVisualViewport();
   const connection = useCmuxClient();
   const [drawer, dispatchDrawer] = useReducer(drawerReducer, "closed");
@@ -75,11 +84,17 @@ export default function App() {
       />
       <TerminalPane
         client={connection.client}
+        clients={connection.clients}
         screen={connection.active}
+        onRefreshClients={connection.refreshClients}
+        onSetClientSizing={connection.mutations.setClientSizing}
+        onUseOnlyClientSizing={connection.mutations.useOnlyClientSizing}
+        onUseAllClientSizing={connection.mutations.useAllClientSizing}
+        onDetachClient={connection.mutations.detachClient}
         onSelectTab={connection.selectTab}
         onNewTab={connection.mutations.newTab}
         onSplit={connection.mutations.split}
-        onSetRatio={connection.mutations.setRatio}
+        onSetSplitRatio={connection.mutations.setSplitRatio}
         onSelectPane={connection.selectPane}
         onZoomPane={connection.mutations.zoomPane}
         onClosePane={connection.mutations.closePane}

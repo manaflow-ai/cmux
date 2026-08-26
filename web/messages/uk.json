@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Продовжте в терміналі",
+    "returnBody": "Щоб продовжити, поверніться до термінала, де ви запустили ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Оплату завершено",
+        "body": "Вашу підписку підтверджено. Нові ліміти можуть з’явитися не одразу."
+      },
+      "checkoutCanceled": {
+        "title": "Оплату скасовано",
+        "body": "Оплату закрито без зміни вашого плану."
+      },
+      "portalReturn": {
+        "title": "Повернення з платіжного порталу",
+        "body": "Зміни з платіжного порталу можуть з’явитися не одразу."
+      },
+      "default": {
+        "title": "Розрахунки завершено",
+        "body": "Процес оплати завершено."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Термінал, створений для багатозадачності",
     "description": "Безкоштовний нативний термінал для macOS з відкритим кодом на базі Ghostty. Працює з Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider і будь-яким інструментом CLI. Вертикальні вкладки, кільця сповіщень, розділені панелі та socket API.",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "Як cmux пов'язаний з Ghostty?",
     "faqGhosttyA": "cmux — це не форк Ghostty. Він використовує <link>libghostty</link> як бібліотеку для рендерингу терміналу, так само як застосунки використовують WebKit для веб-в'юх. Ghostty — це окремий термінал; cmux — інший застосунок, побудований на його рушії рендерингу.",
     "faqPlatformQ": "Які платформи підтримуються?",
-    "faqPlatformA": "Поки що тільки macOS. cmux — нативний застосунок на Swift + AppKit.",
+    "faqPlatformA": "Доступні версії cmux перелічено в меню завантаження. <waitlist>Приєднайтеся до списку очікування</waitlist> для платформи, версію для якої ще не випущено.",
     "faqAgentsQ": "З якими агентами програмування працює cmux?",
     "faqAgentsA": "З усіма. cmux — це термінал, тому будь-який агент, що працює в терміналі, підтримується одразу: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent та все інше, що можна запустити з командного рядка.",
     "faqNotificationsQ": "Як працюють сповіщення?",
@@ -112,6 +135,35 @@
     "faqFeatureA": "Ми хочемо про це почути. Відкрийте <issuesLink>issue</issuesLink> або <prLink>pull request</prLink> на GitHub чи <mailLink>напишіть нам</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "огляд",
+      "team": "команда"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Розподіляйте LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
+      "coderouterLink": "відкрити coderouter",
+      "iosAppName": "застосунок iOS",
+      "iosAppDescription": "Установіть застосунок cmux для iOS через TestFlight (бета-доступ).",
+      "iosLink": "Відкрити застосунок iOS"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Керуйте спільними ШІ-обліковими записами та розподіляйте запити за допомогою coderouter.",
+      "title": "coderouter",
+      "description": "coderouter розподіляє LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням."
+    },
+    "accountMenu": {
+      "label": "Меню облікового запису",
+      "settings": "Налаштування",
+      "billing": "Оплата",
+      "signOut": "Вийти",
+      "signingOut": "Вихід…",
+      "signOutError": "Не вдалося вийти. Спробуйте ще раз.",
+      "organizationSwitchError": "Не вдалося змінити організацію. Спробуйте ще раз.",
+      "signIn": "Увійти"
+    },
     "aiAccounts": {
       "metaTitle": "Акаунти ШІ — cmux",
       "metaDescription": "Керуйте акаунтами постачальників ШІ команди в cmux.",
@@ -162,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -745,6 +803,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Для роумінгу між мережами використовуйте cmux mosh-tmux. Він відкриває повноцінно інтегрований термінал Mosh, приєднаний до іменованого сеансу tmux; це не замінює нативне дзеркалювання робочих просторів, вкладок і поділів у режимі керування tmux через SSH."
+    },
     "layoutTitle": "Документація cmux",
     "gettingStarted": {
       "title": "Початок роботи",
@@ -841,8 +902,8 @@
       "concepts": "Концепції",
       "anchorTitle": "Якірний робочий простір",
       "anchorDesc": "Кожна група належить рівно одному робочому простору, який називається якорем. Заголовок групи на бічній панелі — це представлення якоря; для нього немає окремого рядка. Натискання на область імені заголовка фокусує панелі якоря; натискання на стрілку перемикає згортання.",
-      "anchorNew": "Якорі завжди абсолютно нові під час створення групи. Вони ніколи не підвищуються з наявного робочого простору. Робочий каталог якоря успадковується від першого вибраного робочого простору під час групування виділення або від активного робочого простору під час створення через CLI без --cwd.",
-      "anchorClose": "Закриття якірного робочого простору розпускає групу: кожен інший учасник стає незгрупованим робочим простором і залишається у списку вкладок. Нічого, окрім самого якоря, не закривається. Перед цим застосунок показує діалог підтвердження з перемикачем «Не питати знову».",
+      "anchorNew": "Якорем групи під час створення завжди стає цілком новий робочий простір; ані групування вибраних елементів, ані створення групи ніколи не призначають якорем жоден із наявних робочих просторів. (Однак пізніше закриття якоря призначає першого учасника групи, що залишився, новим якорем; див. нижче.) Робочий каталог якоря успадковується від першого вибраного робочого простору під час групування вибраних елементів або від активного робочого простору під час створення через CLI без --cwd.",
+      "anchorClose": "Закриття якірного робочого простору закриває лише цей простір і призначає першого учасника групи, що залишився (першого з тих, хто ще залишається в порядку групи), новим якорем. Завдяки цьому група й інші її учасники залишаються незмінними (новий якір потім показує назву групи як заголовок). Якщо якір — єдиний робочий простір групи, групу буде видалено. Щоб перетворити групу на незгруповані робочі простори, скористайтеся «Розгрупувати робочі області»; щоб закрити всі робочі простори групи, скористайтеся «Видалити групу».",
       "identityTitle": "Ідентичність групи",
       "identityDesc": "Група має назву, іконку (SF Symbol, за замовчуванням folder.fill) та необов'язковий власний колір. Вони незалежні від власних налаштувань якірного робочого простору. Колір та іконка якоря беруться з групи під час створення, але згодом можуть розходитися.",
       "pinningTitle": "Закріплення",
@@ -944,7 +1005,8 @@
         "browser": {
           "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
           "customSearchEngineName": "Назва для показу, коли defaultSearchEngine має значення custom.",
-          "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL."
+          "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL.",
+          "urlAllowlist": "Шаблони хостів або URL, що обмежують навігацію у вбудованому браузері. Налаштування пропонують локальні джерела розробки; збереження списку вмикає необов’язкове обмеження. Видаліть записи, щоб заблокувати їх, або залиште значення користувача порожнім без керованої політики, щоб вимкнути обмеження."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Глобальне значення за замовчуванням для того, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника).",
@@ -969,7 +1031,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
+          "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
           "showModifierHoldHints": "Показувати підказки комбінацій клавіш, доки утримується Cmd або Control."
         }
       },
@@ -1381,7 +1443,16 @@
     "changelog": {
       "title": "Журнал змін",
       "metaTitle": "Журнал змін",
-      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS."
+      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS.",
+      "versionTitle": "cmux {version} · Журнал змін",
+      "releaseNavLabel": "Версії поруч із cmux {version}",
+      "sections": {
+        "added": "Додано",
+        "changed": "Змінено",
+        "fixed": "Виправлено",
+        "removed": "Видалено",
+        "contributors": "Учасники"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
@@ -1393,22 +1464,30 @@
       "usageDesc": "Усі аргументи після claude-teams передаються до Claude Code. Команда за замовчуванням встановлює режим напарників на auto та налаштовує середовище для використання розділень cmux.",
       "howItWorks": "Як це працює",
       "howItWorksDesc": "cmux claude-teams створює скрипт-прокладку tmux та налаштовує середовище так, що Claude Code думає, що працює всередині tmux. Коли Claude видає команди tmux для керування панелями напарників, прокладка перетворює їх у виклики socket API cmux.",
-      "shimStep1": "Створює прокладку tmux у ~/.cmuxterm/claude-teams-bin/tmux, яка перенаправляє на cmux __tmux-compat",
-      "shimStep2": "Встановлює змінні середовища TMUX та TMUX_PANE для імітації сесії tmux",
+      "shimStep1": "Створює прокладку tmux у тимчасовому каталозі прокладок поточної поверхні. Шлях містить UUID поверхні й змінюється для кожної панелі та кожного завантаження системи, тому вказати фіксований шлях неможливо",
+      "shimStep2": "Встановлює TMUX і TMUX_PANE для імітації tmux у сесії запуску Claude Teams",
       "shimStep3": "Додає директорію прокладки на початок PATH, щоб Claude знайшов прокладку раніше справжнього tmux",
       "shimStep4": "Вмикає CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 та встановлює режим напарників на auto",
+      "shimDiagnostic": "Прокладка спрямовує виклики до cmux лише тоді, коли встановлено <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>; інакше вона прозоро передає їх наступному справжньому виконуваному файлу tmux. Тому <which>which tmux</which> не показує, чи активне перехоплення Claude Teams.",
       "envVars": "Змінні середовища",
       "envVarName": "Змінна",
       "envVarPurpose": "Призначення",
-      "envTmux": "Хибний шлях до сокету tmux, що кодує поточний робочий простір та панель cmux",
-      "envTmuxPane": "Хибний ідентифікатор панелі tmux, зіставлений з поточною панеллю cmux",
+      "envTmux": "Синтетичний шлях до сокету tmux для сесії, у якій виконано cmux claude-teams",
+      "envTmuxPane": "Синтетичний ідентифікатор панелі tmux для сесії, у якій виконано cmux claude-teams; порожній у створених панелях агентів",
+      "envSurface": "UUID поточної поверхні; використовуйте його як ідентифікатор поверхні всередині створеної панелі агента",
       "envTeams": "Вмикає функцію команд агентів Claude Code",
       "envSocket": "Шлях до контрольного сокету cmux для підключення прокладки",
+      "envScope": "Синтетичні <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> і пов’язані значення сумісності з tmux описують сесію, у якій виконано <command>cmux claude-teams</command>, а не створені панелі. Усередині панелі агента використовуйте <surface>CMUX_SURFACE_ID</surface> і виконайте <tree>cmux tree --json</tree>; об’єкт <caller>caller</caller> у виводі ідентифікує панель, з якої викликано команду.",
       "directories": "Директорії",
       "dirPath": "Шлях",
       "dirPurpose": "Призначення",
-      "dirShim": "Містить скрипт-прокладку tmux, що перетворює команди tmux у виклики API cmux",
-      "dirStore": "Постійне сховище для буферів та хуків tmux-compat",
+      "dirShimPath": "Каталог для кожної поверхні в системному тимчасовому каталозі (без фіксованого шляху)",
+      "dirShim": "Містить активну прокладку tmux і додається на початок PATH для цієї поверхні",
+      "dirStore": "Постійне сховище буферів, хуків і стану розміщення та компонування розділень tmux-compat",
+      "storeDetails": "Ключі маршрутизації розділень:",
+      "storeLastSplitSurface": "Зіставляє UUID кожного робочого простору з UUID поверхні, створеної останнім розділенням. Ініціалізує прив’язку колонки агентів, яка визначає розташування наступного розділення main-vertical.",
+      "storeMainVerticalLayouts": "Зіставляє UUID кожного робочого простору з <mainSurfaceId>mainSurfaceId</mainSurfaceId> (головною поверхнею або поверхнею-лідером) і <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (найнижчою поверхнею в колонці агентів). Наступні розділення напарників спрямовуються в цю колонку й додаються вниз.",
+      "storeTroubleshooting": "Перевіряйте ці ключі маршрутизації, якщо панель напарника з’являється як вкладка позаду наявної поверхні, а не як розділення поруч із нею.",
       "tmuxCommands": "Підтримувані команди tmux",
       "tmuxCommandsDesc": "Прокладка перетворює ці команди tmux в операції cmux:",
       "mapWorkspace": "створює новий робочий простір cmux",
@@ -1494,7 +1573,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Додайте власні TUI-елементи керування до правої бічної панелі cmux за допомогою Dock JSON.",
       "title": "Dock",
-      "intro": "Dock дає змогу додавати TUI-елементи керування до правої бічної панелі. Кожен елемент керування це команда з JSON, що відображається у власній секції термінала на базі Ghostty. Використовуйте його для стрічок, логів, черг, статусу git, dev-серверів або будь-якого TUI, який команда хоче бачити поруч із кожним workspace.",
+      "intro": "Dock дає змогу додавати елементи керування терміналом і браузером до правої бічної панелі. Елементи термінала запускають команди в секціях на базі Ghostty, а елементи браузера вбудовують вебсторінки. Використовуйте Dock для стрічок, логів, черг, статусу git, dev-серверів, панелей моніторингу або довідкових сторінок, які команда хоче бачити поруч із кожним workspace.",
       "configTitle": "Конфігурація",
       "configIntro": "cmux шукає конфігурацію Dock у такому порядку:",
       "projectConfig": "для поточного репозиторію, найближчого батьківського проєкту та вкладених каталогів проєктів.",
@@ -1508,9 +1587,12 @@
       "descriptionHeader": "Опис",
       "fieldId": "Стабільний унікальний ідентифікатор елемента керування. Тримайте його коротким і не використовуйте повторно для іншої команди.",
       "fieldTitle": "Мітка, показана в заголовку Dock.",
-      "fieldCommand": "Команда для запуску в терміналі Dock. Вона стартує у вашому login shell.",
+      "fieldCommand": "Команда, що запускається в терміналі Dock. Обов’язкова для елементів керування терміналом і запускається в login shell.",
+      "fieldType": "Необов’язковий тип елемента керування: terminal (типово) або browser.",
+      "fieldUrl": "Сторінка, яку слід відкрити. Обов’язкова для елементів керування браузером.",
+      "fieldChrome": "Необов’язкове відображення елементів браузера. Типово true; false приховує адресний рядок і панель інструментів, вимикає дію «Фокус на адресному рядку» для цієї панелі, а cmux browser goto/reload залишаються доступними.",
       "fieldCwd": "Необов'язковий робочий каталог. Відносні шляхи розв'язуються від кореня проєкту для проєктних конфігурацій або від домашнього каталогу для глобальних конфігурацій.",
-      "fieldHeight": "Необов'язкова бажана висота термінала в пунктах. Елементи керування без height ділять решту простору.",
+      "fieldHeight": "Необов’язкова висота елемента керування. Елементи без height ділять решту простору.",
       "fieldEnv": "Необов'язкові змінні середовища, що передаються лише цьому елементу керування.",
       "sharingTitle": "Спільне використання в команді",
       "sharingIntro": "Dock спроєктовано для спільного використання через source control, коли команди належать репозиторію.",
@@ -1520,7 +1602,7 @@
       "agentPromptTitle": "Попросіть агента налаштувати це",
       "agentPromptIntro": "Використовуйте цей промпт, коли хочете, щоб coding agent створив елементи Dock. Він просить агента виконати `cmux docs dock`, оглянути проєкт і запитати перед тим, як припускати.",
       "agentPromptCodeTitle": "Промпт агента",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Відновлення сесії",
@@ -1579,10 +1661,16 @@
       "flagName": "Прапор",
       "flagDesc": "опис",
       "flagNameVal": "Встановіть назву робочої області",
+      "flagCommand": "Виконати текст команди один раз у початковому віддаленому терміналі після запуску оболонки",
       "flagPort": "Порт SSH (за замовчуванням 22)",
       "flagIdentity": "Шлях до файлу ідентифікації",
       "flagSshOption": "Передавати довільні параметри SSH (наприклад, -o StrictHostKeyChecking=no)",
+      "flagTransport": "Транспорт інтерактивного термінала: ssh (типово) або mosh",
       "flagNoFocus": "Створіть робочу область, не переходячи на неї",
+      "moshTitle": "Транспорт термінала Mosh",
+      "moshDesc": "Використовуйте cmux ssh user@remote --transport mosh, якщо інтерактивний термінал має зберігатися під час перемикання Wi-Fi, VPN чи точки доступу, а також після сну й пробудження. Mosh передає лише PTY термінала; SSH і надалі керує віддаленими метаданими, налаштуванням і контролем служби cmux, проксі браузера, завантаженнями та повторними підключеннями.",
+      "moshFallback": "cmux потребує локально Mosh 1.4 або новішої версії та перед запуском перевіряє віддалений mosh-server. Якщо клієнт відсутній або несумісний, сервер відсутній чи віддалена перевірка не вдалася, cmux пояснює причину й продовжує через SSH.",
+      "moshTmux": "Створює Mosh-простір, який створює або приєднує іменований сеанс tmux (типово: main). Профіль tmux зберігається після перепідключення й відновлення сеансу програми. Це роумінговий термінал tmux, а не нативне дзеркало cmux ssh-tmux. --session <name> вибирає сеанс; решта параметрів відповідає cmux mosh. Без Mosh той самий профіль працює через SSH.",
       "deepLinksTitle": "Глибокі посилання SSH",
       "deepLinksDesc": "Використовуйте глибокі посилання cmux SSH, коли веб-сайт або інструмент хоче запропонувати кнопку «Відкрити в cmux». Посилання відкриває cmux, показує запит на підтвердження, а потім запускає еквівалентну команду cmux ssh після підтвердження користувача.",
       "deepLinksWebFallbackDesc": "Використовуйте резервну URL-адресу cmux.com для кнопок веб-сайту. Він відкриває рідне посилання та показує завантаження, якщо cmux не встановлено.",
@@ -3576,7 +3664,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше."
+    "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше.",
+    "signedOutNotice": "Ви не ввійшли в систему. Увійдіть, щоб переглянути поточний план або відновити наявну покупку.",
+    "signedOutSignIn": "Увійти"
   },
   "platforms": {
     "macos": "macOS",
@@ -3589,8 +3679,8 @@
     "title": "Приєднатися до списку очікування {platform}",
     "titleAny": "Приєднатися до списку очікування",
     "description": "Підтримка {platform} вже на підході. Залиште email, і ми повідомимо, щойно все буде готово.",
-    "descriptionAny": "Зараз cmux передусім для macOS. Залиште email, і ми повідомимо, щойно з’явиться версія для Linux, Windows чи Android.",
-    "calloutText": "Незабаром на Linux, Windows та Android.",
+    "descriptionAny": "Виберіть платформу, версію для якої ще не випущено, і залиште email. Ми повідомимо, коли вона буде готова.",
+    "calloutText": "Готуються нові версії cmux.",
     "platformsLabel": "Які платформи?",
     "selectPlatform": "Виберіть принаймні одну платформу.",
     "emailLabel": "Електронна пошта",
@@ -3604,5 +3694,87 @@
     "successBody": "Ми напишемо вам, коли версія для {platform} буде готова.",
     "successBodyAny": "Ми напишемо вам, коли cmux буде готовий для вашої платформи.",
     "done": "Готово"
+  },
+  "browserDownloads": {
+    "eyebrow": "Браузер cmux",
+    "title": "cmux для {platform}",
+    "tagline": "Браузер Chromium і робочий простір для агентів, створені як єдине ціле.",
+    "logoAlt": "Піктограма застосунку cmux",
+    "featuresTitle": "Створено для роботи з агентами",
+    "features": {
+      "chromium": {
+        "title": "Справжній Chromium",
+        "description": ": вкладки, рендеринг, розширення та поведінка адресного рядка на рівні Chrome"
+      },
+      "workspaces": {
+        "title": "Робочі простори за завданнями",
+        "description": ": організовуйте вебвкладки та інструменти навколо завдання замість однієї нескінченної панелі вкладок"
+      },
+      "terminals": {
+        "title": "Термінальні поверхні",
+        "description": ": використовуйте оболонки та вкладки браузера в одному вікні й композиторі"
+      },
+      "openSource": {
+        "title": "Безкоштовно та з відкритим кодом",
+        "description": ": переглядайте код, повідомляйте про проблеми та збирайте з вихідного коду на GitHub"
+      }
+    },
+    "installTitle": "Встановлення",
+    "releaseTitle": "Випуски та оновлення",
+    "releaseBody": "Ці посилання завжди ведуть до останньої нічної збірки на <github>GitHub Releases</github>. Перед установленням оновлення cmux перевіряє підписані маніфести оновлень.",
+    "sourceLink": "Переглянути вихідний код на GitHub",
+    "otherPlatform": "cmux для {platform}",
+    "macLink": "Термінал cmux для Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Завантажити cmux для Windows",
+      "metaDescription": "Завантажте cmux для Windows x64 — безкоштовний браузер Chromium і робочий простір для агентів із відкритим кодом, вкладками за завданнями та термінальними поверхнями.",
+      "subtitle": "Нативна збірка x64 із вкладками Chromium, робочими просторами cmux і звичними сполученнями клавіш Windows.",
+      "primaryCta": "Завантажити інсталятор (.exe)",
+      "secondaryCta": "Портативний ZIP",
+      "requirements": "Windows 10 або новішої версії · x64",
+      "installBody": "Запустіть інсталятор і дотримуйтесь підказок Windows. Виберіть портативний ZIP, якщо хочете зберігати cmux у папці без загальносистемного встановлення."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Завантажити cmux для Linux",
+      "metaDescription": "Завантажте cmux для Linux x64 — безкоштовний браузер Chromium і робочий простір для агентів із відкритим кодом, вкладками за завданнями та термінальними поверхнями.",
+      "subtitle": "Нативна збірка x64 із вкладками Chromium, робочими просторами cmux та інтегрованими термінальними поверхнями.",
+      "primaryCta": "Завантажити інсталятор з автооновленням (.run)",
+      "secondaryCta": "Пакет Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Один раз запустіть інсталятор для поточного користувача. Він інсталює cmux у ~/.local без прав root і ввімкне підписані оновлення в застосунку. Якщо хочете, щоб оновленнями керував менеджер пакетів, натомість виберіть пакет Debian."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Ласкаво просимо до cmux Pro 🎉",
+      "fallbackName": "друже",
+      "greeting": "Вітаємо, {name}!",
+      "thanks": "Дякуємо, що приєдналися до cmux Pro! Ми ще допрацьовуємо повний набір можливостей Pro, а хмарний доступ уже незабаром.",
+      "cloudStatus": "Після запуску хмарного доступу ми нарахуємо на ваш обліковий запис кредити за кожен місяць підписки.",
+      "currentBenefit": "А поки ваша перевага Pro — ранній доступ до cmux на iOS. Зареєструйтеся за посиланням нижче, і після реєстрації Apple надішле вам запрошення до TestFlight.",
+      "testflightLink": "Зареєструватися в TestFlight: {url}",
+      "testflightLinkLabel": "Зареєструватися в TestFlight",
+      "signoff": "Раді, що ви з нами!\nКоманда cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro активовано",
+    "title": "Ласкаво просимо до cmux Pro",
+    "body": "Функції Pro ще розробляються. Хмарний доступ з’явиться незабаром, а за кожен місяць підписки накопичуватимуться кредити використання. Зараз Pro включає доступ до cmux на iOS через TestFlight.",
+    "done": "Перейти до панелі керування",
+    "steps": {
+      "iosApp": {
+        "title": "Застосунок cmux для iOS",
+        "body": "Користуйтеся cmux на телефоні.",
+        "action": "Приєднатися до бета-тесту iOS"
+      },
+      "billing": {
+        "title": "Керування тарифом",
+        "body": "Переглядайте тариф, рахунки та варіанти скасування.",
+        "action": "Керувати тарифом"
+      }
+    }
   }
 }

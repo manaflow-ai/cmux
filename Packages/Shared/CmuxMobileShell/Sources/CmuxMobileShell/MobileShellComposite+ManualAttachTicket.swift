@@ -7,7 +7,7 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    func boundedPairingRequestTimeoutNanoseconds(
+    nonisolated static func boundedPairingRequestTimeoutNanoseconds(
         runtime: any MobileSyncRuntime,
         attemptStartedAt: Date
     ) -> UInt64 {
@@ -44,7 +44,8 @@ extension MobileShellComposite {
         name: String,
         host: String,
         port: Int,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        probeClient: MobileCoreRPCClient? = nil
     ) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
@@ -53,7 +54,8 @@ extension MobileShellComposite {
                 let ticket = try await requestManualAttachTicket(
                     route: directRoute,
                     displayName: displayName,
-                    attemptStartedAt: attemptStartedAt
+                    attemptStartedAt: attemptStartedAt,
+                    probeClient: probeClient
                 )
                 return ticket
             } catch {
@@ -94,28 +96,39 @@ extension MobileShellComposite {
     func requestManualAttachTicket(
         route: CmxAttachRoute,
         displayName: String,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        probeClient: MobileCoreRPCClient? = nil
     ) async throws -> CmxAttachTicket {
         guard let runtime else {
             throw MobileShellConnectionError.insecureManualRoute
         }
-        let probeTicket = try syntheticManualHostTicket(
-            displayName: displayName,
-            macDeviceID: "manual-ticket-request",
-            route: route
-        )
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: probeTicket,
-            allowsStackAuthFallback: true,
-            connectAttemptRegistry: connectAttemptRegistry,
-            stackTokenGate: stackTokenGate,
-            stackTokenForceRefreshGate: stackTokenForceRefreshGate
-        )
+        let ownsProbeClient = probeClient == nil
+        let client: MobileCoreRPCClient
+        if let probeClient {
+            client = probeClient
+        } else {
+            let probeTicket = try syntheticManualHostTicket(
+                displayName: displayName,
+                macDeviceID: "manual-ticket-request",
+                route: route
+            )
+            client = MobileCoreRPCClient(
+                runtime: runtime,
+                route: route,
+                ticket: probeTicket,
+                allowsStackAuthFallback: true,
+                connectAttemptRegistry: connectAttemptRegistry,
+                stackTokenGate: stackTokenGate,
+                stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+                transportConnectObserver: transportConnectDiagnosticObserver(
+                    peerID: probeTicket.macDeviceID
+                ),
+                sessionPurpose: .probe
+            )
+        }
         let timeoutNanoseconds: UInt64
         if let attemptStartedAt {
-            timeoutNanoseconds = boundedPairingRequestTimeoutNanoseconds(
+            timeoutNanoseconds = Self.boundedPairingRequestTimeoutNanoseconds(
                 runtime: runtime,
                 attemptStartedAt: attemptStartedAt
             )
@@ -137,11 +150,24 @@ extension MobileShellComposite {
         do {
             resultData = try await client.sendRequest(request, timeoutNanoseconds: timeoutNanoseconds)
         } catch {
-            await client.disconnect()
+            if ownsProbeClient {
+                await client.disconnect()
+            }
             throw error
         }
-        await client.disconnect()
-        let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
-        return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
+        if ownsProbeClient {
+            await client.disconnect()
+        }
+        do {
+            let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
+            return try response.ticket.constrainingRoutes(
+                to: [route],
+                fallbackDisplayName: displayName
+            )
+        } catch {
+            // The peer answered successfully, but its ticket is malformed or
+            // incompatible. Retrying the same authority cannot repair that.
+            throw MobileShellConnectionError.invalidResponse
+        }
     }
 }

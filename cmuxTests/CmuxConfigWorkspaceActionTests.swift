@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -295,7 +296,9 @@ struct CmuxConfigWorkspaceActionTests {
 
     @MainActor
     @Test func inlineWorkspaceActionCreatesWorkspace() throws {
-        let manager = TabManager()
+        let manager = TabManager(
+            initialWorkingDirectory: NSTemporaryDirectory()
+        )
         let action = try #require(CmuxResolvedConfigAction.fromDefinition(
             id: "dev-setup",
             definition: CmuxConfigActionDefinition(
@@ -316,6 +319,7 @@ struct CmuxConfigWorkspaceActionTests {
 
         #expect(manager.tabs.count == 2)
         #expect(manager.selectedWorkspace?.customTitle == "Dev Setup")
+        #expect(manager.selectedWorkspace?.effectiveCustomTitleSource == .auto)
     }
 
     @MainActor

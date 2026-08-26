@@ -1,14 +1,16 @@
 import AppKit
+import CmuxAgentChat
 import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = "cmux-local-image"
-    static let remoteImageURLScheme = "cmux-remote-image"
+    static let localImageURLScheme = MarkdownWebViewerScheme.localImage
+    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage
 
     let markdown: String
     let theme: MarkdownWebTheme
     let backgroundColor: NSColor
+    let isVisibleInUI: Bool
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
@@ -32,6 +34,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.setVisibleInUI(isVisibleInUI)
             webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
                 coordinator?.handleViewLeftWindow()
             }
@@ -64,6 +67,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.setVisibleInUI(isVisibleInUI)
         webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
             coordinator?.handleViewLeftWindow()
         }
@@ -98,6 +102,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+        (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.setFontSize(fontSize)
@@ -206,7 +211,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let zoom = MarkdownFontSizeSettings.pageZoom(forPointSize: lastFontSize)
             let shouldSyncShell = forceShellSync || abs(webView.pageZoom - zoom) > 0.0001
             if abs(webView.pageZoom - zoom) > 0.0001 { webView.pageZoom = zoom }
-            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)));", completionHandler: nil) }
+            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)), \(Double(webView.bounds.width)));", completionHandler: nil) }
         }
 
         /// Records the desired body prose font and applies it as an inline
@@ -793,6 +798,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
+            let decisionHandler = BrowserNavigationActionDecisionHandler(
+                decisionHandler,
+                fallbackPolicy: WKNavigationActionPolicy.cancel,
+                label: "MarkdownWebRenderer.Coordinator.navigationAction"
+            ).closure
+
             // The first load (loadHTMLString) has navigationType = .other —
             // allow it. Anything the user clicks (links, anchors, ...) we
             // route through the cmux tab/browser machinery.

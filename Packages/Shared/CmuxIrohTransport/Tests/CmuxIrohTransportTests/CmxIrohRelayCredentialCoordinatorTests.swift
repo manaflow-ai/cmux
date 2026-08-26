@@ -6,6 +6,84 @@ import Testing
 @Suite
 struct CmxIrohRelayCredentialCoordinatorTests {
     @Test
+    func hostAndClientRefreshSlotsStaySeparatedAcrossCredentialCycles() throws {
+        let hostIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "1a", count: 32)
+        )
+        let clientIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b7", count: 32)
+        )
+        let hostSchedule = CmxIrohRelayRefreshSchedule(
+            role: .host,
+            endpointIdentity: hostIdentity
+        )
+        let clientSchedule = CmxIrohRelayRefreshSchedule(
+            role: .client,
+            endpointIdentity: clientIdentity
+        )
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        var hostSeconds: [Int] = []
+        var clientSeconds: [Int] = []
+
+        for cycle in 1 ... 8 {
+            let refreshAfter = now.addingTimeInterval(TimeInterval(cycle * 240))
+            let hostDeadline = hostSchedule.deadline(
+                now: now,
+                refreshAfter: refreshAfter
+            )
+            let clientDeadline = clientSchedule.deadline(
+                now: now,
+                refreshAfter: refreshAfter
+            )
+            let hostSecond = Int(hostDeadline.timeIntervalSince1970) % 60
+            let clientSecond = Int(clientDeadline.timeIntervalSince1970) % 60
+            hostSeconds.append(hostSecond)
+            clientSeconds.append(clientSecond)
+
+            #expect((0 ... 14).contains(hostSecond))
+            #expect((30 ... 44).contains(clientSecond))
+            #expect(hostDeadline >= now)
+            #expect(clientDeadline >= now)
+            #expect(hostDeadline <= refreshAfter)
+            #expect(clientDeadline <= refreshAfter)
+        }
+
+        #expect(Set(hostSeconds).count == 1)
+        #expect(Set(clientSeconds).count == 1)
+    }
+
+    @Test
+    func refreshSlotsSpreadEndpointsWithinEachRole() throws {
+        let refreshAfter = Date(timeIntervalSince1970: 1_700_000_240)
+        let now = refreshAfter.addingTimeInterval(-240)
+        let hostSlots = try (0 ..< 16).map { index in
+            let identity = try CmxIrohPeerIdentity(
+                endpointID: String(format: "%064x", index + 1)
+            )
+            return Int(
+                CmxIrohRelayRefreshSchedule(role: .host, endpointIdentity: identity)
+                    .deadline(now: now, refreshAfter: refreshAfter)
+                    .timeIntervalSince1970
+            ) % 60
+        }
+        let clientSlots = try (0 ..< 16).map { index in
+            let identity = try CmxIrohPeerIdentity(
+                endpointID: String(format: "%064x", index + 1)
+            )
+            return Int(
+                CmxIrohRelayRefreshSchedule(role: .client, endpointIdentity: identity)
+                    .deadline(now: now, refreshAfter: refreshAfter)
+                    .timeIntervalSince1970
+            ) % 60
+        }
+
+        #expect(Set(hostSlots).count > 1)
+        #expect(hostSlots.allSatisfy { (0 ... 14).contains($0) })
+        #expect(Set(clientSlots).count > 1)
+        #expect(clientSlots.allSatisfy { (30 ... 44).contains($0) })
+    }
+
+    @Test
     func bootstrapInstallsCompleteFleetBeforeSleepingUntilRefresh() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
@@ -211,6 +289,61 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     }
 
     @Test
+    func requiredInitialCredentialWaitsThroughTransientMintFailure() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(steps: [
+            .failure,
+            .response(try fixture.response()),
+        ])
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let completions = TestRelayActivationCompletionRecorder()
+        let installs = TestRelayCredentialInstallRecorder()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 1,
+                maximumDelay: 1,
+                jitterFraction: 0
+            ),
+            retryJitter: { 0 },
+            credentialDidInstall: { response in
+                await installs.record(response)
+            }
+        )
+        let activation = Task {
+            try await coordinator.activate(
+                bindingID: fixture.bindingID,
+                endpointIdentity: fixture.identity,
+                waitForInitialCredential: true
+            )
+            await completions.record()
+        }
+
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the initial relay retry sleep")
+            return
+        }
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(deadline == fixture.now.addingTimeInterval(1))
+        #expect(await completions.count() == 0)
+
+        clock.advance(to: deadline)
+        try await activation.value
+        await installs.waitForCount(1)
+        #expect(await completions.count() == 1)
+        #expect(await broker.observedEndpointIDs() == [fixture.identity, fixture.identity])
+        #expect(await endpoint.observedRelayUpdates().count == 1)
+        await coordinator.deactivate()
+    }
+
+    @Test
     func rateLimitRetryNeverPrecedesValidatedServerFloor() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
@@ -237,6 +370,45 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         await coordinator.deactivate()
     }
 
+    @Test
+    func restoredCooldownRetryNeverPrecedesPersistedServerFloor() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: TestRelayTokenBroker(steps: [.cooldown(600)]),
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity
+        )
+
+        let clockEvent = await clockEvents.next()
+        #expect(await endpoint.observedRelayUpdates().isEmpty)
+        #expect(clockEvent == .sleep(fixture.now.addingTimeInterval(600)))
+        await coordinator.deactivate()
+    }
+
+}
+
+private actor TestRelayActivationCompletionRecorder {
+    private var completionCount = 0
+
+    func record() {
+        completionCount += 1
+    }
+
+    func count() -> Int {
+        completionCount
+    }
 }
 
 private actor TestRelayCredentialInstallRecorder {
@@ -295,20 +467,29 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
         case response(CmxIrohRelayTokenResponse)
         case failure
         case rateLimited(Int)
+        case cooldown(Int)
     }
 
     private var steps: [Step]
     private var endpointIDs: [CmxIrohPeerIdentity] = []
+    private var issueCount = 0
+    private let issueHook: (@Sendable (_ count: Int) async -> Void)?
 
-    init(steps: [Step]) {
+    init(
+        steps: [Step],
+        issueHook: (@Sendable (_ count: Int) async -> Void)? = nil
+    ) {
         self.steps = steps
+        self.issueHook = issueHook
     }
 
     func issueRelayToken(
         bindingID _: String,
         endpointID: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
+    ) async throws -> CmxIrohRelayTokenResponse {
         endpointIDs.append(endpointID)
+        issueCount += 1
+        await issueHook?(issueCount)
         guard !steps.isEmpty else { throw TestRelayCoordinatorError.noResponse }
         switch steps.removeFirst() {
         case let .response(response):
@@ -318,6 +499,10 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
         case let .rateLimited(retryAfterSeconds):
             throw CmxIrohTrustBrokerClientError.rateLimited(
                 code: "rate_limited",
+                retryAfterSeconds: retryAfterSeconds
+            )
+        case let .cooldown(retryAfterSeconds):
+            throw CmxIrohBrokerCooldownError(
                 retryAfterSeconds: retryAfterSeconds
             )
         }
@@ -380,6 +565,10 @@ final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
         for sleeper in pending {
             sleeper.resume()
         }
+    }
+
+    func setNowWithoutResuming(_ date: Date) {
+        lock.withLock { currentDate = date }
     }
 
     func events() -> AsyncStream<Event> {

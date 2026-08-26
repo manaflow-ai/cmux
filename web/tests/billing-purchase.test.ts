@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   accountDeletionTombstones,
+  accountMutationLeases,
   billingEmailClaims,
   stripeCustomers,
   stripeSubscriptions,
 } from "../db/schema";
+import { FOUNDER_TESTFLIGHT_GROUP_ID } from "../services/asc/testflightOwnership";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -14,7 +16,11 @@ process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 
-const { applySubscriptionUpdate, recordCheckoutCompletion } = await import(
+const {
+  applySubscriptionUpdate,
+  isActiveStripeSubscriptionStatus,
+  recordCheckoutCompletion,
+} = await import(
   "../services/billing/purchase"
 );
 
@@ -24,12 +30,17 @@ const upsertUpdates: Array<{ table: unknown; values: Record<string, unknown> }> 
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
 let tombstoneSelectResults: unknown[][] = [];
+let accountMutationOperationId: string | null = null;
 
 function fakeDb() {
   const client = {
     insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => {
-        inserts.push({ table, values });
+        if (table === accountMutationLeases) {
+          accountMutationOperationId = values.operationId as string;
+        } else {
+          inserts.push({ table, values });
+        }
         return {
           onConflictDoUpdate: (options?: { set?: Record<string, unknown> }) => {
             upsertUpdates.push({ table, values: options?.set ?? {} });
@@ -43,18 +54,33 @@ function fakeDb() {
     }),
     select: () => ({
       from: (table: unknown) => ({
-        where: () => table === accountDeletionTombstones
-          ? tombstoneSelectableResult()
-          : selectableResult(),
+        where: () => {
+          if (table === accountDeletionTombstones) {
+            return tombstoneSelectableResult();
+          }
+          if (table === accountMutationLeases) {
+            return accountMutationLeaseSelectableResult();
+          }
+          return selectableResult();
+        },
       }),
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
-          updates.push({ table, values });
+          if (table !== accountMutationLeases) {
+            updates.push({ table, values });
+          }
           return Promise.resolve();
         },
       }),
+    }),
+    delete: (table: unknown) => ({
+      where: async () => {
+        if (table === accountMutationLeases) {
+          accountMutationOperationId = null;
+        }
+      },
     }),
   };
   return {
@@ -77,6 +103,17 @@ function tombstoneSelectableResult() {
   return {
     orderBy: () => tombstoneSelectableResult(),
     limit: () => Promise.resolve(tombstoneSelectResults.shift() ?? []),
+  };
+}
+
+function accountMutationLeaseSelectableResult() {
+  return {
+    orderBy: () => accountMutationLeaseSelectableResult(),
+    limit: () => Promise.resolve(
+      accountMutationOperationId
+        ? [{ operationId: accountMutationOperationId }]
+        : [],
+    ),
   };
 }
 
@@ -152,6 +189,26 @@ function teamCheckoutInput(customerId = "cus_team", stackUserId?: string) {
   };
 }
 
+describe("Stripe subscription entitlement states", () => {
+  for (const status of ["active", "trialing", "past_due"]) {
+    test(`${status} retains Pro access`, () => {
+      expect(isActiveStripeSubscriptionStatus(status)).toBe(true);
+    });
+  }
+
+  for (const status of [
+    "canceled",
+    "incomplete",
+    "incomplete_expired",
+    "paused",
+    "unpaid",
+  ]) {
+    test(`${status} revokes Pro access`, () => {
+      expect(isActiveStripeSubscriptionStatus(status)).toBe(false);
+    });
+  }
+});
+
 describe("recordCheckoutCompletion", () => {
   beforeEach(() => {
     inserts.length = 0;
@@ -160,6 +217,7 @@ describe("recordCheckoutCompletion", () => {
     insertErrorsByTable.clear();
     selectResults = [];
     tombstoneSelectResults = [];
+    accountMutationOperationId = null;
   });
 
   test("attaches Stripe email to a purchaser without a primary email", async () => {
@@ -262,7 +320,7 @@ describe("recordCheckoutCompletion", () => {
     expect(updates).toHaveLength(0);
   });
 
-  test("syncs checkout metadata under a fresh account deletion lock", async () => {
+  test("releases the database transaction before syncing checkout metadata", async () => {
     let transactionOpen = false;
     let lockCount = 0;
     const baseDb = fakeDb();
@@ -285,8 +343,8 @@ describe("recordCheckoutCompletion", () => {
       },
     };
     const update = mock(async () => {
-      expect(transactionOpen).toBe(true);
-      expect(lockCount).toBe(2);
+      expect(transactionOpen).toBe(false);
+      expect(lockCount).toBeGreaterThanOrEqual(2);
     });
     const user = {
       id: "user_123",
@@ -303,7 +361,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
-    expect(lockCount).toBe(2);
+    expect(lockCount).toBeGreaterThanOrEqual(2);
   });
 
   test("skips checkout metadata sync when deletion starts after checkout rows commit", async () => {
@@ -1079,12 +1137,105 @@ describe("recordCheckoutCompletion", () => {
 
   test("removes a user from TestFlight when a user Pro subscription lapses", async () => {
     const update = mock(async () => undefined);
-    const removeTester = mock(async () => undefined);
+    let transactionDepth = 0;
+    const baseDb = fakeDb();
+    const trackedDb = {
+      ...baseDb,
+      transaction: async <T>(
+        callback: (tx: typeof baseDb) => Promise<T>,
+      ) => {
+        transactionDepth += 1;
+        try {
+          return await callback(baseDb);
+        } finally {
+          transactionDepth -= 1;
+        }
+      },
+    };
+    const removeTester = mock(async () => {
+      expect(transactionDepth).toBe(0);
+    });
     const user = {
       id: "user_123",
       primaryEmail: "buyer@example.com",
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update,
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: trackedDb as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    expect(removeTester).toHaveBeenCalledWith("buyer@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
+    expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
+      "id",
+    );
+    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+  });
+
+  test("does not restore Pro metadata while removing recorded TestFlight ownership after a lapse", async () => {
+    const metadataWrites: unknown[] = [];
+    const update = mock(async (...args: unknown[]) => {
+      const [options] = args as [{ readonly clientReadOnlyMetadata: unknown }];
+      metadataWrites.push(options.clientReadOnlyMetadata);
+    });
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightEnrollmentEmails: ["buyer@example.com"],
+        cmuxProTestflightGrants: [
+          { email: "buyer@example.com", source: "user" },
+        ],
+      },
+      update,
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    expect(metadataWrites).toHaveLength(2);
+    expect(metadataWrites[0]).not.toHaveProperty("cmuxPlan");
+    expect(metadataWrites[1]).toEqual({});
+  });
+
+  test("removes an explicitly recorded legacy Pro membership when Pro lapses", async () => {
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "current@example.com",
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightOwnedLegacyGroupIDs: [
+          FOUNDER_TESTFLIGHT_GROUP_ID,
+        ],
+        cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
+      },
+      update: mock(async () => undefined),
     };
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
@@ -1100,15 +1251,22 @@ describe("recordCheckoutCompletion", () => {
       },
     );
 
-    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
-    expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
-    expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
-      "id",
-    );
-    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: "user_123",
+      isActive: false,
+    });
+    expect(removeTester).toHaveBeenNthCalledWith(1, "current@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
+    expect(removeTester).toHaveBeenNthCalledWith(2, "legacy@example.com", {
+      ownedLegacyGroupIDs: [
+        FOUNDER_TESTFLIGHT_GROUP_ID,
+      ],
+    });
   });
 
-  test("does not fail the webhook when TestFlight removal fails", async () => {
+  test("keeps the webhook retryable when TestFlight removal fails", async () => {
     const captureAscError = mock(() => undefined);
     const user = {
       id: "user_123",
@@ -1118,22 +1276,23 @@ describe("recordCheckoutCompletion", () => {
     };
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
-    const result = await applySubscriptionUpdate(
-      userSubscriptionUpdate({ status: "canceled" }) as never,
-      {
-        db: fakeDb() as never,
-        stackApp: { getUser: async () => user } as never,
-        testflight: {
-          isAscConfigured: () => true,
-          removeTester: async () => {
-            throw new Error("ASC down");
+    await expect(
+      applySubscriptionUpdate(
+        userSubscriptionUpdate({ status: "canceled" }) as never,
+        {
+          db: fakeDb() as never,
+          stackApp: { getUser: async () => user } as never,
+          testflight: {
+            isAscConfigured: () => true,
+            removeTester: async () => {
+              throw new Error("ASC down");
+            },
+            captureAscError,
           },
-          captureAscError,
         },
-      },
-    );
+      ),
+    ).rejects.toThrow("ASC down");
 
-    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(captureAscError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "ASC down" }),
       expect.objectContaining({

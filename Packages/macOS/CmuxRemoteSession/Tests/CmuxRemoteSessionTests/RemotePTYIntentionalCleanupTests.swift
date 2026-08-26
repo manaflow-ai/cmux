@@ -120,6 +120,7 @@ struct RemotePTYIntentionalCleanupTests {
             host: IntentionalCleanupTestHost(),
             configuration: configuration,
             proxyBroker: broker,
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -133,7 +134,10 @@ struct RemotePTYIntentionalCleanupTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

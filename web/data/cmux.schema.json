@@ -434,7 +434,7 @@
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
           "default": true,
-          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead."
         },
         "minimalMode": {
           "type": "boolean",
@@ -450,6 +450,11 @@
           "type": "boolean",
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
+        },
+        "focusHistoryIncludesPanesAndTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
         },
         "preferredEditor": {
           "type": "string",
@@ -538,6 +543,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "adaptiveDefaultTheme": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
+          "description": "When true (the default), cmux supplies its managed light/dark palette only when the Ghostty config contains no directives. When false, an untouched Ghostty config uses Ghostty's fixed built-in palette. Any Ghostty directive suppresses the managed palette; Ghostty theme = light:X,dark:Y remains appearance-adaptive."
+        },
         "showScrollBar": {
           "type": "boolean",
           "default": true,
@@ -560,7 +571,6 @@
             {
               "type": "number",
               "minimum": 320,
-              "maximum": 2400,
               "multipleOf": 20
             }
           ],
@@ -601,12 +611,14 @@
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Opt-in Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. A terminal is only suspended when it runs a restorable coding agent, the agent lifecycle reports idle, the terminal is off-screen, the live-terminal limit is exceeded, and its output has stayed unchanged for the idle window plus a short confirmation settle window. The placeholder Resume button is a manual fallback.",
+          "descriptionKey": "schemaDescriptions.terminal.agentHibernation",
+          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
               "default": false,
-              "description": "Enable Agent Hibernation."
+              "descriptionKey": "schemaDescriptions.terminal.agentHibernationEnabled",
+              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false."
             },
             "idleSeconds": {
               "type": "integer",
@@ -638,14 +650,14 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 604800,
-              "default": 30,
+              "default": 5,
               "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
             },
             "maxWarmRenderers": {
               "type": "integer",
               "minimum": 1,
               "maximum": 256,
-              "default": 12,
+              "default": 1,
               "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
             }
           }
@@ -876,6 +888,12 @@
           "type": "boolean",
           "default": true,
           "description": "Flash the focused pane when requested."
+        },
+        "paneFlashColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
+          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
         },
         "suppressOnlyFocusedSurface": {
           "type": "boolean",
@@ -1378,6 +1396,14 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "defaultZoomLevel": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 5,
+          "default": 1,
+          "descriptionKey": "schemaDescriptions.browser.defaultZoomLevel",
+          "description": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page."
+        },
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
@@ -1437,6 +1463,22 @@
           ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
         },
+        "urlAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "descriptionKey": "schemaDescriptions.browser.urlAllowlist",
+          "default": [
+            "localhost",
+            "*.localhost",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+            "*.localtest.me"
+          ],
+          "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,
@@ -1446,6 +1488,20 @@
           "type": "string",
           "default": "0.1.29",
           "description": "Pinned react-grab version for the browser toolbar helper."
+        }
+      }
+    },
+    "mobile": {
+      "title": "mobile",
+      "description": "Mac-side settings for cmux on iOS.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifactFolderAccess": {
+          "type": "string",
+          "enum": ["subtree", "oneLevel"],
+          "default": "subtree",
+          "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
         }
       }
     },
@@ -1607,14 +1663,23 @@
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
+              "switchRightSidebarToMachines",
               "triggerFlash",
               "nextSurface",
               "prevSurface",
               "moveSurfaceLeft",
               "moveSurfaceRight",
+              "moveSurfaceToPreviousPane",
+              "moveSurfaceToNextPane",
+              "moveSurfaceToPaneLeft",
+              "moveSurfaceToPaneRight",
+              "moveSurfaceToPaneUp",
+              "moveSurfaceToPaneDown",
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
+              "nextSidebarTabInGroup",
+              "prevSidebarTabInGroup",
               "moveWorkspaceUp",
               "moveWorkspaceDown",
               "focusHistoryBack",
@@ -1632,6 +1697,7 @@
               "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
+              "reopenClosedWorkspace",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
@@ -1640,13 +1706,23 @@
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "clearScreenKeepScrollback",
+              "simulatorHome",
+              "simulatorRotateLeft",
+              "simulatorRotateRight",
+              "simulatorToggleAppearance",
+              "simulatorToggleSoftwareKeyboard",
               "focusLeft",
               "focusRight",
               "focusUp",
               "focusDown",
+              "focusPreviousPane",
+              "focusNextPane",
               "splitRight",
               "splitDown",
               "toggleSplitZoom",
+              "increaseWorkspaceTerminalFontSize",
+              "decreaseWorkspaceTerminalFontSize",
+              "resetWorkspaceTerminalFontSize",
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
@@ -1690,6 +1766,7 @@
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
+              "toggleBrowserDesignMode",
               "toggleReactGrab",
               "openDiffViewer",
               "diffViewerScrollDown",
@@ -1753,7 +1830,7 @@
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"

@@ -27,12 +27,21 @@ public final class DebugWindowsCoordinator {
 
     /// Creates the coordinator.
     ///
-    /// - Parameter decorator: The window-decoration seam. Held weakly because the
-    ///   app-side conformer (`AppDelegate`) is a singleton that also owns this
-    ///   coordinator.
-    public init(decorator: (any WindowDecorating)?) {
+    /// - Parameters:
+    ///   - decorator: The window-decoration seam. Held weakly because the
+    ///     app-side conformer (`AppDelegate`) is a singleton that also owns this
+    ///     coordinator.
+    ///   - copyText: Publishes copied debug configuration through the host's
+    ///     shared clipboard owner.
+    public init(
+        decorator: (any WindowDecorating)?,
+        copyText: @escaping @MainActor (String) -> Void = { _ in }
+    ) {
         self.decorator = decorator
-        self.aboutTitlebarStore = AboutTitlebarDebugStore(decorator: decorator)
+        self.aboutTitlebarStore = AboutTitlebarDebugStore(
+            decorator: decorator,
+            copyText: copyText
+        )
     }
 
     /// Presents the About Titlebar Debug editor, creating its window on first use.

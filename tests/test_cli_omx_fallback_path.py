@@ -29,6 +29,7 @@ def main() -> int:
         root = Path(td)
         fallback_bin = root / ".bun" / "bin"
         fallback_bin.mkdir(parents=True, exist_ok=True)
+        provider_log = root / "omx.log"
 
         make_executable(
             fallback_bin / "omx-node-helper",
@@ -42,6 +43,7 @@ printf 'args:%s\\n' "$*"
             fallback_bin / "omx",
             """#!/usr/bin/env bash
 set -euo pipefail
+printf 'ran\n' > "$FAKE_PROVIDER_LOG"
 command -v omx-node-helper
 omx-node-helper "$@"
 """,
@@ -52,6 +54,7 @@ omx-node-helper "$@"
         env["PATH"] = "/usr/bin:/bin"
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_SOCKET_PATH"] = str(root / "missing.sock")
+        env["FAKE_PROVIDER_LOG"] = str(provider_log)
 
         proc = subprocess.run(
             [cli_path, "omx", "--version"],
@@ -80,7 +83,89 @@ omx-node-helper "$@"
             print(f"FAIL: expected fallback helper to remain on PATH, got {lines!r}")
             return 1
 
-    print("PASS: cmux omx preserves fallback provider dirs in PATH")
+        for command in (
+            "agents",
+            "agents-init",
+            "ask",
+            "auth",
+            "cancel",
+            "capabilities",
+            "deepinit",
+            "doctor",
+            "explore",
+            "help",
+            "hooks",
+            "hud",
+            "list",
+            "reasoning",
+            "session",
+            "setup",
+            "sparkshell",
+            "status",
+            "tmux-hook",
+            "uninstall",
+            "update",
+            "version",
+        ):
+            provider_log.unlink(missing_ok=True)
+            management = subprocess.run(
+                [cli_path, "omx", command],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if management.returncode != 0 or not provider_log.exists():
+                print(f"FAIL: OMX management command {command!r} required a live surface")
+                return 1
+
+        for invocation in (
+            ("team", "api", "claim-task"),
+            ("team", "status", "demo"),
+            ("team", "shutdown", "demo"),
+            ("team", "--help"),
+            ("team", "-h"),
+        ):
+            provider_log.unlink(missing_ok=True)
+            management = subprocess.run(
+                [cli_path, "omx", *invocation],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if management.returncode != 0 or not provider_log.exists():
+                print(f"FAIL: OMX team command {invocation!r} required a live surface")
+                return 1
+
+        blocked_invocations = (
+            ["resume"],
+            ["team"],
+            ["team", "resume"],
+            ["unknown-command"],
+            ["--scope", "project", "setup"],
+            ["--scope", "project", "ask"],
+            ["--scope", "--version"],
+            ["--", "--version"],
+            ["--high"],
+        )
+        for invocation in blocked_invocations:
+            provider_log.unlink(missing_ok=True)
+            blocked = subprocess.run(
+                [cli_path, "omx", *invocation],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if blocked.returncode == 0 or provider_log.exists():
+                print(f"FAIL: contextless OMX launch was not rejected: {invocation!r}")
+                return 1
+
+    print("PASS: cmux omx preserves management commands and rejects contextless launches")
     return 0
 
 

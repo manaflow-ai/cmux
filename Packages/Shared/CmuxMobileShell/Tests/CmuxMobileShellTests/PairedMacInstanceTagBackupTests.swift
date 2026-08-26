@@ -67,6 +67,9 @@ import Testing
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let backup = FakeBackup()
+        // The current worker echoes the verified team every upload was stored
+        // under; the delete then has a verified destination to flush to.
+        await backup.setEchoedResolvedTeamID("team-resolved")
         let store = BackingUpPairedMacStore(inner: inner, backup: backup)
 
         for tag in ["stable", "nightly"] {

@@ -24,6 +24,14 @@ private func tailscaleRoute() throws -> CmxAttachRoute {
     )
 }
 
+private func legacyTailscaleEvidence() throws -> CmxLegacyTailscaleAuthorizationEvidence {
+    try CmxLegacyTailscaleAuthorizationEvidence(
+        macDeviceID: "mac-b",
+        host: "100.64.0.9",
+        port: 8000
+    )
+}
+
 private func workspaceListResult() -> [String: Any] {
     [
         "workspaces": [
@@ -90,7 +98,7 @@ private func jsonObject(_ string: String) -> [String: Any] {
             displayName: "Studio",
             routes: [try tailscaleRoute()],
             retryDelay: { _ in },
-            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            legacyTailscaleAuthorizationEvidence: try legacyTailscaleEvidence(),
             requiresHostIdentity: false
         )
         session.connect()
@@ -141,7 +149,7 @@ private func jsonObject(_ string: String) -> [String: Any] {
             displayName: "Studio",
             routes: [try tailscaleRoute()],
             retryDelay: { _ in },
-            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            legacyTailscaleAuthorizationEvidence: try legacyTailscaleEvidence(),
             requiresHostIdentity: false
         )
         macSession.connect()
@@ -224,7 +232,7 @@ private func jsonObject(_ string: String) -> [String: Any] {
             displayName: "Studio",
             routes: [try tailscaleRoute()],
             retryDelay: { _ in },
-            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            legacyTailscaleAuthorizationEvidence: try legacyTailscaleEvidence(),
             requiresHostIdentity: false
         )
         macSession.connect()
@@ -281,7 +289,7 @@ private func jsonObject(_ string: String) -> [String: Any] {
             displayName: "Studio",
             routes: [try tailscaleRoute()],
             retryDelay: { _ in },
-            stackAuthChannelTrust: .loopbackAndTailscaleTunnel,
+            legacyTailscaleAuthorizationEvidence: try legacyTailscaleEvidence(),
             requiresHostIdentity: false
         )
         session.connect()

@@ -1,41 +1,41 @@
 import CmuxSettings
 import CmuxSidebar
+import CmuxSidebarGit
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
-    static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
-    static let showPullRequestsKey = "sidebarShowPullRequest"
-    static let watchGitStatusKey = "sidebarWatchGitStatus"
-    static let showSSHKey = "sidebarShowSSH"
-    static let showPortsKey = "sidebarShowPorts"
-    static let showLogKey = "sidebarShowLog"
-    static let showProgressKey = "sidebarShowProgress"
-    static let showAgentActivityKey = "sidebarShowAgentActivity"
-    static let showCustomMetadataKey = "sidebarShowStatusPills"
+    private static let sidebar = SidebarCatalogSection()
 
-    static let showBranchDirectory = true
-    static let showPullRequests = true
-    static let watchGitStatus = true
-    static let showSSH = true
-    static let showPorts = true
-    static let showLog = true
-    static let showProgress = true
-    static let showAgentActivity = true
-    static let showCustomMetadata = true
+    static let showBranchDirectoryKey = sidebar.showBranchDirectory.userDefaultsKey
+    static let showPullRequestsKey = sidebar.showPullRequests.userDefaultsKey
+    static let watchGitStatusKey = sidebar.watchGitStatus.userDefaultsKey
+    static let showSSHKey = sidebar.showSSH.userDefaultsKey
+    static let showPortsKey = sidebar.showPorts.userDefaultsKey
+    static let showLogKey = sidebar.showLog.userDefaultsKey
+    static let showProgressKey = sidebar.showProgress.userDefaultsKey
+    static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
+    static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
+
+    static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
+    static let showPullRequests = sidebar.showPullRequests.defaultValue
+    static let watchGitStatus = sidebar.watchGitStatus.defaultValue
+    static let showSSH = sidebar.showSSH.defaultValue
+    static let showPorts = sidebar.showPorts.defaultValue
+    static let showLog = sidebar.showLog.defaultValue
+    static let showProgress = sidebar.showProgress.defaultValue
+    static let showAgentActivity = sidebar.showAgentActivity.defaultValue
+    static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
-    static let key = "sidebarWrapWorkspaceTitles"
-    static let defaultWrap = false
+    private static let setting = SidebarCatalogSection().wrapWorkspaceTitles
+    static let key = setting.userDefaultsKey
+    static let defaultWrap = setting.defaultValue
 
     static func wraps(defaults: UserDefaults = .standard) -> Bool {
-        SidebarWorkspaceDetailDefaults.boolValue(
-            defaults: defaults,
-            key: key,
-            defaultValue: defaultWrap
-        )
+        UserDefaultsSettingsClient(defaults: defaults).value(for: setting)
     }
 }
 
@@ -48,46 +48,52 @@ extension SidebarWorkspaceDetailDefaults {
     }
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPullRequests)
     }
 
     static func showBranchDirectoryValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: showBranchDirectoryKey, defaultValue: showBranchDirectory)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showBranchDirectory)
     }
 
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().watchGitStatus)
     }
 
     static func auxiliaryDetailVisibility(defaults: UserDefaults) -> SidebarWorkspaceAuxiliaryDetailVisibility {
-        let hideAllDetails = SidebarCatalogSection().hideAllDetails
+        let sidebar = SidebarCatalogSection()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let details = SidebarWorkspaceDetailSettings(defaults: defaults)
         return SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
-            showMetadata: boolValue(
-                defaults: defaults,
-                key: showCustomMetadataKey,
-                defaultValue: showCustomMetadata
-            ),
-            showLog: boolValue(defaults: defaults, key: showLogKey, defaultValue: showLog),
-            showProgress: boolValue(defaults: defaults, key: showProgressKey, defaultValue: showProgress),
-            showBranchDirectory: showBranchDirectoryValue(defaults: defaults),
-            showPullRequests: showPullRequestsValue(defaults: defaults),
-            showPorts: boolValue(defaults: defaults, key: showPortsKey, defaultValue: showPorts),
-            hideAllDetails: boolValue(
-                defaults: defaults,
-                key: hideAllDetails.userDefaultsKey,
-                defaultValue: hideAllDetails.defaultValue
-            )
+            showMetadata: details.showCustomMetadata,
+            showLog: details.showLog,
+            showProgress: details.showProgress,
+            showBranchDirectory: details.showBranchDirectory,
+            showPullRequests: details.showPullRequests,
+            showPorts: details.showPorts,
+            hideAllDetails: settings.value(for: sidebar.hideAllDetails)
         )
     }
 
     static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults)
-            && auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+        gitMetadataActivity(defaults: defaults).performsActivePolling
     }
 
-    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults)
-            && auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+    static func gitMetadataActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+            ? .activePolling
+            : .passiveReportsOnly
+    }
+
+    static func pullRequestActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+            ? .activePolling
+            : .passiveReportsOnly
     }
 }
 
@@ -131,6 +137,10 @@ enum AppSettingsFileMapping {
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
+        .init(
+            jsonKey: "focusHistoryIncludesPanesAndTabs",
+            defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
+        ),
         .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
@@ -203,7 +213,14 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "adaptiveDefaultTheme",
+            defaultsKey: terminal.adaptiveDefaultTheme.userDefaultsKey,
+            invalidPath: terminal.adaptiveDefaultTheme.id
+        ),
         .init(
             jsonKey: "showScrollBar",
             defaultsKey: TerminalScrollBarSettings.showScrollBarKey,
@@ -370,6 +387,11 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserInsecureHTTPSettings.allowlistKey,
             invalidPath: "browser.insecureHttpHostsAllowedInEmbeddedBrowser"
         ),
+        .init(
+            jsonKey: "urlAllowlist",
+            defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
+            invalidPath: "browser.urlAllowlist"
+        ),
     ]
 }
 
@@ -389,6 +411,7 @@ extension CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.focusHistoryIncludesPanesAndTabs",
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
@@ -403,6 +426,7 @@ extension CmuxSettingsFileStore {
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",
+        "terminal.adaptiveDefaultTheme",
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
@@ -426,6 +450,7 @@ extension CmuxSettingsFileStore {
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
         "notifications.paneFlash",
+        "notifications.paneFlashColor",
         "notifications.sound",
         "notifications.customSoundFilePath",
         "notifications.command",
@@ -487,6 +512,7 @@ extension CmuxSettingsFileStore {
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.defaultZoomLevel",
         "browser.customSearchEngineName",
         "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
@@ -499,8 +525,10 @@ extension CmuxSettingsFileStore {
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
+        "browser.urlAllowlist",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "mobile.artifactFolderAccess",
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",

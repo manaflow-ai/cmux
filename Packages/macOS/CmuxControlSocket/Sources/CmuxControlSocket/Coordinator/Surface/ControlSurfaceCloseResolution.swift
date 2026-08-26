@@ -13,6 +13,9 @@ public enum ControlSurfaceCloseResolution: Sendable, Equatable {
     /// No surface resolved and none focused (legacy `not_found` / "No focused
     /// surface").
     case noFocusedSurface
+    /// A `surface_id` param was present but did not resolve to a UUID/ref. This
+    /// must fail closed instead of falling back to the focused surface.
+    case invalidSurfaceID
     /// The surface id did not exist (legacy `not_found` / "Surface not found",
     /// `data: {"surface_id": …}`). Carries the surface id.
     case surfaceNotFound(UUID)

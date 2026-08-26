@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import CmuxSidebar
+import CmuxNotifications
 import CmuxUpdater
 import SwiftUI
 
@@ -146,11 +147,14 @@ final class SidebarLazyLayoutScaleTests {
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
             fileExplorerState: FileExplorerState(),
+            sidebarUnread: unread,
+            titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),
             onSendFeedback: {},
             onToggleSidebar: {},
             onNewTab: {},
-            observedWindow: nil,
+            observedWindowReference: WeakWindowReference(),
+            chromeBackgroundColor: .black,
             selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
@@ -158,7 +162,6 @@ final class SidebarLazyLayoutScaleTests {
         )
         .frame(width: 280)
         .environmentObject(tabManager)
-        .environmentObject(unread)
         .environmentObject(CmuxConfigStore())
         .environmentObject(TerminalNotificationStore.shared)
         .environmentObject(SidebarState())
@@ -318,21 +321,33 @@ final class SidebarLazyLayoutScaleTests {
 
         await Self.drainMainRunLoop(for: harness.window)
 
-        // The default sidebar intentionally accepts the initial value from
-        // both workspace publisher families. Wait for those known initial
-        // projections before isolating the operation count for this burst.
-        // Initial mount builds fallback + owner snapshots, then each of the
-        // two keyed publisher families delivers its accepted initial value.
-        let initialObservationBuildFloor = Self.workspaceCount * 4
+        // Wait for initial workspace publishers to quiesce before isolating
+        // the operation count for this burst. The exact number of accepted
+        // initial projections is an implementation detail; the invariant is
+        // that every workspace is projected and the owner reaches a stable
+        // snapshot before the counter resets.
         let initialDeadline = ProcessInfo.processInfo.systemUptime + 3
-        while harness.counter.workspaceSnapshotBuilds < initialObservationBuildFloor,
+        var previousInitialBuildCount = -1
+        var stableInitialPasses = 0
+        while stableInitialPasses < 4,
               ProcessInfo.processInfo.systemUptime < initialDeadline {
             Self.turnMainRunLoopOnce(layingOut: harness.window)
             await Task.yield()
+            let currentBuildCount = harness.counter.workspaceSnapshotBuilds
+            if currentBuildCount == previousInitialBuildCount {
+                stableInitialPasses += 1
+            } else {
+                previousInitialBuildCount = currentBuildCount
+                stableInitialPasses = 0
+            }
         }
         #expect(
-            harness.counter.workspaceSnapshotBuilds >= initialObservationBuildFloor,
-            "Initial keyed workspace publisher values did not reach the snapshot owner."
+            harness.counter.workspaceSnapshotBuilds >= Self.workspaceCount,
+            "Initial workspace values did not reach the snapshot owner."
+        )
+        #expect(
+            stableInitialPasses == 4,
+            "Initial workspace publishers did not quiesce before the batch measurement."
         )
 
         harness.counter.reset()

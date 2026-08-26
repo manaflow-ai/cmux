@@ -37,6 +37,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
             .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open When Closing Last Surface", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
             .init(section: .app, id: "focus-pane-first-click", title: "Focus Pane on First Click", synonyms: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
+            .init(
+                section: .app,
+                id: "focus-history-scope",
+                title: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
+                synonyms: "app.focusHistoryIncludesPanesAndTabs focus history back forward panes tabs workspaces only navigation"
+            ),
             .init(section: .app, id: "file-drops", title: "File Drops", synonyms: "drag drop files finder path text terminal editor split preview shift"),
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
@@ -95,6 +101,26 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 
             // Terminal
+            .init(
+                section: .terminal,
+                id: "adaptive-default-theme",
+                title: String(localized: "settings.terminal.adaptiveDefaultTheme", defaultValue: "Adapt Default Theme to Appearance"),
+                detailText: [
+                    String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
+                        defaultValue: "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+                    ),
+                    String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",
+                        defaultValue: "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
+                    ),
+                ].joined(separator: " "),
+                paths: ["terminal.adaptiveDefaultTheme"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.adaptive-default-theme",
+                    defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"
+                )
+            ),
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
             .init(
                 section: .terminal,
@@ -197,10 +223,71 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile
-            .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
+            .init(
+                section: .mobile,
+                id: "pairDevice",
+                title: String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+                synonyms: """
+                pair pairing add device qr qr code scan iphone ipad ios mobile \
+                tailscale connect onboarding sign in
+                """
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-forwarding",
+                title: String(
+                    localized: "settings.mobile.phonePush.forwarding",
+                    defaultValue: "Forward Notifications to iPhone"
+                ),
+                detailText: [
+                    String(
+                        localized: "settings.mobile.phonePush.forwarding.subtitleOn",
+                        defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+                    ),
+                    String(
+                        localized: "settings.mobile.phonePush.forwarding.subtitleOff",
+                        defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
+                    ),
+                ].joined(separator: " "),
+                synonyms: "push notifications iphone ipad mobile forwarding agent alerts forwardNotificationsToPhone"
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-mode",
+                title: String(
+                    localized: "settings.mobile.phonePush.mode",
+                    defaultValue: "When to Send"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.phonePush.mode.subtitle",
+                    defaultValue: "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+                ),
+                synonyms: "push notification forwarding always only when away locked asleep idle forwardNotificationsToPhoneMode"
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-hide-content",
+                title: String(
+                    localized: "settings.mobile.phonePush.hideContent",
+                    defaultValue: "Hide Notification Content"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.phonePush.hideContent.subtitle",
+                    defaultValue: "Sends a generic message instead of agent and terminal text."
+                ),
+                synonyms: "push notification privacy hide content generic message terminal text forwardNotificationsHideContent"
+            ),
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
+            .init(
+                section: .mobile,
+                id: "artifactFolderAccess",
+                title: String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
+                detailText: String(localized: "settings.mobile.artifactFolderAccess.subtitleSubtree", defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."),
+                paths: ["mobile.artifactFolderAccess"],
+                synonyms: "ios iphone ipad mobile files folders directory subtree one level authorization security"
+            ),
 
             // Custom Sidebars
             .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),
@@ -209,6 +296,17 @@ extension Array where Element == CuratedSettingEntry {
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
+            .init(
+                section: .betaFeatures,
+                id: "cloudMachines",
+                title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.cloudMachines.subtitleOn", defaultValue: "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries."),
+                    String(localized: "settings.betaFeatures.cloudMachines.subtitleOff", defaultValue: "Hides every Cloud Machines surface unless remote rollout enables it."),
+                ].joined(separator: " "),
+                paths: ["cloud.beta.machines.enabled"],
+                synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
+            ),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
@@ -278,6 +376,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
             .init(section: .browser, id: "external-patterns", title: "URLs to Always Open Externally", synonyms: "browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser"),
             .init(section: .browser, id: "http-allowlist", title: "HTTP Hosts Allowed in Embedded Browser", synonyms: "browser.insecureHttpHostsAllowedInEmbeddedBrowser insecure http allowlist localhost localtest non-https warning"),
+            .init(
+                section: .browser,
+                id: "url-allowlist",
+                title: String(localized: "settings.browser.urlAllowlist", defaultValue: "Embedded Browser URL Allowlist"),
+                synonyms: String(localized: "settings.search.alias.setting.browser.url-allowlist", defaultValue: "browser.urlAllowlist URL allowlist localhost wildcard scheme port organization policy")
+            ),
             .init(section: .browser, id: "react-grab", title: "React Grab Version", synonyms: "browser.reactGrabVersion react grab npm version toolbar cmd-shift-g inspect component"),
             .init(section: .browser, id: "history", title: "Browsing History", synonyms: "browsing history clear visited pages omnibar suggestions delete"),
 
@@ -307,6 +411,14 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
+            .init(
+                section: .workspaceColors,
+                id: "pane-flash-color",
+                title: String(localized: "settings.workspaceColors.paneFlashColor", defaultValue: "Pane Flash"),
+                detailText: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
+                paths: ["notifications.paneFlashColor"],
+                synonyms: "notifications.paneFlashColor attention ring pane flash color unread needs input"
+            ),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json

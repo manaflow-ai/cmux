@@ -48,6 +48,43 @@ extension Workspace {
         applyAutomaticTitle(title)
     }
 
+    /// Restores the workspace title after panel metadata has been rebuilt.
+    ///
+    /// The snapshot process title remains the compatibility fallback, but a
+    /// successfully restored focused panel is the authoritative source for a
+    /// local workspace's automatic title. This prevents a restored terminal's
+    /// startup command from replacing friendlier panel metadata persisted in
+    /// the same snapshot.
+    func restoreTitleState(
+        from snapshot: SessionWorkspaceSnapshot,
+        restoredPanelIds: [UUID: UUID]
+    ) {
+        applyProcessTitle(snapshot.processTitle)
+        if let persistedPanelId = snapshot.focusedPanelId,
+           let restoredPanelId = restoredPanelIds[persistedPanelId] {
+            applyFocusedPanelTitle(panelId: restoredPanelId, requiresFocus: false)
+        }
+        setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
+    }
+
+    /// Reconciles a local workspace's automatic title with the resolved title
+    /// of its focused panel. Resolved panel titles include intentional surface
+    /// names, so later raw OSC title events cannot replace a friendly surface
+    /// name with the serialized command that launched a resumed agent.
+    @discardableResult
+    func applyFocusedPanelTitle(panelId: UUID, requiresFocus: Bool = true) -> Bool {
+        guard !isRemoteTmuxMirror,
+              !requiresFocus || focusedPanelId == panelId,
+              let resolvedTitle = panelTitle(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !resolvedTitle.isEmpty else {
+            return false
+        }
+        let previousProcessTitle = processTitle
+        let previousTitle = title
+        applyProcessTitle(resolvedTitle)
+        return processTitle != previousProcessTitle || title != previousTitle
+    }
+
     /// The single write path for automatic (non-user) workspace titles.
     /// Every mutation of `title` that does not come from a custom-title edit
     /// must go through here: the sidebar's settled observation stream only
@@ -64,6 +101,9 @@ extension Workspace {
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
+        guard shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
+            return false
+        }
         var didMutate = false
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
@@ -91,15 +131,10 @@ extension Workspace {
             }
         }
 
-        if !isRemoteTmuxMirror, panels.count == 1, customTitle == nil {
-            if self.title != trimmed {
-                applyAutomaticTitle(trimmed)
-                didMutate = true
-                didMutateWorkspaceTitle = true
-            }
-            if processTitle != trimmed {
-                processTitle = trimmed
-            }
+        let previousWorkspaceTitle = self.title
+        if applyFocusedPanelTitle(panelId: panelId) {
+            didMutate = true
+            didMutateWorkspaceTitle = self.title != previousWorkspaceTitle
         }
 
 #if DEBUG
@@ -148,6 +183,12 @@ extension Workspace {
             customTitleSource = source
             self.title = trimmed
         }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.customTitle.write workspace=\(id.uuidString.prefix(8)) " +
+            "source=\(source) title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 40))\""
+        )
+#endif
         return true
     }
 
@@ -170,6 +211,8 @@ extension Workspace {
             "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
         )
 #endif
+        guard customDescription != normalizedDescription else { return }
+        bumpCustomDescriptionRevision()
         customDescription = normalizedDescription
     }
 }

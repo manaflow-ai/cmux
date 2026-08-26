@@ -4,7 +4,7 @@ import Foundation
 import CmuxSettings
 
 /// The workspace-group-domain witnesses for the stage-3c
-/// ``ControlCommandCoordinator``: the byte-faithful bodies of the former
+/// ``ControlCommandCoordinator``: app-model witnesses for the former
 /// `v2WorkspaceGroup*` dispatchers, minus the per-read `v2MainSync` hop (the
 /// coordinator already runs on the main actor inside the socket-command policy
 /// scope, so each hop would re-apply the identical thread-local focus-allowance
@@ -25,6 +25,14 @@ extension TerminalController: ControlWorkspaceGroupContext {
             invalidReferenceWorkspace: String(
                 localized: "workspaceGroup.error.invalidReferenceWorkspace",
                 defaultValue: "Reference workspace must be a member of the target group"
+            ),
+            closeWorkspacesMustBeBoolean: String(
+                localized: "workspaceGroup.error.closeWorkspacesMustBeBoolean",
+                defaultValue: "close_workspaces must be a boolean"
+            ),
+            emptyPinnedCannotUngroup: String(
+                localized: "workspaceGroup.error.emptyPinnedCannotUngroup",
+                defaultValue: "A pinned empty group can only be removed with Delete Group"
             )
         )
     }
@@ -42,7 +50,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
             name: group.name,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
-            anchorWorkspaceID: group.anchorWorkspaceId,
+            anchorWorkspaceID: group.liveAnchorWorkspaceId,
             customColor: group.customColor,
             iconSymbol: group.iconSymbol,
             memberWorkspaceIDs: memberIds
@@ -66,58 +74,28 @@ extension TerminalController: ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID],
-        childrenExplicit: Bool
+        childWorkspaceIDs: [UUID]
     ) -> ControlWorkspaceGroupCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
-        }
-
-        // Default behavior when children were absent: group the active sidebar
-        // selection, or fall back to the caller workspace_id, or the focused
-        // workspace. (An explicit empty array still creates an anchor-only group.)
-        let parsedChildIds: [UUID]
-        if childrenExplicit {
-            parsedChildIds = childWorkspaceIDs
-        } else {
-            let selected = tabManager.sidebarSelectedWorkspaceIds
-            if !selected.isEmpty {
-                parsedChildIds = tabManager.tabs.compactMap { selected.contains($0.id) ? $0.id : nil }
-            } else if let callerId = routing.workspaceID,
-                      tabManager.tabs.contains(where: { $0.id == callerId }) {
-                parsedChildIds = [callerId]
-            } else if let selectedId = tabManager.selectedTabId {
-                parsedChildIds = [selectedId]
-            } else {
-                parsedChildIds = []
-            }
         }
 
         // A syntactically valid UUID can still reference a workspace that doesn't
         // exist in this TabManager. Surface those instead of silently dropping
         // them into an anchor-only group.
         let knownTabIds = Set(tabManager.tabs.map(\.id))
-        let missing: [String] = parsedChildIds.compactMap { id in
+        let missing: [String] = childWorkspaceIDs.compactMap { id in
             knownTabIds.contains(id) ? nil : id.uuidString
         }
         if !missing.isEmpty {
             return .childWorkspaceNotFound(missing)
         }
-        let childIds = parsedChildIds
-
-        // When the caller explicitly listed children, refuse to create an
-        // anchor-only group if every one of them was already an anchor of
-        // another group.
-        if childrenExplicit, !parsedChildIds.isEmpty {
-            let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
-            let ineligible: [String] = parsedChildIds.compactMap { id -> String? in
-                guard tabManager.tabs.contains(where: { $0.id == id }) else { return nil }
-                if existingAnchorIds.contains(id) {
-                    return id.uuidString
-                }
-                return nil
+        if !childWorkspaceIDs.isEmpty {
+            let existingAnchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
+            let ineligible: [String] = childWorkspaceIDs.compactMap { id in
+                existingAnchorIds.contains(id) ? id.uuidString : nil
             }
-            if ineligible.count == parsedChildIds.count {
+            if ineligible.count == childWorkspaceIDs.count {
                 return .allChildrenAreAnchors(ineligible)
             }
         }
@@ -126,7 +104,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         // user's active workspace.
         let createdGroupId = tabManager.createWorkspaceGroup(
             name: name,
-            childWorkspaceIds: childIds,
+            childWorkspaceIds: childWorkspaceIDs,
             anchorWorkingDirectory: cwd,
             selectAnchor: false,
             collapseSidebarSelection: false
@@ -141,13 +119,13 @@ extension TerminalController: ControlWorkspaceGroupContext {
     func controlUngroupWorkspaceGroup(
         routing: ControlRoutingSelectors,
         groupID: UUID
-    ) -> Bool? {
+    ) -> Int? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }
-        let found = tabManager.workspaceGroups.contains(where: { $0.id == groupID })
-        if found {
-            tabManager.ungroupWorkspaceGroup(groupId: groupID)
-        }
-        return found
+        guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else { return -1 }
+        if group.isPinned && group.isEmpty { return -2 }
+        let keptCount = tabManager.tabs.lazy.filter { $0.groupId == groupID }.count
+        tabManager.ungroupWorkspaceGroup(groupId: groupID)
+        return keptCount
     }
 
     func controlDeleteWorkspaceGroup(
@@ -221,7 +199,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         if tab.groupId == groupID {
             return .added
         }
-        if tabManager.workspaceGroups.contains(where: { $0.id != groupID && $0.anchorWorkspaceId == workspaceID }) {
+        if tabManager.workspaceGroups.contains(where: { $0.id != groupID && $0.liveAnchorWorkspaceId == workspaceID }) {
             return .workspaceIsOtherGroupAnchor
         }
         return .notFound
@@ -273,7 +251,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
             return .notFound
         }
-        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let anchorCwd = group.liveAnchorWorkspaceId
+            .flatMap { anchorId in
+                tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
+            }
         let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         let placement = explicitPlacement
@@ -357,7 +338,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .tabManagerUnavailable
         }
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }),
-              let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
+              let anchorId = group.liveAnchorWorkspaceId,
+              let anchor = tabManager.tabs.first(where: { $0.id == anchorId }) else {
             return .notFound
         }
         if let windowId = AppDelegate.shared?.windowId(for: tabManager) {

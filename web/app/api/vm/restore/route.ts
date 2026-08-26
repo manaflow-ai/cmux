@@ -3,6 +3,7 @@ import { defaultProviderId, type ProviderId } from "../../../../services/vms/dri
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  vmActiveLimitExceededResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmRequiresProResponse,
@@ -22,8 +23,8 @@ import {
 } from "../../../../services/vms/entitlements";
 import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -62,7 +63,12 @@ export async function POST(request: Request): Promise<Response> {
       let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        const refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
+        let refreshedUser: AuthedUser | null;
+        try {
+          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
+        } catch (error) {
+          return authProviderErrorResponse(error, "/api/vm.restore.team-auth");
+        }
         if (!refreshedUser) return unauthorized();
         user = refreshedUser;
       }
@@ -106,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
           createdAt: restored.createdAt,
         });
       } catch (err) {
-        const response = createLikeErrorResponse(err);
+        const response = createLikeErrorResponse(err, entitlements.planId);
         if (response) return response;
         throw err;
       }
@@ -157,7 +163,7 @@ type ProviderFieldResult = { ok: true; provider?: ProviderId } | { ok: false; re
 function providerField(body: Record<string, unknown>): ProviderFieldResult {
   const value = stringField(body, "provider");
   if (!value) return { ok: true };
-  if (value === "e2b" || value === "freestyle" || value === "daytona") return { ok: true, provider: value };
+  if (value === "e2b" || value === "freestyle" || value === "daytona" || value === "blaxel") return { ok: true, provider: value };
   return {
     ok: false,
     response: vmErrorResponse({
@@ -175,7 +181,7 @@ function idempotencyKeyFromRequest(request: Request): string | undefined {
   return raw ? raw.slice(0, 128) : undefined;
 }
 
-function createLikeErrorResponse(err: unknown): Response | null {
+function createLikeErrorResponse(err: unknown, planId: string): Response | null {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -195,13 +201,10 @@ function createLikeErrorResponse(err: unknown): Response | null {
     });
   }
   if (isVmLimitExceededError(err)) {
-    return vmErrorResponse({
-      error: "vm_active_limit_exceeded",
-      status: 402,
-      message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
-      action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
-      extra: { limit: err.limit },
-      details: { limit: err.limit },
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId,
+      retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
     });
   }
   if (isVmSnapshotNotFoundError(err)) {

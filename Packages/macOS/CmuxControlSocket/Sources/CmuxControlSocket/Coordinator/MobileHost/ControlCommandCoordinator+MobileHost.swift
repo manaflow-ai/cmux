@@ -25,6 +25,26 @@ internal import Foundation
 /// coordinator (native `ControlCallResult`) would only add a pointless type
 /// round-trip.
 extension ControlCommandCoordinator {
+    /// Dispatches asynchronous mobile-host worker methods.
+    ///
+    /// - Parameters:
+    ///   - request: The decoded request envelope.
+    ///   - context: Live app seam passed explicitly from the worker lane.
+    /// - Returns: The command result, or `nil` for other methods.
+    public nonisolated func handleMobileHostAsync(
+        _ request: ControlRequest,
+        context: (any ControlMobileHostContext)?
+    ) async -> ControlCallResult? {
+        switch request.method {
+        case "mobile.task.models.list":
+            return await context?.controlMobileTaskModelsList(
+                params: request.params
+            )
+        default:
+            return nil
+        }
+    }
+
     /// Dispatches the mobile-host methods the v2 control socket
     /// (`processV2Command`) routes here; returns `nil` for anything else so the
     /// core `handle(_:)` can fall through to the legacy app-side dispatcher.
@@ -51,6 +71,8 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalMouse(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
             return context?.controlMobileTerminalPaste(params: request.params)
+        case "mobile.task.attachment.upload":
+            return context?.controlMobileTaskAttachmentUpload(params: request.params)
         case "chat.sessions.dump":
             return context?.controlMobileChatSessionsDump()
         case "hive.open":

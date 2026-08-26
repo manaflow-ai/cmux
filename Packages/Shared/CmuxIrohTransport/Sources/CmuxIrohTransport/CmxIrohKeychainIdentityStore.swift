@@ -2,18 +2,44 @@ public import Foundation
 import Security
 
 /// Device-only Keychain storage for Iroh EndpointID secret material.
-public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @unchecked Sendable {
+public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     private let service: String
+    private let accessGroup: String?
+    private let legacyService: String?
 
     /// Creates a Keychain store isolated by service name.
     ///
-    /// - Parameter service: The generic-password service identifier.
-    public init(service: String = "com.cmuxterm.iroh.endpoint-identity.v1") {
+    /// - Parameters:
+    ///   - service: The bundle-scoped generic-password service identifier.
+    ///   - accessGroup: The app's exact signed Keychain access group.
+    ///   - legacyService: An older service whose item may be adopted only from
+    ///     the same exact access group.
+    public init(
+        service: String = "com.cmuxterm.iroh.endpoint-identity.v1",
+        accessGroup: String? = nil,
+        legacyService: String? = nil
+    ) {
         self.service = service
+        self.accessGroup = accessGroup
+        self.legacyService = legacyService == service ? nil : legacyService
     }
 
-    public func read(account: String) throws -> Data? {
-        var query = baseQuery(account: account)
+    /// Loads one identity, adopting its same-access-group legacy record when needed.
+    public func read(account: String) async throws -> Data? {
+        if let current = try read(service: service, account: account) {
+            return current
+        }
+        guard let legacyService,
+              let legacy = try read(service: legacyService, account: account) else {
+            return nil
+        }
+        try writeStored(legacy, account: account)
+        try delete(query: baseQuery(service: legacyService, account: account))
+        return legacy
+    }
+
+    private func read(service: String, account: String) throws -> Data? {
+        var query = baseQuery(service: service, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -27,8 +53,13 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         return data
     }
 
-    public func write(_ data: Data, account: String) throws {
-        let query = baseQuery(account: account)
+    /// Replaces one identity in the bundle-scoped Keychain service.
+    public func write(_ data: Data, account: String) async throws {
+        try writeStored(data, account: account)
+    }
+
+    private func writeStored(_ data: Data, account: String) throws {
+        let query = baseQuery(service: service, account: account)
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
@@ -48,12 +79,20 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         }
     }
 
-    public func delete(account: String) throws {
-        try delete(query: baseQuery(account: account))
+    /// Removes one identity from the current and eligible legacy services.
+    public func delete(account: String) async throws {
+        try delete(query: baseQuery(service: service, account: account))
+        if let legacyService {
+            try delete(query: baseQuery(service: legacyService, account: account))
+        }
     }
 
-    public func deleteAll() throws {
-        try delete(query: baseQuery())
+    /// Removes every identity from the current and eligible legacy services.
+    public func deleteAll() async throws {
+        try delete(query: baseQuery(service: service))
+        if let legacyService {
+            try delete(query: baseQuery(service: legacyService))
+        }
     }
 
     /// Generates one Ed25519 secret using Security.framework.
@@ -69,7 +108,10 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         return data
     }
 
-    private func baseQuery(account: String? = nil) -> [String: Any] {
+    private func baseQuery(
+        service: String,
+        account: String? = nil
+    ) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -78,6 +120,9 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         ]
         if let account {
             query[kSecAttrAccount as String] = account
+        }
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
         }
         return query
     }

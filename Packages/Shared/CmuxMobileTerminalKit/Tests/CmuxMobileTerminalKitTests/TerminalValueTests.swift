@@ -2,48 +2,48 @@ import Foundation
 import Testing
 @testable import CmuxMobileTerminalKit
 
-@Suite("TerminalCursorBlinkState")
-struct TerminalCursorBlinkStateTests {
-    @Test("starts visible and does not toggle before the interval")
-    func startsVisible() {
-        var state = TerminalCursorBlinkState()
+@Suite("TerminalCursorRenderWakeState")
+struct TerminalCursorRenderWakeStateTests {
+    @Test("does not wake before the interval")
+    func waitsForInterval() {
+        var state = TerminalCursorRenderWakeState()
         state.start(now: 0)
-        #expect(state.isVisible)
-        let changed = state.advance(now: 0.49)
-        #expect(changed == false)
-        #expect(state.isVisible)
+        #expect(state.consumeWakeIfDue(now: 0.49) == false)
     }
 
-    @Test("toggles once per elapsed half-period")
-    func togglesPerInterval() {
-        var state = TerminalCursorBlinkState()
+    @Test("wakes at each interval")
+    func wakesPerInterval() {
+        var state = TerminalCursorRenderWakeState()
         state.start(now: 0)
-        let first = state.advance(now: 0.5)
+        let first = state.consumeWakeIfDue(now: 0.5)
+        let early = state.consumeWakeIfDue(now: 0.99)
+        let second = state.consumeWakeIfDue(now: 1.0)
         #expect(first)
-        #expect(!state.isVisible)
-        let second = state.advance(now: 1.0)
+        #expect(early == false)
         #expect(second)
-        #expect(state.isVisible)
     }
 
-    @Test("a large gap of an even number of intervals leaves visibility unchanged")
-    func evenIntervalsUnchanged() {
-        var state = TerminalCursorBlinkState()
+    @Test("a large gap coalesces to one wake and preserves cadence")
+    func coalescesLargeGap() {
+        var state = TerminalCursorRenderWakeState()
         state.start(now: 0)
-        // 1.0s = 2 intervals -> even -> visibility unchanged, but still reports a change.
-        let changed = state.advance(now: 1.0)
-        #expect(changed)
-        #expect(state.isVisible)
+        let coalesced = state.consumeWakeIfDue(now: 2.1)
+        let early = state.consumeWakeIfDue(now: 2.49)
+        let next = state.consumeWakeIfDue(now: 2.5)
+        #expect(coalesced)
+        #expect(early == false)
+        #expect(next)
     }
 
-    @Test("reset returns to visible")
-    func resetVisible() {
-        var state = TerminalCursorBlinkState()
+    @Test("reset restarts the wake deadline")
+    func resetDeadline() {
+        var state = TerminalCursorRenderWakeState()
         state.start(now: 0)
-        _ = state.advance(now: 0.5) // now hidden
-        #expect(!state.isVisible)
-        state.reset(now: 0.5)
-        #expect(state.isVisible)
+        state.reset(now: 0.4)
+        let oldDeadline = state.consumeWakeIfDue(now: 0.5)
+        let resetDeadline = state.consumeWakeIfDue(now: 0.9)
+        #expect(oldDeadline == false)
+        #expect(resetDeadline)
     }
 }
 
@@ -77,34 +77,5 @@ struct TerminalFontZoomDirectionTests {
     func bindingAction() {
         #expect(TerminalFontZoomDirection.increase.bindingAction == "increase_font_size:1")
         #expect(TerminalFontZoomDirection.decrease.bindingAction == "decrease_font_size:1")
-    }
-}
-
-@Suite("TerminalDECTCEMCursorScanner")
-struct TerminalDECTCEMCursorScannerTests {
-    @Test("detects hide sequence")
-    func hide() {
-        let data = Data([0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x6C]) // ESC [ ? 2 5 l
-        #expect(TerminalDECTCEMCursorScanner.lastVisibility(in: data) == false)
-    }
-
-    @Test("detects show sequence")
-    func show() {
-        let data = Data([0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x68]) // ESC [ ? 2 5 h
-        #expect(TerminalDECTCEMCursorScanner.lastVisibility(in: data) == true)
-    }
-
-    @Test("last occurrence wins when the chunk toggles")
-    func lastWins() {
-        var data = Data([0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x6C]) // hide
-        data.append(contentsOf: [0x41, 0x42]) // some text
-        data.append(contentsOf: [0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x68]) // show
-        #expect(TerminalDECTCEMCursorScanner.lastVisibility(in: data) == true)
-    }
-
-    @Test("no DECTCEM in chunk returns nil")
-    func none() {
-        #expect(TerminalDECTCEMCursorScanner.lastVisibility(in: Data("hello world".utf8)) == nil)
-        #expect(TerminalDECTCEMCursorScanner.lastVisibility(in: Data([0x1B, 0x5B])) == nil)
     }
 }

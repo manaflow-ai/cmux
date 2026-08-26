@@ -1,372 +1,375 @@
 {
-  "defaults": { "timeout_ms": 5000 },
-  "fixtures": [
+  "contract_version": 2,
+  "protocol": "cmux.protocol/2",
+  "constants": {
+    "machine": "machine_11111111111111111111111111111111",
+    "session": "session_22222222222222222222222222222222",
+    "workspace": "ws_33333333333333333333333333333333",
+    "candidate_a": "ws_44444444444444444444444444444444",
+    "candidate_b": "ws_55555555555555555555555555555555",
+    "screen": "screen_66666666666666666666666666666666",
+    "pane": "pane_77777777777777777777777777777777",
+    "tab": "tab_88888888888888888888888888888888",
+    "terminal": "term_99999999999999999999999999999999",
+    "browser": "browser_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": "generation-conformance",
+    "revision": "18446744073709551615",
+    "exit_revision": "18446744073709551614",
+    "exited_at": "18446744073709551613",
+    "idempotency_key": "conformance-idempotency-key",
+    "correlation_key": "conformance-correlation-key",
+    "name": "api β"
+  },
+  "fake_cases": [
     {
-      "name": "identify",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 7 } },
-          "match": "partial"
-        }
-      ]
-    },
-    {
-      "name": "server-client-control",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 7 } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "set-window-title", "title": "cmux-conformance" },
-          "expect": { "id": 2, "ok": true, "data": {} },
-          "match": "exact"
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "clear-window-title" },
-          "expect": { "id": 3, "ok": true, "data": {} },
-          "match": "exact"
-        }
-      ]
-    },
-    {
-      "name": "workspace-tab-split-rename",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-tree", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": {
-            "workspace0": "data.workspaces[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id"
+      "name": "read-envelope-and-decimal",
+      "adapter": {"op": "read"},
+      "server": {"behavior": "read"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "alive": true,
+          "cursor": {
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615"
           }
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "new-tab", "pane": "$pane0" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial",
-          "bind": { "surface1": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "split", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial",
-          "bind": { "surface2": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "rename-surface", "surface": "$surface1", "name": "renamed-tab" },
-          "expect": { "id": 5, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 6, "cmd": "list-workspaces" },
-          "expect": { "id": 6, "ok": true },
-          "match": "partial"
         }
-      ]
+      }
     },
     {
-      "name": "move-tab-same-position",
-      "requires": { "commands": ["move-tab"] },
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-move-tab", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": { "pane0": "data.workspaces[1].screens[0].panes[0].id" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "move-tab", "surface": "$surface0", "pane": "$pane0", "index": 0 },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
+      "name": "mutation-idempotent-replay",
+      "adapter": {"op": "mutation-replay"},
+      "server": {"behavior": "mutation-replay"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "first": {
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "name": "api β",
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615",
+            "replayed": false
+          },
+          "second": {
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "name": "api β",
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615",
+            "replayed": true
+          }
         }
-      ]
+      }
     },
     {
-      "name": "window-manager-layout-ops",
-      "requires": { "commands": ["export-layout", "pane-neighbor", "zoom-pane"] },
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-wm", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "list-workspaces" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial",
-          "bind": { "pane0": "data.workspaces[2].screens[0].panes[0].id" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "split", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "list-workspaces" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial",
-          "bind": { "pane1": "data.workspaces[2].screens[0].panes[1].id" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "export-layout" },
-          "expect": {
-            "id": 5,
-            "ok": true,
-            "data": {
-              "layout": { "type": "split", "dir": "right", "ratio": 0.5 },
-              "panes": [{ "pane": "$pane0" }, { "pane": "$pane1" }]
+      "name": "mutation-indeterminate-is-one-request",
+      "adapter": {"op": "mutation-error", "error_code": "mutation.indeterminate"},
+      "server": {"behavior": "mutation-indeterminate"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "mutation.indeterminate",
+          "message": "external effect outcome is unknown",
+          "details": {
+            "idempotency_key": "conformance-idempotency-key",
+            "operation": "workspace.rename",
+            "recovery": "inspect_state_then_retry_with_new_key"
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "revision-conflict-is-structured",
+      "adapter": {"op": "mutation-error", "error_code": "revision.conflict"},
+      "server": {"behavior": "revision-conflict"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "revision.conflict",
+          "message": "expected revision is stale",
+          "details": {
+            "expected": "18446744073709551615",
+            "actual": "42"
+          },
+          "retryable": true
+        }
+      }
+    },
+    {
+      "name": "duplicate-name-ambiguity-preserves-all-candidates",
+      "adapter": {"op": "mutation-error", "error_code": "selector.ambiguous"},
+      "server": {"behavior": "selector-ambiguous"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "selector.ambiguous",
+          "message": "more than one workspace is named api",
+          "details": {
+            "candidates": [
+              "ws_44444444444444444444444444444444",
+              "ws_55555555555555555555555555555555"
+            ]
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "typed-stream-preserves-unknown-and-decimals",
+      "adapter": {"op": "stream-unknown"},
+      "server": {"behavior": "stream-unknown"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "sequence": "18446744073709551615",
+          "cursor": {
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615"
+          },
+          "kind": "future.session.widget",
+          "raw": {
+            "kind": "future.session.widget",
+            "payload": {
+              "label": "kept",
+              "revision": "18446744073709551615"
             }
           },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 6, "cmd": "pane-neighbor", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 6, "ok": true, "data": { "pane": "$pane1" } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 7, "cmd": "zoom-pane", "pane": "$pane1", "mode": "toggle" },
-          "expect": { "id": 7, "ok": true, "data": { "pane": "$pane1", "zoomed": true, "zoomed_pane": "$pane1" } },
-          "match": "partial"
+          "end": "completed"
         }
-      ]
+      }
     },
     {
-      "name": "subscribe-tree-changed",
-      "steps": [
-        {
-          "type": "stream",
-          "name": "events",
-          "request": { "id": 1, "cmd": "subscribe" },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "new-workspace", "name": "conf-events", "cols": 80, "rows": 24 },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "expect_events",
-          "stream": "events",
-          "expect": [
-            { "event": "tree-changed" }
-          ]
+      "name": "cancel-purges-queued-items-and-orders-end-before-response",
+      "adapter": {"op": "stream-cancel"},
+      "server": {"behavior": "stream-cancel"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "end": "canceled",
+          "items_after_cancel": 0,
+          "cancel_calls": 2
         }
-      ]
+      }
     },
     {
-      "name": "subscribe-title-changed-carries-title",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-title", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "stream",
-          "name": "events",
-          "request": { "id": 2, "cmd": "subscribe" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "send", "surface": "$surface0", "text": "printf '\\033]2;conformance title\\007'; sleep 30\r" },
-          "expect": { "id": 3, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "expect_events",
-          "stream": "events",
-          "expect": [
-            { "event": "title-changed", "surface": "$surface0", "title": "conformance title" }
-          ]
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "send", "surface": "$surface0", "text": "\u0003" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial"
+      "name": "message-overflow-is-stream-local",
+      "adapter": {"op": "stream-overflow", "dimension": "messages"},
+      "server": {"behavior": "stream-overflow-messages"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "first_end": "gap",
+          "second_kind": "future.after-overflow",
+          "control_alive": true
         }
-      ]
+      }
     },
     {
-      "name": "attach-resize-carries-replay",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-attach-resize", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "stream",
-          "name": "attach",
-          "request": { "cmd": "attach-surface", "surface": "$surface0" },
-          "expect": { "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "resize-surface", "surface": "$surface0", "cols": 100, "rows": 31 },
-          "expect": { "id": 2, "ok": true, "data": { "accepted": true } },
-          "match": "partial"
-        },
-        {
-          "type": "expect_events",
-          "stream": "attach",
-          "expect": [
-            {
-              "event": "resized",
-              "surface": "$surface0",
-              "cols": 100,
-              "rows": 31,
-              "replay": { "__match__": "nonempty-string" }
-            }
-          ]
+      "name": "byte-overflow-is-stream-local",
+      "adapter": {"op": "stream-overflow", "dimension": "bytes"},
+      "server": {"behavior": "stream-overflow-bytes"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "first_end": "gap",
+          "second_kind": "future.after-overflow",
+          "control_alive": true
         }
-      ]
+      }
     },
     {
-      "name": "send-read-screen-round-trip",
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-io", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "command",
-          "request": { "id": 2, "cmd": "send", "surface": "$surface0", "text": "printf 'cmux-conformance-marker\\n'\r" },
-          "expect": { "id": 2, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "wait_contains",
-          "request": { "id": 3, "cmd": "read-screen", "surface": "$surface0" },
-          "path": "data.text",
-          "contains": "cmux-conformance-marker",
-          "timeout_ms": 10000
+      "name": "creation-resolve-created-workspace-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-workspace"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "workspace.create",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "workspace",
+            "workspace_id": "ws_33333333333333333333333333333333"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
         }
-      ]
+      }
     },
     {
-      "name": "overflow-event-schema",
-      "steps": [
-        {
-          "type": "parse_event",
-          "event": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
-          "expect": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
-          "match": "partial"
+      "name": "creation-resolve-created-terminal-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-terminal"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "workspace.run",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "terminal",
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "screen_id": "screen_66666666666666666666666666666666",
+            "pane_id": "pane_77777777777777777777777777777777",
+            "tab_id": "tab_88888888888888888888888888888888",
+            "terminal_id": "term_99999999999999999999999999999999"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
         }
-      ]
+      }
     },
     {
-      "name": "implemented-verbs-json",
-      "requires": {
-        "commands": ["run", "wait-for", "send-key", "copy", "ids", "notify", "list-agents", "report-agent"]
-      },
-      "steps": [
-        {
-          "type": "command",
-          "request": { "id": 1, "cmd": "run", "command": "printf 'cmux-run-marker\\n'; cat", "name": "conf-run", "cols": 80, "rows": 24 },
-          "expect": { "id": 1, "ok": true },
-          "match": "partial",
-          "bind": { "surface0": "data.surface" }
-        },
-        {
-          "type": "wait_contains",
-          "request": { "id": 2, "cmd": "copy", "surface": "$surface0", "mode": "screen" },
-          "path": "data.text",
-          "contains": "cmux-run-marker",
-          "timeout_ms": 10000
-        },
-        {
-          "type": "command",
-          "request": { "id": 3, "cmd": "wait-for", "surface": "$surface0", "pattern": "cmux-run-marker", "timeout_ms": 5000 },
-          "expect": { "id": 3, "ok": true, "data": { "matched": true } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 4, "cmd": "ids", "kind": "surface" },
-          "expect": { "id": 4, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 5, "cmd": "notify", "title": "Build", "body": "ok", "level": "info", "surface": "$surface0" },
-          "expect": { "id": 5, "ok": true },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 6, "cmd": "report-agent", "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" },
-          "expect": { "id": 6, "ok": true, "data": { "state": "working", "source": "socket", "session": "conf" } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 7, "cmd": "list-agents", "surface": "$surface0", "state": "working" },
-          "expect": { "id": 7, "ok": true, "data": { "agents": [ { "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" } ] } },
-          "match": "partial"
-        },
-        {
-          "type": "command",
-          "request": { "id": 8, "cmd": "send-key", "surface": "$surface0", "keys": ["h", "i", "enter"] },
-          "expect": { "id": 8, "ok": true, "data": {} },
-          "match": "partial"
-        },
-        {
-          "type": "wait_contains",
-          "request": { "id": 9, "cmd": "copy", "surface": "$surface0", "mode": "scrollback" },
-          "path": "data.text",
-          "contains": "hi",
-          "timeout_ms": 10000
+      "name": "creation-resolve-created-browser-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-browser"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "tab.create_browser",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "browser",
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "screen_id": "screen_66666666666666666666666666666666",
+            "pane_id": "pane_77777777777777777777777777777777",
+            "tab_id": "tab_88888888888888888888888888888888",
+            "browser_id": "browser_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
         }
-      ]
+      }
+    },
+    {
+      "name": "creation-resolve-pending-means-wait",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-pending"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "pending",
+          "recovery": "wait",
+          "operation": "pane.run",
+          "idempotency_key": "conformance-idempotency-key"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-prepared-retries-same-key",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-not-applied-same-key"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "not_applied",
+          "recovery": "retry_same_idempotency_key",
+          "operation": "pane.split",
+          "idempotency_key": "conformance-idempotency-key"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-absent-retries-new-key",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-not-applied-new-key"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "not_applied",
+          "recovery": "retry_new_idempotency_key"
+        }
+      }
+    },
+    {
+      "name": "creation-resolve-indeterminate-forbids-retry",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-indeterminate"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "correlation_key": "conformance-correlation-key",
+          "state": "indeterminate",
+          "recovery": "do_not_retry",
+          "operation": "screen.create",
+          "idempotency_key": "conformance-idempotency-key"
+        }
+      }
+    },
+    {
+      "name": "creation-correlation-conflict-is-structured",
+      "adapter": {"op": "creation-conflict"},
+      "server": {"behavior": "creation-conflict"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "creation.conflict",
+          "message": "correlation key is already bound to different creation semantics",
+          "details": {
+            "correlation_key": "conformance-correlation-key",
+            "existing_operation": "workspace.run",
+            "requested_operation": "workspace.create",
+            "existing_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "requested_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "terminal-wait-exit-timeout-is-pending",
+      "adapter": {"op": "terminal-wait-exit", "timeout_ms": "0"},
+      "server": {"behavior": "terminal-exit-pending"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "state": "pending",
+          "terminal_id": "term_99999999999999999999999999999999",
+          "lifecycle": "running",
+          "revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "terminal-wait-exit-preserves-code-17",
+      "adapter": {"op": "terminal-wait-exit", "timeout_ms": "5000"},
+      "server": {"behavior": "terminal-exit-code"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "state": "exited",
+          "terminal_id": "term_99999999999999999999999999999999",
+          "lifecycle": "exited",
+          "outcome": {
+            "kind": "exit",
+            "code": 17
+          },
+          "exited_at": "18446744073709551613",
+          "revision": "18446744073709551614"
+        }
+      }
+    },
+    {
+      "name": "sensitive-values-redact",
+      "adapter": {"op": "redaction"},
+      "server": null,
+      "expect": {
+        "ok": true,
+        "value": {
+          "specifier_redacted": true,
+          "renderer_token_redacted": true
+        }
+      }
     }
   ]
 }

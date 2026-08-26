@@ -27,6 +27,8 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public var id: ID
     /// The terminal's user-facing display name.
     public var name: String
+    /// The terminal's last reported current directory on its owning Mac.
+    public var currentDirectory: String?
     /// Whether the terminal surface is ready to receive input and render output.
     public var isReady: Bool
     /// Whether the terminal currently holds focus in the shell.
@@ -44,12 +46,14 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public init(
         id: ID,
         name: String,
+        currentDirectory: String? = nil,
         isReady: Bool = true,
         isFocused: Bool = false,
         viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
         self.name = name
+        self.currentDirectory = currentDirectory
         self.isReady = isReady
         self.isFocused = isFocused
         self.viewportFit = viewportFit

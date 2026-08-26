@@ -56,6 +56,12 @@
          location = "group:CmuxMobileTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxSentryTelemetry">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSimulatorStreamKit">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
    </Group>
@@ -75,7 +81,13 @@
          location = "group:CmuxMobileBrowser">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileBrowserStream">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileCamera">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileChanges">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileCrashReporting">
@@ -84,7 +96,13 @@
          location = "group:CmuxMobileShellUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileSimulatorStream">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileTerminal">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileToast">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileWorkspace">
@@ -93,6 +111,9 @@
    <Group
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
+      <FileRef
+         location = "group:CmuxAgentJournal">
+      </FileRef>
       <FileRef
          location = "group:CMUXAgentLaunch">
       </FileRef>
@@ -121,6 +142,9 @@
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
+         location = "group:CmuxDiffComments">
+      </FileRef>
+      <FileRef
          location = "group:CmuxExtensionKit">
       </FileRef>
       <FileRef
@@ -146,6 +170,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxPanes">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
          location = "group:CMUXProjectModel">
@@ -176,6 +203,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSidebarProviderKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
          location = "group:CmuxSwiftRender">

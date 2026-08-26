@@ -98,7 +98,7 @@ enum ProUpgradePresenter {
                orientation: .horizontal,
                url: url,
                focus: true,
-               omnibarVisible: false,
+               chromeVisibility: .hidden,
                transparentBackground: transparentBackground,
                initialDividerPosition: 0.58
            ) != nil {

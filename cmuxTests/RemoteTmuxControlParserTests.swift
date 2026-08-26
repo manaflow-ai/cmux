@@ -147,6 +147,16 @@ import Testing
         #expect(messages == [.sessionChanged(sessionId: 1, name: "my session name")])
     }
 
+    @Test func clientDetachedPreservesClientName() {
+        let messages = parse("%client-detached /dev/pts/22\r\n")
+        #expect(messages == [.clientDetached(client: "/dev/pts/22")])
+    }
+
+    @Test func bareClientDetachedIsUnparsed() {
+        let messages = parse("%client-detached\r\n")
+        #expect(messages == [.unparsed("%client-detached")])
+    }
+
     @Test func sessionRenamedParsesToDistinctMessage() {
         // tmux emits %session-renamed (NOT %session-changed) for `rename-session`;
         // cmux must parse it so a remote rename re-titles the mirror workspace.
@@ -302,24 +312,6 @@ import Testing
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b]) == nil)
         // Requested drops one present tab and only reorders the rest → sets diverge.
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
-    }
-
-    @Test func singlePaneDisplaySeedsOnlySinglePaneWindows() throws {
-        let singlePane = RemoteTmuxWindow(
-            id: 1,
-            width: 80,
-            height: 24,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1"))
-        )
-        let multiPane = RemoteTmuxWindow(
-            id: 2,
-            width: 120,
-            height: 40,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"))
-        )
-
-        #expect(RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: singlePane))
-        #expect(!RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: multiPane))
     }
 
     // MARK: - Reconnect: session-gone classification

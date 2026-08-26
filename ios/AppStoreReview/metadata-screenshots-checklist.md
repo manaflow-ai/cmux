@@ -15,7 +15,13 @@ complete in App Store Connect or in the submitted binary.
 
 - [ ] App Review contact name, email, and phone are filled in ASC.
 - [ ] Demo account credentials are entered only in ASC Review Information, never in git.
-- [ ] `review-notes.md` is pasted into ASC notes and edited with the exact review Mac or manual pairing code for this build.
+- [ ] ASC notes explain the Mailinator one-time-code flow when a Mailinator demo
+      account is used. The exact demo email and public inbox URL live only in
+      ASC.
+- [ ] The canonical pasteable notes block in `reviewer-setup.md` is pasted into
+      ASC notes with every placeholder replaced, keeping the manual pairing
+      fallback section whenever automatic discovery can fail. `review-notes.md`
+      is reference-only and is not pasted into ASC.
 - [ ] Backend services needed by the demo account are live before submission.
 - [ ] Account deletion is available in app or the submission is blocked until the account lifecycle satisfies App Review Guideline 5.1.1(v).
 
@@ -57,7 +63,10 @@ complete in App Store Connect or in the submitted binary.
 - [x] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting.
 - [x] In-app Delete Account deletes the account-linked PostHog person and requests deletion of its events and recordings before deleting the Stack user.
 - [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope and an explicit `POSTHOG_ENVIRONMENT_ID` (or `POSTHOG_PROJECT_ID`) for that key. Destructive deletion has no default project fallback.
-- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working demo credentials, concrete Tailscale access, concrete host, port, and monitored contact. These live values stay out of git.
+- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working
+      demo credentials, concrete Mailinator inbox, automatic review-Mac status,
+      concrete Tailscale fallback when needed, and monitored contact. These live
+      values stay out of git.
 
 ## ASC Validation Commands
 

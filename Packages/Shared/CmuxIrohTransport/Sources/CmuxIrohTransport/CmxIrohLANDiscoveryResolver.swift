@@ -58,11 +58,11 @@ public struct CmxIrohLANDiscoveryResolver: Sendable {
         }
         let candidates = authenticatedBindings.filter { binding in
             binding.platform == .mac
-                && binding.deviceID.lowercased() == expectedMacDeviceID.lowercased()
+                && cmxCanonicalDeviceID(binding.deviceID)
+                    == cmxCanonicalDeviceID(expectedMacDeviceID)
                 && (expectedEndpointID == nil || binding.endpointID == expectedEndpointID)
         }
-        guard !candidates.isEmpty,
-              candidates.count <= CmxIrohDiscoveryResponse.maximumBindingCount else {
+        guard !candidates.isEmpty else {
             throw CmxIrohLANDiscoveryError.ambiguousBinding
         }
         let aliasGenerator = try CmxIrohLANRendezvousAliasGenerator(rendezvous: rendezvous)
@@ -87,12 +87,7 @@ public struct CmxIrohLANDiscoveryResolver: Sendable {
         }
         guard !matchingInterfaces.isEmpty,
               txt.addresses.allSatisfy({ address in
-                  let owningInterfaces = Set(
-                      interfaces.lazy
-                          .filter { $0.contains(address) }
-                          .map(\.interfaceIndex)
-                  )
-                  return owningInterfaces == [service.interfaceIndex]
+                  matchingInterfaces.contains { $0.contains(address) }
               }) else {
             throw CmxIrohLANDiscoveryError.invalidInterface
         }

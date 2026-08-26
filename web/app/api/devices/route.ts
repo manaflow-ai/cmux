@@ -11,6 +11,7 @@
 // when the registry is unreachable, so pairing survives the cloud being down.
 
 import { and, desc, eq, sql } from "drizzle-orm";
+import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceAppInstances, devices } from "../../../db/schema";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -29,9 +30,9 @@ import {
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
 import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
+import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
+import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_DEVICES_PER_TEAM = 200;
@@ -45,6 +46,14 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ALLOWED_PLATFORMS = new Set(["mac", "ios", "linux", "windows"]);
+
+async function enforceDeviceRegistryIngressLimit(request: Request): Promise<Response | null> {
+  return enforceNativeIngressRateLimit({
+    request,
+    route: "devices.registry",
+    ruleId: env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
+  });
+}
 
 type TeamResolution =
   | { ok: true; teamId: string }
@@ -128,10 +137,17 @@ function routesArray(value: unknown): unknown[] {
  * instance row, so a relaunch updates routes in place rather than duplicating.
  */
 export async function POST(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, {
-    requestedTeamId: requestedVmTeamIdFromRequest(request),
-    allowCookie: false,
-  });
+  const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, {
+      requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
+    });
+  } catch (error) {
+    return authProviderErrorResponse(error, "devices.post.auth");
+  }
   if (!user) return unauthorized();
 
   const team = resolveTeam(request, user);
@@ -338,10 +354,17 @@ type DeviceListRow = {
  * find the Mac it last paired with and refresh routes on reload.
  */
 export async function GET(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, {
-    requestedTeamId: requestedVmTeamIdFromRequest(request),
-    allowCookie: false,
-  });
+  const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, {
+      requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
+    });
+  } catch (error) {
+    return authProviderErrorResponse(error, "devices.get.auth");
+  }
   if (!user) return unauthorized();
 
   const team = resolveTeam(request, user);
@@ -410,10 +433,17 @@ export async function GET(request: Request): Promise<Response> {
  * only delete devices in a team they belong to.
  */
 export async function DELETE(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, {
-    requestedTeamId: requestedVmTeamIdFromRequest(request),
-    allowCookie: false,
-  });
+  const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, {
+      requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
+    });
+  } catch (error) {
+    return authProviderErrorResponse(error, "devices.delete.auth");
+  }
   if (!user) return unauthorized();
 
   const team = resolveTeam(request, user);

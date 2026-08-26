@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -7,18 +8,34 @@ import SwiftUI
 enum WorkspaceMacSelection: Hashable {
     case automatic
     case all
+    /// A pairing id for saved app instances, or a bare device id for an
+    /// unpaired workspace-only computer.
     case machine(String)
 }
 
 extension WorkspaceListView {
+    var displayPairedMacsForPicker: [MobilePairedMac] {
+        if let store {
+            return store.displayPairedMacs
+        }
+        #if canImport(UIKit) && DEBUG
+        if UITestConfig.workspaceListLayoutPreviewEnabled {
+            return WorkspaceListLayoutPreviewView.previewPairedMacs
+        }
+        #endif
+        return []
+    }
+
     var macSelectionScope: WorkspaceMacSelectionScope {
-        let displayPairedMacs = store?.displayPairedMacs ?? []
         return WorkspaceMacSelectionScope(
             selection: macSelection,
             workspaces: workspaces,
-            displayPairedMacs: displayPairedMacs,
+            displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
-            aliasesFor: { store?.pairedMacAliasIDs(for: $0) ?? [] }
+            foregroundInstanceTag: store?.connectedMacInstanceTag,
+            aliasesFor: {
+                store?.pairedMacAliasIDs(for: $0, instanceTag: $1) ?? []
+            }
         )
     }
 
@@ -37,12 +54,13 @@ extension WorkspaceListView {
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
             namesByID: macDisplayNamesByID(),
+            buildLabelsByID: macBuildLabelsByID(),
             fallbackName: fallbackMacPickerName
         )
     }
 
     var fallbackMacPickerName: String {
-        L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
     }
 
     func macDisplayNamesByID() -> [String: String] {
@@ -54,6 +72,10 @@ extension WorkspaceListView {
                 continue
             }
             names[id] = name
+            names[MobilePairedMac.pairingID(
+                macDeviceID: id,
+                instanceTag: workspace.macInstanceTag
+            )] = name
         }
         for device in store?.deviceTreeDevices ?? [] {
             if let name = device.displayName, !name.isEmpty {
@@ -62,12 +84,23 @@ extension WorkspaceListView {
         }
         for mac in store?.pairedMacs ?? [] {
             names[mac.macDeviceID] = mac.resolvedName
+            names[mac.id] = mac.resolvedName
         }
-        for mac in store?.displayPairedMacs ?? [] {
+        for mac in displayPairedMacsForPicker {
             names[mac.macDeviceID] = mac.resolvedName
+            names[mac.id] = mac.resolvedName
         }
         guard let buildScope = MobileIOSBuildScope.current() else { return names }
         return names.mapValues(buildScope.computerDisplayName)
+    }
+
+    func macBuildLabelsByID() -> [String: String] {
+        if let store {
+            return store.pairedMacBuildLabelsByEntryID()
+        }
+        return MobileShellComposite.buildLabelsByEntryID(
+            for: displayPairedMacsForPicker
+        ) { _, _ in nil }
     }
 
     var filterMenuPresentMachineIDs: [String] {
@@ -100,69 +133,44 @@ extension WorkspaceListView {
     }
 
     #if os(iOS)
-    var canRenderGroupsForSelection: Bool {
+    var canMutateForegroundGroupsForSelection: Bool {
         #if DEBUG
         // The store-free layout fixture has no foreground Mac, so the
-        // foreground-scope gate can never pass there; render its seeded groups
-        // so grouped rows and end-of-group slots are exercised in previews.
+        // foreground-mutation gate can never pass there. Allow its isolated
+        // reorder harness to exercise grouped rows and end-of-group slots.
         if store == nil, UITestConfig.workspaceListLayoutPreviewEnabled {
             return true
         }
         #endif
-        return macSelectionScope.canRenderGroupsForSelection
+        return macSelectionScope.canMutateForegroundGroupsForSelection
     }
 
     func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
         switch visibleMacSelection {
         case .all, .automatic:
-            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            L10n.string("mobile.workspaces.macPicker.allConnections", defaultValue: "All Computers")
         case .machine(let id):
-            machineSnapshots.macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
+            machineSnapshots.macPickerTitle(for: id, fallback: fallbackMacPickerName)
         }
-    }
-
-    var macTitlePickerSelection: Binding<WorkspaceMacSelection> {
-        Binding(
-            get: { currentMacTitlePickerSelection },
-            set: { _ = handleMacTitlePickerSelection($0) }
-        )
     }
 
     func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
-        Menu {
-            Picker(
-                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Computer"),
-                selection: macTitlePickerSelection
-            ) {
-                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers"))
-                    .tag(WorkspaceMacSelection.all)
-                ForEach(machineSnapshots.macPickerMachines) { machine in
-                    Text(machine.name)
-                        .tag(WorkspaceMacSelection.machine(machine.id))
-                }
-            }
-            .labelsVisibility(.visible)
-            if let showAddDevice {
-                Divider()
-                Button {
-                    showAddDevice()
-                } label: {
-                    Label(
-                        L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
-                        systemImage: "plus"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
-            }
-        } label: {
-            WorkspaceMacTitlePickerLabel(
+        WorkspaceMacTitlePicker(
+            value: WorkspaceMacTitlePickerValue(
                 title: macTitlePickerTitle(machineSnapshots: machineSnapshots),
-                isLoading: macTitlePickerShowsProgress
+                isLoading: macTitlePickerShowsProgress,
+                selection: currentMacTitlePickerSelection,
+                machines: machineSnapshots.macPickerMachines,
+                canAddDevice: showAddDevice != nil,
+                labelWidth: 155,
+                statusLine: connectionChrome.statusLine
+            ),
+            actions: WorkspaceMacTitlePickerActions(
+                select: { _ = handleMacTitlePickerSelection($0) },
+                addDevice: showAddDevice
             )
-        }
-        .buttonStyle(.plain)
-        .tint(.white)
-        .accessibilityIdentifier("MobileWorkspaceMacPicker")
+        )
+        .equatable()
     }
 
     var showsDevicesButton: Bool {
@@ -176,44 +184,139 @@ extension WorkspaceListView {
         #endif
     }
     #else
-    var canRenderGroupsForSelection: Bool {
+    var canMutateForegroundGroupsForSelection: Bool {
         true
     }
     #endif
 }
 
 #if os(iOS)
-private struct WorkspaceMacTitlePickerLabel: View {
-    private static let titleWidth: CGFloat = 155
+struct WorkspaceMacTitlePicker: View, Equatable {
+    let value: WorkspaceMacTitlePickerValue
+    let actions: WorkspaceMacTitlePickerActions
 
-    let title: String
-    let isLoading: Bool
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Spacer(minLength: 0)
-            Text(title)
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .allowsTightening(true)
-                .minimumScaleFactor(0.9)
-                .layoutPriority(1)
-            ZStack {
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.bold))
-                    .opacity(isLoading ? 0 : 1)
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(.white)
-                    .opacity(isLoading ? 1 : 0)
+        Menu {
+            Button {
+                actions.select(.all)
+            } label: {
+                menuRow(
+                    title: L10n.string(
+                        "mobile.workspaces.macPicker.allConnections",
+                        defaultValue: "All Computers"
+                    ),
+                    subtitle: nil,
+                    isSelected: value.selection == .all
+                )
             }
-            .frame(width: 12, height: 12)
-            .accessibilityHidden(true)
-            Spacer(minLength: 0)
+            .accessibilityAddTraits(value.selection == .all ? .isSelected : [])
+            .accessibilityIdentifier("MobileWorkspaceMacPickerAll")
+            ForEach(value.machines) { machine in
+                let selection = WorkspaceMacSelection.machine(machine.id)
+                Button {
+                    actions.select(selection)
+                } label: {
+                    menuRow(
+                        title: machine.name,
+                        subtitle: machine.buildLabel,
+                        isSelected: value.selection == selection
+                    )
+                }
+                .accessibilityAddTraits(value.selection == selection ? .isSelected : [])
+                .accessibilityIdentifier(machineMenuAccessibilityIdentifier(machine.id))
+            }
+            if value.canAddDevice {
+                Divider()
+                Button(action: { actions.addDevice?() }) {
+                    Label(
+                        L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
+            }
+        } label: {
+            WorkspaceMacTitlePickerLabel(
+                title: value.title,
+                isLoading: value.isLoading,
+                width: value.labelWidth,
+                statusLine: value.statusLine
+            )
+            // Put the identity and status on the final combined label element.
+            // UIKit's toolbar bridge can otherwise omit the outer SwiftUI
+            // identifier from the native accessibility tree used by CUA.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(value.title)
+            .accessibilityValue(
+                value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
+            )
+            .accessibilityIdentifier("MobileWorkspaceMacPicker")
         }
-        .foregroundStyle(.white)
-        .frame(width: Self.titleWidth, alignment: .center)
+        .buttonStyle(.plain)
+        .tint(.primary)
+        .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+
+    /// Menu rows must stay a bare Text/Text/Image tuple: UIMenu bridging reads
+    /// the first Text as the title, the second as the subtitle, and the Image
+    /// as the item icon. Wrapping them in a stack drops the subtitle entirely.
+    @ViewBuilder
+    private func menuRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
+        Text(title)
+        if let subtitle {
+            Text(subtitle)
+        }
+        if isSelected {
+            Image(systemName: "checkmark")
+        }
+    }
+
+    private func machineMenuAccessibilityIdentifier(_ id: String) -> String {
+        let stableID = id.replacingOccurrences(of: "\u{1F}", with: "-")
+        return "MobileWorkspaceMacPickerMachine-\(stableID)"
+    }
+}
+
+private struct WorkspaceMacTitlePickerLabel: View {
+    let title: String
+    let isLoading: Bool
+    let width: CGFloat
+    var statusLine: WorkspaceConnectionStatusLine?
+
+    var body: some View {
+        VStack(spacing: 1) {
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                Text(title)
+                    .font(.headline.weight(.bold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.75)
+                    .layoutPriority(1)
+                ZStack {
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .opacity(isLoading ? 0 : 1)
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.primary)
+                        .opacity(isLoading ? 1 : 0)
+                }
+                .frame(width: 12, height: 12)
+                .accessibilityHidden(true)
+                Spacer(minLength: 0)
+            }
+            if let statusLine {
+                WorkspaceConnectionStatusLineView(line: statusLine)
+            }
+        }
+        .foregroundStyle(.primary)
+        .frame(width: width, alignment: .center)
         .clipped()
         .contentShape(Rectangle())
     }

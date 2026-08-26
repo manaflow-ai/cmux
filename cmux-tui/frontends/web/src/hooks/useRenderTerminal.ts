@@ -8,22 +8,33 @@ import {
   type RenderDeltaEvent,
   type RenderRow,
   type RenderStateEvent,
-} from "cmux/browser";
+} from "cmux/raw";
+import { useRenderGraphicsModelBudget } from "../components/RenderGraphics";
+import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
+import { t } from "../i18n";
 import { syncCanvasBackground } from "../lib/canvasTheme";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
 import { encodeTerminalKey } from "../lib/keyEncoding";
 import { beginTerminalSelection, clampTerminalSelection, releaseTerminalSelection } from "../lib/terminalSelection";
-import { applyDelta, applySnapshot, type RenderModel } from "../lib/renderModel";
+import {
+  applyDelta,
+  applySnapshot,
+  releaseRenderModelGraphicsBudget,
+  subscribeRenderModelGraphicsBudget,
+  type RenderModel,
+} from "../lib/renderModel";
 import {
   createScrollbackWindow,
   latestScrollbackRequest,
   mergeScrollbackPage,
   nextScrollbackRequest,
   previousScrollbackRequest,
+  refreshScrollbackRequest,
   reconcileScrollbackWindow,
   scrollbackAnchorDelta,
+  type ScrollbackRequest,
   type ScrollbackWindow,
 } from "../lib/scrollback";
 
@@ -31,6 +42,7 @@ interface RenderTerminalOptions {
   client: CmuxClient | null;
   surface: Id | null;
   active: boolean;
+  focusOnMount?: boolean;
   onError(error: Error): void;
 }
 
@@ -38,6 +50,7 @@ interface RenderHistoryView {
   active: boolean;
   loading: boolean;
   total: number;
+  epoch: bigint | undefined;
   rows: readonly RenderRow[];
 }
 
@@ -62,7 +75,13 @@ type RenderTerminalViewAction =
   | { type: "focus"; client: CmuxClient; surface: Id; focused: boolean }
   | { type: "history"; client: CmuxClient; surface: Id; history: RenderHistoryView };
 
-const emptyHistory: RenderHistoryView = { active: false, loading: false, total: 0, rows: [] };
+const emptyHistory: RenderHistoryView = {
+  active: false,
+  loading: false,
+  total: 0,
+  epoch: undefined,
+  rows: [],
+};
 const initialState: RenderTerminalViewState = {
   client: null,
   surface: null,
@@ -101,10 +120,24 @@ interface RenderTerminalController {
   sendText(text: string, paste?: boolean): void;
 }
 
-export function useRenderTerminal({ client, surface, active, onError }: RenderTerminalOptions) {
+interface HistoryLoadOptions {
+  preserveScrollAnchor?: boolean;
+  publishLoading?: boolean;
+  request?: ScrollbackRequest;
+}
+
+export function useRenderTerminal({
+  client,
+  surface,
+  active,
+  focusOnMount = false,
+  onError,
+}: RenderTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [state, dispatch] = useReducer(renderTerminalViewReducer, initialState);
   const controllerRef = useRef<RenderTerminalController | null>(null);
+  const graphicsBudget = useRenderGraphicsModelBudget();
+  const graphicsBudgetOwner = useRef<object>({}).current;
   const activeRef = useRef(active);
   activeRef.current = active;
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
@@ -125,10 +158,16 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     let cacheGeneration = 0;
     let historyActive = false;
     let historyLoading = false;
+    let historyRefreshPending = false;
+    let historyRefreshScheduled = false;
     let reportedFit: TerminalSize | null = null;
     let composing = false;
     let committedComposition: string | null = null;
     let touchStartY: number | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stableTimer: ReturnType<typeof setTimeout> | undefined;
+    let wakeRetry: (() => void) | null = null;
+    let graphicsResnapshotRequested = false;
     const frames = new Set<number>();
     const stage = host.closest<HTMLElement>(".terminal-stage");
     const scroller = host.querySelector<HTMLElement>("[data-render-scroll]");
@@ -139,6 +178,24 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       stage?.style.setProperty("--surface-background", background);
       syncCanvasBackground(host, background, activeRef.current);
     };
+    const waitForRetry = (delayMs: number) =>
+      new Promise<void>((resolve) => {
+        wakeRetry = resolve;
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          wakeRetry = null;
+          resolve();
+        }, delayMs);
+      });
+    const unsubscribeGraphicsBudget = subscribeRenderModelGraphicsBudget(
+      graphicsBudget,
+      graphicsBudgetOwner,
+      () => {
+        if (cancelled || graphicsResnapshotRequested) return;
+        graphicsResnapshotRequested = true;
+        stream?.close();
+      },
+    );
 
     dispatch({ type: "bind", client, surface });
     const frameBatch = createFrameBatch<void>(() => {
@@ -163,6 +220,7 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       active: historyActive,
       loading: historyLoading,
       total: cache.total,
+      epoch: cache.epoch,
       rows: cache.rows,
     });
     const publishHistory = () => {
@@ -183,7 +241,7 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       return cols >= 2 && rows >= 1 ? { cols, rows } : undefined;
     };
     const applyFit = () => {
-      if (cancelled || currentModel === null) return;
+      if (cancelled || stream === null || currentModel === null) return;
       const next = nextFitSize(reportedFit, proposedSize());
       if (next === null) return;
       reportedFit = next;
@@ -208,6 +266,7 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     const returnToLive = () => {
       if (!historyActive) return;
       historyActive = false;
+      historyRefreshPending = false;
       publishHistory();
       scheduleAfterRender(() => {
         if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
@@ -228,24 +287,25 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     const resetHistoryCache = (total: number, publish = true) => {
       cacheGeneration += 1;
       historyLoading = false;
+      historyRefreshPending = false;
       cache = createScrollbackWindow(total);
       if (publish) publishHistory();
     };
     const loadHistoryPage = async (
       direction: "latest" | "previous" | "next",
-      publishLoading = true,
+      options: HistoryLoadOptions = {},
     ) => {
       if (cancelled || historyLoading) return;
-      const request = direction === "latest"
+      const request = options.request ?? (direction === "latest"
         ? latestScrollbackRequest(cache)
         : direction === "previous"
           ? previousScrollbackRequest(cache)
-          : nextScrollbackRequest(cache);
+          : nextScrollbackRequest(cache));
       if (request === null) return;
       const generation = cacheGeneration;
       const requestTotal = cache.total;
       historyLoading = true;
-      if (publishLoading) publishHistory();
+      if (options.publishLoading ?? true) publishHistory();
       try {
         const page = await client.readScrollback(surface, request.start, request.count);
         if (cancelled || generation !== cacheGeneration) return;
@@ -255,14 +315,16 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
         const previousCache = cache;
         const anchorScrollTop = scroller?.scrollTop ?? 0;
         const nextCache = mergeScrollbackPage(previousCache, stablePage);
-        const anchorDelta = direction === "latest"
+        const anchorDelta = direction === "latest" || options.preserveScrollAnchor
           ? 0
           : scrollbackAnchorDelta(previousCache, nextCache, direction);
         cache = nextCache;
         publishHistory();
         scheduleAfterRender(() => {
           if (scroller === null) return;
-          if (direction === "latest") {
+          if (options.preserveScrollAnchor) {
+            scroller.scrollTop = anchorScrollTop;
+          } else if (direction === "latest") {
             scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight - metrics.height);
           } else {
             scroller.scrollTop = Math.max(0, anchorScrollTop + anchorDelta * metrics.height);
@@ -275,14 +337,42 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       } finally {
         if (!cancelled && generation === cacheGeneration) {
           historyLoading = false;
+          if (cache.epoch === currentModel?.historyEpoch) historyRefreshPending = false;
           publishHistory();
+          if (historyRefreshPending) requestHistoryEpochRefresh();
         }
       }
     };
+    function requestHistoryEpochRefresh() {
+      if (cancelled || !historyActive || currentModel === null) return;
+      historyRefreshPending = true;
+      if (historyLoading || historyRefreshScheduled) return;
+      historyRefreshScheduled = true;
+      queueMicrotask(() => {
+        historyRefreshScheduled = false;
+        if (cancelled || !historyActive || !historyRefreshPending || historyLoading
+          || currentModel === null) return;
+        if (cache.epoch === currentModel.historyEpoch) {
+          historyRefreshPending = false;
+          return;
+        }
+        const request = refreshScrollbackRequest(cache, currentModel.scrollbackRows);
+        historyRefreshPending = false;
+        if (request === null) return;
+        void loadHistoryPage("latest", {
+          preserveScrollAnchor: true,
+          publishLoading: false,
+          request,
+        });
+      });
+    }
     const enterHistory = () => {
       if (historyActive || (currentModel?.scrollbackRows ?? 0) === 0) return;
       const reachesLatest = cache.rows.at(-1)?.row === cache.total - 1;
-      if (!reachesLatest) resetHistoryCache(currentModel!.scrollbackRows);
+      const matchesCurrentEpoch = cache.epoch === currentModel!.historyEpoch;
+      if (!reachesLatest || !matchesCurrentEpoch) {
+        resetHistoryCache(currentModel!.scrollbackRows);
+      }
       historyActive = true;
       publishHistory();
       if (cache.rows.length === 0) {
@@ -424,71 +514,141 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     host.addEventListener("touchmove", handleTouchMove, { passive: true });
     scroller?.addEventListener("scroll", handleScroll, { passive: true });
     document.addEventListener("selectionchange", handleSelectionChange);
+    if (focusOnMount && textarea !== null) {
+      textarea.focus({ preventScroll: true });
+      handleFocus();
+    }
 
     void (async () => {
       try {
-        stream = await client.attachSurface(surface, { mode: "render" });
-        if (cancelled) return;
+        let recoveryAttempt = 0;
         for (;;) {
-          let event: RenderAttachEvent;
-          try {
-            event = await stream.next();
-          } catch (error) {
-            if (cancelled) return;
-            if (error instanceof CmuxTimeoutError) continue;
-            throw error;
-          }
+          stream = await client.attachSurface(surface, { mode: "render" });
           if (cancelled) return;
-          if (event.event === "detached") return;
-          if (event.event === "render-state") {
-            currentModel = applySnapshot(event as RenderStateEvent);
-            resetHistoryCache(currentModel.scrollbackRows, false);
-            applySurfaceBackground(currentModel.defaultBg);
-            applyFit();
-            scheduleFrame();
-          } else if (event.event === "render-delta" && currentModel !== null) {
-            const renderDelta = event as RenderDeltaEvent;
-            const previous: RenderModel = currentModel;
-            const nextModel: RenderModel = applyDelta(previous, renderDelta);
-            currentModel = nextModel;
-            if (nextModel === previous) continue;
-            const reconciliation = reconcileScrollbackWindow(
-              cache,
-              previous.scrollbackRows,
-              nextModel.scrollbackRows,
-              renderDelta.size !== undefined,
-            );
-            if (reconciliation.invalidated) {
-              cacheGeneration += 1;
-              historyLoading = false;
-              cache = reconciliation.window;
-              if (historyActive) void loadHistoryPage("latest", false);
-            } else if (reconciliation.window !== cache) {
-              cache = reconciliation.window;
-            }
-            applySurfaceBackground(nextModel.defaultBg);
-            if (!historyActive) {
-              scheduleAfterRender(() => {
-                if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
-              });
-            }
-            scheduleFrame();
+          if (graphicsResnapshotRequested) {
+            stream.close();
+            stream = null;
+            graphicsResnapshotRequested = false;
+            continue;
           }
+          // Closing the previous attachment removes this client's report on
+          // the server. Re-publish even when the viewport did not change.
+          reportedFit = null;
+          let overflowed = false;
+          for (;;) {
+            let event: RenderAttachEvent;
+            try {
+              event = await stream.next();
+            } catch (error) {
+              if (cancelled) return;
+              if (graphicsResnapshotRequested) break;
+              if (error instanceof CmuxTimeoutError) continue;
+              throw error;
+            }
+            if (cancelled) return;
+            if (event.event === "detached") {
+              if (graphicsResnapshotRequested) break;
+              return;
+            }
+            if (event.event === "render-state") {
+              currentModel = applySnapshot(
+                event as RenderStateEvent,
+                graphicsBudget,
+                graphicsBudgetOwner,
+              );
+              resetHistoryCache(currentModel.scrollbackRows, false);
+              applySurfaceBackground(currentModel.defaultBg);
+              applyFit();
+              scheduleFrame();
+              if (stableTimer !== undefined) clearTimeout(stableTimer);
+              stableTimer = setTimeout(() => {
+                stableTimer = undefined;
+                recoveryAttempt = 0;
+              }, ATTACH_RECOVERY_STABLE_MS);
+            } else if (event.event === "render-delta" && currentModel !== null) {
+              const renderDelta = event as RenderDeltaEvent;
+              const previous: RenderModel = currentModel;
+              const nextModel: RenderModel = applyDelta(
+                previous,
+                renderDelta,
+                graphicsBudget,
+                graphicsBudgetOwner,
+              );
+              currentModel = nextModel;
+              if (nextModel === previous) continue;
+              const reconciliation = reconcileScrollbackWindow(
+                cache,
+                previous.scrollbackRows,
+                nextModel.scrollbackRows,
+                renderDelta.size !== undefined,
+              );
+              if (reconciliation.invalidated) {
+                cacheGeneration += 1;
+                historyLoading = false;
+                historyRefreshPending = false;
+                cache = reconciliation.window;
+                if (historyActive) void loadHistoryPage("latest", { publishLoading: false });
+              } else if (reconciliation.window !== cache) {
+                cache = reconciliation.window;
+              }
+              if (!reconciliation.invalidated && historyActive
+                && cache.epoch !== nextModel.historyEpoch) requestHistoryEpochRefresh();
+              applySurfaceBackground(nextModel.defaultBg);
+              if (!historyActive) {
+                scheduleAfterRender(() => {
+                  if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
+                });
+              }
+              scheduleFrame();
+            } else if (event.event === "overflow") {
+              if (event.scope === "surface" && event.surface === surface) {
+                if (stableTimer !== undefined) {
+                  clearTimeout(stableTimer);
+                  stableTimer = undefined;
+                }
+                overflowed = true;
+                break;
+              }
+            }
+          }
+          stream.close();
+          stream = null;
+          if (graphicsResnapshotRequested) {
+            graphicsResnapshotRequested = false;
+            continue;
+          }
+          if (!overflowed) return;
+          const delayMs = attachRecoveryDelay(recoveryAttempt++);
+          if (delayMs === null) throw new Error(t("attachOverflowRecoveryFailed"));
+          await waitForRetry(delayMs);
+          if (cancelled) return;
         }
       } catch (error) {
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         stream?.close();
+        if (!cancelled) {
+          reportedFit = null;
+          try {
+            await client.releaseSurfaceSize(surface);
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       }
     })();
 
     sendResize();
     return () => {
       cancelled = true;
+      unsubscribeGraphicsBudget();
       observer.disconnect();
       window.visualViewport?.removeEventListener("resize", sendResize);
       window.visualViewport?.removeEventListener("scroll", sendResize);
       sendResize.cancel();
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+      if (stableTimer !== undefined) clearTimeout(stableTimer);
+      wakeRetry?.();
       textarea?.removeEventListener("focus", handleFocus);
       textarea?.removeEventListener("blur", handleBlur);
       textarea?.removeEventListener("keydown", handleKeyDown);
@@ -507,12 +667,23 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       frames.clear();
       frameBatch.cancel();
       stream?.close();
+      reportedFit = null;
+      void client.releaseSurfaceSize(surface).catch(onError);
       stage?.style.removeProperty("--surface-background");
       releaseTerminalSelection(host);
+      releaseRenderModelGraphicsBudget(graphicsBudget, graphicsBudgetOwner);
       if (controllerRef.current === controller) controllerRef.current = null;
       dispatch({ type: "reset", client, surface });
     };
-  }, [client, host, onError, surface]);
+  }, [
+    client,
+    focusOnMount,
+    graphicsBudget,
+    graphicsBudgetOwner,
+    host,
+    onError,
+    surface,
+  ]);
 
   const backToLive = useCallback(() => controllerRef.current?.backToLive(), []);
   const sendKey = useCallback((key: string) => controllerRef.current?.sendKey(key), []);

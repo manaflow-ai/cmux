@@ -34,9 +34,27 @@ extension PresenceClient {
     /// one (`isDevelopmentAuthChannel`), not just the build config: each worker
     /// verifies its own Stack project's tokens, so a Debug build resolved to
     /// production auth (`ios/scripts/reload.sh --prod-auth`, issue 7145) must
-    /// subscribe to the production worker or no release Mac could ever appear
-    /// in Computers. The worker URLs live only here — build scripts bake no
-    /// copy — so they cannot drift from the runtime.
+    /// subscribe to the production worker so its token is accepted. The build
+    /// compatibility policy separately filters Mac instances. The worker URLs
+    /// live only here, so build scripts cannot drift from the runtime.
+    /// DEV affordance: persist a launch-environment override into the
+    /// UserDefaults override. A physical-device app launched ONCE through
+    /// `devicectl` with `DEVICECTL_CHILD_CMUX_PRESENCE_BASE_URL` keeps
+    /// resolving that worker on every later cold launch — including push
+    /// wakes, which carry no shell environment. Call it DEBUG-only from the
+    /// composition root; the tagged bundle id scopes the persisted value to
+    /// that one dev build.
+    public static func persistEnvironmentOverrideIfPresent(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) {
+        guard let raw = environment[serviceURLEnvKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty else { return }
+        guard defaults.string(forKey: serviceURLDefaultsKey) != raw else { return }
+        defaults.set(raw, forKey: serviceURLDefaultsKey)
+    }
+
     public static func resolvedServiceBaseURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,

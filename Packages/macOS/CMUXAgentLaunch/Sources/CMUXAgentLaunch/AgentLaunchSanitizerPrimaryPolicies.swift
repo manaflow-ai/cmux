@@ -69,6 +69,7 @@ extension AgentLaunchSanitizer {
             "--disable-slash-commands",
             "--exclude-dynamic-system-prompt-sections",
             "--fork-session",
+            "--forward-subagent-text",
             "--ide",
             "--include-hook-events",
             "--include-partial-messages",

@@ -1,3 +1,5 @@
+internal import CMUXMobileCore
+
 /// Stable, account-scoped inputs for one Mac Iroh host lifecycle.
 public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     /// The authenticated account scope used only for pending-revocation isolation.
@@ -5,6 +7,8 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
 
     public let deviceID: String
     public let appInstanceID: String
+    /// Exact Mac build namespace sent to every broker request.
+    public let clientNamespace: String
     public let tag: String
     public let displayName: String?
     public let identity: CmxIrohIdentityMaterial
@@ -27,6 +31,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     ///   - accountID: The exact account that owns this host binding.
     ///   - deviceID: The account device's lowercase UUID.
     ///   - appInstanceID: The current app-instance UUID.
+    ///   - clientNamespace: The exact installed Mac bundle namespace.
     ///   - tag: The broker registration build tag.
     ///   - displayName: The optional user-visible Mac name.
     ///   - identity: The stable Iroh secret and generation.
@@ -41,6 +46,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         accountID: String,
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: CmxIrohMacBundleNamespace,
         tag: String,
         displayName: String?,
         identity: CmxIrohIdentityMaterial,
@@ -53,8 +59,9 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil
     ) {
         self.accountID = accountID
-        self.deviceID = deviceID.lowercased()
+        self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
+        self.clientNamespace = clientNamespace.rawValue
         self.tag = tag
         self.displayName = displayName
         self.identity = identity

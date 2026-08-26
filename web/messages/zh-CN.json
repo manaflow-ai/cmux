@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "在终端中继续",
+    "returnBody": "请返回运行 ssh cmux.cloud 的终端以继续。",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "付款已完成",
+        "body": "你的订阅已确认。新限额可能需要片刻才会显示。"
+      },
+      "checkoutCanceled": {
+        "title": "付款已取消",
+        "body": "付款流程已关闭，你的套餐未发生变化。"
+      },
+      "portalReturn": {
+        "title": "已从账单门户返回",
+        "body": "账单门户中的更改可能需要片刻才会显示。"
+      },
+      "default": {
+        "title": "账单流程已完成",
+        "body": "你的账单流程已结束。"
+      }
+    }
+  },
   "meta": {
     "title": "cmux — 专为多任务打造的终端",
     "description": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直标签页、通知环、分割面板和 socket API。",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "cmux 和 Ghostty 是什么关系？",
     "faqGhosttyA": "cmux 不是 Ghostty 的 fork。它使用 <link>libghostty</link> 作为终端渲染库，就像应用使用 WebKit 来渲染网页一样。Ghostty 是一个独立的终端；cmux 是基于其渲染引擎构建的不同应用。",
     "faqPlatformQ": "支持哪些平台？",
-    "faqPlatformA": "目前仅支持 macOS。cmux 是原生 Swift + AppKit 应用。",
+    "faqPlatformA": "可在下载菜单中查看已推出的 cmux 版本。尚未发布的平台可以<waitlist>加入候补名单</waitlist>。",
     "faqAgentsQ": "cmux 支持哪些 coding agent？",
     "faqAgentsA": "全部都支持。cmux 是一个终端，所以任何在终端中运行的 agent 都可以直接使用：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent，以及任何可以从命令行启动的工具。",
     "faqNotificationsQ": "通知是如何工作的？",
@@ -112,6 +135,35 @@
     "faqFeatureA": "我们很想听到你的反馈。在 GitHub 上提交一个 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>给我们发邮件</mailLink>。"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "概览",
+      "team": "团队"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
+      "coderouterLink": "打开 coderouter",
+      "iosAppName": "iOS 应用",
+      "iosAppDescription": "通过 TestFlight（测试版）安装 cmux iOS 应用。",
+      "iosLink": "打开 iOS 应用"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "管理共享 AI 账户，并使用 coderouter 路由请求。",
+      "title": "coderouter",
+      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。"
+    },
+    "accountMenu": {
+      "label": "账户菜单",
+      "settings": "设置",
+      "billing": "账单",
+      "signOut": "退出登录",
+      "signingOut": "正在退出…",
+      "signOutError": "无法退出登录，请重试。",
+      "organizationSwitchError": "无法切换组织，请重试。",
+      "signIn": "登录"
+    },
     "aiAccounts": {
       "metaTitle": "AI 账户 — cmux",
       "metaDescription": "管理 cmux 的团队 AI 服务商账户。",
@@ -162,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -745,6 +803,25 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"
+    },
+    "claudeCodeTeams": {
+      "shimStep1": "在当前 surface 的临时 shim 目录中创建 tmux shim。路径包含 surface UUID，并且会随面板和每次启动而变化，因此无法给出固定路径",
+      "shimStep2": "设置 TMUX 和 TMUX_PANE，以便在 Claude Teams 启动会话中模拟 tmux",
+      "shimDiagnostic": "仅当设置了 <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> 时，shim 才将请求路由到 cmux；未设置时会透明地继续调用下一个真正的 tmux 可执行文件。因此，<which>which tmux</which> 无法告诉你 Claude Teams 的拦截是否处于活动状态。",
+      "envTmux": "运行 cmux claude-teams 的会话所使用的合成 tmux socket 路径",
+      "envTmuxPane": "运行 cmux claude-teams 的会话所使用的合成 tmux pane 标识符；在生成的 agent 面板中为空",
+      "envSurface": "当前 surface 的 UUID；在生成的 agent 面板中将它用作 surface 标识符",
+      "envScope": "合成的 <tmux>TMUX</tmux>、<tmuxPane>TMUX_PANE</tmuxPane> 及相关 tmux 兼容值描述的是运行 <command>cmux claude-teams</command> 的会话，而不是生成的面板。在 agent 面板中，请使用 <surface>CMUX_SURFACE_ID</surface> 并运行 <tree>cmux tree --json</tree>；输出中的 <caller>caller</caller> 对象会标识调用面板。",
+      "dirShimPath": "系统临时目录下每个 surface 各自的目录（无固定路径）",
+      "dirShim": "包含当前有效的 tmux shim，并针对该 surface 添加到 PATH 最前面",
+      "dirStore": "用于持久保存 tmux-compat 缓冲区、钩子以及分屏位置/布局状态",
+      "storeDetails": "分屏路由键包括：",
+      "storeLastSplitSurface": "将每个工作区 UUID 映射到最近一次分屏创建的 surface UUID。它为 agent 列锚点提供初始值，用于决定下一个 main-vertical 分屏的落点。",
+      "storeMainVerticalLayouts": "将每个工作区 UUID 映射到 <mainSurfaceId>mainSurfaceId</mainSurfaceId>（主 surface 或 leader surface）和 <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId>（agent 列最底部的 surface）。后续队友分屏会定位到该列并向下堆叠。",
+      "storeTroubleshooting": "如果队友面板出现在现有 surface 后方的标签页中，而不是旁边的分屏中，请检查这些路由键。"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入门指南",
@@ -841,8 +918,8 @@
       "concepts": "核心概念",
       "anchorTitle": "锚点工作区",
       "anchorDesc": "每个分组都恰好由一个称为锚点的工作区拥有。侧边栏中的分组标题栏就是锚点的呈现形式——锚点没有单独的行。点击标题名称区域会聚焦到锚点的面板；点击箭头则切换折叠状态。",
-      "anchorNew": "创建分组时，锚点始终是全新的。它们永远不会从已有的工作区提升而来。锚点的工作目录：在对选中项进行分组时继承自第一个选中的工作区，在通过 CLI 创建而未指定 --cwd 时则继承自当前活动的工作区。",
-      "anchorClose": "关闭锚点工作区会解散该分组：其余每个成员都会变成未分组的工作区并保留在标签页列表中。除了锚点本身，不会关闭其他任何内容。在此操作发生前，应用会显示一个带有“不再询问”开关的确认对话框。",
+      "anchorNew": "分组的锚点在创建时始终是一个全新的工作区；无论是对所选工作区进行分组还是创建分组，都不会将现有工作区中的任何一个提升为锚点。（之后关闭锚点时，确实会提升分组中第一个仍保留的成员，见下文。）对所选工作区进行分组时，锚点的工作目录继承自第一个选中的工作区；通过 CLI 创建且未指定 --cwd 时，则继承自当前工作区。",
+      "anchorClose": "关闭锚点工作区时，只会关闭该工作区，并将分组中第一个仍保留的成员（按照分组顺序仍存在的成员中最靠前的一个）提升为新锚点，因此分组及其其他成员会保持不变（被提升的成员随后会在标题栏中显示分组名称）。当锚点是分组中唯一的工作区时，分组会被移除。要将分组展开为未分组的工作区，请使用取消工作区分组；要关闭分组中的所有工作区，请使用删除分组。",
       "identityTitle": "分组标识",
       "identityDesc": "一个分组拥有名称、图标（一个 SF Symbol，默认为 folder.fill）以及一个可选的自定义颜色。这些与锚点工作区自身的自定义设置相互独立。锚点的颜色和图标在创建时取自分组，但之后两者可以各自变化。",
       "pinningTitle": "固定",
@@ -944,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。",
+          "urlAllowlist": "限制内嵌浏览器导航的主机或 URL 模式。设置界面会建议本地开发来源；保存列表后会启用可选限制。删除条目即可阻止这些来源；没有托管策略时，将用户值留空可禁用限制。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的全局默认位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。",
@@ -969,7 +1047,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         }
       },
@@ -1382,7 +1460,16 @@
     "changelog": {
       "title": "更新日志",
       "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。",
-      "metaTitle": "更新日志"
+      "metaTitle": "更新日志",
+      "versionTitle": "cmux {version} · 更新日志",
+      "releaseNavLabel": "cmux {version} 附近的版本",
+      "sections": {
+        "added": "新增",
+        "changed": "更改",
+        "fixed": "修复",
+        "removed": "移除",
+        "contributors": "贡献者"
+      }
     },
     "navItems": {
       "gettingStarted": "入门指南",
@@ -1410,7 +1497,7 @@
       "metaTitle": "Dock",
       "metaDescription": "使用 Dock JSON 将自定义 TUI 控件添加到 cmux 右侧边栏。",
       "title": "Dock",
-      "intro": "Dock 允许你向右侧边栏添加 TUI 控件。每个控件都是 JSON 中定义的命令，并在自己独立的 Ghostty 终端区域中渲染。可用于 feed、日志、队列、git 状态、开发服务器，或团队希望放在每个 workspace 旁边的任何 TUI。",
+      "intro": "Dock 允许你向右侧边栏添加终端和浏览器控件。终端控件在 Ghostty 支持的区域中运行命令，浏览器控件则嵌入网页。可用于 feed、日志、队列、git 状态、开发服务器、仪表板，或团队希望放在每个 workspace 旁边的参考页面。",
       "configTitle": "配置",
       "configIntro": "cmux 按以下顺序查找 Dock 配置：",
       "projectConfig": "用于当前仓库、最近的父项目以及嵌套项目目录。",
@@ -1424,9 +1511,12 @@
       "descriptionHeader": "说明",
       "fieldId": "控件的稳定唯一标识符。保持简短，不要复用于其他命令。",
       "fieldTitle": "显示在 Dock 标题栏中的标签。",
-      "fieldCommand": "在 Dock 终端中运行的命令。它会在你的登录 shell 中启动。",
+      "fieldCommand": "要在 Dock 终端中运行的命令。终端控件必填，并在登录 shell 中启动。",
+      "fieldType": "可选控件类型：terminal（默认）或 browser。",
+      "fieldUrl": "要打开的页面。浏览器控件必填。",
+      "fieldChrome": "可选的浏览器界面显示设置。默认为 true；设为 false 会隐藏地址栏和工具栏，使“聚焦地址栏”在该窗格中无效，同时 cmux browser goto/reload 仍可用。",
       "fieldCwd": "可选工作目录。项目配置中的相对路径从项目根目录解析，全局配置中的相对路径从主目录解析。",
-      "fieldHeight": "可选的终端请求高度，单位为点。没有 height 的控件共享剩余空间。",
+      "fieldHeight": "可选的控件高度。未设置 height 的控件共享剩余空间。",
       "fieldEnv": "只传递给该控件的可选环境变量。",
       "sharingTitle": "与团队共享",
       "sharingIntro": "当命令属于仓库时，Dock 适合通过源代码管理共享。",
@@ -1436,7 +1526,7 @@
       "agentPromptTitle": "让 agent 帮你设置",
       "agentPromptIntro": "当你希望编码 agent 创建 Dock 控件时使用此提示。它会要求 agent 运行 `cmux docs dock`、检查项目，并在猜测前先提问。",
       "agentPromptCodeTitle": "Agent prompt",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "会话恢复",
@@ -1494,10 +1584,16 @@
       "flagName": "旗帜",
       "flagDesc": "描述",
       "flagNameVal": "设置工作区标题",
+      "flagCommand": "在 shell 启动后于初始远程终端中运行一次命令文本",
       "flagPort": "SSH 端口（默认 22）",
       "flagIdentity": "身份文件的路径",
       "flagSshOption": "传递任意 SSH 选项（例如 -o StrictHostKeyChecking=no）",
+      "flagTransport": "交互式终端传输方式：ssh（默认）或 mosh",
       "flagNoFocus": "创建工作区而不切换到它",
+      "moshTitle": "Mosh 终端传输",
+      "moshDesc": "如果交互式终端需要在切换 Wi-Fi、VPN、热点或睡眠与唤醒后保持连接，请使用 cmux ssh user@remote --transport mosh。Mosh 仅承载终端 PTY；SSH 仍负责远程元数据、cmux 服务的设置与控制、浏览器代理、上传和重新连接。",
+      "moshFallback": "cmux 要求本地安装 Mosh 1.4 或更高版本，并在启动前检查远程 mosh-server。如果客户端缺失或不兼容、服务器缺失，或远程检查失败，cmux 会说明原因并继续使用 SSH。",
+      "moshTmux": "创建一个 Mosh 工作区，用于创建或附加命名的 tmux 会话（默认：main）。tmux 配置会在重连和应用会话恢复后保留。这是可漫游的 tmux 终端，而不是 cmux ssh-tmux 的原生镜像。--session <name> 选择会话；其他选项与 cmux mosh 相同。没有 Mosh 时，同一配置会通过 SSH 运行。",
       "deepLinksTitle": "SSH 深层链接",
       "deepLinksDesc": "当网站或工具想要提供“在 cmux 中打开”按钮时，请使用 cmux SSH 深层链接。该链接将打开 cmux，显示确认提示，然后在用户确认后运行等效的 cmux ssh 命令。",
       "deepLinksWebFallbackDesc": "使用网站按钮的 cmux.com 后备 URL。如果未安装 cmux，它将打开本机链接并显示下载。",
@@ -3494,7 +3590,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前无法使用结算功能。请稍后再试。"
+    "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
+    "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
+    "signedOutSignIn": "登录"
   },
   "platforms": {
     "macos": "macOS",
@@ -3507,8 +3605,8 @@
     "title": "加入 {platform} 候补名单",
     "titleAny": "加入候补名单",
     "description": "{platform} 支持即将推出。留下你的邮箱，准备好后我们会第一时间通知你。",
-    "descriptionAny": "目前 cmux 优先支持 macOS。留下邮箱，Linux、Windows 或 Android 版本就绪后我们会通知你。",
-    "calloutText": "即将支持 Linux、Windows 和 Android。",
+    "descriptionAny": "选择一个尚未发布的平台并留下邮箱。该版本准备好后，我们会通知你。",
+    "calloutText": "更多 cmux 版本即将推出。",
     "platformsLabel": "哪些平台？",
     "selectPlatform": "请至少选择一个平台。",
     "emailLabel": "邮箱",
@@ -3522,5 +3620,87 @@
     "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
     "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
     "done": "完成"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux 浏览器",
+    "title": "适用于 {platform} 的 cmux",
+    "tagline": "将 Chromium 浏览器与智能体工作区融为一体。",
+    "logoAlt": "cmux 应用图标",
+    "featuresTitle": "专为智能体工作打造",
+    "features": {
+      "chromium": {
+        "title": "真正的 Chromium",
+        "description": "：拥有 Chrome 级别的标签页、渲染、扩展和地址栏体验"
+      },
+      "workspaces": {
+        "title": "面向任务的工作区",
+        "description": "：按任务组织网页标签和工具，告别无限延伸的标签栏"
+      },
+      "terminals": {
+        "title": "终端界面",
+        "description": "：在同一窗口和合成器中使用 shell 与浏览器标签"
+      },
+      "openSource": {
+        "title": "免费且开源",
+        "description": "：可在 GitHub 上查看代码、提交问题并从源码构建"
+      }
+    },
+    "installTitle": "安装",
+    "releaseTitle": "版本与更新",
+    "releaseBody": "这些链接始终指向 <github>GitHub Releases</github> 上的最新 Nightly 版本。cmux 会在安装更新前验证已签名的更新清单。",
+    "sourceLink": "在 GitHub 上查看源代码",
+    "otherPlatform": "适用于 {platform} 的 cmux",
+    "macLink": "Mac 版 cmux 终端",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "下载 Windows 版 cmux",
+      "metaDescription": "下载 Windows x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和熟悉的 Windows 键盘操作。",
+      "primaryCta": "下载安装程序（.exe）",
+      "secondaryCta": "便携版 ZIP",
+      "requirements": "Windows 10 或更高版本 · x64",
+      "installBody": "运行安装程序并按照 Windows 提示操作。如果希望将 cmux 保留在文件夹中而不进行全局安装，请选择便携版 ZIP。"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "下载 Linux 版 cmux",
+      "metaDescription": "下载 Linux x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和集成终端界面。",
+      "primaryCta": "下载支持自动更新的安装程序（.run）",
+      "secondaryCta": "Debian 软件包（.deb）",
+      "requirements": "Linux · x64",
+      "installBody": "运行一次用户级安装程序。它会将 cmux 安装到 ~/.local，无需 root 权限，并启用已签名的应用内更新。如果希望由软件包管理器管理更新，请改选 Debian 软件包。"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "欢迎加入 cmux Pro 🎉",
+      "fallbackName": "朋友",
+      "greeting": "你好，{name}！",
+      "thanks": "感谢你加入 cmux Pro！完整的 Pro 体验仍在完善中，Cloud 访问也即将推出。",
+      "cloudStatus": "Cloud 访问上线后，我们会根据你的订阅月数向账户添加使用额度。",
+      "currentBenefit": "在此期间，你的 Pro 权益是抢先体验 cmux iOS 版。请通过下方链接注册，注册完成后 Apple 会发送 TestFlight 邀请。",
+      "testflightLink": "注册 TestFlight：{url}",
+      "testflightLinkLabel": "注册 TestFlight",
+      "signoff": "很高兴有你加入！\ncmux 团队"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 已启用",
+    "title": "欢迎加入 cmux Pro",
+    "body": "Pro 功能仍在开发中。Cloud 访问即将推出，订阅期间每个月都会累积使用额度。目前，Pro 包含通过 TestFlight 访问 cmux iOS 版的权益。",
+    "done": "前往控制面板",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS App",
+        "body": "在手机上使用 cmux。",
+        "action": "加入 iOS 测试版"
+      },
+      "billing": {
+        "title": "管理你的方案",
+        "body": "查看方案、账单和取消选项。",
+        "action": "管理方案"
+      }
+    }
   }
 }

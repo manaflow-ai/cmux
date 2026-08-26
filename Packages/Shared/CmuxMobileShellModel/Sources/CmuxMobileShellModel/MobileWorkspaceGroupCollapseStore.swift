@@ -18,17 +18,18 @@ public import Foundation
 /// ```swift
 /// var store = MobileWorkspaceGroupCollapseStore(defaults: .standard)
 /// let shown = store.apply(to: groupsFromMac)   // seeds unknown groups, applies local
-/// store.set(groupID, collapsed: true)          // device-local, not sent to the Mac
+/// store.set(shown[0].collapseStateID, collapsed: true) // device-local, not sent to Mac
 /// ```
 public struct MobileWorkspaceGroupCollapseStore: Sendable {
-    /// The defaults key under which the `[groupID: collapsed]` map is stored.
+    /// The defaults key under which the `[collapseStateID: collapsed]` map is stored.
     public static let defaultsKey = "dev.cmux.mobile.workspaceGroup.collapse.v1"
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
-    /// groupID.rawValue -> this device's collapse decision. The map doubles as the
-    /// "have I seen this group?" set: a present key means the group's collapse is
-    /// device-owned; an absent key means it still inherits the Mac's seed.
+    /// group.collapseStateID -> this device's collapse decision. The map doubles
+    /// as the "have I seen this group?" set: a present key means the group's
+    /// collapse is device-owned; an absent key means it still inherits the Mac's
+    /// seed.
     private var map: [String: Bool]
 
     /// Create a store backed by the given defaults.
@@ -62,30 +63,50 @@ public struct MobileWorkspaceGroupCollapseStore: Sendable {
     /// `isCollapsed` with it; otherwise seed the device decision from the Mac's
     /// reported value (initial inheritance) and keep that. Entries for groups no
     /// longer present are dropped so the map stays bounded by the live group count.
-    /// - Parameter groups: The groups as reported by the Mac.
+    /// - Parameter groups: The owner-stamped groups derived from every Mac.
     /// - Returns: The same groups with `isCollapsed` reflecting this device.
     public mutating func apply(to groups: [MobileWorkspaceGroupPreview]) -> [MobileWorkspaceGroupPreview] {
-        let liveIDs = Set(groups.map(\.id.rawValue))
-        var changed = false
-
-        // Prune decisions for groups that no longer exist (renamed-away/deleted),
-        // keeping the map bounded by the number of live groups.
-        for key in map.keys where !liveIDs.contains(key) {
-            map.removeValue(forKey: key)
-            changed = true
+        let liveIDs = Set(groups.map(\.collapseStateID))
+        let groupsByRemoteID = Dictionary(grouping: groups, by: { $0.rpcGroupID.rawValue })
+        let legacyMigrationTargetByRemoteID: [String: String] = groupsByRemoteID.compactMapValues { matchingGroups in
+            guard matchingGroups.count == 1,
+                  let group = matchingGroups.first,
+                  let macDeviceID = group.macDeviceID,
+                  !macDeviceID.isEmpty,
+                  group.collapseStateID != group.rpcGroupID.rawValue else {
+                return nil
+            }
+            return group.collapseStateID
         }
+        var changed = false
 
         let resolved = groups.map { group -> MobileWorkspaceGroupPreview in
             var group = group
-            let key = group.id.rawValue
+            let key = group.collapseStateID
             if let local = map[key] {
                 group.isCollapsed = local
+            } else if legacyMigrationTargetByRemoteID[group.rpcGroupID.rawValue] == key,
+                      let legacyLocal = map[group.rpcGroupID.rawValue] {
+                // Before groups carried Mac ownership, collapse preferences were
+                // keyed only by the raw group id. Migrate only when one live,
+                // authoritatively owned group can claim that legacy decision.
+                map[key] = legacyLocal
+                group.isCollapsed = legacyLocal
+                changed = true
             } else {
                 // First time this device sees the group: inherit the Mac's value.
                 map[key] = group.isCollapsed
                 changed = true
             }
             return group
+        }
+
+        // Prune decisions for groups that no longer exist (renamed-away/deleted),
+        // keeping the map bounded by the number of live groups. This runs after
+        // legacy migration so old raw-id decisions are still available above.
+        for key in map.keys where !liveIDs.contains(key) {
+            map.removeValue(forKey: key)
+            changed = true
         }
 
         if changed { persist() }

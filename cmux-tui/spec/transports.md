@@ -1,10 +1,14 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
+This document covers private protocol-v12 transport negotiation. The public
+resource protocol defines its transport parity in
+[`resource-api-v2.md`](resource-api-v2.md).
+
+The raw command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
 
 ## Protocol Negotiation
 
-Protocol-v7 servers report `protocol:7` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. In particular, a client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment.
+The current server reports `protocol:12` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8. A client decoding stack layouts or sending `new-pane` must require protocol 9. A client using `set-client-sizing` must require protocol 10 and include its target surface. Protocol 11 changes terminal creation and `run` lifecycle response shapes and adds terminal renderer minting. Protocol 12 adds lifecycle readiness to the strict `identify` response. A client sending `shutdown-daemon` with `force:true` must require the additive `daemon-handoff-force-v1` capability. A remote TUI routing browser pointer input must also require the additive `browser-pointer-frame-guard-v1` capability and use its guarded command names; legacy clients can continue using the original optional-guard commands. A browser `attach-surface` connection must advertise that capability through `set-client-info` on the same socket before attaching. A client sending `new-pane-right` or interpreting `Screen.viewport_splits` must require the additive `viewport-splits-v1` capability. A client sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width` must require `viewport-column-resize-v1`. A client sending `undo-layout` must require `layout-undo-v1`.
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
@@ -17,15 +21,57 @@ There is no transport-level version preamble. Omitting `attach-surface.mode` sel
 
 ### Path Resolution
 
-The default socket path for a session is:
+The server resolves the runtime root in this order:
 
 ```text
-$TMPDIR/cmux-tui-<uid>/<session>.sock
+$XDG_RUNTIME_DIR
+$TMPDIR
+/tmp
 ```
 
-The implementation uses Rust `std::env::temp_dir()` for `$TMPDIR`, appends `cmux-tui-<uid>`, and then appends `<session>.sock`. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`.
+It appends `cmux-tui-<uid>/<session>.sock`. When that path exceeds the
+platform Unix-socket limit, the server first uses the same leaf below `/tmp`.
+If the session leaf itself is still too long, the server and every SDK first
+use `<runtime-base>/cmux-tui-hashed-<uid>/<sha256>.sock` when that path fits,
+then use `/tmp/cmux-tui-hashed-<uid>/<sha256>.sock` only when the preferred
+runtime base is also too long. Here `<runtime-base>` is the first non-empty
+value of `XDG_RUNTIME_DIR`, `TMPDIR`, or `/tmp`, and `sha256` is the full
+lowercase SHA-256 digest of the session's UTF-8 bytes. The separate directory
+prevents a digest leaf from aliasing an ordinary session name. The TUI exports
+the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy
+`CMUX_MUX_SOCKET`. SDKs must prefer an explicit socket or `CMUX_TUI_SOCKET`,
+then implement the same byte-length and path-resolution algorithm. Empty
+socket environment values are treated as unset.
 
-The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path.
+The server validates session text before joining it into the path. A name must
+be a non-empty single path component. `.`, `..`, `/`, `\\`, NUL, control
+characters, and Unicode line separators are rejected. Existing names with
+spaces, Unicode, leading punctuation, colons, or long text remain valid.
+Clients that can target an older protocol-v9 server must apply the same
+validation before computing a socket path. SDKs must expose a fallible
+validation path before opening a derived socket. Legacy non-fallible helpers
+must never join invalid text into the normal socket root; they may return a
+distinct, hash-derived per-input error path for source compatibility. That
+path is outside the normal `cmux-tui-<uid>` session directory and is never a
+server-derived session socket. A compatibility hash is only a deterministic
+namespace guard, not a cryptographic identity. SDK connectors must use the
+fallible path and must not open a compatibility path. For SDK discovery,
+explicit socket paths and `CMUX_TUI_SOCKET` / `CMUX_MUX_SOCKET` overrides
+remain authoritative and do not require a session component.
+
+The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit socket does not change the state root. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
+
+A normal non-headless invocation first attempts to attach when its selected
+socket already exists. This happens before state-root selection, so `--state`
+and `--ephemeral` do not force a new owner when that socket is live; use a
+unique session or socket to isolate ownership. If no daemon accepts the
+connection, those flags apply to the newly created owner.
+
+One process holds an exclusive cross-platform writer lease for each session
+database. SQLite uses WAL, foreign keys, `synchronous=FULL`, and macOS
+`fullfsync`. A second daemon for the same state/session fails startup instead
+of racing. Corruption or an unsupported schema also fails closed; the daemon
+never silently falls back to ephemeral state.
 
 ### Framing And Canonical Envelope
 
@@ -45,8 +91,12 @@ Response envelope:
 
 ```text
 object{id?:any,ok:true,data:any}
-| object{id?:any,ok:false,error:string}
+| object{id?:any,ok:false,error:string,error_code?:string,error_delivery?:"known-not-delivered"|"ambiguous"}
 ```
+
+`error_code` is an additive machine-readable classification for commands that
+define one. Clients must continue to display or log `error` and ignore unknown
+codes.
 
 Decode errors return:
 
@@ -54,9 +104,13 @@ Decode errors return:
 object{ok:false,error:"bad request: ..."}
 ```
 
+`clear-history` errors include `error_delivery`. `"known-not-delivered"` proves that neither a
+clear nor fallback input reached the terminal. `"ambiguous"` means terminal delivery may have
+started before the error. Clients must treat a missing or unknown value as `"ambiguous"`.
+
 ### Id Correlation
 
-The server echoes the request `id` value unchanged for decoded command responses. `id` may be any JSON value. The server does not require ids to be unique, but clients that pipeline requests need unique ids to correlate responses.
+The v9 server echoes any JSON request `id` unchanged. Portable SDKs restrict ids to strings or JavaScript-safe integers and keep them unique among pending requests. Other JSON shapes have no portable equality contract.
 
 Event lines do not carry request ids.
 
@@ -69,11 +123,96 @@ The v5 socket security model is filesystem permissions:
 | Runtime directory | `0700` |
 | Socket file | `0600` |
 
-When binding, the server creates the runtime directory if needed, refuses to clobber a live socket, removes a stale socket, binds the listener, and then sets socket permissions. On clean shutdown, it removes the socket file.
+Before binding, the server creates the final socket parent if needed, rejects a
+symlink or non-directory, verifies ownership by the effective user, and
+tightens group/other permissions. It then refuses to clobber a live socket,
+removes a stale socket, binds the listener, and sets socket permissions. On
+clean shutdown, it removes the socket file. These checks cover the final
+parent; because `create_dir_all` can follow intermediate links, a future
+component-by-component `openat`/`O_NOFOLLOW` walk is needed if an untrusted
+process can replace an intermediate parent during creation.
+The relay's ensure-daemon path performs the same final-parent ownership/mode
+validation after `create_dir_all` and has the same intermediate-parent
+limitation.
 
 Access to the Unix socket is equivalent to access to the mux session. A client can type into PTYs, read screens, close surfaces, and change focus. Hosts must keep the runtime directory private.
 
 The Unix socket does not use the WebSocket auth preamble. Its filesystem permissions remain the access boundary.
+
+`CMUX_TUI_SOCKET` and `CMUX_MUX_SOCKET` inherited by a child are ambient full-session capabilities. Untrusted child processes must not inherit them.
+
+### Implemented v10 limits
+
+WebSocket protocol messages are limited to 4 MiB. Unix JSON-lines readers and relay readers currently have no equivalent application limit and may buffer an unterminated line. SDK readers also differ. This is a v10 security limitation, not permission to send unbounded messages.
+
+vNext applies a 4,194,304-byte client-to-server UTF-8 message limit on every transport and a 16,777,216-byte server-to-client limit. The JSON-lines delimiter is excluded. A receiver closes on an oversized message or invalid UTF-8. WebSocket limits apply after reassembly, and an oversized WebSocket closes with code `1009`.
+
+## Relay Stdio
+
+| Field | Value |
+| --- | --- |
+| status | implemented client transport primitive |
+| since | protocol 9 client |
+
+`cmux relay` copies bytes between stdin/stdout and one existing local Unix session socket:
+
+```text
+cmux relay --session main
+cmux relay --socket /absolute/path/to/session.sock
+```
+
+Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible. When relay stdin reaches EOF, relay half-closes the Unix socket write side and continues copying server output. The server stops accepting requests on that connection, completes every parsed request, and then closes the response stream. Requests for one surface remain ordered, and an active `clear-history` also blocks later lifecycle commands. Requests for unrelated surfaces may complete first, so clients must correlate responses by request id.
+
+The implemented SSH machine connector starts relay as:
+
+```text
+ssh -T [-p PORT] [-i IDENTITY_FILE] -- [USER@]HOST 'BINARY' relay --session SESSION
+```
+
+SSH supplies authentication, encryption, host verification, and process transport. The connector splits child stdout and stdin into independently owned reader and writer halves. Its JSON-lines adapter removes one line delimiter before giving a complete message to `RemoteSession` and appends one delimiter when sending. EOF cancels pending session requests and closes the child process transport.
+
+Complete-message framing is the session-client boundary. Unix sockets and relay stdio use JSON lines. WebSocket adapters use one text frame per message without adding a newline. A future transport can supply different framing without changing terminal mirroring or the machine rail.
+
+### PTY lifecycle errors and `terminal_gone`
+
+The PTY relay dialect reports errors as JSON frames. A `pty_error` frame has this
+shape:
+
+```text
+object{version:uint,type:"pty_error",ptyId:string,code:string,message:string}
+```
+
+The `terminal_gone` code is definitive only for a resource lookup. The relay
+emits it after a successful, schema-valid `list-workspaces` response contains no
+live PTY with the requested resource reference. A missing, non-success, or
+malformed control response uses `failed`, because it does not prove that the
+terminal is gone. A numeric surface reference is checked by `attach-surface`,
+so an attach failure also remains `failed` unless a future control contract adds
+an explicit not-found result.
+
+Clients must close the failed local PTY view after `terminal_gone`, discard input
+queued for that resource, and avoid retrying the same resource reference. They
+may retry `failed` after a new authenticated transport generation when the
+command's ownership and idempotency rules permit it. The generated PTY error
+contract also defines `overflow`, `trust_revoked`, and `busy`. These additive
+operational codes are enabled only after outer relay protocol version 7; the PTY
+frame itself remains version 4. Older Workers receive `failed` with the same
+retry or reattach instruction in `message`. Unknown codes are protocol-invalid.
+
+Frames for one PTY are ordered on the logical stream. A reconnect creates a new
+transport generation, and clients must re-authenticate and rediscover the
+resource before opening it again. A transport close is not proof that the PTY is
+gone. Repeated opens must follow the command's ownership and idempotency
+contract; this relay does not add a separate request-id or retryable field to
+the `pty_error` envelope.
+
+WebSocket adapters must preserve JSON message order and treat a closed socket as
+an ambiguous delivery boundary, never as proof that a PTY is missing. This is an
+application-level rule on top of RFC 6455 framing.
+
+Relay grants the remote SSH principal the authority of the selected local Unix socket. Deployments must restrict SSH admission and the remote socket with the same care as direct socket access.
+
+The server classifies relay traffic as Unix because relay terminates at the Unix socket. The remote SSH principal therefore receives local-admin operations, including `shutdown-daemon` and `pairing-response`. Deployments that need less authority must use a future distinct relay profile.
 
 ## WebSocket
 
@@ -85,8 +224,8 @@ The Unix socket does not use the WebSocket auth preamble. Its filesystem permiss
 WebSocket is opt-in and can run alongside either the local TUI or `--headless`:
 
 ```text
-cmux-tui --ws 127.0.0.1:7681
-cmux-tui --headless --ws 127.0.0.1:7681
+cmux --ws 127.0.0.1:7681
+cmux --headless --ws 127.0.0.1:7681
 ```
 
 The equivalent config is:
@@ -99,9 +238,9 @@ The equivalent config is:
 
 ### Framing
 
-Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. For a selected protocol feature, the request/response envelopes, command names, event payloads, attach ordering, and base64 encoding are identical across Unix and WebSocket transports.
+Each client request is one UTF-8 JSON object in one reassembled WebSocket text message. Each response or event is one complete JSON object in one text message. RFC 6455 fragmentation is transport-internal. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. For a selected protocol feature, the request/response envelopes, command names, event payloads, attach ordering, and base64 encoding are identical across Unix and WebSocket transports.
 
-WebSocket `permessage-deflate` may be negotiated as optional transport compression. Compression is hop-by-hop WebSocket behavior, not part of the cmux-tui protocol: clients cannot require it for correctness, payload schemas remain JSON text, and intermediaries may enable or disable it independently.
+Transport compression is not part of the cmux-tui contract. Clients cannot require it for correctness.
 
 Binary frames are not protocol messages and cause the connection to close. The server accepts a normal WebSocket upgrade on any request path and does not require a WebSocket subprotocol.
 
@@ -129,25 +268,45 @@ Static and server-issued reconnect credentials use this transport-level preamble
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch.
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect authentication or pairing frame closes the connection with WebSocket policy code `1008` before dispatch. Pre-authentication frames are capped at 4 KiB, and authenticated protocol frames are capped at 4 MiB.
 
 The listener permits one pending request per source address, five starts per minute per address, 16 pending challenges, 64 total sockets, and 4 MiB frames. Pairing expires after 60 seconds and at most 64 reconnect credentials remain valid in memory.
 
+The current listener accepts every WebSocket Origin and request path. A browser challenge identifies only its TCP peer, which is normally loopback. Deployments must not treat pairing as an Origin check. vNext adds an explicit Origin allowlist and includes normalized Origin and path in the trusted approval prompt.
+
 ### Bind Security
 
-By default the listener accepts only an IP loopback address such as `127.0.0.1` or `[::1]`. cmux-tui refuses a non-loopback address unless `--ws-insecure-bind` is also present. This listener provides no TLS; for remote access, bind deliberately and place it behind a TLS-terminating, authenticated reverse proxy. A WebSocket client has the same authority as a Unix socket client: it can read terminal contents, type into PTYs, and mutate or close the session.
+By default the listener accepts only an IP loopback address such as `127.0.0.1` or `[::1]`. cmux-tui refuses a non-loopback address unless `--ws-insecure-bind` is also present. This listener provides no TLS; for remote access, bind deliberately and place it behind a TLS-terminating, authenticated reverse proxy. An authenticated WebSocket client can read terminal contents, type into PTYs, and use ordinary control and frontend mutations, including closing session topology. It cannot use Unix-only `local-admin` commands: `shutdown-daemon` and `pairing-response` reject WebSocket callers. Provider-owned workspace commits also require their separate provider authority.
+
+Static tokens and reconnect credentials are bearer credentials with ordinary control and frontend authority, excluding `local-admin` and `provider-authority`. Reconnect credentials are memory-only, survive for eight hours, are invalid after daemon restart, and have no v10 list or revoke API. Prefer secret files over process arguments when a future `--ws-token-file` becomes available. Credentials must never appear in URLs, logs, debug output, or generated diagnostics.
+
+## Concurrency, streams, and reconnect
+
+The v10 server begins commands serially in receive order on each connection. A blocking `wait-for` delays later commands on that connection. A client request timeout stops local waiting only; it does not cancel execution, and a late mutation may still commit.
+
+After a timeout, clients must not retry a non-idempotent legacy mutation until a
+snapshot or event reconciles the original outcome. A durable mutation retries
+with the same `(origin, mutation_id)` so the server can replay its receipt.
+
+Repeated `subscribe` calls and repeated attachments create independent server streams without public stream ids. Closing a local iterator on a shared connection does not cancel its server stream. A v10 client that needs independent cancellation uses a dedicated connection and closes it. On one shared connection, use at most one subscription and one attachment per surface.
+
+The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
+
+A reconnect creates a new transport generation. Old pending ids, event buffers, and stream handles never cross generations. A client resends authentication, calls `identify`, registers subscriptions before fetching snapshots, checks generation values, and reattaches surfaces. Network loss uses capped exponential delay with jitter and one in-flight attempt. Static-token rejection is terminal. Reconnect-credential rejection discards that credential once and enters one pairing attempt. Pairing denial, expiry, or rate limiting requires user action.
+
+vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
 
 ## HTTP
 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 10 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
 ```text
-cmux-tui --http 127.0.0.1:0
+cmux --http 127.0.0.1:0
 ```
 
 The implementation must not bind a non-loopback address unless the user explicitly supplies one. HTTP is disabled unless a bearer token exists or the user passes `--http-insecure-localhost`.
@@ -215,7 +374,7 @@ The attach ordering contract is identical to the socket `attach-surface` command
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 10 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 

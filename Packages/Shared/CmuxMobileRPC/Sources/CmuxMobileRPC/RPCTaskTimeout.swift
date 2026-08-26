@@ -1,12 +1,21 @@
 import Foundation
 
-struct RPCTaskTimeout: Sendable {
-    func value<T: Sendable>(
+/// Races asynchronous work against the mobile RPC deadline scheduler.
+///
+/// The scheduler owns settlement through an actor, so callers do not need
+/// timing tasks, polling, or manual synchronization.
+public struct RPCTaskTimeout: Sendable {
+    public init() {}
+
+    /// Returns a task's value or throws when its deadline expires.
+    public func value<T: Sendable>(
         _ task: Task<T, any Error>,
         timeoutNanoseconds: UInt64
     ) async throws -> T {
         let race = RPCTaskTimeoutRace()
+        let cancellation = RPCTaskTimeoutCancellation<T>()
         let stream = AsyncThrowingStream<T, any Error> { continuation in
+            cancellation.install(continuation, race: race)
             let valueTask = Task {
                 do {
                     let value = try await task.value
@@ -32,13 +41,17 @@ struct RPCTaskTimeout: Sendable {
                 timeoutTask.cancel()
             }
         }
-        for try await value in stream {
-            return value
+        return try await withTaskCancellationHandler {
+            for try await value in stream {
+                return value
+            }
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            throw MobileShellConnectionError.requestTimedOut
+        } onCancel: {
+            cancellation.cancel(race: race)
         }
-        if Task.isCancelled {
-            throw CancellationError()
-        }
-        throw MobileShellConnectionError.requestTimedOut
     }
 
     func sleep(nanoseconds: UInt64) async throws {

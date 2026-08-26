@@ -5,6 +5,68 @@ import Testing
 
 @Suite
 struct CmxIrohSettingsSnapshotTests {
+    @Test func pathPreferenceReadsKnownValuesAndDefaultsUnknownValues() throws {
+        let suiteName = "CmxIrohSettingsSnapshotTests.path-preference.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+
+        defaults.set("auto", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+
+        defaults.set("relayOnly", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .relayOnly)
+
+        defaults.set("neverUseRelays", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .neverUseRelays)
+
+        defaults.set("unknown", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+    }
+
+    @Test func retiredPathPreferencesNormalizeToAutomaticTransport() {
+        #expect(
+            CmxIrohPathPreference.automatic.transportVerificationMode == .automatic
+        )
+        #expect(
+            CmxIrohPathPreference.relayOnly.transportVerificationMode == .automatic
+        )
+        #expect(
+            CmxIrohPathPreference.neverUseRelays.transportVerificationMode == .directOnly
+        )
+    }
+
+    @Test func snapshotDefaultsAndRoundTripsPathPreference() {
+        let automatic = CmxIrohSettingsSnapshot(
+            runtimeStatus: .inactive,
+            preference: .automatic,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .unavailable
+        )
+        let relayOnly = CmxIrohSettingsSnapshot(
+            runtimeStatus: .active,
+            preference: .automatic,
+            pathPreference: .relayOnly,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server
+        )
+        let neverUseRelays = CmxIrohSettingsSnapshot(
+            runtimeStatus: .active,
+            preference: .automatic,
+            pathPreference: .neverUseRelays,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server
+        )
+
+        #expect(automatic.pathPreference == .automatic)
+        #expect(relayOnly.pathPreference == .relayOnly)
+        #expect(neverUseRelays.pathPreference == .neverUseRelays)
+    }
+
     @Test
     func activeRuntimeStatusPreservesOnlyRedactedPathLabels() {
         #expect(CmxIrohSettingsSnapshot.RuntimeStatus(
@@ -72,6 +134,41 @@ struct CmxIrohSettingsSnapshotTests {
         #expect(snapshot.customRelays == [relay])
         #expect(relay.credentialState == .configured)
         #expect(secretBearingLabels(in: snapshot).isEmpty)
+    }
+
+    @Test func debugTransportProjectionPreservesAllThreeVerificationModes() {
+        for mode in CmxIrohTransportVerificationMode.allCases {
+            let snapshot = CmxIrohSettingsSnapshot(
+                runtimeStatus: .active,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .server,
+                debugTransportVerificationMode: mode
+            )
+
+            #expect(snapshot.debugTransportVerificationMode == mode)
+            #expect(snapshot.debugRelayOnlyEnabled == (mode == .relayOnly))
+        }
+    }
+
+    @Test func privateNetworkMacIdentityIncludesTheBuildTag() {
+        let deviceID = "123E4567-E89B-42D3-A456-426614174004"
+        let stable = CmxIrohSettingsSnapshot.PrivateNetworkMac(
+            macDeviceID: deviceID,
+            instanceTag: " stable ",
+            displayName: "MacBook Pro"
+        )
+        let nightly = CmxIrohSettingsSnapshot.PrivateNetworkMac(
+            macDeviceID: deviceID,
+            instanceTag: "nightly",
+            displayName: "MacBook Pro"
+        )
+
+        #expect(stable.macDeviceID == deviceID.lowercased())
+        #expect(stable.instanceTag == "stable")
+        #expect(stable.id != nightly.id)
+        #expect(Set([stable.id, nightly.id]).count == 2)
     }
 
     @Test func managedPreferenceRequiresOneToSixteenSafeRelayIdentifiers() throws {

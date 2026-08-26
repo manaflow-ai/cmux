@@ -1,14 +1,26 @@
 public import CMUXMobileCore
-public import CmuxMobileShellModel
+internal import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import Foundation
 internal import os
+
+/// Controls whether a request carries the connection's attach-ticket context.
+/// Stack account authorization is always sent for authorized bearer requests.
+public enum MobileCoreRPCAttachTicketPolicy: Sendable, Equatable {
+    /// Include a current attach token when its route/workspace scope covers the request.
+    case whenCovered
+    /// Omit attach-ticket context so it cannot narrow an account-authorized request.
+    case omit
+}
 
 /// A multiplexed RPC client over a single persistent transport to a paired Mac.
 ///
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    /// Stable identity for this logical client across focused/control role
+    /// handoffs. A replacement client receives a new identity.
+    public let instanceID: String = UUID().uuidString
     private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
@@ -16,13 +28,24 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
+    /// Whether this session is bound to an exact Tailscale endpoint the user
+    /// authorized locally, rather than an endpoint learned through discovery.
+    public var usesLocallyAuthorizedTailscaleRoute: Bool {
+        guard route.kind == .tailscale else { return false }
+        switch transportRequest.authorizationMode {
+        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+            return true
+        case .stackBearer, .transportAdmission:
+            return false
+        }
+    }
     private let allowsStackAuthFallback: Bool
-    private let stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    private let lifecycleGate: MobileRPCClientLifecycleGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -31,35 +54,74 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
-    ///   - stackAuthChannelTrust: The channel set trusted to carry the Stack
-    ///     bearer token; defaults to the fail-closed loopback-only iOS policy.
-    ///     The macOS remote-Mac viewer passes
-    ///     ``MobileShellRouteAuthPolicy/StackAuthChannelTrust/loopbackAndTailscaleTunnel``
-    ///     because its routes come from the account's own device registry.
+    ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
+    ///     only for a pairing that predates Iroh. Mismatched evidence is ignored,
+    ///     leaving the raw Tailscale route fail-closed.
+    ///   - irohDirectOnlyDialCandidates: The per-Computer Direct method's
+    ///     complete path allowlist for an Iroh route. Ignored for other route
+    ///     kinds; `nil` = the normal Iroh dial plan.
+    ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
+    ///     transport dial lifecycle events. The observer must return immediately.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
-        stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly,
+        legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
+        userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
-        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
+        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil,
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
     ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        let authorizationMode: CmxTransportAuthorizationMode
+        if route.kind == .iroh {
+            authorizationMode = .transportAdmission
+        } else if route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint,
+                  let legacyTailscaleAuthorizationEvidence,
+                  legacyTailscaleAuthorizationEvidence.authorizes(
+                      macDeviceID: ticket.macDeviceID,
+                      host: host,
+                      port: port
+                  ) {
+            authorizationMode = .legacyTailscaleBearer(
+                legacyTailscaleAuthorizationEvidence
+            )
+        } else if route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint,
+                  let userTailscalePairingAuthorization,
+                  userTailscalePairingAuthorization.authorizes(
+                      host: host,
+                      port: port
+                  ) {
+            authorizationMode = .userAuthorizedTailscalePairing(
+                userTailscalePairingAuthorization
+            )
+        } else {
+            authorizationMode = .stackBearer
+        }
         let transportRequest = CmxByteTransportRequest(
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
-            authorizationMode: route.kind == .iroh ? .transportAdmission : .stackBearer
+            authorizationMode: authorizationMode,
+            sessionPurpose: sessionPurpose,
+            irohDirectOnlyDialCandidates: route.kind == .iroh
+                ? irohDirectOnlyDialCandidates
+                : nil
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
-        self.stackAuthChannelTrust = stackAuthChannelTrust
+        let lifecycleGate = MobileRPCClientLifecycleGate()
+        self.lifecycleGate = lifecycleGate
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -68,27 +130,93 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if route.kind == .iroh,
            let provider = runtime.independentEventByteStreamProvider {
             independentEventFactory = {
-                try await provider(transportRequest)
+                let admission = try lifecycleGate.beginIndependentEventAdmission()
+                let stream = try await provider(transportRequest)
+                return try await lifecycleGate.finishIndependentEventAdmission(
+                    admission,
+                    stream: stream
+                )
             }
         } else {
             independentEventFactory = nil
         }
         self.session = MobileCoreRPCSession(
-            connectAttemptKey: route.mobileRPCConnectAttemptKey,
+            connectAttemptKey: MobileRPCConnectAttemptKey(
+                route: route
+            ),
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [runtime, transportRequest] in
-                try runtime.transportFactory.makeTransport(for: transportRequest)
+            makeTransport: { [runtime, transportRequest, lifecycleGate] in
+                try lifecycleGate.makeTransport {
+                    try runtime.transportFactory.makeTransport(for: transportRequest)
+                }
             },
-            makeIndependentEventByteStream: independentEventFactory
+            makeIndependentEventByteStream: independentEventFactory,
+            diagnosticTransport: route.kind.diagnosticTransportKind,
+            transportConnectObserver: transportConnectObserver,
+            initialTransportSessionPurpose: sessionPurpose
         )
     }
 
     /// Tear down the persistent transport (called when the client is
     /// replaced or the user signs out).
     public func disconnect() async {
+        retire()
         await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Retire this client and await both its installed transport close and any
+    /// transport factory admission that raced retirement. A cancellation-
+    /// ignoring abandoned dial is handed to the shared route registry after a
+    /// bounded cleanup interval. Installed transports retain that same global
+    /// lease until their exact close task finishes. The registry permits one
+    /// recovery dial and blocks further route admission while two physical
+    /// cleanups remain unresolved.
+    public func disconnectAndWaitForTransportDrain() async {
+        retire()
+        await session.tearDown(error: .connectionClosed)
+        async let sessionDrain: Void = session.waitForTransportDrain()
+        async let admissionDrain: Void =
+            lifecycleGate.waitForRetiredTransportDisposals()
+        _ = await (sessionDrain, admissionDrain)
+    }
+
+    /// Returns whether `otherRoute` competes for this client's exact physical
+    /// connection lease. Shell handoffs use this before the target reports its
+    /// logical Mac identity, so anonymous and refreshed Iroh routes still
+    /// release an existing same-peer owner before dialing.
+    public func sharesPhysicalTransportRoute(
+        with otherRoute: CmxAttachRoute
+    ) -> Bool {
+        Self.routesSharePhysicalTransport(route, otherRoute)
+    }
+
+    /// Returns whether two routes compete for the same physical connection
+    /// lease. Shell ownership arbitration uses this before either route has a
+    /// live client, including while a background admission is still suspended.
+    public static func routesSharePhysicalTransport(
+        _ lhs: CmxAttachRoute,
+        _ rhs: CmxAttachRoute
+    ) -> Bool {
+        MobileRPCConnectAttemptKey(route: lhs)
+            == MobileRPCConnectAttemptKey(route: rhs)
+    }
+
+    /// Synchronously prevent this client from allocating another transport.
+    /// Shell ownership changes call this before scheduling actor-isolated
+    /// teardown, closing the window where an already-queued RPC could reopen a
+    /// client that is no longer authoritative.
+    public func retire() {
+        lifecycleGate.retire()
+    }
+
+    /// Reclassifies this client's live transport when shell ownership moves
+    /// between the focused render role and the warm control pool.
+    public func updateTransportSessionPurpose(
+        _ purpose: CmxTransportSessionPurpose
+    ) async {
+        await session.updateTransportSessionPurpose(purpose)
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -104,11 +232,36 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.prepareIndependentServerEvents()
     }
 
+    /// Opens an artifact lane bound to this client's immutable admitted route.
+    public func openArtifactLane(
+        resourceID: String,
+        offset: UInt64
+    ) async throws -> any MobileArtifactLaneConnection {
+        guard route.kind == .iroh,
+              let provider = runtime.artifactLaneProvider else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        let admission = try lifecycleGate.beginArtifactLaneAdmission()
+        let connection = try await provider(
+            transportRequest,
+            resourceID,
+            offset
+        )
+        return try await lifecycleGate.finishArtifactLaneAdmission(
+            admission,
+            connection: connection
+        )
+    }
+
     /// Build a JSON-RPC request frame with the given method and params.
     /// - Parameters:
     ///   - method: The RPC method name.
     ///   - params: The request parameters.
-    ///   - id: The request id (defaults to a fresh UUID).
+    ///   - id: The request id (defaults to a fresh UUID). Must be unique per
+    ///     logical request: the session does not tombstone the ids of
+    ///     cancelled or timed-out requests on a preserved transport, so
+    ///     reusing an id for a retry lets the original request's late
+    ///     response settle the retry.
     /// - Returns: The encoded request data.
     /// - Throws: A serialization error if the params are not JSON-encodable.
     public static func requestData(
@@ -128,7 +281,107 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///
     /// The optional timeout is a hard end-to-end deadline for auth augmentation,
     /// connection setup, and response wait, not a per-subphase timeout.
-    public func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
+    public func sendRequest(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> Data {
+        try await sendRequest(
+            requestData,
+            timeoutNanoseconds: timeoutNanoseconds,
+            attachTicketPolicy: .whenCovered
+        )
+    }
+
+    /// Sends one request with explicit control over attach-ticket context.
+    public func sendRequest(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy
+    ) async throws -> Data {
+        try await sendRequestOperation(
+            requestData,
+            timeoutNanoseconds: timeoutNanoseconds,
+            attachTicketPolicy: attachTicketPolicy
+        ).response
+    }
+
+    /// Enqueues one authorized request and returns before its response arrives.
+    ///
+    /// This path deliberately does not retry an `authorizationFailed` response:
+    /// retrying would place the repeated request behind later pipelined work and
+    /// break application order. The terminal-input caller uses it only on Iroh
+    /// transport-admission routes, where no bearer-token refresh is needed.
+    ///
+    /// Sequential calls from one caller enqueue transport writes in call order.
+    ///
+    /// - Parameters:
+    ///   - requestData: The encoded JSON-RPC request.
+    ///   - timeoutNanoseconds: An optional end-to-end request deadline.
+    /// - Returns: A handle that separately awaits the response settlement.
+    /// - Throws: An encoding, authorization, connection, or enqueue error.
+    public func sendRequestPipelined(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> MobileCoreRPCPipelinedRequest {
+        let deadline = RPCRequestDeadline(
+            timeoutNanoseconds: timeoutNanoseconds
+                ?? runtime.rpcRequestTimeoutNanoseconds
+        )
+        let (id, augmented) = try Self.requestWithGuaranteedID(requestData)
+        let authenticated = try await requestDataWithAuth(
+            augmented,
+            deadline: deadline,
+            hostStatusStackToken: nil
+        )
+        try Task.checkCancellation()
+        try await session.beginSend(
+            payload: authenticated.data,
+            requestID: id,
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+        )
+        return MobileCoreRPCPipelinedRequest(
+            requestID: id,
+            session: session
+        )
+    }
+
+    /// Sends an authorized request and then proves host identity with the same
+    /// Stack token that authorized its successful response.
+    ///
+    /// The token stays in this call frame. Failed, cancelled, and concurrent
+    /// requests cannot publish or overwrite authorization state for a later
+    /// host-status probe.
+    public func sendRequestAndAuthenticatedHostStatus(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil,
+        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil }
+    ) async throws -> (response: Data, hostStatusResponse: Data) {
+        guard let request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+              Self.requestRequiresAuth(request) else {
+            throw MobileShellConnectionError.invalidResponse
+        }
+        let authorized = try await sendRequestOperation(
+            requestData,
+            timeoutNanoseconds: timeoutNanoseconds
+        )
+        let hostStatusTimeout = hostStatusTimeoutNanoseconds()
+        if hostStatusTimeout == 0 {
+            throw MobileShellConnectionError.requestTimedOut
+        }
+        let hostStatus = try await sendRequestOperation(
+            Self.requestData(method: "mobile.host.status", params: [:]),
+            timeoutNanoseconds: hostStatusTimeout,
+            hostStatusStackToken: authorized.stackAccessToken
+        )
+        return (authorized.response, hostStatus.response)
+    }
+
+    private func sendRequestOperation(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64?,
+        hostStatusStackToken: String? = nil,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy = .whenCovered
+    ) async throws -> AuthenticatedRequestResult {
         let deadline = RPCRequestDeadline(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         )
@@ -140,7 +393,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return try await sendAuthenticatedRequest(
                 preparedRequest,
                 deadline: deadline,
-                allowAuthRetry: true
+                allowAuthRetry: true,
+                hostStatusStackToken: hostStatusStackToken,
+                attachTicketPolicy: attachTicketPolicy
             )
         } catch let error as MobileShellConnectionError {
             // The host rejected this request on Stack-auth grounds. Before
@@ -153,7 +408,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // account, so retrying with a fresh token of THIS account cannot
             // help and would only weaken the same-account gate; it surfaces as
             // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
-            guard transportRequest.authorizationMode == .stackBearer,
+            guard transportUsesStackBearer,
                   case .authorizationFailed = error else { throw error }
             try await forceRefreshStackTokenForRetry(deadline: deadline)
             // Re-run with retry disabled so a fresh token that is still rejected
@@ -161,7 +416,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return try await sendAuthenticatedRequest(
                 preparedRequest,
                 deadline: deadline,
-                allowAuthRetry: false
+                allowAuthRetry: false,
+                hostStatusStackToken: hostStatusStackToken,
+                attachTicketPolicy: attachTicketPolicy
             )
         }
     }
@@ -176,6 +433,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               request["method"] as? String == "mobile.events.subscribe",
               var params = request["params"] as? [String: Any],
               params["event_transport"] == nil,
+              let streamID = params["stream_id"] as? String,
               let remaining = try? deadline.remainingNanoseconds() else {
             return requestData
         }
@@ -184,6 +442,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             Self.independentEventPreparationTimeoutNanoseconds
         )
         guard await session.prepareIndependentServerEvents(
+            forSubscriptionStreamID: streamID,
             timeoutNanoseconds: preparationTimeout
         ) else {
             return requestData
@@ -223,8 +482,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func sendAuthenticatedRequest(
         _ requestData: Data,
         deadline: RPCRequestDeadline,
-        allowAuthRetry: Bool
-    ) async throws -> Data {
+        allowAuthRetry: Bool,
+        hostStatusStackToken: String?,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy
+    ) async throws -> AuthenticatedRequestResult {
         // Multiplexed over a persistent transport: each request gets a unique
         // id, the session's reader task routes the response back here. No
         // connect/close per RPC, no head-of-line blocking between calls.
@@ -236,13 +497,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         let authenticated = try await requestDataWithAuth(
             augmented,
-            deadline: deadline
+            deadline: deadline,
+            hostStatusStackToken: hostStatusStackToken,
+            attachTicketPolicy: attachTicketPolicy
         )
         try Task.checkCancellation()
-        return try await session.send(
-            payload: authenticated,
+        let response = try await session.send(
+            payload: authenticated.data,
             requestID: id,
             deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+        )
+        return AuthenticatedRequestResult(
+            response: response,
+            stackAccessToken: authenticated.stackAccessToken
         )
     }
 
@@ -264,29 +531,39 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return (id, data)
     }
 
-    private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
+    private func requestDataWithAuth(
+        _ requestData: Data,
+        deadline: RPCRequestDeadline,
+        hostStatusStackToken: String?,
+        attachTicketPolicy: MobileCoreRPCAttachTicketPolicy = .whenCovered
+    ) async throws -> AuthenticatedRequestPayload {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return requestData
+            return AuthenticatedRequestPayload(data: requestData, stackAccessToken: nil)
         }
         if transportRequest.authorizationMode == .transportAdmission {
             request.removeValue(forKey: "auth")
-            return try JSONSerialization.data(withJSONObject: request)
+            return AuthenticatedRequestPayload(
+                data: try JSONSerialization.data(withJSONObject: request),
+                stackAccessToken: nil
+            )
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
+        var requestStackAccessToken: String?
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
         if let attachToken,
            requestNeedsAuth,
            hasAttachToken,
+           attachTicketPolicy == .whenCovered,
            requestIsCoveredByAttachTicket {
             // Expiry is enforced only here, where the RPC-minted attach token
             // is actually used. QR-decoded tickets carry no token (and no
             // expiry), so they never reach this branch.
             if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trust: stackAuthChannelTrust) {
+            } else if !canSendStackBearer {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
@@ -300,12 +577,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // supplementary route/workspace context.
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
-            guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trust: stackAuthChannelTrust) else {
+            guard canSendStackBearer else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
-                auth["stack_access_token"] = try await stackAccessToken(deadline: deadline)
+                let token = try await stackAccessToken(deadline: deadline)
+                auth["stack_access_token"] = token
+                requestStackAccessToken = token
             } catch let error as MobileShellConnectionError {
                 // The provider already classified the failure: a transient
                 // token-fetch failure (offline / refresh server hiccup, session
@@ -329,15 +607,24 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         if !requestNeedsAuth,
            isHostStatusRequest(request),
-           allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trust: stackAuthChannelTrust),
-           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
-            auth["stack_access_token"] = stackAccessToken
+           canSendStackBearer {
+            let stackAccessToken: String?
+            if let hostStatusStackToken {
+                stackAccessToken = hostStatusStackToken
+            } else {
+                stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline)
+            }
+            if let stackAccessToken {
+                auth["stack_access_token"] = stackAccessToken
+            }
         }
         if !auth.isEmpty {
             request["auth"] = auth
         }
-        return try JSONSerialization.data(withJSONObject: request)
+        return AuthenticatedRequestPayload(
+            data: try JSONSerialization.data(withJSONObject: request),
+            stackAccessToken: requestStackAccessToken
+        )
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
@@ -361,6 +648,44 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
+    private var transportUsesStackBearer: Bool {
+        switch transportRequest.authorizationMode {
+        case .stackBearer, .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+            true
+        case .transportAdmission:
+            false
+        }
+    }
+
+    /// One authorization decision shared by every token-send site. Generic
+    /// plaintext routes remain restricted to loopback; the legacy mode is valid
+    /// only while its immutable device/IP/port evidence still matches.
+    private var canSendStackBearer: Bool {
+        switch transportRequest.authorizationMode {
+        case .stackBearer:
+            return allowsStackAuthFallback
+                && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        case let .legacyTailscaleBearer(evidence):
+            guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return false
+            }
+            return evidence.authorizes(
+                macDeviceID: ticket.macDeviceID,
+                host: host,
+                port: port
+            )
+        case let .userAuthorizedTailscalePairing(authorization):
+            guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return false
+            }
+            return authorization.authorizes(host: host, port: port)
+        case .transportAdmission:
+            return false
+        }
+    }
+
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
         guard requestRequiresAuth(request) else {
             return false
@@ -377,11 +702,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
 
         switch method {
-        case "mobile.workspace.list", "workspace.list":
+        case "mobile.workspace.list", "workspace.list",
+             "mobile.task.models.list",
+             "mobile.directory.list", "mobile.directory.search":
             return false
-        case "workspace.create":
+        case "workspace.create", "mobile.task.attachment.upload":
             return false
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
@@ -407,8 +736,33 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
+        case "mobile.events.subscribe", "mobile.events.unsubscribe",
+             "mobile.events.probe":
             return false
+        case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
+             "notification.feed.mark_all_read":
+            // Feed authority is the authenticated account/peer connection, not
+            // a workspace-selection ticket. Omit an irrelevant scoped attach
+            // token so legacy pairings cannot accidentally narrow the global
+            // feed; Stack auth is still attached to every TCP request.
+            return true
+        case "mobile.browser.list", "mobile.browser.create":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "mobile.browser.stream.start", "mobile.browser.stream.stop",
+             "mobile.browser.viewport",
+             "mobile.browser.frame.ack",
+             "mobile.browser.dialog.respond",
+             "mobile.browser.input.pointer", "mobile.browser.input.scroll",
+             "mobile.browser.input.key", "mobile.browser.input.text",
+             "mobile.browser.navigate", "mobile.browser.back",
+             "mobile.browser.forward", "mobile.browser.reload":
+            // Browser panels do not carry a workspace selection on these verbs.
+            // A Mac-wide ticket covers them; a workspace-scoped ticket requires
+            // Stack fallback because panel_id alone cannot prove workspace scope.
+            return !ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         default:
             return true
         }
@@ -446,6 +800,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasConflict: Bool
     }
 
+    private struct AuthenticatedRequestPayload {
+        let data: Data
+        let stackAccessToken: String?
+    }
+
+    private struct AuthenticatedRequestResult {
+        let response: Data
+        let stackAccessToken: String?
+    }
+
 }
 
 private extension MobileCoreRPCClient {
@@ -454,11 +818,5 @@ private extension MobileCoreRPCClient {
     func isHostStatusRequest(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method == "mobile.host.status"
-    }
-}
-
-private extension CmxAttachRoute {
-    var mobileRPCConnectAttemptKey: String {
-        "\(kind.rawValue)|\(id)|\(endpoint.logDescription)"
     }
 }

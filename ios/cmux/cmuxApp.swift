@@ -1,8 +1,19 @@
 import CMUXMobileCore
+import CmuxMobileShell
+import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
+import OSLog
 import SwiftUI
 import cmuxFeature
+#if DEBUG
+import CmuxIrohReleaseGateSupport
+#endif
+
+nonisolated private let cmuxAppConnectivityLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "connectivity"
+)
 
 @main
 struct cmuxApp: App {
@@ -13,13 +24,44 @@ struct cmuxApp: App {
     @MainActor
     private static let root: AppCompositionRoot = {
         let reachability = ReachabilityService()
-        let auth = MobileAuthComposition(reachability: reachability)
-        auth.start()
+        let diagnosticLog = DiagnosticLog(
+            buildStamp: AppCompositionRoot.diagnosticBuildStamp,
+            role: .iosClient
+        )
+        let auth = MobileAuthComposition(
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
+        )
+        // Per-tag isolation by default: this build pairs only with its own
+        // Mac tag plus the runtime grant set its anchor Mac advertises
+        // (`cmux mobile compatible-tags`), persisted across launches.
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current(),
+            additionalInstanceTags: MobileMacTagAllowlist.persisted()
+        )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
-            reachability: reachability
+            reachability: reachability,
+            discoveryCompatibilityPolicy: buildCompatibilityPolicy,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
+            diagnosticLog: diagnosticLog
         )
-        iroh.configure(auth: auth.coordinator)
+        let connectivityInvalidationServiceURL = PresenceClient
+            .resolvedServiceBaseURL(
+                isDevelopmentAuthChannel: auth.authEnvironment == .development
+            )
+        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
+            .flatMap { URL(string: $0) }
+        if connectivityInvalidationBaseURL == nil {
+            cmuxAppConnectivityLog.error(
+                "Connectivity invalidation disabled: presence service URL unavailable"
+            )
+        }
+        iroh.configure(
+            auth: auth.coordinator,
+            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+        )
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
@@ -64,6 +106,22 @@ struct cmuxApp: App {
                     surfaceID: surfaceUUID,
                     cursor: cursor
                 )
+            },
+            artifactLaneProvider: { request, resourceID, offset in
+                try await iroh.openArtifactLane(
+                    for: request,
+                    resourceID: resourceID,
+                    offset: offset
+                )
+            },
+            simulatorStreamLaneProvider: { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else {
+                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
+                }
+                return try await iroh.openSimulatorStreamLane(
+                    for: request,
+                    panelID: panelUUID
+                )
             }
         )
 
@@ -71,7 +129,9 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             iroh: iroh,
-            reachability: reachability
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
         )
     }()
 
@@ -97,7 +157,27 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
-        #if DEBUG
+        Group {
+            #if DEBUG
+            MobileIrohReleaseGateScene(
+                root: mobileRootScene,
+                iroh: Self.root.iroh
+            )
+            #else
+            mobileRootScene
+            #endif
+        }
+        .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
+        .environment(
+            \.dogfoodAttachPreparation,
+            DogfoodAttachPreparation {
+                await Self.root.iroh.prepareForConnection()
+            }
+        )
+    }
+
+    private var mobileRootScene: CMUXMobileRootScene {
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
@@ -105,39 +185,17 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            featureFlags: Self.root.featureFlags,
+            connectionMethodStore: Self.root.connectionMethodStore,
+            autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.iroh,
+            personalIrohForget: Self.root.iroh,
+            buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
-            }
-        )
-        #else
-        CMUXMobileRootScene(
-            runtime: Self.root.runtime,
-            auth: Self.root.auth,
-            reachability: Self.root.reachability,
-            analytics: Self.root.analytics.emitter,
-            pushCoordinator: Self.root.pushCoordinator,
-            displaySettings: Self.root.displaySettings,
-            onboardingStore: Self.root.onboardingStore,
-            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            signOutHook: Self.root.signOutHook
-        )
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
-            }
-        )
-        #endif
     }
 }

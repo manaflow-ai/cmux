@@ -22,11 +22,27 @@ extension MobileShellComposite {
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
             terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+            recordAppEvent(
+                .terminalAlternateScreenChanged,
+                correlationID: renderGrid.surfaceID,
+                count: renderGrid.activeScreen == .alternate ? 1 : 0
+            )
         }
         if renderGrid.activeScreen == .alternate, renderGrid.full {
             terminalAlternateRenderGridBaselineSurfaceIDs.insert(renderGrid.surfaceID)
         } else if renderGrid.activeScreen == .primary {
             terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
+        }
+    }
+
+    /// Record the screen-anchor history that the next live delta must link to.
+    func recordTerminalRenderGridHistoryContinuity(
+        _ renderGrid: MobileTerminalRenderGridFrame
+    ) {
+        if renderGrid.anchor == .screen, let historyRows = renderGrid.historyRows {
+            terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] = historyRows
+        } else {
+            terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
         }
     }
 
@@ -52,6 +68,13 @@ extension MobileShellComposite {
     ) {
         guard expectedSurfaceID == nil || renderGrid.surfaceID == expectedSurfaceID,
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=drop_stale"
+            )
+            #endif
             return
         }
         // Theme revisions are ordered independently from terminal byte content.
@@ -78,12 +101,28 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq)"
             )
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=drop_stale"
+            )
+            #endif
             return
         }
         // Frames behind an outstanding typing ACK (or partial frames while a
         // dropped-frame replay is pending) must not paint an older cursor
         // frame or establish a baseline from pre-input content.
-        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
+        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else {
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=drop_pending_input"
+            )
+            #endif
+            return
+        }
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         // The alternate baseline flag is maintained by DELIVERED frames only,
@@ -121,8 +160,22 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux("sync.render_grid_waiting_for_baseline source=\(source) surface=\(renderGrid.surfaceID) seq=\(renderGrid.stateSeq)")
             if terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] != nil {
                 _ = deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
+                #if DEBUG
+                MobileLatencyTrace.stamp(
+                    "gate",
+                    "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                        "seq=\(renderGrid.stateSeq) out=barrier"
+                )
+                #endif
             } else {
                 requestTerminalReplayForMissingRenderGridBaseline(surfaceID: renderGrid.surfaceID)
+                #if DEBUG
+                MobileLatencyTrace.stamp(
+                    "gate",
+                    "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                        "seq=\(renderGrid.stateSeq) out=replay_req"
+                )
+                #endif
             }
             return
         }
@@ -152,7 +205,47 @@ extension MobileShellComposite {
             if deliveryDecision.requestReplay {
                 requestTerminalReplay(surfaceID: renderGrid.surfaceID)
             }
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) " +
+                    "out=\(deliveryDecision.requestReplay ? "replay_req" : "delivered")"
+            )
+            #endif
             return
+        }
+        // Chain-link screen-anchored deltas to what this device actually
+        // delivered: each delta names the history count of the producer frame
+        // it was diffed against. If that is not the last delivered frame, a
+        // frame was missed and dirty-row patching can no longer realign the
+        // grid or local scrollback; request a full replay instead of painting.
+        // The producer sets the base on every screen delta, so a missing base
+        // is malformed and fails closed the same way. Skipped while a replay
+        // barrier is active - the barrier already drops deltas and resolves
+        // with an authoritative replay.
+        if !renderGrid.full,
+           renderGrid.anchor == .screen,
+           renderGrid.activeScreen == .primary,
+           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil {
+            let deltaBase = renderGrid.deltaBaseHistoryRows
+            let delivered = terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID]
+            if deltaBase == nil || deltaBase != delivered {
+                MobileDebugLog.anchormux(
+                    "sync.render_grid_history_chain_break surface=\(renderGrid.surfaceID) " +
+                        "base=\(deltaBase.map(String.init) ?? "nil") " +
+                        "delivered=\(delivered.map(String.init) ?? "nil") seq=\(renderGrid.stateSeq)"
+                )
+                terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+                #if DEBUG
+                MobileLatencyTrace.stamp(
+                    "gate",
+                    "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                        "seq=\(renderGrid.stateSeq) out=replay_req"
+                )
+                #endif
+                return
+            }
         }
         let activeReplayBarrierToken = terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID]
         let bypassLiveBaselineBarrier = source == "event"
@@ -179,7 +272,16 @@ extension MobileShellComposite {
             renderGrid,
             surfaceID: renderGrid.surfaceID,
             bypassReplayBarrier: bypassLiveBaselineBarrier
-        ) else { return }
+        ) else {
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=barrier"
+            )
+            #endif
+            return
+        }
         if bypassLiveBaselineBarrier,
            terminalReplayBarrierAckStreamTokensBySurfaceID[renderGrid.surfaceID] != nil {
             cancelTerminalReplayInFlight(surfaceID: renderGrid.surfaceID)
@@ -192,6 +294,17 @@ extension MobileShellComposite {
             endSeq: renderGrid.stateSeq,
             fullReplacement: renderGrid.full
         )
+        recordTerminalRenderGridHistoryContinuity(renderGrid)
+        if renderGrid.full, renderGrid.scrollbackRows > 0 {
+            terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
+        }
+        #if DEBUG
+        MobileLatencyTrace.stamp(
+            "gate",
+            "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                "seq=\(renderGrid.stateSeq) out=delivered"
+        )
+        #endif
     }
 
     /// Whether a surface currently has an attached output stream consumer.
@@ -204,13 +317,15 @@ extension MobileShellComposite {
     func deliverTerminalBytes(
         _ bytes: Data,
         surfaceID: String,
+        endSequence: UInt64? = nil,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 bytes: bytes,
                 replaceable: false,
-                viewportPolicy: .natural
+                viewportPolicy: .natural,
+                endSequence: endSequence
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -297,12 +412,17 @@ extension MobileShellComposite {
                     token: replayBarrierToken,
                     reason: "dropped_output_cap"
                 )
+                let isPartialVerifiedRenderGrid = terminalOutputTransport == .renderGrid
+                    && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+                    && delivery.sourceRenderGridFrame?.full == false
+                guard !isPartialVerifiedRenderGrid else { return false }
                 return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
                terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
                !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+               terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle != false,
                !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
                 requestTerminalReplay(
@@ -333,9 +453,33 @@ extension MobileShellComposite {
                     data: immediate.bytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
+                    sourceRenderGridFrame: immediate.sourceRenderGridFrame,
+                    endSequence: immediate.endSequence,
+                    requiresVerifiedReplay: requiresVerifiedReplayApplication(for: immediate),
                     terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
+        }
+        return true
+    }
+
+    /// Whether a chunk must apply through the verified freeze/replay/verify/
+    /// reveal pipeline. Screen-anchored primary-screen deltas apply directly:
+    /// they are ordered by the same stateSeq floors, their scroll prologue
+    /// feeds local scrollback, and skipping the per-frame Metal fence keeps
+    /// streaming output from stalling a locally scrolling viewport. Fulls and
+    /// alternate-screen frames keep the verified pipeline.
+    private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
+        guard terminalOutputTransport == .renderGrid,
+              supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability) else {
+            return false
+        }
+        if usesScreenAnchoredRenderGrid,
+           let frame = delivery.sourceRenderGridFrame,
+           !frame.full,
+           frame.anchor == .screen,
+           frame.activeScreen == .primary {
+            return false
         }
         return true
     }
@@ -366,6 +510,7 @@ extension MobileShellComposite {
                     let baselineReplayRequestCount = missingBaselineReplayBarrier
                         ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
                         : nil
+                    cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
                     terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
                     terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
                     terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -396,6 +541,7 @@ extension MobileShellComposite {
                     reason: "followup_cap"
                 )
             } else {
+                cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
                 terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
                 terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
                 terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -418,6 +564,9 @@ extension MobileShellComposite {
             data: next.bytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,
+            sourceRenderGridFrame: next.sourceRenderGridFrame,
+            endSequence: next.endSequence,
+            requiresVerifiedReplay: requiresVerifiedReplayApplication(for: next),
             terminalConfigTheme: next.terminalConfigTheme
         ))
     }
@@ -447,6 +596,7 @@ extension MobileShellComposite {
         // Rebuilt surface: nothing pre-barrier is visible anymore.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
@@ -463,9 +613,12 @@ extension MobileShellComposite {
         // Post-reset retry: rebuilt surface, so drop the floor, don't stash.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -510,6 +663,7 @@ extension MobileShellComposite {
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }

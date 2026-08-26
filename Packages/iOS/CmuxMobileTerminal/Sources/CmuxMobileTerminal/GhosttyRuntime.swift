@@ -263,6 +263,16 @@ public final class GhosttyRuntime {
             return true
         }
 
+        if action.tag == GHOSTTY_ACTION_RENDER {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface,
+                  let bridge = GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(surface)) else { return false }
+            Task { @MainActor [bridge] in
+                bridge.surfaceView?.drawForWakeup()
+            }
+            return true
+        }
+
         if action.tag == GHOSTTY_ACTION_SET_TITLE {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                   let surface = target.target.surface,
@@ -446,10 +456,13 @@ private extension GhosttyRuntime {
     }
 
     func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
-        // The phone scrolls the authoritative Mac surface. Local scrollback exists
-        // only for bounded local text reads, so cap it below Ghostty's 10MB default.
+        // Screen-anchored sessions scroll a deep LOCAL scrollback: replays
+        // hydrate up to the user-configurable 20k-row window and live deltas
+        // keep appending, so the byte limit must hold that even at wide iPad
+        // grids (bytes, not rows).
         let defaults = """
-        scrollback-limit = 2000000
+        scrollback-limit = 16000000
+        scroll-to-bottom = keystroke, no-output
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
@@ -504,6 +517,7 @@ private extension GhosttyRuntime {
         guard !fileManager.fileExists(atPath: configFile.path) else { return }
 
         let defaultConfig = """
+        scroll-to-bottom = keystroke, no-output
         font-family = Menlo
         font-size = 10
         window-padding-balance = false

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 import { stripeSubscriptions } from "../db/schema";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -12,8 +14,12 @@ let currentUser: ReturnType<typeof planUser> | null = null;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeSubscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let dbMissing = false;
+let stackAuthUnavailable = false;
 
-const getUser = mock(async () => currentUser);
+const getUser = mock(async () => {
+  if (stackAuthUnavailable) throw new Error("Stack Auth unavailable");
+  return currentUser;
+});
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -26,7 +32,7 @@ mock.module("../db/client", () => ({
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => {
     if (dbMissing) throw new Error("DATABASE_URL is required");
-    return {
+    return withAccountMutationLeaseSupport({
       select: () => ({
         from: (table: unknown) => ({
           where: () => ({
@@ -39,7 +45,7 @@ mock.module("../db/client", () => ({
           }),
         }),
       }),
-    };
+    });
   },
 }));
 
@@ -52,6 +58,7 @@ describe("billing plan route", () => {
     stripeSubscriptionRows = [];
     stripeSubscriptionResults = [];
     dbMissing = false;
+    stackAuthUnavailable = false;
     getUser.mockClear();
   });
 
@@ -130,6 +137,19 @@ describe("billing plan route", () => {
 
     expect(response.teamPlanId).toBe("free");
     expect(response.teamBillingManagement).toBe("none");
+  });
+
+  test("returns a bounded unavailable response when Stack Auth is down", async () => {
+    stackAuthUnavailable = true;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/plan"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "authentication_unavailable",
+    });
   });
 });
 

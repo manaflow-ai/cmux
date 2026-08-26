@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Продолжите в терминале",
+    "returnBody": "Чтобы продолжить, вернитесь в терминал, где вы запустили ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Оплата завершена",
+        "body": "Ваша подписка подтверждена. Новые лимиты могут появиться не сразу."
+      },
+      "checkoutCanceled": {
+        "title": "Оплата отменена",
+        "body": "Платёж отменён, тариф не изменён."
+      },
+      "portalReturn": {
+        "title": "Возврат из платёжного портала",
+        "body": "Изменения из платёжного портала могут появиться не сразу."
+      },
+      "default": {
+        "title": "Расчёты завершены",
+        "body": "Процесс оплаты завершён."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Терминал для многозадачности",
     "description": "Бесплатный нативный терминал для macOS с открытым исходным кодом на базе Ghostty. Работает с Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider и любым инструментом CLI. Вертикальные вкладки, кольца уведомлений, разделённые панели и socket API.",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "Как cmux связан с Ghostty?",
     "faqGhosttyA": "cmux не является форком Ghostty. Он использует <link>libghostty</link> как библиотеку для рендеринга терминала, так же как приложения используют WebKit для веб-представлений. Ghostty это самостоятельный терминал; cmux это другое приложение, построенное на его движке рендеринга.",
     "faqPlatformQ": "Какие платформы поддерживаются?",
-    "faqPlatformA": "Только macOS, пока что. cmux это нативное приложение на Swift + AppKit.",
+    "faqPlatformA": "Доступные версии cmux указаны в меню загрузки. <waitlist>Присоединитесь к списку ожидания</waitlist> для платформы, версия для которой ещё не выпущена.",
     "faqAgentsQ": "С какими агентами для кода работает cmux?",
     "faqAgentsA": "Со всеми. cmux это терминал, поэтому любой агент, работающий в терминале, работает из коробки: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent и всё остальное, что можно запустить из командной строки.",
     "faqNotificationsQ": "Как работают уведомления?",
@@ -112,6 +135,35 @@
     "faqFeatureA": "Мы хотим об этом услышать. Откройте <issuesLink>issue</issuesLink> или <prLink>pull request</prLink> на GitHub либо <mailLink>напишите нам</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "обзор",
+      "team": "команда"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Распределяйте LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
+      "coderouterLink": "открыть coderouter",
+      "iosAppName": "приложение iOS",
+      "iosAppDescription": "Установите приложение cmux для iOS через TestFlight (бета-доступ).",
+      "iosLink": "Открыть приложение iOS"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Управляйте общими ИИ-аккаунтами и распределяйте запросы с помощью coderouter.",
+      "title": "coderouter",
+      "description": "coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке."
+    },
+    "accountMenu": {
+      "label": "Меню аккаунта",
+      "settings": "Настройки",
+      "billing": "Оплата",
+      "signOut": "Выйти",
+      "signingOut": "Выход…",
+      "signOutError": "Не удалось выйти. Повторите попытку.",
+      "organizationSwitchError": "Не удалось сменить организацию. Повторите попытку.",
+      "signIn": "Войти"
+    },
     "aiAccounts": {
       "metaTitle": "Аккаунты ИИ — cmux",
       "metaDescription": "Управляйте аккаунтами ИИ-провайдеров команды в cmux.",
@@ -162,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -745,6 +803,25 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Для роуминга между сетями используйте cmux mosh-tmux. Он открывает полноценно интегрированный терминал Mosh, подключённый к именованному сеансу tmux; это не заменяет нативное зеркалирование рабочих пространств, вкладок и разделений в режиме управления tmux через SSH."
+    },
+    "claudeCodeTeams": {
+      "shimStep1": "Создаёт shim tmux во временном каталоге shim текущей поверхности. Путь содержит UUID поверхности и меняется для каждой панели и при каждой загрузке, поэтому указать фиксированный путь невозможно",
+      "shimStep2": "Задаёт TMUX и TMUX_PANE, чтобы имитировать tmux для сеанса запуска Claude Teams",
+      "shimDiagnostic": "Shim направляет вызовы в cmux только при установленной переменной <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>; иначе он прозрачно передаёт их следующему настоящему исполняемому файлу tmux. Поэтому команда <which>which tmux</which> не показывает, включено ли перехватывание Claude Teams.",
+      "envTmux": "Синтетический путь к сокету tmux для сеанса, в котором запущена команда cmux claude-teams",
+      "envTmuxPane": "Синтетический идентификатор панели tmux для сеанса, в котором запущена команда cmux claude-teams; пуст в созданных панелях агентов",
+      "envSurface": "UUID текущей поверхности; используйте его как идентификатор поверхности внутри созданной панели агента",
+      "envScope": "Синтетические значения <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> и связанные значения совместимости с tmux описывают сессию, в которой была запущена команда <command>cmux claude-teams</command>, а не созданные панели. В панели агента используйте <surface>CMUX_SURFACE_ID</surface> и выполните <tree>cmux tree --json</tree>; объект <caller>caller</caller> в выводе идентифицирует вызывающую панель.",
+      "dirShimPath": "Каталог для каждой поверхности внутри системного временного каталога (фиксированного пути нет)",
+      "dirShim": "Содержит активный shim tmux и добавляется в начало PATH для этой поверхности",
+      "dirStore": "Постоянное хранилище буферов и хуков tmux-compat, а также состояния размещения/компоновки разделений",
+      "storeDetails": "Ключи маршрутизации разделений:",
+      "storeLastSplitSurface": "Сопоставляет UUID каждого рабочего пространства с UUID поверхности, созданной последним разделением. Он задаёт начальный якорь колонки агентов, который определяет, где окажется следующее разделение main-vertical.",
+      "storeMainVerticalLayouts": "Сопоставляет UUID каждого рабочего пространства с <mainSurfaceId>mainSurfaceId</mainSurfaceId> (главной или ведущей поверхностью) и <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (самой нижней поверхностью в колонке агентов). Последующие разделения участников команды направляются в эту колонку и складываются вниз.",
+      "storeTroubleshooting": "Проверьте эти ключи маршрутизации, если панель участника команды появляется вкладкой за существующей поверхностью, а не разделением рядом с ней."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Начало работы",
@@ -841,8 +918,8 @@
       "concepts": "Концепции",
       "anchorTitle": "Якорное рабочее пространство",
       "anchorDesc": "Каждая группа принадлежит ровно одному рабочему пространству, называемому якорем. Заголовок группы на боковой панели — это представление якоря; отдельной строки для него нет. Клик по области имени в заголовке фокусирует панели якоря; клик по шеврону сворачивает или разворачивает группу.",
-      "anchorNew": "Якоря всегда создаются с нуля при создании группы. Они никогда не повышаются из существующего рабочего пространства. Рабочий каталог якоря наследуется от первого выбранного рабочего пространства при группировке выделения или от активного рабочего пространства при создании через CLI без --cwd.",
-      "anchorClose": "Закрытие якорного рабочего пространства распускает группу: все остальные участники становятся несгруппированными рабочими пространствами и остаются в списке вкладок. Кроме самого якоря ничего не закрывается. Перед этим приложение показывает диалог подтверждения с переключателем «Больше не спрашивать».",
+      "anchorNew": "Якорем группы при создании всегда становится совершенно новое рабочее пространство: ни группировка выбранных элементов, ни создание группы не назначают якорем одно из уже существующих рабочих пространств. (Если позже закрыть якорь, первый оставшийся участник группы станет новым якорем; см. ниже.) Рабочий каталог якоря наследуется от первого выбранного рабочего пространства при группировке выбранных элементов либо от активного рабочего пространства при создании через CLI без --cwd.",
+      "anchorClose": "При закрытии якорного рабочего пространства закрывается только оно, а первый оставшийся участник группы (тот, который находится раньше всех среди оставшихся в порядке группы) становится новым якорем. Благодаря этому группа и остальные её участники сохраняются (назначенный якорь затем отображает имя группы в качестве заголовка). Если якорь — единственное рабочее пространство группы, группа удаляется. Чтобы преобразовать группу в несгруппированные рабочие пространства, используйте «Разгруппировать рабочие пространства»; чтобы закрыть все рабочие пространства группы, используйте «Удалить группу».",
       "identityTitle": "Идентичность группы",
       "identityDesc": "У группы есть имя, значок (SF Symbol, по умолчанию folder.fill) и необязательный пользовательский цвет. Они независимы от собственных настроек якорного рабочего пространства. Цвет и значок якоря при создании берутся из группы, но затем могут разойтись.",
       "pinningTitle": "Закрепление",
@@ -944,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "Поисковая система по умолчанию для запросов в адресной строке браузера, которые не являются URL. Используйте custom с customSearchEngineURLTemplate для других провайдеров.",
           "customSearchEngineName": "Отображаемое имя, когда defaultSearchEngine имеет значение custom.",
-          "customSearchEngineURLTemplate": "URL поиска, используемый когда defaultSearchEngine имеет значение custom. Укажите заполнитель запроса или %s для закодированного запроса. Без заполнителя cmux добавит q= к URL."
+          "customSearchEngineURLTemplate": "URL поиска, используемый когда defaultSearchEngine имеет значение custom. Укажите заполнитель запроса или %s для закодированного запроса. Без заполнителя cmux добавит q= к URL.",
+          "urlAllowlist": "Шаблоны хостов или URL, ограничивающие навигацию во встроенном браузере. Настройки предлагают локальные источники для разработки; сохранение списка включает необязательное ограничение. Удалите записи, чтобы заблокировать их, или оставьте значение пользователя пустым без управляемой политики, чтобы отключить ограничение."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Глобальное значение по умолчанию для того, куда Cmd-N внутри группы, кнопка + в заголовке группы и настроенные действия группы помещают новый workspace: `afterCurrent` (после активного workspace в группе, с откатом к top), `top` (вторая позиция сразу после якоря) или `end` (после последнего участника).",
@@ -969,7 +1047,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
+          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
           "showModifierHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd или Control."
         }
       },
@@ -1381,7 +1459,16 @@
     "changelog": {
       "title": "История изменений",
       "metaDescription": "Заметки о релизах cmux и история версий. Новые функции, исправления ошибок и изменения для нативного macOS-терминала.",
-      "metaTitle": "Журнал изменений"
+      "metaTitle": "Журнал изменений",
+      "versionTitle": "cmux {version} · Журнал изменений",
+      "releaseNavLabel": "Версии рядом с cmux {version}",
+      "sections": {
+        "added": "Добавлено",
+        "changed": "Изменено",
+        "fixed": "Исправлено",
+        "removed": "Удалено",
+        "contributors": "Участники"
+      }
     },
     "navItems": {
       "gettingStarted": "Начало работы",
@@ -1409,7 +1496,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Добавьте собственные TUI-элементы управления в правую боковую панель cmux с помощью Dock JSON.",
       "title": "Dock",
-      "intro": "Dock позволяет добавлять TUI-элементы управления в правую боковую панель. Каждый элемент управления это команда из JSON, отображаемая в собственной секции терминала на базе Ghostty. Используйте его для лент, логов, очередей, статуса git, dev-серверов или любого TUI, который команда хочет видеть рядом с каждым workspace.",
+      "intro": "Dock позволяет добавлять элементы управления терминалом и браузером в правую боковую панель. Элементы терминала запускают команды в секциях на базе Ghostty, а элементы браузера встраивают веб-страницы. Используйте Dock для лент, логов, очередей, статуса git, dev-серверов, панелей мониторинга или справочных страниц, которые команда хочет видеть рядом с каждым workspace.",
       "configTitle": "Конфигурация",
       "configIntro": "cmux ищет конфигурацию Dock в таком порядке:",
       "projectConfig": "для текущего репозитория, ближайшего родительского проекта и вложенных каталогов проектов.",
@@ -1423,9 +1510,12 @@
       "descriptionHeader": "Описание",
       "fieldId": "Стабильный уникальный идентификатор элемента управления. Держите его коротким и не используйте повторно для другой команды.",
       "fieldTitle": "Метка, показанная в заголовке Dock.",
-      "fieldCommand": "Команда для запуска в терминале Dock. Она стартует внутри вашего login shell.",
+      "fieldCommand": "Команда, запускаемая в терминале Dock. Обязательна для элементов управления терминалом и запускается в login shell.",
+      "fieldType": "Необязательный тип элемента управления: terminal (по умолчанию) или browser.",
+      "fieldUrl": "Страница для открытия. Обязательна для элементов управления браузером.",
+      "fieldChrome": "Необязательное отображение элементов браузера. По умолчанию true; false скрывает адресную строку и панель инструментов, отключает действие «Фокус на адресной строке» для этой панели, при этом cmux browser goto/reload остаются доступны.",
       "fieldCwd": "Необязательный рабочий каталог. Относительные пути разрешаются от корня проекта для проектных конфигураций или от домашнего каталога для глобальных конфигураций.",
-      "fieldHeight": "Необязательная запрошенная высота терминала в пунктах. Элементы управления без height делят оставшееся место.",
+      "fieldHeight": "Необязательная высота элемента управления. Элементы без height делят оставшееся пространство.",
       "fieldEnv": "Необязательные переменные окружения, передаваемые только этому элементу управления.",
       "sharingTitle": "Совместное использование в команде",
       "sharingIntro": "Dock рассчитан на совместное использование через source control, когда команды относятся к репозиторию.",
@@ -1435,7 +1525,7 @@
       "agentPromptTitle": "Попросите агента настроить это",
       "agentPromptIntro": "Используйте этот промпт, когда хотите, чтобы coding agent создал элементы Dock. Он просит агента выполнить `cmux docs dock`, изучить проект и спросить перед тем, как что-либо предполагать.",
       "agentPromptCodeTitle": "Промпт агента",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Восстановление сессии",
@@ -1494,10 +1584,16 @@
       "flagName": "Флаг",
       "flagDesc": "Описание",
       "flagNameVal": "Установите заголовок рабочей области",
+      "flagCommand": "Выполнить текст команды один раз в исходном удалённом терминале после запуска оболочки",
       "flagPort": "SSH-порт (по умолчанию 22)",
       "flagIdentity": "Путь к идентификационному файлу",
       "flagSshOption": "Передайте произвольные параметры SSH (например, -o StrictHostKeyChecking=no)",
+      "flagTransport": "Транспорт интерактивного терминала: ssh (по умолчанию) или mosh",
       "flagNoFocus": "Создайте рабочее пространство, не переключаясь на него",
+      "moshTitle": "Транспорт терминала Mosh",
+      "moshDesc": "Используйте cmux ssh user@remote --transport mosh, если интерактивный терминал должен сохраняться при переключении Wi-Fi, VPN или точки доступа, а также после сна и пробуждения. Mosh передаёт только PTY терминала; SSH по-прежнему управляет удалёнными метаданными, настройкой и контролем службы cmux, прокси браузера, загрузками и повторными подключениями.",
+      "moshFallback": "cmux требует локально Mosh 1.4 или новее и перед запуском проверяет удалённый mosh-server. Если клиент отсутствует или несовместим, сервер отсутствует либо удалённая проверка не удалась, cmux объясняет причину и продолжает через SSH.",
+      "moshTmux": "Создаёт Mosh-пространство, которое создаёт или подключает именованный сеанс tmux (по умолчанию: main). Профиль tmux сохраняется при переподключении и восстановлении сеанса приложения. Это роуминговый терминал tmux, а не нативное зеркало cmux ssh-tmux. --session <name> выбирает сеанс; остальные параметры совпадают с cmux mosh. Без Mosh тот же профиль работает через SSH.",
       "deepLinksTitle": "Глубокие ссылки SSH",
       "deepLinksDesc": "Используйте глубокие ссылки cmux SSH, когда веб-сайт или инструмент хочет предложить кнопку «Открыть в cmux». Ссылка открывает cmux, отображает запрос на подтверждение, а затем запускает эквивалентную команду cmux ssh после подтверждения пользователя.",
       "deepLinksWebFallbackDesc": "Используйте резервный URL-адрес cmux.com для кнопок веб-сайта. Он открывает собственную ссылку и показывает загрузку, если cmux не установлен.",
@@ -3494,7 +3590,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Оплата сейчас недоступна. Повторите попытку позже."
+    "billingUnavailable": "Оплата сейчас недоступна. Повторите попытку позже.",
+    "signedOutNotice": "Вы не вошли в систему. Войдите, чтобы увидеть текущий план или восстановить существующую покупку.",
+    "signedOutSignIn": "Войти"
   },
   "platforms": {
     "macos": "macOS",
@@ -3507,8 +3605,8 @@
     "title": "Записаться в список ожидания {platform}",
     "titleAny": "Записаться в список ожидания",
     "description": "Поддержка {platform} уже в пути. Оставьте email, и мы сообщим, как только всё будет готово.",
-    "descriptionAny": "Сейчас cmux работает прежде всего на macOS. Оставьте email, и мы сообщим, как только появится версия для Linux, Windows или Android.",
-    "calloutText": "Скоро на Linux, Windows и Android.",
+    "descriptionAny": "Выберите платформу, версия для которой ещё не выпущена, и оставьте email. Мы сообщим, когда она будет готова.",
+    "calloutText": "Готовятся новые версии cmux.",
     "platformsLabel": "Какие платформы?",
     "selectPlatform": "Выберите хотя бы одну платформу.",
     "emailLabel": "Эл. почта",
@@ -3522,5 +3620,87 @@
     "successBody": "Мы напишем вам, когда версия для {platform} будет готова.",
     "successBodyAny": "Мы напишем вам, когда cmux будет готов для вашей платформы.",
     "done": "Готово"
+  },
+  "browserDownloads": {
+    "eyebrow": "Браузер cmux",
+    "title": "cmux для {platform}",
+    "tagline": "Браузер Chromium и рабочее пространство для агентов, созданные как единое целое.",
+    "logoAlt": "Значок приложения cmux",
+    "featuresTitle": "Создано для работы с агентами",
+    "features": {
+      "chromium": {
+        "title": "Настоящий Chromium",
+        "description": ": вкладки, отрисовка, расширения и омнибокс на уровне Chrome"
+      },
+      "workspaces": {
+        "title": "Рабочие пространства по задачам",
+        "description": ": объединяйте веб-вкладки и инструменты вокруг задачи вместо одной бесконечной панели вкладок"
+      },
+      "terminals": {
+        "title": "Терминальные поверхности",
+        "description": ": используйте оболочки и вкладки браузера в одном окне и композиторе"
+      },
+      "openSource": {
+        "title": "Бесплатно и с открытым исходным кодом",
+        "description": ": изучайте код, сообщайте о проблемах и собирайте из исходников на GitHub"
+      }
+    },
+    "installTitle": "Установка",
+    "releaseTitle": "Выпуски и обновления",
+    "releaseBody": "Эти ссылки всегда ведут на последнюю ночную сборку в <github>GitHub Releases</github>. Перед установкой обновления cmux проверяет подписанные манифесты обновлений.",
+    "sourceLink": "Посмотреть исходный код на GitHub",
+    "otherPlatform": "cmux для {platform}",
+    "macLink": "Терминал cmux для Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Скачать cmux для Windows",
+      "metaDescription": "Скачайте cmux для Windows x64 — бесплатный браузер Chromium и рабочее пространство для агентов с открытым исходным кодом, вкладками по задачам и терминальными поверхностями.",
+      "subtitle": "Нативная сборка x64 с вкладками Chromium, рабочими пространствами cmux и привычными сочетаниями клавиш Windows.",
+      "primaryCta": "Скачать установщик (.exe)",
+      "secondaryCta": "Портативный ZIP",
+      "requirements": "Windows 10 или новее · x64",
+      "installBody": "Запустите установщик и следуйте подсказкам Windows. Выберите портативный ZIP, если хотите хранить cmux в папке без установки для всей системы."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Скачать cmux для Linux",
+      "metaDescription": "Скачайте cmux для Linux x64 — бесплатный браузер Chromium и рабочее пространство для агентов с открытым исходным кодом, вкладками по задачам и терминальными поверхностями.",
+      "subtitle": "Нативная сборка x64 с вкладками Chromium, рабочими пространствами cmux и встроенными терминальными поверхностями.",
+      "primaryCta": "Скачать установщик с автообновлением (.run)",
+      "secondaryCta": "Пакет Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Один раз запустите установщик для текущего пользователя. Он установит cmux в ~/.local без прав root и включит подписанные обновления внутри приложения. Если вы хотите, чтобы обновлениями управлял менеджер пакетов, выберите вместо него пакет Debian."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Добро пожаловать в cmux Pro 🎉",
+      "fallbackName": "друг",
+      "greeting": "Привет, {name}!",
+      "thanks": "Спасибо, что присоединились к cmux Pro! Мы всё ещё дорабатываем полный набор возможностей Pro, а облачный доступ уже на подходе.",
+      "cloudStatus": "После запуска облачного доступа мы начислим на ваш аккаунт кредиты за каждый месяц подписки.",
+      "currentBenefit": "А пока ваше преимущество Pro — ранний доступ к cmux на iOS. Зарегистрируйтесь по ссылке ниже, и после регистрации Apple отправит вам приглашение в TestFlight.",
+      "testflightLink": "Зарегистрироваться в TestFlight: {url}",
+      "testflightLinkLabel": "Зарегистрироваться в TestFlight",
+      "signoff": "Рады, что вы с нами!\nКоманда cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro активирован",
+    "title": "Добро пожаловать в cmux Pro",
+    "body": "Функции Pro всё ещё разрабатываются. Облачный доступ появится скоро, а за каждый месяц подписки будут накапливаться кредиты использования. Сейчас Pro включает доступ к cmux на iOS через TestFlight.",
+    "done": "Перейти в панель управления",
+    "steps": {
+      "iosApp": {
+        "title": "Приложение cmux для iOS",
+        "body": "Пользуйтесь cmux на телефоне.",
+        "action": "Присоединиться к бета-тесту iOS"
+      },
+      "billing": {
+        "title": "Управление тарифом",
+        "body": "Просматривайте тариф, счета и варианты отмены.",
+        "action": "Управлять тарифом"
+      }
+    }
   }
 }

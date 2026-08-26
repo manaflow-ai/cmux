@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Terminalde devam edin",
+    "returnBody": "Devam etmek için ssh cmux.cloud komutunu çalıştırdığınız terminale dönün.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Ödeme tamamlandı",
+        "body": "Aboneliğiniz onaylandı. Yeni sınırların görünmesi biraz zaman alabilir."
+      },
+      "checkoutCanceled": {
+        "title": "Ödeme iptal edildi",
+        "body": "Ödeme, planınız değiştirilmeden kapatıldı."
+      },
+      "portalReturn": {
+        "title": "Faturalandırma portalından döndünüz",
+        "body": "Faturalandırma portalındaki değişikliklerin görünmesi biraz zaman alabilir."
+      },
+      "default": {
+        "title": "Faturalandırma tamamlandı",
+        "body": "Faturalandırma işleminiz tamamlandı."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Çoklu görev için tasarlanmış terminal",
     "description": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "cmux'un Ghostty ile ilişkisi nedir?",
     "faqGhosttyA": "cmux, Ghostty'nin bir forku değildir. Uygulamaların web görünümleri için WebKit kullanması gibi, terminal işleme için bir kütüphane olarak <link>libghostty</link>'yi kullanır. Ghostty bağımsız bir terminaldir; cmux, onun işleme motoru üzerine kurulmuş farklı bir uygulamadır.",
     "faqPlatformQ": "Hangi platformları destekliyor?",
-    "faqPlatformA": "Şimdilik yalnızca macOS. cmux yerel bir Swift + AppKit uygulamasıdır.",
+    "faqPlatformA": "Mevcut cmux sürümlerini İndir menüsünde görebilirsin. Henüz yayımlanmamış platformlar için <waitlist>bekleme listesine katıl</waitlist>.",
     "faqAgentsQ": "cmux hangi kodlama ajanlarıyla çalışır?",
     "faqAgentsA": "Hepsiyle. cmux bir terminaldir, bu nedenle terminalde çalışan her ajan kutudan çıktığı gibi çalışır: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent ve komut satırından başlatabileceğiniz her şey.",
     "faqNotificationsQ": "Bildirimler nasıl çalışır?",
@@ -112,6 +135,35 @@
     "faqFeatureA": "Bunu duymak isteriz. GitHub'da bir <issuesLink>issue</issuesLink> ya da <prLink>pull request</prLink> açın veya <mailLink>bize e-posta gönderin</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "genel bakış",
+      "team": "ekip"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirin.",
+      "coderouterLink": "coderouter'ı aç",
+      "iosAppName": "iOS uygulaması",
+      "iosAppDescription": "cmux iOS uygulamasını TestFlight üzerinden yükleyin (beta erişimi).",
+      "iosLink": "iOS uygulamasını aç"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
+      "title": "coderouter",
+      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir."
+    },
+    "accountMenu": {
+      "label": "Hesap menüsü",
+      "settings": "Ayarlar",
+      "billing": "Faturalandırma",
+      "signOut": "Çıkış yap",
+      "signingOut": "Çıkış yapılıyor…",
+      "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
+      "organizationSwitchError": "Kuruluş değiştirilemedi. Tekrar deneyin.",
+      "signIn": "Giriş yap"
+    },
     "aiAccounts": {
       "metaTitle": "Yapay zeka hesapları — cmux",
       "metaDescription": "cmux için ekibin yapay zeka sağlayıcı hesaplarını yönet.",
@@ -162,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -745,6 +803,25 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Ağlar arasında dolaşım için cmux mosh-tmux kullanın. Adlandırılmış bir tmux oturumuna bağlı, tam entegre bir Mosh terminali açar; SSH tmux denetim modunun sunduğu yerel çalışma alanı, sekme ve bölme yansıtmasını değiştirmez."
+    },
+    "claudeCodeTeams": {
+      "shimStep1": "Geçerli yüzeyin geçici shim dizininde bir tmux shim'i oluşturur. Yol, yüzey UUID'sini içerir ve her panelde ve her önyüklemede değişir; bu nedenle sabit bir yol verilemez",
+      "shimStep2": "Claude Teams başlatma oturumunda tmux'u simüle etmek için TMUX ve TMUX_PANE'i ayarlar",
+      "shimDiagnostic": "Shim yalnızca <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> ayarlandığında cmux'a yönlendirir; aksi halde bir sonraki gerçek tmux çalıştırılabilirine şeffaf biçimde geçer. Bu nedenle <which>which tmux</which> Claude Teams yakalamasının etkin olup olmadığını göstermez.",
+      "envTmux": "cmux claude-teams komutunu çalıştıran oturum için sentetik tmux soket yolu",
+      "envTmuxPane": "cmux claude-teams komutunu çalıştıran oturum için sentetik tmux bölme tanımlayıcısı; oluşturulan ajan panellerinde boştur",
+      "envSurface": "Geçerli yüzeyin UUID'si; oluşturulan bir ajan panelinde bu değeri yüzey tanımlayıcısı olarak kullanın",
+      "envScope": "Sentetik <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> ve ilgili tmux uyumluluk değerleri, oluşturulan panelleri değil <command>cmux claude-teams</command> komutunu çalıştıran oturumu açıklar. Bir ajan panelinden <surface>CMUX_SURFACE_ID</surface> kullanın ve <tree>cmux tree --json</tree> çalıştırın; çıktının <caller>caller</caller> nesnesi çağıran paneli tanımlar.",
+      "dirShimPath": "Sistemin geçici dizini altında yüzey başına dizin (sabit yol yok)",
+      "dirShim": "Etkin tmux shim'ini içerir ve o yüzey için PATH'in başına eklenir",
+      "dirStore": "tmux-compat arabellekleri, kancaları ve bölme yerleşimi/düzeni durumu için kalıcı depolama",
+      "storeDetails": "Bölme yönlendirme anahtarları şunlardır:",
+      "storeLastSplitSurface": "Her çalışma alanı UUID'sini son bölmenin oluşturduğu yüzey UUID'sine eşler. Bir sonraki main-vertical bölmenin nereye yerleşeceğini belirleyen ajan sütunu dayanağını başlatır.",
+      "storeMainVerticalLayouts": "Her çalışma alanı UUID'sini <mainSurfaceId>mainSurfaceId</mainSurfaceId> (ana veya lider yüzey) ve <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (ajan sütunundaki en alt yüzey) ile eşler. Sonraki takım arkadaşı bölmeleri bu sütunu hedefler ve aşağı doğru yığılır.",
+      "storeTroubleshooting": "Bir takım arkadaşı paneli mevcut bir yüzeyin yanında bölme olarak değil arkasında sekme olarak göründüğünde bu yönlendirme anahtarlarını inceleyin."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Başlarken",
@@ -841,8 +918,8 @@
       "concepts": "Kavramlar",
       "anchorTitle": "Bağlantı (anchor) çalışma alanı",
       "anchorDesc": "Her grup, bağlantı (anchor) adı verilen tam olarak bir çalışma alanına aittir. Kenar çubuğundaki grup başlığı, bağlantının temsilidir; onun için ayrı bir satır yoktur. Başlık adı alanına tıklamak bağlantının panellerini odaklar; çevron simgesine tıklamak ise daraltmayı açıp kapatır.",
-      "anchorNew": "Bir grup oluşturulduğunda bağlantılar her zaman yepyenidir. Mevcut bir çalışma alanından asla yükseltilmezler. Bağlantının çalışma dizini, bir seçim gruplanırken seçilen ilk çalışma alanından ya da CLI üzerinden --cwd olmadan oluşturulurken etkin çalışma alanından devralınır.",
-      "anchorClose": "Bağlantı çalışma alanını kapatmak grubu dağıtır: diğer her üye gruplanmamış bir çalışma alanı haline gelir ve sekmeler listesinde kalır. Bağlantının kendisi dışında hiçbir şey kapatılmaz. Uygulama bu gerçekleşmeden önce \"Bir daha sorma\" geçişine sahip bir onay penceresi gösterir.",
+      "anchorNew": "Bir grubun bağlantısı, grup oluşturulurken her zaman tamamen yeni bir çalışma alanıdır; bir seçimi gruplamak veya grup oluşturmak mevcut çalışma alanlarınızdan hiçbirini bağlantı konumuna yükseltmez. (Bağlantı daha sonra kapatıldığında grubun kalan ilk üyesi yükseltilir; aşağıya bakın.) Bağlantının çalışma dizini, bir seçim gruplanırken seçilen ilk çalışma alanından; --cwd olmadan CLI üzerinden oluşturulurken ise etkin çalışma alanından devralınır.",
+      "anchorClose": "Bağlantı çalışma alanı kapatıldığında yalnızca o çalışma alanı kapanır ve grubun kalan ilk üyesi (grup sıralamasında hâlâ bulunanlar arasındaki en erken üye) yeni bağlantı konumuna yükseltilir; böylece grup ve diğer üyeleri bozulmadan kalır (yükseltilen üye daha sonra grup adını başlık olarak gösterir). Bağlantı grubun tek çalışma alanıysa grup kaldırılır. Bir grubu gruplanmamış çalışma alanlarına dönüştürmek için Çalışma alanlarını gruptan çıkar seçeneğini; gruptaki tüm çalışma alanlarını kapatmak için Grubu sil seçeneğini kullanın.",
       "identityTitle": "Grup kimliği",
       "identityDesc": "Bir grubun adı, bir simgesi (bir SF Symbol, varsayılan olarak folder.fill) ve isteğe bağlı bir özel rengi vardır. Bunlar bağlantı çalışma alanının kendi özelleştirmelerinden bağımsızdır. Bağlantının rengi ve simgesi oluşturma sırasında gruptan alınır, ancak sonrasında farklılaşabilirler.",
       "pinningTitle": "Sabitleme",
@@ -944,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
+          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
+          "urlAllowlist": "Yerleşik tarayıcıda gezinmeyi kısıtlayan ana bilgisayar veya URL kalıpları. Ayarlar yerel geliştirme kaynaklarını önerir; bir listeyi kaydetmek isteğe bağlı kısıtlamayı etkinleştirir. Girişleri kaldırarak engelleyin veya yönetilen bir politika yoksa kısıtlamayı devre dışı bırakmak için kullanıcı değerini boş bırakın."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair genel varsayılan: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra).",
@@ -969,7 +1047,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
+          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
         }
       },
@@ -1381,7 +1459,16 @@
     "changelog": {
       "title": "Değişiklik Günlüğü",
       "metaDescription": "cmux sürüm notları ve sürüm geçmişi. Yerel macOS terminali için yeni özellikler, hata düzeltmeleri ve değişiklikler.",
-      "metaTitle": "Değişiklik günlüğü"
+      "metaTitle": "Değişiklik günlüğü",
+      "versionTitle": "cmux {version} · Değişiklik günlüğü",
+      "releaseNavLabel": "cmux {version} civarındaki sürümler",
+      "sections": {
+        "added": "Eklendi",
+        "changed": "Değiştirildi",
+        "fixed": "Düzeltildi",
+        "removed": "Kaldırıldı",
+        "contributors": "Katkıda bulunanlar"
+      }
     },
     "navItems": {
       "gettingStarted": "Başlarken",
@@ -1409,7 +1496,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Dock JSON ile cmux sağ kenar çubuğuna özel TUI kontrolleri ekleyin.",
       "title": "Dock",
-      "intro": "Dock, sağ kenar çubuğuna TUI kontrolleri eklemenizi sağlar. Her kontrol JSON'dan gelen bir komuttur ve kendi Ghostty destekli terminal bölümünde görüntülenir. Feedler, loglar, kuyruklar, git durumu, geliştirme sunucuları veya ekibinizin her workspace yanında görmek istediği herhangi bir TUI için kullanın.",
+      "intro": "Dock, sağ kenar çubuğuna terminal ve tarayıcı kontrolleri eklemenizi sağlar. Terminal kontrolleri komutları Ghostty destekli bölümlerde çalıştırırken tarayıcı kontrolleri web sayfalarını gömer. Feedler, loglar, kuyruklar, git durumu, geliştirme sunucuları, panolar veya ekibinizin her workspace yanında görmek istediği referans sayfaları için kullanın.",
       "configTitle": "Yapılandırma",
       "configIntro": "cmux Dock yapılandırmasını şu sırayla arar:",
       "projectConfig": "geçerli repo, en yakın üst proje ve iç içe proje dizinleri için.",
@@ -1423,9 +1510,12 @@
       "descriptionHeader": "Açıklama",
       "fieldId": "Kontrol için kararlı ve benzersiz kimlik. Kısa tutun ve başka bir komut için yeniden kullanmayın.",
       "fieldTitle": "Dock başlığında gösterilen etiket.",
-      "fieldCommand": "Dock terminalinde çalıştırılacak komut. Login shell içinde başlar.",
+      "fieldCommand": "Dock terminalinde çalıştırılacak komut. Terminal kontrolleri için gereklidir ve oturum açma kabuğunda başlatılır.",
+      "fieldType": "İsteğe bağlı kontrol türü: terminal (varsayılan) veya browser.",
+      "fieldUrl": "Açılacak sayfa. Tarayıcı kontrolleri için gereklidir.",
+      "fieldChrome": "İsteğe bağlı tarayıcı arayüzü görünürlüğü. Varsayılan değer true'dur; false adres çubuğunu ve araç çubuğunu gizler, o bölmede Adres Çubuğuna Odaklan işlevini etkisiz kılar ve cmux browser goto/reload komutlarını kullanılabilir tutar.",
       "fieldCwd": "İsteğe bağlı çalışma dizini. Göreli yollar proje yapılandırmalarında proje kökünden, global yapılandırmalarda home dizininden çözümlenir.",
-      "fieldHeight": "Puan cinsinden isteğe bağlı terminal yüksekliği. height olmayan kontroller kalan alanı paylaşır.",
+      "fieldHeight": "İsteğe bağlı kontrol yüksekliği. height değeri olmayan kontroller kalan alanı paylaşır.",
       "fieldEnv": "Yalnızca o kontrole geçirilen isteğe bağlı ortam değişkenleri.",
       "sharingTitle": "Ekiple paylaşma",
       "sharingIntro": "Dock, komutlar repoya ait olduğunda source control ile paylaşılmak üzere tasarlanmıştır.",
@@ -1435,7 +1525,7 @@
       "agentPromptTitle": "Bir agent'tan kurmasını isteyin",
       "agentPromptIntro": "Bir coding agent’ın Dock kontrolleri oluşturmasını istediğinde bu promptu kullan. Agent’a `cmux docs dock` çalıştırmasını, projeyi incelemesini ve tahmin etmeden önce sormasını söyler.",
       "agentPromptCodeTitle": "Agent prompt",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Oturum geri yükleme",
@@ -1493,10 +1583,16 @@
       "flagName": "Bayrak",
       "flagDesc": "Açıklama",
       "flagNameVal": "Çalışma alanı başlığını ayarlayın",
+      "flagCommand": "Komut metnini kabuk başladıktan sonra ilk uzak terminalde bir kez çalıştırın",
       "flagPort": "SSH bağlantı noktası (varsayılan 22)",
       "flagIdentity": "Kimlik dosyasının yolu",
       "flagSshOption": "İsteğe bağlı SSH seçeneklerini iletin (ör. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Etkileşimli terminal aktarımı: ssh (varsayılan) veya mosh",
       "flagNoFocus": "Geçiş yapmadan çalışma alanını oluşturun",
+      "moshTitle": "Mosh terminal aktarımı",
+      "moshDesc": "Etkileşimli terminalin Wi-Fi, VPN veya erişim noktası değişikliklerinde ve uyku ya da uyanma sonrasında korunması gerektiğinde cmux ssh user@remote --transport mosh kullanın. Mosh yalnızca terminal PTY’sini taşır; uzak meta verileri, cmux hizmetinin kurulumu ve denetimi, tarayıcı proxy’si, yüklemeler ve yeniden bağlantılar SSH tarafından yönetilmeye devam eder.",
+      "moshFallback": "cmux yerelde Mosh 1.4 veya daha yenisini gerektirir ve başlatmadan önce uzak mosh-server’ı denetler. İstemci eksik veya uyumsuzsa, sunucu eksikse ya da uzak denetim başarısız olursa cmux nedeni açıklar ve SSH üzerinden devam eder.",
+      "moshTmux": "Adlandırılmış bir tmux oturumu oluşturan veya ona bağlanan Mosh çalışma alanı oluşturur (varsayılan: main). tmux profili yeniden bağlanma ve uygulama oturumu geri yüklemesinde korunur. Bu, dolaşabilen bir tmux terminalidir; cmux ssh-tmux yerel aynası değildir. --session <name> oturumu seçer; diğer bayraklar cmux mosh ile aynıdır. Mosh yoksa aynı profil SSH üzerinden çalışır.",
       "deepLinksTitle": "SSH derin bağlantıları",
       "deepLinksDesc": "Bir web sitesi veya araç cmux'da aç düğmesi sunmak istediğinde cmux SSH derin bağlantılarını kullanın. Bağlantı cmux'u açar, bir onay istemi gösterir ve kullanıcı onayladıktan sonra eşdeğer cmux ssh komutunu çalıştırır.",
       "deepLinksWebFallbackDesc": "Web sitesi düğmeleri için cmux.com yedek URL'sini kullanın. Yerel bağlantıyı açar ve cmux yüklü değilse indirme işlemini gösterir.",
@@ -3492,7 +3588,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin."
+    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+    "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
+    "signedOutSignIn": "Oturum aç"
   },
   "platforms": {
     "macos": "macOS",
@@ -3505,8 +3603,8 @@
     "title": "{platform} bekleme listesine katıl",
     "titleAny": "Bekleme listesine katıl",
     "description": "{platform} desteği yolda. E-postanı bırak, hazır olduğunda sana haber verelim.",
-    "descriptionAny": "cmux şimdilik önce macOS için. E-postanı bırak; Linux, Windows veya Android hazır olduğunda sana haber verelim.",
-    "calloutText": "Yakında Linux, Windows ve Android'de.",
+    "descriptionAny": "Henüz yayımlanmamış bir platform seçip e-postanı bırak. O sürüm hazır olduğunda sana haber vereceğiz.",
+    "calloutText": "Daha fazla cmux sürümü yolda.",
     "platformsLabel": "Hangi platformlar?",
     "selectPlatform": "En az bir platform seç.",
     "emailLabel": "E-posta",
@@ -3520,5 +3618,87 @@
     "successBody": "{platform} sürümü hazır olduğunda sana e-posta göndereceğiz.",
     "successBodyAny": "cmux senin platformun için hazır olduğunda sana e-posta göndereceğiz.",
     "done": "Tamam"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux tarayıcısı",
+    "title": "{platform} için cmux",
+    "tagline": "Birlikte geliştirilen Chromium tarayıcısı ve aracı çalışma alanı.",
+    "logoAlt": "cmux uygulama simgesi",
+    "featuresTitle": "Aracılarla çalışma için tasarlandı",
+    "features": {
+      "chromium": {
+        "title": "Gerçek Chromium",
+        "description": ": Chrome düzeyinde sekmeler, işleme, uzantılar ve adres çubuğu davranışı"
+      },
+      "workspaces": {
+        "title": "Görev odaklı çalışma alanları",
+        "description": ": web sekmelerini ve araçları sonsuz bir sekme çubuğu yerine görevin etrafında düzenleyin"
+      },
+      "terminals": {
+        "title": "Terminal yüzeyleri",
+        "description": ": kabukları ve tarayıcı sekmelerini aynı pencere ve birleştiricide tutun"
+      },
+      "openSource": {
+        "title": "Ücretsiz ve açık kaynaklı",
+        "description": ": kodu inceleyin, sorun bildirin ve GitHub'da kaynaktan derleyin"
+      }
+    },
+    "installTitle": "Kurulum",
+    "releaseTitle": "Sürümler ve güncellemeler",
+    "releaseBody": "Bu bağlantılar her zaman <github>GitHub Releases</github> üzerindeki en son nightly sürümünü gösterir. cmux, bir güncellemeyi yüklemeden önce imzalı güncelleme bildirimlerini doğrular.",
+    "sourceLink": "Kaynak kodunu GitHub'da görüntüleyin",
+    "otherPlatform": "{platform} için cmux",
+    "macLink": "Mac için cmux terminali",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Windows için cmux'u indirin",
+      "metaDescription": "Windows x64 için cmux'u indirin: görev odaklı sekmelere ve terminal yüzeylerine sahip, ücretsiz ve açık kaynaklı bir Chromium tarayıcısı ve aracı çalışma alanı.",
+      "subtitle": "Chromium sekmeleri, cmux çalışma alanları ve tanıdık Windows klavye düzenleri içeren yerel x64 derlemesi.",
+      "primaryCta": "Yükleyiciyi indir (.exe)",
+      "secondaryCta": "Taşınabilir ZIP",
+      "requirements": "Windows 10 veya üzeri · x64",
+      "installBody": "Yükleyiciyi çalıştırın ve Windows yönergelerini izleyin. cmux'u sistem genelinde kurmadan bir klasörde tutmak istiyorsanız taşınabilir ZIP'i seçin."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Linux için cmux'u indirin",
+      "metaDescription": "Linux x64 için cmux'u indirin: görev odaklı sekmelere ve terminal yüzeylerine sahip, ücretsiz ve açık kaynaklı bir Chromium tarayıcısı ve aracı çalışma alanı.",
+      "subtitle": "Chromium sekmeleri, cmux çalışma alanları ve tümleşik terminal yüzeyleri içeren yerel x64 derlemesi.",
+      "primaryCta": "Otomatik güncellemeli yükleyiciyi indir (.run)",
+      "secondaryCta": "Debian paketi (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Kullanıcıya özel yükleyiciyi bir kez çalıştırın. cmux'u root yetkisi gerektirmeden ~/.local altına kurar ve imzalı uygulama içi güncellemeleri etkinleştirir. Güncellemelerin paket yöneticiniz tarafından yönetilmesini istiyorsanız bunun yerine Debian paketini seçin."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro’ya hoş geldin 🎉",
+      "fallbackName": "arkadaşımız",
+      "greeting": "Merhaba {name},",
+      "thanks": "cmux Pro’ya katıldığın için teşekkürler! Pro deneyiminin tamamını geliştirmeye devam ediyoruz, bulut erişimi de yakında geliyor.",
+      "cloudStatus": "Bulut erişimi kullanıma açıldığında, abone olduğun ay sayısına göre hesabına kullanım kredileri ekleyeceğiz.",
+      "currentBenefit": "Bu sırada Pro avantajın, iOS’ta cmux’a erken erişimdir. Aşağıdaki bağlantıdan kaydolduğunda Apple, kayıt tamamlandıktan sonra TestFlight davetini gönderecek.",
+      "testflightLink": "TestFlight’a kaydol: {url}",
+      "testflightLinkLabel": "TestFlight’a kaydol",
+      "signoff": "Aramıza katılmana sevindik!\ncmux ekibi"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro etkin",
+    "title": "cmux Pro’ya hoş geldin",
+    "body": "Pro özellikleri hâlâ geliştiriliyor. Bulut erişimi yakında geliyor ve abone kaldığın her ay için kullanım kredisi birikecek. Pro şu anda TestFlight üzerinden cmux iOS erişimini içeriyor.",
+    "done": "Kontrol paneline git",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS uygulaması",
+        "body": "cmux’ı telefonunda kullan.",
+        "action": "iOS betasına katıl"
+      },
+      "billing": {
+        "title": "Planını yönet",
+        "body": "Planını, faturalarını ve iptal seçeneklerini görüntüle.",
+        "action": "Planı yönet"
+      }
+    }
   }
 }

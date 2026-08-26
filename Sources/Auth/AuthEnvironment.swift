@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import Foundation
 
 enum AuthEnvironment {
@@ -110,6 +111,47 @@ enum AuthEnvironment {
         resolvedAppWebOrigin(environment: ProcessInfo.processInfo.environment)
     }
 
+    /// Credential-bearing native-to-web handoffs are pinned to cmux.com in
+    /// release builds. Debug builds may additionally use an exact loopback
+    /// origin so tagged local web servers can participate without making an
+    /// arbitrary launch environment variable a token destination.
+    static var appSessionHandoffOrigin: URL {
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        return resolvedAppSessionHandoffOrigin(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: isDebugBuild
+        )
+    }
+
+    static func resolvedAppSessionHandoffOrigin(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> URL {
+        let productionOrigin = URL(string: "https://cmux.com")!
+        guard isDebugBuild else { return productionOrigin }
+
+        let candidate = canonicalizedLoopbackURL(appWebOrigin(environment: environment))
+        if candidate == productionOrigin { return productionOrigin }
+        guard let components = URLComponents(
+            url: candidate,
+            resolvingAgainstBaseURL: false
+        ),
+              components.scheme == "http" || components.scheme == "https",
+              components.host?.lowercased() == "localhost",
+              components.user == nil,
+              components.password == nil,
+              components.path.isEmpty || components.path == "/",
+              components.query == nil,
+              components.fragment == nil else {
+            return productionOrigin
+        }
+        return candidate
+    }
+
     static func resolvedAppWebOrigin(environment: [String: String]) -> URL {
         appWebOrigin(environment: environment)
     }
@@ -188,6 +230,92 @@ enum AuthEnvironment {
             return canonicalizedLoopbackURL(url)
         }
         return canonicalizedLoopbackURL(URL(string: defaultVMAPIOrigin)!)
+    }
+
+    /// Base URL for the phone-push relay (`/api/notifications/*`).
+    ///
+    /// Dev iPhones register their APNs tokens with the shared staging
+    /// deployment (the device rig's default origin), so a Debug Mac must post
+    /// pushes there too — a tag-local localhost port has no token registry and
+    /// every forward would die queued. The tag rig BAKES a localhost
+    /// `CMUX_VM_API_BASE_URL` into every Debug bundle, so that knob must not
+    /// steer the push lane; a deliberately local push rig sets
+    /// `CMUX_PUSH_API_BASE_URL` (env or `~/.cmux-dev.env`) instead. Debug
+    /// defaults to shared staging (mirroring `irohBrokerBaseURL`); Release
+    /// keeps the production VM-API origin.
+    static var pushAPIBaseURL: URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let overridden = environment["CMUX_PUSH_API_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        #if DEBUG
+        if let override = devOverride(key: "CMUX_PUSH_API_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return URL(string: "https://cmux-staging.vercel.app")!
+        #else
+        return vmAPIBaseURL
+        #endif
+    }
+
+    /// Authenticated route broker shared by matching tagged Mac and iOS builds.
+    ///
+    /// General tagged APIs remain on their isolated localhost origin. Iroh uses
+    /// shared staging in Debug so separately launched processes publish into one
+    /// account-scoped registry. Release keeps the production cmux origin.
+    static var irohBrokerBaseURL: URL? {
+        let environment = ProcessInfo.processInfo.environment
+        if let overridden = environment["CMUX_IROH_BROKER_BASE_URL"]?
+           .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty {
+            return validatedIrohBrokerURL(overridden)
+        }
+        #if DEBUG
+        if let override = devOverride(key: "CMUX_IROH_BROKER_BASE_URL") {
+            return validatedIrohBrokerURL(override)
+        }
+        return resolvedIrohBrokerBaseURL(environment: environment, isDebugBuild: true)
+        #else
+        return resolvedIrohBrokerBaseURL(environment: environment, isDebugBuild: false)
+        #endif
+    }
+
+    static func resolvedIrohBrokerBaseURL(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> URL? {
+        if let explicit = environment["CMUX_IROH_BROKER_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return validatedIrohBrokerURL(explicit)
+        }
+        let fallback = isDebugBuild
+            ? "https://cmux-staging.vercel.app"
+            : "https://cmux.com"
+        return validatedIrohBrokerURL(fallback)
+    }
+
+    private static func validatedIrohBrokerURL(_ rawValue: String) -> URL? {
+        guard let url = URL(string: rawValue),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased(),
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil else {
+            return nil
+        }
+        if scheme == "https" { return url }
+        guard scheme == "http",
+              ["127.0.0.1", "::1", "localhost"].contains(host) else {
+            return nil
+        }
+        return canonicalizedLoopbackURL(url)
     }
 
     /// Look up `key=value` in `~/.cmux-dev.env` for the DEBUG build. Returns nil in Release.
@@ -330,31 +458,91 @@ enum AuthEnvironment {
     }
 
     static var stackProjectID: String {
-        let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        return resolvedStackProjectID(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: true
+        )
+        #else
+        return resolvedStackProjectID(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: false
+        )
+        #endif
+    }
+
+    /// Resolve the Stack channel for a macOS build. Debug defaults to the
+    /// development project, while `scripts/reload.sh --prod-auth` bakes an
+    /// explicit production override into the tagged app's launch environment.
+    /// Invalid values fail toward the build's normal channel.
+    static func resolvedStackAuthEnvironment(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> CMUXAuthEnvironment {
+        switch environment["CMUX_AUTH_ENVIRONMENT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+        case "production":
+            return .production
+        case "development":
+            return .development
+        default:
+            return isDebugBuild ? .development : .production
+        }
+    }
+
+    static func resolvedStackProjectID(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> String {
         if let projectID = environment["CMUX_STACK_PROJECT_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !projectID.isEmpty {
             return projectID
         }
-        #if DEBUG
-        return developmentStackProjectID
-        #else
-        return productionStackProjectID
-        #endif
+        switch resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: isDebugBuild
+        ) {
+        case .development:
+            return developmentStackProjectID
+        case .production:
+            return productionStackProjectID
+        }
     }
 
     static var stackPublishableClientKey: String {
-        let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        return resolvedStackPublishableClientKey(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: true
+        )
+        #else
+        return resolvedStackPublishableClientKey(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: false
+        )
+        #endif
+    }
+
+    static func resolvedStackPublishableClientKey(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> String {
         if let clientKey = environment["CMUX_STACK_PUBLISHABLE_CLIENT_KEY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !clientKey.isEmpty {
             return clientKey
         }
-        #if DEBUG
-        return developmentStackPublishableClientKey
-        #else
-        return productionStackPublishableClientKey
-        #endif
+        switch resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: isDebugBuild
+        ) {
+        case .development:
+            return developmentStackPublishableClientKey
+        case .production:
+            return productionStackPublishableClientKey
+        }
     }
 
     /// The website origin used for the after-sign-in handler.

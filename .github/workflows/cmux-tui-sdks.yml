@@ -1,0 +1,587 @@
+name: cmux-tui SDKs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
+      - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-release-cut.yml"
+      - ".github/workflows/cmux-tui-release.yml"
+      - ".github/workflows/cmux-tui-sdks.yml"
+      - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/workflows/relay-publish-npm.yml"
+      - ".github/workflows/sdk-bootstrap-crates.yml"
+      - ".github/workflows/sdk-bootstrap-npm.yml"
+      - ".github/workflows/sdk-bootstrap-pypi.yml"
+      - ".github/workflows/sdk-publish-crates.yml"
+      - ".github/workflows/sdk-publish-go.yml"
+      - ".github/workflows/sdk-publish-java.yml"
+      - ".github/workflows/sdk-publish-npm.yml"
+      - ".github/workflows/sdk-publish-python.yml"
+      - ".github/workflows/sdk-release-cut.yml"
+      - ".github/workflows/tui-publish-npm.yml"
+      - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
+      - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
+      - "web/public/tui/install-static.ps1"
+  pull_request:
+    paths:
+      - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
+      - ".github/workflows/cmux-tui.yml"
+      - ".github/workflows/cmux-tui-nightly.yml"
+      - ".github/workflows/cmux-tui-release-cut.yml"
+      - ".github/workflows/cmux-tui-release.yml"
+      - ".github/workflows/cmux-tui-sdks.yml"
+      - ".github/workflows/cmux-tui-spec.yml"
+      - ".github/workflows/relay-publish-npm.yml"
+      - ".github/workflows/sdk-bootstrap-crates.yml"
+      - ".github/workflows/sdk-bootstrap-npm.yml"
+      - ".github/workflows/sdk-bootstrap-pypi.yml"
+      - ".github/workflows/sdk-publish-crates.yml"
+      - ".github/workflows/sdk-publish-go.yml"
+      - ".github/workflows/sdk-publish-java.yml"
+      - ".github/workflows/sdk-publish-npm.yml"
+      - ".github/workflows/sdk-publish-python.yml"
+      - ".github/workflows/sdk-release-cut.yml"
+      - ".github/workflows/tui-publish-npm.yml"
+      - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
+      - "tests/test_tui_publish_workflow_security.py"
+      - "tests/test_tui_npm_package_artifact.py"
+      - "tests/test_tui_package_contract.py"
+      - "web/public/tui/install-static.ps1"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: protocol contract
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Install workflow guard dependencies
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "PyYAML==6.0.3"
+
+      - name: Test protocol inventory
+        run: python3 cmux-tui/scripts/test_check_spec_inventory.py
+
+      - name: Test published artifact manifest verifier
+        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
+
+      - name: Check protocol and TUI action inventory
+        run: python3 cmux-tui/scripts/check-spec-inventory.py
+
+      - name: Test SDK schema drift checker
+        run: python3 cmux-tui/scripts/test_check_sdk_schema.py
+
+      - name: Check SDK schema against runtime fields
+        run: python3 cmux-tui/scripts/check-sdk-schema.py
+
+      - name: Test public resource boundary checker
+        run: python3 cmux-tui/scripts/test_check_resource_api_boundary.py
+
+      - name: Check public resource API boundary
+        run: python3 cmux-tui/scripts/check-resource-api-boundary.py
+
+      - name: Test deterministic SDK generator
+        env:
+          PYTHONPATH: cmux-tui/bindings
+        run: python3 -m unittest discover -s cmux-tui/bindings/codegen/tests -v
+
+      - name: Check all generated SDK wire layers
+        run: python3 cmux-tui/bindings/codegen/generate.py --check
+
+      - name: Test package version guard
+        run: |
+          python3 -m unittest discover \
+            -s cmux-tui/bindings/tests \
+            -p 'test_*.py' \
+            -v
+
+      - name: Test SDK publishing workflow guards
+        run: python3 tests/test_tui_publish_workflow_security.py -v
+
+      - name: Test TUI package artifact contract
+        run: python3 tests/test_tui_package_contract.py
+
+      - name: Test TUI npm artifact transfer contract
+        run: python3 tests/test_tui_npm_package_artifact.py
+
+      - name: Check package versions
+        run: python3 cmux-tui/bindings/check-versions.py --published-only
+
+      - name: Test shared conformance runner
+        run: |
+          python3 -m unittest discover \
+            -s cmux-tui/bindings/conformance \
+            -p 'test_*.py' \
+            -v
+
+  packages:
+    name: ${{ matrix.language }} package
+    needs: contract
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - typescript
+          - rust
+          - go
+          - java
+          - cpp
+          - zig
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.9
+        if: matrix.language == 'python'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.9"
+
+      - name: Set up Node.js
+        if: matrix.language == 'typescript'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20.19.5"
+          cache: npm
+          cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
+
+      - name: Set up pinned Rust toolchain
+        if: matrix.language == 'rust'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.22.12"
+          cache-dependency-path: cmux-tui/bindings/go/go.mod
+
+      - name: Select JDK 17
+        if: matrix.language == 'java'
+        run: |
+          test -x "$JAVA_HOME_17_X64/bin/java"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          "$JAVA_HOME_17_X64/bin/java" -version
+          "$JAVA_HOME_17_X64/bin/javac" -version
+
+      - name: Select Clang C++20
+        if: matrix.language == 'cpp'
+        run: clang++ --version
+
+      - name: Set up Zig
+        if: matrix.language == 'zig'
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Test and install Python SDK
+        if: matrix.language == 'python'
+        env:
+          PYTHONPATH: cmux-tui/bindings/python
+        run: |
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "setuptools==80.9.0"
+          python3 -m unittest discover -s cmux-tui/bindings/python/tests -v
+          python3 -m pip install \
+            --no-build-isolation \
+            --no-deps \
+            --target "$RUNNER_TEMP/cmux-python-package" \
+            ./cmux-tui/bindings/python
+          CMUX_PYTHON_PACKAGE="$RUNNER_TEMP/cmux-python-package" python3 - <<'PY'
+          import importlib.metadata
+          import os
+          import pathlib
+          import sys
+
+          package = pathlib.Path(os.environ["CMUX_PYTHON_PACKAGE"]).resolve()
+          sys.path.insert(0, str(package))
+          import cmux
+
+          assert pathlib.Path(cmux.__file__).resolve().is_relative_to(package)
+          distribution = next(
+              item
+              for item in importlib.metadata.distributions(path=[str(package)])
+              if item.metadata["Name"] == "cmux-sdk"
+          )
+          assert not distribution.requires
+          PY
+
+      - name: Test packed TypeScript SDK
+        if: matrix.language == 'typescript'
+        working-directory: cmux-tui/bindings/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
+      - name: Test and package Rust SDKs
+        if: matrix.language == 'rust'
+        working-directory: cmux-tui
+        run: |
+          cargo fmt -p cmux-sdk -p cmux-sidebar -- --check
+          cargo test \
+            -p cmux-sdk \
+            -p cmux-sidebar \
+            --all-targets \
+            --locked
+          cargo test \
+            -p cmux-sdk \
+            -p cmux-sidebar \
+            --doc \
+            --locked
+          cargo clippy \
+            -p cmux-sdk \
+            -p cmux-sidebar \
+            --all-targets \
+            --locked \
+            -- -D warnings
+          RUSTDOCFLAGS="-D warnings" \
+            cargo doc \
+              -p cmux-sdk \
+              -p cmux-sidebar \
+              --locked \
+              --no-deps
+          cargo package -p cmux-sdk --locked
+          # Full sidebar packaging resolves its versioned crates.io dependency.
+          # Publish cmux-sdk first; CI still verifies the exact sidebar file set.
+          cargo package -p cmux-sidebar --locked --list
+
+      - name: Test Go SDK
+        if: matrix.language == 'go'
+        working-directory: cmux-tui/bindings/go
+        run: |
+          go test ./...
+          go test -race ./...
+          go vet ./...
+
+      - name: Test external Java jar consumer
+        if: matrix.language == 'java'
+        working-directory: cmux-tui/bindings/java
+        run: bash scripts/test.sh
+
+      - name: Test installed C++ package consumer
+        if: matrix.language == 'cpp'
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake \
+            -S cmux-tui/bindings/cpp \
+            -B "$RUNNER_TEMP/cmux-cpp-sdk" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic -Werror"
+          cmake --build "$RUNNER_TEMP/cmux-cpp-sdk" --parallel
+          ctest --test-dir "$RUNNER_TEMP/cmux-cpp-sdk" --output-on-failure
+
+      - name: Test Zig SDK
+        if: matrix.language == 'zig'
+        working-directory: cmux-tui/bindings/zig
+        run: |
+          test "$(zig version)" = "0.15.2"
+          zig fmt --check build.zig src examples
+          zig build test
+          zig build
+
+  consumers:
+    name: ${{ matrix.language }} consumer
+    needs: contract
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - typescript
+          - rust
+          - go
+          - java
+          - cpp
+          - zig
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.9
+        if: matrix.language == 'python'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.9"
+
+      - name: Set up Node.js
+        if: matrix.language == 'typescript'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20.19.5"
+          cache: npm
+          cache-dependency-path: |
+            cmux-tui/bindings/typescript/package-lock.json
+            cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json
+
+      - name: Set up pinned Rust toolchain
+        if: matrix.language == 'rust'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.22.12"
+          cache-dependency-path: |
+            cmux-tui/bindings/go/go.mod
+            cmux-tui/bindings/examples/go-terminal-bot/go.mod
+
+      - name: Select JDK 17
+        if: matrix.language == 'java'
+        run: |
+          test -x "$JAVA_HOME_17_X64/bin/java"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          "$JAVA_HOME_17_X64/bin/java" -version
+          "$JAVA_HOME_17_X64/bin/javac" -version
+
+      - name: Select Clang C++20
+        if: matrix.language == 'cpp'
+        run: clang++ --version
+
+      - name: Set up Zig
+        if: matrix.language == 'zig'
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Test Python agent watchdog
+        if: matrix.language == 'python'
+        working-directory: cmux-tui/bindings/examples/python-agent-watchdog
+        env:
+          PYTHONPATH: ${{ github.workspace }}/cmux-tui/bindings/python
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Test Python development orchestrator
+        if: matrix.language == 'python'
+        working-directory: cmux-tui/bindings/examples/python-dev-orchestrator
+        env:
+          PYTHONPATH: ${{ github.workspace }}/cmux-tui/bindings/python:${{ github.workspace }}/cmux-tui/bindings/examples/python-dev-orchestrator
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Test TypeScript browser controller
+        if: matrix.language == 'typescript'
+        working-directory: cmux-tui/bindings/examples/typescript-browser-controller
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
+      - name: Test Rust resource consumers
+        if: matrix.language == 'rust'
+        run: |
+          cargo test \
+            --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
+            --locked
+          cargo clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+          cargo test \
+            --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
+            --locked \
+            --all-targets
+          cargo clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+
+      - name: Test Go terminal bot
+        if: matrix.language == 'go'
+        working-directory: cmux-tui/bindings/examples/go-terminal-bot
+        run: |
+          go test ./...
+          go test -race ./...
+          go vet ./...
+
+      - name: Test Java CI orchestrator
+        if: matrix.language == 'java'
+        run: cmux-tui/bindings/examples/java-ci-orchestrator/scripts/test.sh
+
+      - name: Test installed C++ terminal frontend
+        if: matrix.language == 'cpp'
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake \
+            -S cmux-tui/bindings/cpp \
+            -B "$RUNNER_TEMP/cmux-cpp-install-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMUX_BUILD_TESTS=OFF
+          cmake --build "$RUNNER_TEMP/cmux-cpp-install-build" --parallel
+          cmake \
+            --install "$RUNNER_TEMP/cmux-cpp-install-build" \
+            --prefix "$RUNNER_TEMP/cmux-cpp-install"
+          cmake \
+            -S cmux-tui/bindings/examples/cpp-terminal-frontend \
+            -B "$RUNNER_TEMP/cmux-cpp-frontend" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMUX_CPP_SDK_DIR= \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/cmux-cpp-install"
+          cmake --build "$RUNNER_TEMP/cmux-cpp-frontend" --parallel
+          ctest --test-dir "$RUNNER_TEMP/cmux-cpp-frontend" --output-on-failure
+
+      - name: Test Zig session supervisor
+        if: matrix.language == 'zig'
+        working-directory: cmux-tui/bindings/examples/zig-session-supervisor
+        run: |
+          test "$(zig version)" = "0.15.2"
+          zig fmt --check build.zig src tests
+          zig build test -Doptimize=Debug
+          zig build test -Doptimize=ReleaseSafe
+          zig build -Doptimize=Debug
+          zig build -Doptimize=ReleaseSafe
+
+  rust-msrv:
+    name: Rust SDK MSRV (1.88)
+    needs: contract
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.88 MSRV toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+
+      - name: Test public Rust SDK crates and examples on MSRV
+        run: |
+          cargo +1.88.0 fmt --manifest-path cmux-tui/bindings/rust/Cargo.toml -- --check
+          cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust/Cargo.toml --locked
+          cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust-sidebar/Cargo.toml --locked
+          cargo +1.88.0 clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+          cargo +1.88.0 clippy \
+            --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
+            --locked \
+            --all-targets \
+            -- -D warnings
+
+  conformance:
+    name: seven-language live conformance
+    needs: contract
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Initialize Ghostty protocol submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.8"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20.19.5"
+          cache: npm
+          cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
+
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.22.12"
+          cache-dependency-path: cmux-tui/bindings/go/go.mod
+
+      - name: Select JDK 17
+        run: |
+          test -x "$JAVA_HOME_17_X64/bin/java"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          "$JAVA_HOME_17_X64/bin/java" -version
+          "$JAVA_HOME_17_X64/bin/javac" -version
+
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.16.0
+
+      - name: Install TypeScript adapter build tools
+        working-directory: cmux-tui/bindings/typescript
+        run: npm ci --no-audit --no-fund
+
+      - name: Build exact headless cmux-tui
+        working-directory: cmux-tui
+        run: |
+          test "$(zig version)" = "0.16.0"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+
+      - name: Set up Zig for SDK conformance
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Run shared fake and live protocol contract
+        env:
+          CC: clang
+          CXX: clang++
+          CMUX_ZIG: zig
+          NODE_OPTIONS: --experimental-websocket
+        run: |
+          test "$(zig version)" = "0.15.2"
+          test "$(node -p 'typeof WebSocket')" = "function"
+          python3 cmux-tui/bindings/conformance/runner.py \
+            --require python,typescript,rust,go,java,cpp,zig \
+            --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"

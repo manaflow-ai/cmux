@@ -5,31 +5,6 @@ import Testing
 
 @Suite("TerminalLetterboxGeometry pixel math")
 struct TerminalLetterboxGeometryTests {
-    @Test("drawable container subtracts keyboard overlap and floors at 1")
-    func drawableContainer() {
-        let full = TerminalLetterboxGeometry.drawableContainerSize(
-            bounds: CGSize(width: 402, height: 700),
-            keyboardHeight: 0
-        )
-        #expect(full == CGSize(width: 402, height: 700))
-
-        let withKeyboard = TerminalLetterboxGeometry.drawableContainerSize(
-            bounds: CGSize(width: 402, height: 700),
-            keyboardHeight: 300
-        )
-        #expect(withKeyboard == CGSize(width: 402, height: 400))
-    }
-
-    @Test("keyboard taller than bounds is clamped so height stays >= 1")
-    func keyboardClamp() {
-        let clamped = TerminalLetterboxGeometry.drawableContainerSize(
-            bounds: CGSize(width: 402, height: 700),
-            keyboardHeight: 5000
-        )
-        // bottomInset clamps to height-1 = 699, container height = 700-699 = 1.
-        #expect(clamped == CGSize(width: 402, height: 1))
-    }
-
     @Test("container pixel size floors point*scale")
     func containerPixels() {
         let px = TerminalLetterboxGeometry.containerPixelSize(
@@ -138,14 +113,10 @@ struct TerminalLetterboxGeometryTests {
     private static let toolbar: CGFloat = 44
     private static let keyboard: CGFloat = 336
 
-    @Test("keyboard DOWN: terminal fills full bounds minus only the safe area (no composer/toolbar)")
-    func fullHeightKeyboardDownBare() {
-        // The bare contract the user reports: keyboard closed => full height
-        // minus only the bottom safe area. Toolbar/composer reservations are
-        // tested separately so this isolates the keyboard-open/closed axis.
+    @Test("bare container: full bounds minus only the safe area (no composer/toolbar)")
+    func fullHeightBare() {
         let size = TerminalLetterboxGeometry.terminalContainerSize(
             bounds: Self.phoneBounds,
-            keyboardHeight: 0,
             composerBandHeight: 0,
             toolbarHeight: 0,
             bottomSafeAreaInset: Self.homeIndicator,
@@ -155,12 +126,11 @@ struct TerminalLetterboxGeometryTests {
         #expect(size.height == 840) // 874 - 34
     }
 
-    @Test("keyboard DOWN with chrome: reserves safe area + toolbar + composer band")
-    func fullHeightKeyboardDownWithChrome() {
+    @Test("chrome visible: reserves safe area + toolbar + composer band")
+    func fullHeightWithChrome() {
         let composer: CGFloat = 120
         let size = TerminalLetterboxGeometry.terminalContainerSize(
             bounds: Self.phoneBounds,
-            keyboardHeight: 0,
             composerBandHeight: composer,
             toolbarHeight: Self.toolbar,
             bottomSafeAreaInset: Self.homeIndicator,
@@ -170,85 +140,23 @@ struct TerminalLetterboxGeometryTests {
         #expect(size.height == 676)
     }
 
-    @Test("keyboard UP: terminal is reduced by the keyboard height, not also the safe area")
-    func reducedHeightKeyboardUp() {
-        let composer: CGFloat = 120
-        let down = TerminalLetterboxGeometry.terminalContainerSize(
-            bounds: Self.phoneBounds,
-            keyboardHeight: 0,
-            composerBandHeight: composer,
-            toolbarHeight: Self.toolbar,
-            bottomSafeAreaInset: Self.homeIndicator,
-            chromeHidden: false
-        )
-        let up = TerminalLetterboxGeometry.terminalContainerSize(
-            bounds: Self.phoneBounds,
-            keyboardHeight: Self.keyboard,
-            composerBandHeight: composer,
-            toolbarHeight: Self.toolbar,
-            bottomSafeAreaInset: Self.homeIndicator,
-            chromeHidden: false
-        )
-        // Keyboard up: the keyboard covers the home indicator, so occupancy is
-        // the keyboard height ALONE (not keyboard + safe area). The grid loses
-        // exactly (keyboard - safe area) more than the keyboard-down case.
-        #expect(up.height == 874 - (Self.keyboard + Self.toolbar + composer))
-        #expect(down.height - up.height == Self.keyboard - Self.homeIndicator)
-        // And it is meaningfully shorter than keyboard-down.
-        #expect(up.height < down.height)
-    }
-
-    @Test("keyboard-down height does NOT depend on a stale prior keyboard value")
-    func keyboardDownHeightIgnoresStaleKeyboard() {
-        // Simulate the up->down transition: once keyboardHeight returns to 0 the
-        // height must be the full keyboard-down height, regardless of how tall
-        // the keyboard was a frame ago. The function takes the CURRENT keyboard
-        // height only, so a stale value cannot leak in.
-        let afterHide = TerminalLetterboxGeometry.terminalContainerSize(
-            bounds: Self.phoneBounds,
-            keyboardHeight: 0, // settled down
-            composerBandHeight: 0,
-            toolbarHeight: 0,
-            bottomSafeAreaInset: Self.homeIndicator,
-            chromeHidden: false
-        )
-        let neverShown = TerminalLetterboxGeometry.terminalContainerSize(
-            bounds: Self.phoneBounds,
-            keyboardHeight: 0,
-            composerBandHeight: 0,
-            toolbarHeight: 0,
-            bottomSafeAreaInset: Self.homeIndicator,
-            chromeHidden: false
-        )
-        #expect(afterHide == neverShown)
-        #expect(afterHide.height == 840) // 874 - 34
-    }
+    // The keyboard is not a parameter of `terminalContainerSize` AT ALL: the
+    // grid keeps its keyboard-down size while the keyboard is up and the host
+    // slides the full-height render so its bottom edge rides the composer
+    // bar. The signature is the regression guard — a keyboard-driven resize
+    // cannot come back without re-adding the parameter.
 
     @Test("chrome hidden: terminal reclaims toolbar, composer AND the bottom safe area")
     func chromeHiddenReclaimsEverything() {
         let size = TerminalLetterboxGeometry.terminalContainerSize(
             bounds: Self.phoneBounds,
-            keyboardHeight: 0,
             composerBandHeight: 120,
             toolbarHeight: Self.toolbar,
             bottomSafeAreaInset: Self.homeIndicator,
             chromeHidden: true
         )
-        // HIDE button: nothing reserved (no keyboard), grid is the entire bounds.
+        // HIDE button: nothing reserved, grid is the entire bounds.
         #expect(size.height == 874)
-    }
-
-    @Test("chrome hidden with keyboard still up reserves only the keyboard")
-    func chromeHiddenKeyboardUp() {
-        let size = TerminalLetterboxGeometry.terminalContainerSize(
-            bounds: Self.phoneBounds,
-            keyboardHeight: Self.keyboard,
-            composerBandHeight: 120,
-            toolbarHeight: Self.toolbar,
-            bottomSafeAreaInset: Self.homeIndicator,
-            chromeHidden: true
-        )
-        #expect(size.height == 874 - Self.keyboard)
     }
 
     @Test("keyboard occupancy uses keyboard when up, safe area when down")
@@ -271,6 +179,36 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 34) == 34)
         // Both zero (pre-window-attach) => 0.
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
+    }
+
+    @Test("keyboard absorption slack: blank rows absorb before content moves")
+    func keyboardAbsorptionSlackContract() {
+        // Post-`clear` shell: nearly the whole render is blank, so the whole
+        // intrusion is absorbed and the terminal stays top-pinned.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 700, intrusion: 302
+        ) == 302)
+        // Full screen of content: nothing to absorb, plain bottom-pin.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 0, intrusion: 302
+        ) == 0)
+        // Partially filled: content slides only past the blank rows, so the
+        // transition from top-pin to bottom-pin is continuous.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 120, intrusion: 302
+        ) == 120)
+        // Unknown content bottom (or alternate screen): safe bottom-pin.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: nil, intrusion: 302
+        ) == 0)
+        // Keyboard down: no intrusion, no slack, natural layout.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: 700, intrusion: 0
+        ) == 0)
+        // Defensive: negative inputs cannot create motion.
+        #expect(TerminalLetterboxGeometry.keyboardAbsorptionSlack(
+            blankBelowContent: -5, intrusion: -5
+        ) == 0)
     }
 
     @Test("clampPinnedSize bounds refined pixels by the container")

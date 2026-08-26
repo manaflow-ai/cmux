@@ -1,12 +1,16 @@
 # Render-Mode Attach Contract
 
+This document specifies the private protocol-v12 render representation.
+`cmux.protocol/2` reuses its lossless styled concepts through typed terminal
+and sidebar streams without exposing private terminal identities.
+
 Protocol v7 adds a server-rendered attach mode for rich frontends. The server remains the only terminal emulator: clients draw styled runs, place the cursor, and send input. Protocol v6 byte attach remains unchanged and is still the default.
 
 The schema notation and common types in [`commands.md`](commands.md#notation) apply here.
 
 | Field | Value |
 | --- | --- |
-| status | proposed |
+| status | implemented |
 | since | protocol 7 |
 | attach command | `attach-surface` with `mode:"render"` |
 
@@ -110,16 +114,17 @@ object{
   default_fg:ColorHex,
   default_bg:ColorHex,
   scrollback_rows:uint32,
+  history_epoch:uint64,
   rows:array<Row>
 }
 ```
 
-`rows` is a complete snapshot of the current viewport and contains exactly `size.rows` entries. This draft uses `size.rows` for the numeric height because a JSON object cannot also use `rows` as the row-array key. `scrollback_rows` is the current number of retained rows above the live screen; the initial event does not inline scrollback.
+`rows` is a complete snapshot of the current viewport and contains exactly `size.rows` entries. This draft uses `size.rows` for the numeric height because a JSON object cannot also use `rows` as the row-array key. `scrollback_rows` is the current number of retained rows above the live screen; the initial event does not inline scrollback. `history_epoch` identifies the retained-history contents and coordinate space captured with the frame.
 
 Example:
 
 ```json
-{"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":42,"rows":[{"row":0,"runs":[{"text":"$ ","fg":null,"bg":null,"attrs":0},{"text":"x","fg":"#ff0000","bg":null,"attrs":1}]}]}
+{"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":42,"history_epoch":17,"rows":[{"row":0,"runs":[{"text":"$ ","fg":null,"bg":null,"attrs":0},{"text":"x","fg":"#ff0000","bg":null,"attrs":1}]}]}
 ```
 
 ## render-delta
@@ -142,6 +147,7 @@ object{
   default_fg?:ColorHex,
   default_bg?:ColorHex,
   scrollback_rows?:uint32,
+  history_epoch?:uint64,
   rows:array<Row>
 }
 ```
@@ -150,13 +156,13 @@ The cursor is always present, including cursor-only frames where `rows` is empty
 
 `size` is present if and only if the surface resized. A resize always sends `full:true` and every viewport row at the new size. This full replacement is required because Ghostty may reflow content and invalidate every old row index. `full:true` may also be used without `size` when a palette/default-color change or engine full-damage state requires a complete repaint.
 
-When `full:true`, `rows` contains exactly the complete current viewport. Optional `default_fg` and `default_bg` are present only when that default changed. `scrollback_rows` is present only when the count changed. Runs still carry resolved RGB, so any palette change that affects visible cells must dirty those rows or cause a full delta.
+When `full:true`, `rows` contains exactly the complete current viewport. Optional `default_fg` and `default_bg` are present only when that default changed. `scrollback_rows` is present only when the count changed. `history_epoch` is present when terminal output or resize may have changed retained rows or their coordinates. Runs still carry resolved RGB, so any palette change that affects visible cells must dirty those rows or cause a full delta.
 
 `scroll-changed` carries viewport offset/at-bottom metadata; it does not carry cells and does not replace a delta. If scrolling changes visible content, the render stream also supplies the resulting dirty or full rows in an ordered `render-delta`. The two events need not be adjacent because frame coalescing may include other terminal mutations.
 
 ## Scrollback
 
-`read-scrollback` returns styled retained rows without moving the shared viewport. Its complete command schema and CLI mapping are in [`commands.md`](commands.md#read-scrollback).
+`read-scrollback` returns styled retained rows and their `epoch` without moving the shared viewport. Its complete command schema and CLI mapping are in [`commands.md`](commands.md#read-scrollback).
 
 `start` indexes the oldest row currently retained as zero. In a response, `Row.row` is relative to the returned page and the current absolute index is `start + Row.row`.
 
@@ -164,15 +170,27 @@ The inclusive `count` bound is `0 <= count <= 65,535`.
 
 This keeps the relative row index representable as `uint16`.
 
-Scrollback indexes are snapshots, not durable row ids. When the retention limit evicts `n` old rows, every surviving row's index decreases by `n`; `total` may grow, shrink, or stay constant. A clear operation can also reduce it. Each request is captured under the terminal lock and returns one internally consistent `start`, `rows`, and `total`, but separate requests do not form a transaction.
+Scrollback indexes are snapshots, not durable row ids. When the retention limit evicts `n` old rows, every surviving row's index decreases by `n`; `total` may grow, shrink, or stay constant. A clear operation can also reduce it. Each request is captured under the terminal lock and returns one internally consistent `start`, `rows`, `total`, and `epoch`, but separate requests do not form a transaction. Clients may merge pages or project absolute graphics anchors only when their epochs match.
 
 Resize reflow is owned by Ghostty. A resize may rewrap retained content, change row boundaries and `total`, and invalidate a prior `start`. The protocol promises the engine's retained rows as they exist when the request is captured; it does not promise stable logical-line identity or byte-for-byte row boundaries across sizes.
 
 ## Sizing And Multi-Client Presentation
 
-Render mode uses the same single authoritative surface grid and smallest-client sizing rules as byte mode. See [`commands.md`](commands.md#sizing) for creation defaults, clamps, and the exact mutation rule.
+Render and byte modes observe one authoritative terminal grid. One explicit
+client/view pair owns geometry; other views crop, pan, or scale that grid. See
+[`commands.md`](commands.md#sizing) for creation defaults, clamps, geometry
+claims, and browser compatibility behavior.
 
-Attaching does not resize a surface. A frontend sends `resize-surface` after attach and after an actual local cell-grid change. The server independently takes the minimum reported columns and rows across attached viewers. Larger frontends render the smaller authoritative grid with unused surrounding space. A render-size event from another client does not invalidate the frontend's last local report, so input and passive rendering cannot cause a resize feedback loop.
+A frontend may include paired `cols` and `rows` in `attach-surface` only after
+`identify.capabilities` includes `attach-initial-size`. The pair records its
+initial viewport before the server captures `render-state`, but attachment
+does not claim geometry. After attachment, the frontend sends
+`resize-surface` after an actual local grid change. When that view should drive
+the PTY, it claims geometry with `set-client-sizing`; losing focus does not
+implicitly transfer ownership. It sends `release-surface-size` when the view
+becomes hidden, while retaining the stream for a warm cache. A resize event
+from the geometry owner does not change passive clients' reports or local
+viewport state.
 
 ## Input
 

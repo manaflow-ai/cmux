@@ -29,7 +29,11 @@ extension TerminalController {
 
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
-    func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatDispatch(
+        method: String,
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         switch method {
         case "mobile.chat.sessions":
             return await v2MobileChatSessions(params: params)
@@ -46,7 +50,10 @@ extension TerminalController {
         case "mobile.chat.artifact.stat":
             return await v2MobileChatArtifactStat(params: params)
         case "mobile.chat.artifact.fetch":
-            return await v2MobileChatArtifactFetch(params: params)
+            return await v2MobileChatArtifactFetch(
+                params: params,
+                executionContext: executionContext
+            )
         case "mobile.chat.artifact.thumbnail":
             return await v2MobileChatArtifactThumbnail(params: params)
         case "mobile.chat.artifact.list":
@@ -119,7 +126,7 @@ extension TerminalController {
             return .ok(["sessions": []])
         }
         let workspace = resolved.workspace
-        let terminalSurfaceIDs = Set(workspace.panels.compactMap { panelID, panel in panel is TerminalPanel ? panelID : nil })
+        let terminalSurfaceIDs = Set(mobileTerminalPanels(in: workspace).map(\.id))
         // Workspace GUI pulls force a scoped scan and wait only to a local deadline.
         let observedBeforeListing = await service.observeAgentProcessesForListing(
             surfaceIDs: terminalSurfaceIDs,
@@ -138,7 +145,7 @@ extension TerminalController {
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
-                  workspace.terminalPanel(for: surfaceUUID) != nil else {
+                  workspace.terminalInputTarget(forPanelID: surfaceUUID) != nil else {
                 #if DEBUG
                 dropNotInWorkspace += 1
                 #endif
@@ -272,7 +279,7 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let clearResult = mobileChatClearPrompt(terminalPanel)
+        let clearResult = clearAgentPrompt(terminalPanel)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
         }
@@ -317,18 +324,6 @@ extension TerminalController {
         var pasteParams = terminalParams
         pasteParams["text"] = text
         return v2MobileTerminalPaste(params: pasteParams)
-    }
-
-    /// Clears any stale text already sitting in the agent's terminal prompt
-    /// before the mobile chat prompt is pasted and submitted.
-    private func mobileChatClearPrompt(_ terminalPanel: TerminalPanel) -> TerminalSurface.NamedKeySendResult {
-        var latestAccepted: TerminalSurface.NamedKeySendResult = .sent
-        for keyName in ["ctrl+a", "ctrl+k", "ctrl+u"] {
-            let result = terminalPanel.sendNamedKeyResult(keyName)
-            guard result.accepted else { return result }
-            latestAccepted = result
-        }
-        return latestAccepted
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
@@ -425,7 +420,7 @@ extension TerminalController {
         let params: [String: Any] = ["workspace_id": workspaceID, "surface_id": surfaceID]
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.terminalInputTarget(forPanelID: surfaceId) != nil else {
             return false
         }
         return true
@@ -450,7 +445,7 @@ extension TerminalController {
                   requireTerminal: true
               ),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.terminalInputTarget(forPanelID: surfaceId) != nil else {
             return false
         }
         return mobileChatRecordMatchesAgent(record: record)
@@ -484,7 +479,7 @@ extension TerminalController {
             #endif
             return nil
         }
-        return resolved.workspace.terminalPanel(for: surfaceId)
+        return resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel
     }
 
 }

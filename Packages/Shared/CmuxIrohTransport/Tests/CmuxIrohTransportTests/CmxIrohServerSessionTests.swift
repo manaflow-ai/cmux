@@ -6,6 +6,105 @@ import Testing
 @Suite
 struct CmxIrohServerSessionTests {
     @Test
+    func admittedHostSessionEmitsAttributedCloseAndPathEvents() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream],
+            closeAttribution: .init(
+                initiator: .remote,
+                applicationErrorCode: 93,
+                failureKind: .connectionClosed
+            )
+        )
+        let server = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        let peer = try await server.admit()
+        let admitted = CmxIrohAdmittedServerSession(peer: peer, session: server)
+        let log = DiagnosticLog(capacity: 4)
+        let recorder = CmxIrohConnectionDiagnosticRecorder(
+            diagnosticLog: log,
+            sessionID: 31
+        )
+        let pathTask = Task {
+            let events = await admitted.observedPathEvents()
+            for await event in events {
+                recorder.record(event)
+            }
+        }
+
+        await connection.emitPathEvent(.init(
+            kind: .selected,
+            pathKind: .direct
+        ))
+        for _ in 0 ..< 1_000 {
+            if await log.processedCount() >= 1 { break }
+            await Task.yield()
+        }
+        await connection.close(errorCode: 93, reason: "remote_peer_closed")
+        recorder.record(await admitted.closeAttribution())
+
+        for _ in 0 ..< 1_000 {
+            if await log.processedCount() >= 3 { break }
+            await Task.yield()
+        }
+        await pathTask.value
+        let events = await log.snapshot().events
+        #expect(events.map(\.code) == [
+            .transportPathEvent,
+            .transportCloseAttribution,
+            .transportCloseReason,
+        ])
+        #expect(events.allSatisfy { $0.c == 31 })
+        #expect(events[0].a == CmxIrohConnectionPathEventKind.selected.rawValue)
+        #expect(events[0].b == DiagnosticPathKind.direct.rawValue)
+        #expect(events[1].a == CmxIrohConnectionCloseInitiator.remote.rawValue)
+        #expect(events[1].b == DiagnosticFailureKind.connectionClosed.rawValue)
+        #expect(events[1].ms == 93)
+        #expect(events[2].a == DiagnosticRemoteCloseReason.unknown.rawValue)
+    }
+
+    @Test(arguments: [
+        DiagnosticFailureKind.admissionLeaseExpired,
+        .admissionDenied,
+        .admissionRevalidationFailed,
+    ])
+    func namedHostCloseOverridesTheObservedSupervisorExit(
+        failure: DiagnosticFailureKind
+    ) async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream]
+        )
+        let serverSession = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        let peer = try await serverSession.admit()
+        let session = CmxIrohAdmittedServerSession(
+            peer: peer,
+            session: serverSession
+        )
+        let observedExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .controlReadFailed,
+            failure: .connectionClosed
+        )
+
+        await serverSession.close(failure: failure)
+
+        #expect(
+            await session.connectionExit(resolving: observedExit)
+                == CmxIrohAdmittedConnectionExit(
+                    lifecycle: .explicitlyInvalidated,
+                    failure: failure
+                )
+        )
+    }
+
+    @Test
     func acceptedControlPreservesPayloadAndUnlocksIndependentLanes() async throws {
         let events = TestIrohEventRecorder()
         let fixture = try ServerFixture(decision: .accepted, eventRecorder: events)
@@ -17,6 +116,13 @@ struct CmxIrohServerSessionTests {
             buffer: terminalHeader + Data("terminal-payload".utf8)
         )
         let terminalSend = TestIrohSendStream()
+        let artifactID = try CmxIrohResourceID("artifact:admitted-preview")
+        let artifactHeader = try fixture.headerCodec.encode(
+            CmxIrohStreamHeader(lane: .artifact(resourceID: artifactID, offset: 4))
+        )
+        let artifactReceive = TestIrohReceiveStream(
+            buffer: artifactHeader + Data("artifact-payload".utf8)
+        )
         let connection = TestIrohConnection(
             remoteIdentity: fixture.peerID,
             bidirectionalStreams: [
@@ -24,6 +130,10 @@ struct CmxIrohServerSessionTests {
                 CmxIrohBidirectionalStream(
                     receiveStream: terminalReceive,
                     sendStream: terminalSend
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: artifactReceive,
+                    sendStream: TestIrohSendStream()
                 ),
             ],
             eventRecorder: events
@@ -54,12 +164,23 @@ struct CmxIrohServerSessionTests {
             try await inbound.stream.receiveStream.receive(maximumByteCount: 64)
                 == Data("terminal-payload".utf8)
         )
+        let artifact = try await session.acceptBidirectionalLane()
+        #expect(artifact.lane == .artifact(resourceID: artifactID, offset: 4))
+        #expect(
+            try await artifact.stream.receiveStream.receive(maximumByteCount: 64)
+                == Data("artifact-payload".utf8)
+        )
         let acknowledgements = await fixture.controlSend.observedSentBuffers()
         let acceptedPending = try #require(acknowledgements.first)
         let serverReady = try #require(acknowledgements.dropFirst().first)
         #expect(acknowledgements.count == 2)
         #expect(try CmxIrohAdmissionAckCodec().decodePrefix(acceptedPending) == .accepted)
         #expect(serverReady == admissionFrame(status: 3))
+        try await session.sendControl(Data("control-after-artifact".utf8))
+        #expect(
+            await fixture.controlSend.observedSentBuffers().last
+                == Data("control-after-artifact".utf8)
+        )
         #expect(await connection.observedCloseCallCount() == 0)
     }
 

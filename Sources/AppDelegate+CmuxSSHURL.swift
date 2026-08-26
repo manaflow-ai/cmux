@@ -207,7 +207,12 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         }
 
         self.fileURL = standardizedURL
-        self.workingDirectory = standardizedURL.deletingLastPathComponent().path(percentEncoded: false)
+        // `path(percentEncoded:)` keeps a directory URL's trailing slash, so the parent of
+        // "/tmp/scripts/run.command" came back as "/tmp/scripts/". That string becomes the
+        // workspace's working directory, which the window title renders via {activeDirectory}
+        // and which directory comparisons match on, so the stray slash is user visible. `path`
+        // reports the same decoded path without it and still reports "/" for a file at the root.
+        self.workingDirectory = standardizedURL.deletingLastPathComponent().path
         self.initialInput = "\(Self.shellSingleQuoted(standardizedURL.path(percentEncoded: false)))\n"
     }
 

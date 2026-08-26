@@ -9,9 +9,17 @@ const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
 
+let nativeCallbackScheme: string | undefined;
+let checkoutApp = "cmux";
 const retrieveSession = mock(async () => ({
+  client_reference_id: "stack-user-1",
   customer_details: { email: "buyer@example.com" },
   subscription: { status: "active" },
+  metadata: {
+    app: checkoutApp,
+    plan: "pro",
+    ...(nativeCallbackScheme ? { nativeCallbackScheme } : {}),
+  },
 }));
 
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
@@ -85,7 +93,7 @@ describe("billing success page", () => {
     expect(html).toContain("cmux iOS app");
     expect(html).toContain("Use cmux on your phone.");
     expect(html).toContain('href="https://cmux.test/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback"');
-    expect(html).toContain('href="/dashboard/subrouter"');
+    expect(html).toContain('href="/dashboard/coderouter"');
     expect(html).toContain('href="/dashboard/ai-accounts"');
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain('href="/api/billing/portal"');
@@ -97,5 +105,53 @@ describe("billing success page", () => {
     expect(retrieveSession).toHaveBeenCalledWith("cs_123", {
       expand: ["subscription", "customer"],
     });
+  });
+
+  test("opens the tagged app recorded by the trusted checkout", async () => {
+    const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
+    process.env.CMUX_APP_PRICING_RELAY_SECRET =
+      "pricing-relay-test-secret-with-at-least-32-bytes";
+    nativeCallbackScheme = "cmux-dev-test";
+    try {
+      const element = await BillingSuccessPage({
+        searchParams: Promise.resolve({
+          session_id: "cs_123",
+          cmux_scheme: "cmux-dev-test",
+        }),
+      });
+      const html = renderToStaticMarkup(element);
+
+      expect(html).toContain(
+        "native_app_return_to=cmux-dev-test%3A%2F%2Fauth-callback",
+      );
+      expect(html).toContain("cmux_checkout_session=cs_123");
+      expect(html).toContain("cmux_native_return_expires=");
+      expect(html).toMatch(/cmux_native_return_signature=[a-f0-9]{64}/);
+    } finally {
+      nativeCallbackScheme = undefined;
+      if (previousSecret === undefined) {
+        delete process.env.CMUX_APP_PRICING_RELAY_SECRET;
+      } else {
+        process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
+      }
+    }
+  });
+
+  test("rejects a foreign Stripe session before signing a tagged callback", async () => {
+    checkoutApp = "other";
+    nativeCallbackScheme = "cmux-dev-attacker";
+    try {
+      await expect(
+        BillingSuccessPage({
+          searchParams: Promise.resolve({
+            session_id: "cs_foreign",
+            cmux_scheme: "cmux-dev-attacker",
+          }),
+        }),
+      ).rejects.toMatchObject({ href: "/pricing?billing=error" });
+    } finally {
+      checkoutApp = "cmux";
+      nativeCallbackScheme = undefined;
+    }
   });
 });

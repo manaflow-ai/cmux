@@ -38,12 +38,26 @@ public protocol SettingsHostActions: AnyObject {
     /// user can grant / revoke OS-level notification permission.
     func openSystemNotificationSettings()
 
+    /// Returns the host's current macOS notification authorization state.
+    func desktopNotificationAuthorizationStatus() -> DesktopNotificationAuthorizationState
+
+    /// Emits a fresh authorization state when the host observes a macOS
+    /// notification permission change.
+    func desktopNotificationAuthorizationStatusUpdates() -> AsyncStream<DesktopNotificationAuthorizationState>
+
+    /// Asks the host to refresh macOS notification permission from
+    /// `UNUserNotificationCenter`.
+    func refreshDesktopNotificationAuthorizationStatus()
+
     /// Restarts the cmux app. Used after the user changes the
     /// language picker, which requires a full process restart.
     func restartApp()
 
     /// Applies the current persisted control-socket configuration to the live server.
     func socketControlConfigurationDidChange()
+
+    /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
+    func terminalAdaptiveDefaultThemeDidChange()
 
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
@@ -195,6 +209,17 @@ public protocol SettingsHostActions: AnyObject {
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
 
+    /// Current Mac-owned forwarding policy for cmux mobile push notifications.
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot
+
+    /// Live forwarding-policy updates from every app entrypoint.
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot>
+
+    /// Applies one forwarding-policy field through the host's shared owner.
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot
+
     /// Shows the Sleepy Mode screensaver as a non-locking preview (any key/click
     /// exits, no Touch ID). The host owns the overlay window.
     func sleepyModePreview()
@@ -215,14 +240,62 @@ public protocol SettingsHostActions: AnyObject {
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
+    /// Whether the host can register `shortcut` as its system-wide hotkey.
+    ///
+    /// The macOS host applies Carbon conversion and app-reservation checks that
+    /// the settings package cannot perform by itself.
+    ///
+    /// - Parameter shortcut: The complete Show/Hide shortcut proposed by Settings.
+    /// - Returns: `true` when the host's runtime registrar can use the shortcut.
+    func canRegisterSystemWideHotkey(_ shortcut: StoredShortcut) -> Bool
+
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
+
+    /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
+    /// false the Cloud Machines settings section renders nothing.
+    var isCloudMachinesAvailable: Bool { get }
+
+    /// The caller's machine plan: plan name, machines in use, and the plan's
+    /// machine ceiling. `nil` when signed out or the backend is unreachable.
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
+
+    /// Reveals the right-sidebar Machines panel in the active main window.
+    func openCloudMachinesPanel()
+
+    /// Opens the host's plan management / upgrade flow.
+    func openCloudMachinesBilling()
+}
+
+/// Snapshot of the caller's Cloud Machines plan for the settings section.
+public struct CloudMachinesPlanSummary: Equatable, Sendable {
+    public let planLabel: String
+    public let activeMachines: Int
+    public let maxMachines: Int
+    public let isPaidPlan: Bool
+
+    public init(planLabel: String, activeMachines: Int, maxMachines: Int, isPaidPlan: Bool) {
+        self.planLabel = planLabel
+        self.activeMachines = activeMachines
+        self.maxMachines = maxMachines
+        self.isPaidPlan = isPaidPlan
+    }
 }
 
 public extension SettingsHostActions {
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
+
+    /// Cloud Machines defaults for previews, tests, and package-only hosts:
+    /// unavailable, no plan, no-op actions.
+    var isCloudMachinesAvailable: Bool { false }
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
+    func openCloudMachinesPanel() {}
+    func openCloudMachinesBilling() {}
+
+    /// Default no-op for package-only settings hosts without Ghostty.
+    func terminalAdaptiveDefaultThemeDidChange() {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
@@ -232,6 +305,13 @@ public extension SettingsHostActions {
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
+
+    /// Default package-only validation for previews and non-macOS hosts.
+    func canRegisterSystemWideHotkey(_ shortcut: StoredShortcut) -> Bool {
+        ShortcutAction.showHideAllWindows.shortcutBindingPolicyResult(
+            for: shortcut
+        ) == .accepted
+    }
 
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
@@ -249,6 +329,17 @@ public extension SettingsHostActions {
     func setMenuBarOnly(_ enabled: Bool) -> Bool { false }
 
     func browserHistoryEntryCount() -> Int? { nil }
+
+    /// Default: unknown permission state, for previews and tests without a host.
+    func desktopNotificationAuthorizationStatus() -> DesktopNotificationAuthorizationState { .unknown }
+
+    /// Default: no live permission updates, for previews and tests without a host.
+    func desktopNotificationAuthorizationStatusUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { $0.finish() }
+    }
+
+    /// Default: no refresh hook, for previews and tests without a host.
+    func refreshDesktopNotificationAuthorizationStatus() {}
 
     /// Default: no status, for hosts without a live mobile service (previews/tests).
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? { nil }
@@ -293,6 +384,21 @@ public extension SettingsHostActions {
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
+    }
+
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
+        .defaultValue
+    }
+
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot {
+        _ = mutation
+        return mobilePhonePushSettings()
     }
 
     func sidebarFontSize() -> SettingsFontSize {

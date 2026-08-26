@@ -61,26 +61,39 @@ private extension DockSplitStore {
                 inPane: pane
             )
         )
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         return panel
     }
 }
 
 /// Per-window Dock registry lifecycle: every main window owns an independent
-/// `DockSplitStore` (created lazily, owner id == window id) that is torn down
-/// with its window, and multiple windows render their Docks simultaneously —
-/// there is no cross-window render-host gating.
+/// `DockSplitStore` (created lazily, owner id == window id) that transfers
+/// across context replacement and retires with its authoritative route, while
+/// multiple windows render their Docks simultaneously without cross-window
+/// render-host gating.
 /// See https://github.com/manaflow-ai/cmux/issues/7142.
 @Suite("Per-window Dock lifecycle", .serialized)
 struct WindowDockLifecycleTests {
+    @MainActor
+    private func drainMainActorQueue() async {
+        await Task.yield()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+        await Task.yield()
+    }
+
     @MainActor
     private func withIsolatedAppDelegate(_ body: (AppDelegate) throws -> Void) rethrows {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         defer {
-            for context in Array(appDelegate.mainWindowContexts.values) {
-                appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            for windowId in Set(appDelegate.mainWindowContexts.values.map(\.windowId)) {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             }
             AppDelegate.shared = previousAppDelegate
         }
@@ -115,40 +128,294 @@ struct WindowDockLifecycleTests {
         }
     }
 
-    @Test("Window Dock tears down with its window")
+    @Test("Workspace panel teardown keeps its Dock reusable")
     @MainActor
-    func windowDockTearsDownOnWindowUnregister() throws {
-        let appDelegate = try #require(AppDelegate.shared)
+    func workspacePanelTeardownKeepsDockReusable() throws {
+        let workspace = Workspace()
+        defer { workspace.retireFromOwningTabManager() }
+
+        let dock = try #require(workspace.dockSplit)
+        let firstPanel = try dock.seedTestPanel()
+
+        workspace.teardownAllPanels()
+
+        #expect(dock.panels.isEmpty)
+        #expect(!dock.isRetired)
+        #expect(workspace.dockSplit === dock)
+
+        let replacementPanel = try dock.seedTestPanel()
+        #expect(replacementPanel.id != firstPanel.id)
+    }
+
+    @Test("Retired workspaces reject late panel callbacks")
+    @MainActor
+    func retiredWorkspaceRejectsLatePanelCallbacks() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        var unregistered = false
+        let workspace = manager.addWorkspace(
+            title: "Cloud VM",
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
         defer {
-            if !unregistered {
-                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
             }
-            manager.tabs.forEach { $0.teardownAllPanels() }
         }
 
-        let dock = appDelegate.windowDock(forWindowId: windowId)
-        let panel = try dock.seedTestPanel()
-        let panelId = panel.id
-        #expect(dock.containsPanel(panelId))
-        #expect(AppDelegate.isWindowDockRoutingId(windowId))
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let dock = try #require(workspace.dockSplit)
+        let dockPaneId = try #require(dock.bonsplitController.allPaneIds.first)
+        workspace.retireFromOwningTabManager()
 
-        appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-        unregistered = true
+        #expect(
+            workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+                workspaceId: workspace.id,
+                initialCommand: "cmux vm-pty-connect --id stale",
+                focus: false
+            ) == nil
+        )
+        #expect(workspace.newNotificationsSurface(inPane: paneId) == nil)
+        #expect(workspace.openOrFocusNotificationsSurface(inPane: paneId) == nil)
+        #expect(
+            !dock.handleExternalFileDrop(
+                BonsplitController.ExternalFileDropRequest(
+                    urls: [URL(fileURLWithPath: "/tmp/stale-preview.txt")],
+                    destination: .insert(targetPane: dockPaneId, targetIndex: nil)
+                )
+            )
+        )
+    }
 
-        // The store was dropped from the registry and its panels torn down —
-        // no PTY outlives the window.
-        #expect(appDelegate.existingWindowDock(forWindowId: windowId) == nil)
-        #expect(!AppDelegate.isWindowDockRoutingId(windowId))
-        #expect(!dock.containsPanel(panelId))
-        #expect(dock.panels.isEmpty)
-        #expect(!dock.isVisibleInUI)
-        #expect(panel.closeCount == 1)
-        // A closed window's manager can never seed a NEW Dock (it would have
-        // no teardown owner); manager-based lookup fails closed instead.
-        #expect(appDelegate.windowDock(for: manager) == nil)
+    @Test("Finalized managers reject late session restoration")
+    @MainActor
+    func finalizedManagerRejectsLateSessionRestoration() {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let remaps = manager.restoreSessionSnapshot(snapshot)
+
+        #expect(remaps.isEmpty)
+        #expect(manager.tabs.isEmpty)
+    }
+
+    @Test("Window Dock tears down on authoritative route removal")
+    @MainActor
+    func windowDockTearsDownOnAuthoritativeRouteRemoval() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            var unregistered = false
+            defer {
+                if !unregistered {
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                }
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let panel = try dock.seedTestPanel()
+            let panelId = panel.id
+            let paneId = try #require(
+                dock.bonsplitController.focusedPaneId ?? dock.bonsplitController.allPaneIds.first
+            )
+            #expect(dock.containsPanel(panelId))
+            #expect(AppDelegate.isWindowDockRoutingId(windowId))
+
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            unregistered = true
+            // Test unregistration models a recoverable SwiftUI context loss. The
+            // explicit forget below is the authoritative window-close boundary.
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            let registryIdsAfterUnregister = Set(
+                GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
+            )
+
+            let latePanelId = dock.newSurface(
+                kind: .terminal,
+                inPane: paneId,
+                command: "/usr/bin/true",
+                focus: false
+            )
+
+            // The store was dropped from the registry and its panels torn down —
+            // no PTY outlives the window, even when a stale UI callback retains
+            // the old store and tries to create another panel.
+            #expect(appDelegate.existingWindowDock(forWindowId: windowId) == nil)
+            #expect(!AppDelegate.isWindowDockRoutingId(windowId))
+            #expect(dock.isRetired)
+            #expect(latePanelId == nil)
+            #expect(!dock.containsPanel(panelId))
+            #expect(dock.panels.isEmpty)
+            #expect(!dock.isVisibleInUI)
+            #expect(panel.closeCount == 1)
+            #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterUnregister)
+            // A closed window's manager can never seed a NEW Dock (it would have
+            // no teardown owner); manager-based lookup fails closed instead.
+            #expect(appDelegate.windowDock(for: manager) == nil)
+        }
+    }
+
+    @Test("Recoverable context replacement preserves and re-adopts the window Dock")
+    @MainActor
+    func recoverableContextReplacementPreservesWindowDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let previousAppDelegate = AppDelegate.shared
+            let previousActiveManager =
+                TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager
+            )
+            let replacementWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            replacementWindow.isReleasedWhenClosed = false
+            replacementWindow.identifier = NSUserInterfaceItemIdentifier(
+                "cmux.main.\(windowId.uuidString)"
+            )
+            defer {
+                if appDelegate.mainWindowContexts.values.contains(where: {
+                    $0.windowId == windowId
+                }) {
+                    appDelegate.unregisterMainWindowContextForTesting(
+                        windowId: windowId
+                    )
+                }
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                if !manager.isFinalizedForWindowClose {
+                    manager.finalizeAllWorkspacesForWindowClose()
+                }
+                replacementWindow.orderOut(nil)
+                replacementWindow.close()
+                TerminalController.shared.setActiveTabManager(previousActiveManager)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let panel = try dock.seedTestPanel()
+
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+
+            #expect(!dock.isRetired)
+            #expect(dock.containsPanel(panel.id))
+            #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
+            #expect(appDelegate.windowDockForRegisteredOwner(windowId) === dock)
+            #expect(appDelegate.existingWindowDocks.contains { $0 === dock })
+            #expect(
+                appDelegate.recoverableMainWindowRoute(windowId: windowId)?
+                    .windowDock === dock
+            )
+            let recoverableSnapshot = try #require(
+                appDelegate.sessionSnapshotForTesting()?.windows.first(where: {
+                    $0.windowId == windowId
+                })
+            )
+            #expect(recoverableSnapshot.dock != nil)
+
+            appDelegate.registerMainWindow(
+                replacementWindow,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+
+            #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
+            #expect(appDelegate.recoverableMainWindowRoute(windowId: windowId) == nil)
+            #expect(!dock.isRetired)
+            #expect(dock.containsPanel(panel.id))
+
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            #expect(!dock.isRetired)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+
+            #expect(dock.isRetired)
+            #expect(!dock.containsPanel(panel.id))
+            #expect(panel.closeCount == 1)
+        }
+    }
+
+    @Test("Abandoned browser-only route retires its transferred Dock when its owner deinitializes")
+    @MainActor
+    func abandonedBrowserOnlyRouteRetiresTransferredDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let previousAppDelegate = AppDelegate.shared
+            let previousActiveManager =
+                TerminalController.shared.activeTabManagerForCallerNotification()
+            let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            BrowserAvailabilitySettings.setDisabled(false)
+
+            var manager: TabManager? = TabManager(autoWelcomeIfNeeded: false)
+            weak var releasedManager = manager
+            let workspace = try #require(manager?.selectedWorkspace)
+            let terminal = try #require(workspace.focusedTerminalPanel)
+            let workspacePane = try #require(
+                workspace.bonsplitController.focusedPaneId
+                    ?? workspace.bonsplitController.allPaneIds.first
+            )
+            let workspaceBrowser = try #require(
+                workspace.newBrowserSurface(
+                    inPane: workspacePane,
+                    url: URL(string: "https://example.com/route-owner"),
+                    focus: true,
+                    creationPolicy: .restoration
+                )
+            )
+            #expect(workspace.closePanel(terminal.id, force: true))
+            #expect(workspace.browserPanel(for: workspaceBrowser.id) === workspaceBrowser)
+            #expect(!workspace.panels.values.contains { $0 is TerminalPanel })
+            // Drain the initial terminal's unregister before a recoverable route
+            // exists, so no terminal-topology callback can satisfy this test.
+            await drainMainActorQueue()
+
+            let windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: try #require(manager)
+            )
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let dockBrowserId = try #require(
+                dock.newSurface(
+                    kind: .browser,
+                    inPane: dockPane,
+                    url: URL(string: "https://example.com/transferred-dock"),
+                    focus: true
+                )
+            )
+            defer {
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                workspace.teardownAllPanels()
+                TerminalController.shared.setActiveTabManager(previousActiveManager)
+                BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            #expect(!dock.isRetired)
+            #expect(dock.containsPanel(dockBrowserId))
+
+            manager = nil
+            await drainMainActorQueue()
+
+            #expect(releasedManager == nil)
+            #expect(dock.isRetired)
+            #expect(!dock.containsPanel(dockBrowserId))
+            #expect(dock.panels.isEmpty)
+        }
     }
 
     @Test("Runtime close routes window Dock surfaces through the Dock store")
@@ -159,6 +426,7 @@ struct WindowDockLifecycleTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
         }
 
@@ -193,6 +461,8 @@ struct WindowDockLifecycleTests {
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: activeWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: dockWindowId)
                 activeManager.tabs.forEach { $0.teardownAllPanels() }
                 dockManager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
@@ -259,6 +529,7 @@ struct WindowDockLifecycleTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
         }
 
@@ -297,6 +568,7 @@ struct WindowDockLifecycleTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
         }
 

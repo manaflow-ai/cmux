@@ -20,6 +20,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case mobile
     /// The account's computers: registry list, presence, Mac-to-Mac pairing.
     case computers
+    /// Cloud Machines: persistent cloud VM plan and entry points.
+    case cloudMachines
     /// Iroh relay policy, custom relays, and private-network routes.
     case networking
     case sidebarAppearance
@@ -47,6 +49,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .computers: return String(localized: "settings.section.computers", defaultValue: "Computers")
+        case .cloudMachines: return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking: return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .sidebarAppearance: return "Sidebar"
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
@@ -72,6 +75,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .sleepyMode: return "moon.zzz"
         case .mobile: return "iphone"
         case .computers: return "desktopcomputer"
+        case .cloudMachines: return "cloud"
         case .networking: return "network"
         case .sidebarAppearance: return "sidebar.left"
         case .customSidebars: return "sidebar.squares.left"
@@ -97,8 +101,9 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
-        case .mobile: return "ios iphone ipad mobile pairing local network sync"
+        case .mobile: return "ios iphone ipad mobile pairing local network sync push notifications alerts forwarding"
         case .computers: return "computers devices macs remote pair unpair presence online offline tailscale hive"
+        case .cloudMachines: return "cloud machines vm virtual machine persistent computer plan upgrade fleet sandbox"
         case .networking: return "iroh relay server private network tailscale vpn direct peer custom provider region"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"

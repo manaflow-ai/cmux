@@ -99,9 +99,8 @@ final class HiveComputersService {
                 await HiveReconnectBackoff().delay(attempt: attempt)
             },
             // Legacy Tailscale TCP has no cryptographic pre-bearer identity
-            // admission. Keep Stack auth loopback-only until the transport
-            // handshake grows that proof; DEBUG loopback remains usable.
-            stackAuthChannelTrust: .loopbackOnly,
+            // admission. Leave the compatibility evidence absent here so the
+            // viewer remains fail-closed until that transport handshake exists.
             expectedInstanceTag: best.instanceTag,
             requiresHostIdentity: computer.isRegistryBacked
         )

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Testing
 
 @Suite struct SSHPTYAttachExitCodeClassifierTests {

@@ -8,6 +8,7 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     private let presentingWindowProvider: () -> NSWindow?
     private let completion: Completion
     private var didFinish = false
+    private var joinedCancellationAction: (() -> Void)?
 
     init(
         alert: NSAlert? = nil,
@@ -20,6 +21,13 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         }
         self.completion = completion
         super.init()
+    }
+
+    func joinCancellationAction(_ action: @escaping () -> Void) {
+        guard !didFinish else { return }
+        // Only one sole-terminal recovery can be relevant while this decision
+        // is open. Replacing the action coalesces duplicate child-exit delivery.
+        joinedCancellationAction = action
     }
 
     private static func makeAlert() -> NSAlert {
@@ -50,6 +58,8 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     }
 
     private func presentStandalone() {
+        alert.layout()
+
         let buttons = alert.buttons
         if buttons.indices.contains(0) {
             buttons[0].target = self
@@ -82,19 +92,24 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     private func finish(_ response: NSApplication.ModalResponse) {
         guard !didFinish else { return }
         didFinish = true
+        let cancellationAction = joinedCancellationAction
+        joinedCancellationAction = nil
         alert.window.delegate = nil
         alert.window.orderOut(nil)
         completion(response, alert.suppressionButton?.state ?? .off)
+        if response != .alertFirstButtonReturn {
+            cancellationAction?()
+        }
     }
 }
 
 extension AppDelegate {
     static func pendingTerminateReply(
-        isAwaitingTerminateKills: Bool,
+        isAwaitingTerminateCleanup: Bool,
         hasActiveQuitConfirmation: Bool,
         activeQuitConfirmationOwnsTerminateRequest: Bool
     ) -> NSApplication.TerminateReply? {
-        if isAwaitingTerminateKills { return .terminateLater }
+        if isAwaitingTerminateCleanup { return .terminateLater }
         guard hasActiveQuitConfirmation else { return nil }
         return activeQuitConfirmationOwnsTerminateRequest ? .terminateLater : .terminateCancel
     }
@@ -122,6 +137,8 @@ extension AppDelegate {
         if managerHasDirtyWorkspace(tabManager) {
             return true
         }
-        return recoverableMainWindowRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
+        // Quit confirmation is a lifecycle/data-safety check, so it must include
+        // windowless recoverable owners that UI-routing snapshots intentionally hide.
+        return mainWindowSessionPersistenceRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
     }
 }

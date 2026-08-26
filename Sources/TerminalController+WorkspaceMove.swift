@@ -3,6 +3,20 @@ import Foundation
 extension TerminalController {
     /// Mobile-gated workspace reorder/group move.
     func v2MobileWorkspaceMove(params: [String: Any]) -> V2CallResult {
+        let hasMoveGroup = v2HasNonNullParam(params, "move_group")
+        let parsedMoveGroup = v2Bool(params, "move_group")
+#if DEBUG
+        let moveGroupDescription = hasMoveGroup
+            ? parsedMoveGroup.map(String.init) ?? "invalid"
+            : "omitted"
+        cmuxDebugLog(
+            "mobile.move request workspace=\(v2RawString(params, "workspace_id") ?? "nil") " +
+            "group=\(v2RawString(params, "group_id") ?? "nil") " +
+            "before=\(v2RawString(params, "before_workspace_id") ?? "nil") " +
+            "window=\(v2RawString(params, "window_id") ?? "nil") " +
+            "moveGroup=\(moveGroupDescription)"
+        )
+#endif
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -33,10 +47,10 @@ extension TerminalController {
                 data: nil
             )
         }
-        if v2HasNonNullParam(params, "move_group"), v2Bool(params, "move_group") == nil {
+        if hasMoveGroup, parsedMoveGroup == nil {
             return .err(code: "invalid_params", message: "move_group must be a boolean", data: nil)
         }
-        let moveGroup = v2Bool(params, "move_group") ?? false
+        let moveGroup = parsedMoveGroup ?? false
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
@@ -71,7 +85,7 @@ extension TerminalController {
             }
 
             if moveGroup {
-                guard tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceID }) else {
+                guard tabManager.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == workspaceID }) else {
                     mutationError = .err(
                         code: "invalid_request",
                         message: "Workspace is not a group anchor",
@@ -129,24 +143,39 @@ extension TerminalController {
             }
 
             if let beforeWorkspaceID {
-                _ = tabManager.reorderWorkspace(tabId: workspaceID, before: beforeWorkspaceID)
+                let applied = tabManager.reorderWorkspace(tabId: workspaceID, before: beforeWorkspaceID)
+#if DEBUG
+                cmuxDebugLog("mobile.move reorder(before:) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6)) before=\(beforeWorkspaceID.uuidString.suffix(6))")
+#endif
             } else if let targetIndex {
-                _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: targetIndex)
+                let applied = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: targetIndex)
+#if DEBUG
+                cmuxDebugLog("mobile.move reorder(toIndex:) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6)) index=\(targetIndex)")
+#endif
             } else if let targetGroupID {
                 let lastMemberIndex = tabManager.tabs.lastIndex {
                     $0.id != workspaceID && $0.groupId == targetGroupID
                 }
                 if let lastMemberIndex {
-                    _ = tabManager.reorderWorkspace(
+                    let applied = tabManager.reorderWorkspace(
                         tabId: workspaceID,
                         toIndex: tabManager.tabs.index(after: lastMemberIndex)
                     )
+#if DEBUG
+                    cmuxDebugLog("mobile.move reorder(groupEnd) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6)) group=\(targetGroupID.uuidString.suffix(6))")
+#endif
                 }
             } else {
-                _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: tabManager.tabs.endIndex)
+                let applied = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: tabManager.tabs.endIndex)
+#if DEBUG
+                cmuxDebugLog("mobile.move reorder(end) applied=\(applied) workspace=\(workspaceID.uuidString.suffix(6))")
+#endif
             }
         }
         if let mutationError {
+#if DEBUG
+            cmuxDebugLog("mobile.move REJECTED \(String(describing: mutationError))")
+#endif
             return mutationError
         }
 
@@ -214,6 +243,6 @@ extension TerminalController {
               let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
             return beforeWorkspaceID
         }
-        return group.anchorWorkspaceId
+        return group.liveAnchorWorkspaceId ?? beforeWorkspaceID
     }
 }

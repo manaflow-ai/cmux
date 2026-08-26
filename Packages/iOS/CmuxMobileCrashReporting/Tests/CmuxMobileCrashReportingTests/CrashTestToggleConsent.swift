@@ -1,6 +1,6 @@
 import Foundation
 
-import CmuxMobileAnalytics
+import CMUXMobileCore
 
 final class CrashTestToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
     private let lock = NSLock()

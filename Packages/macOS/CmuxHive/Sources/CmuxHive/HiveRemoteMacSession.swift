@@ -55,7 +55,11 @@ public final class HiveRemoteMacSession {
     @ObservationIgnored private let runtime: any MobileSyncRuntime
     @ObservationIgnored private let retryDelay: @Sendable (_ attempt: Int) async -> Void
     @ObservationIgnored private let workspaceDecoder: HiveRemoteWorkspaceDecoder
-    @ObservationIgnored private let stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust
+    /// Exact compatibility evidence for a legacy Tailscale route, when a
+    /// locally persisted pre-Iroh pairing supplied it. A missing or mismatched
+    /// grant intentionally leaves the route fail-closed.
+    @ObservationIgnored private let legacyTailscaleAuthorizationEvidence:
+        CmxLegacyTailscaleAuthorizationEvidence?
     /// The connected RPC client terminal sessions share, `nil` until the
     /// first successful connect.
     @ObservationIgnored public private(set) var client: MobileCoreRPCClient?
@@ -81,8 +85,9 @@ public final class HiveRemoteMacSession {
     ///   - retryDelay: Awaited between reconnect attempts with the
     ///     consecutive-failure count; production passes a bounded backoff
     ///     sleep, tests a recorder that returns immediately.
-    ///   - stackAuthChannelTrust: The route provenance trusted to carry the
-    ///     account token. Manual links default to loopback-only.
+    ///   - legacyTailscaleAuthorizationEvidence: Exact local compatibility
+    ///     evidence for one pre-Iroh Tailscale route. Keep `nil` for routes
+    ///     without cryptographic transport admission.
     ///   - expectedInstanceTag: The registry instance tag, when known.
     ///   - requiresHostIdentity: Require mobile.host.status to match the
     ///     registry device before accepting workspace data.
@@ -93,7 +98,7 @@ public final class HiveRemoteMacSession {
         routes: [CmxAttachRoute],
         sourceRoutes: [CmxAttachRoute]? = nil,
         retryDelay: @escaping @Sendable (_ attempt: Int) async -> Void,
-        stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly,
+        legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         expectedInstanceTag: String? = nil,
         requiresHostIdentity: Bool = true
     ) {
@@ -106,7 +111,7 @@ public final class HiveRemoteMacSession {
         self.requiresHostIdentity = requiresHostIdentity
         self.retryDelay = retryDelay
         self.workspaceDecoder = HiveRemoteWorkspaceDecoder()
-        self.stackAuthChannelTrust = stackAuthChannelTrust
+        self.legacyTailscaleAuthorizationEvidence = legacyTailscaleAuthorizationEvidence
     }
 
     /// Start (or restart) the session: dial routes, fetch the workspace list,
@@ -252,15 +257,12 @@ public final class HiveRemoteMacSession {
                 displayName: displayName,
                 route: route
             ) else { continue }
-            // Mac-to-Mac viewer: routes come from the signed-in account's own
-            // device registry, so the WireGuard-encrypted Tailscale tunnel is
-            // trusted to carry the Stack token (iOS stays loopback-only).
             let candidate = MobileCoreRPCClient(
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
                 allowsStackAuthFallback: true,
-                stackAuthChannelTrust: stackAuthChannelTrust
+                legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence
             )
             do {
                 if requiresHostIdentity {

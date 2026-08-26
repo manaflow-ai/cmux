@@ -18,8 +18,6 @@ import { readVaultJsonObject, validateVaultBatch } from "../../../../../services
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVaultApiRoute(

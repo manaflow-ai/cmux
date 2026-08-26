@@ -10,6 +10,49 @@ import Testing
 
 @Suite("Renderable system symbols")
 struct RenderableSystemSymbolTests {
+    private struct PixelFootprint {
+        let alphaCoverage: Double
+        let centroidX: Double
+        let centroidY: Double
+        let minX: Int
+        let maxX: Int
+        let minY: Int
+        let maxY: Int
+
+        init?(bitmap: NSBitmapImageRep) {
+            var alphaCoverage = 0.0
+            var weightedX = 0.0
+            var weightedY = 0.0
+            var minX = bitmap.pixelsWide
+            var maxX = -1
+            var minY = bitmap.pixelsHigh
+            var maxY = -1
+
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    let alpha = Double(bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0)
+                    guard alpha > 0.001 else { continue }
+                    alphaCoverage += alpha
+                    weightedX += Double(x) * alpha
+                    weightedY += Double(y) * alpha
+                    minX = min(minX, x)
+                    maxX = max(maxX, x)
+                    minY = min(minY, y)
+                    maxY = max(maxY, y)
+                }
+            }
+
+            guard alphaCoverage > 0 else { return nil }
+            self.alphaCoverage = alphaCoverage
+            centroidX = weightedX / alphaCoverage
+            centroidY = weightedY / alphaCoverage
+            self.minX = minX
+            self.maxX = maxX
+            self.minY = minY
+            self.maxY = maxY
+        }
+    }
+
     @Test func rasterPointSizeClampsInvalidInputs() {
         #expect(RenderableSystemSymbol.clampedRasterPointSize(0) == 1)
         #expect(RenderableSystemSymbol.clampedRasterPointSize(-8) == 1)
@@ -45,7 +88,93 @@ struct RenderableSystemSymbolTests {
             weight: .medium
         ))
         #expect(image.isTemplate)
-        #expect(image.size == NSSize(width: 1, height: 1))
+        // pointSize 0 is clamped to 1pt before rasterizing. The raster size AppKit hands back
+        // for a 1pt symbol is a platform detail (2x2 on macOS 15.7 and 26.5), so compare
+        // against a 1pt configuration rather than hardcoding it. Without the clamp the 0pt
+        // configuration rasterizes at the symbol's default 16x16 and this still fails.
+        let clampedBase = try #require(NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: nil))
+        let clampedConfiguration = NSImage.SymbolConfiguration(pointSize: 1, weight: .medium)
+        let clampedImage = try #require(clampedBase.withSymbolConfiguration(clampedConfiguration))
+        #expect(clampedImage.size.width > 0 && clampedImage.size.height > 0)
+        #expect(image.size == clampedImage.size)
+    }
+
+    @Test @MainActor func configuredAppKitImageIsEagerlyMaterializedForLayout() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+
+        let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "folder.fill",
+            pointSize: 14,
+            weight: .regular
+        ))
+
+        #expect(image.isTemplate)
+        #expect(image.representations.count == 2)
+        #expect(image.representations.allSatisfy { $0 is NSBitmapImageRep })
+        #expect(image.representations
+            .compactMap { $0 as? NSBitmapImageRep }
+            .allSatisfy { PixelFootprint(bitmap: $0) != nil })
+        #expect(image.tiffRepresentation != nil)
+    }
+
+    /// Blank materializations are rejected instead of becoming reusable cache entries.
+    @Test @MainActor func transparentBitmapIsNotConsideredRenderable() throws {
+        let bitmap = try #require(Self.bitmap(pixels: 8))
+        #expect(PixelFootprint(bitmap: bitmap) == nil)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        NSColor.systemBlue.setFill()
+        NSRect(origin: .zero, size: bitmap.size).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        #expect(PixelFootprint(bitmap: bitmap) != nil)
+    }
+
+    @MainActor
+    @Test(arguments: [CGFloat(1), CGFloat(2)])
+    func configuredAppKitImageMatchesDirectAppKitRasterGeometryAtBackingScale(
+        pixelScale: CGFloat
+    ) throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+
+        let systemName = "plus"
+        let pointSize: CGFloat = 14
+        let weight = NSFont.Weight.regular
+        let baseImage = try #require(NSImage(systemSymbolName: systemName, accessibilityDescription: nil))
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+        let directImage = try #require(baseImage.withSymbolConfiguration(configuration))
+        let materializedImage = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: systemName,
+            pointSize: pointSize,
+            weight: .regular
+        ))
+        #expect(materializedImage.size == directImage.size)
+
+        let actualBitmap = try #require(Self.renderedBitmap(
+            materializedImage,
+            size: directImage.size,
+            pixelScale: pixelScale
+        ))
+        let expectedBitmap = try #require(Self.renderedBitmap(
+            directImage,
+            size: directImage.size,
+            pixelScale: pixelScale
+        ))
+        let actual = try #require(PixelFootprint(bitmap: actualBitmap))
+        let expected = try #require(PixelFootprint(bitmap: expectedBitmap))
+
+        // The returned image should match AppKit's own direct draw within a pixel at
+        // each native backing scale. Creating the graphics context before assigning
+        // the bitmap's point size shifts and shrinks the glyph dramatically.
+        let centroidTolerance = 1.0
+        #expect(abs(actual.centroidX - expected.centroidX) <= centroidTolerance)
+        #expect(abs(actual.centroidY - expected.centroidY) <= centroidTolerance)
+        #expect(abs(actual.minX - expected.minX) <= 1)
+        #expect(abs(actual.maxX - expected.maxX) <= 1)
+        #expect(abs(actual.minY - expected.minY) <= 1)
+        #expect(abs(actual.maxY - expected.maxY) <= 1)
+        #expect(abs(actual.alphaCoverage - expected.alphaCoverage) <= expected.alphaCoverage * 0.05)
     }
 
     @Test @MainActor func configuredAppKitImagePreservesConfiguredSizeForNonSquareSymbols() throws {
@@ -118,5 +247,93 @@ struct RenderableSystemSymbolTests {
         now = now.addingTimeInterval(61)
         #expect(cache.isRenderable("not.an.sf.symbol") == false)
         #expect(resolveCount == 2)
+    }
+
+    @Test func blankAppKitImageRetryCacheCoalescesRepeatedAttempts() {
+        var now = Date(timeIntervalSince1970: 2_000)
+        var cache = RenderableSystemSymbol.AppKitImageRetryCache(
+            limit: 8,
+            retryInterval: 60,
+            now: { now }
+        )
+        let key = RenderableSystemSymbol.AppKitImageCacheKey(
+            systemName: "folder.fill",
+            rasterSize: 14,
+            weightRawValue: NSFont.Weight.regular.rawValue
+        )
+
+        #expect(cache.shouldAttempt(key))
+        cache.recordFailure(for: key)
+        #expect(cache.shouldAttempt(key) == false)
+
+        now = now.addingTimeInterval(61)
+        #expect(cache.shouldAttempt(key))
+        cache.recordSuccess(for: key)
+        #expect(cache.shouldAttempt(key))
+    }
+
+    @MainActor
+    private static func renderedBitmap(
+        _ image: NSImage,
+        size: NSSize,
+        pixelScale: CGFloat
+    ) -> NSBitmapImageRep? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: max(1, Int(ceil(size.width * pixelScale))),
+            pixelsHigh: max(1, Int(ceil(size.height * pixelScale))),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+        // Set the point-space size before creating the context. This is the reference
+        // setup used to compare the materialized image with AppKit's direct rendering.
+        bitmap.size = size
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return nil
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        graphicsContext.imageInterpolation = .high
+        image.draw(
+            in: NSRect(origin: .zero, size: size),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+        return bitmap
+    }
+
+    @MainActor
+    private static func bitmap(pixels: Int) -> NSBitmapImageRep? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixels,
+            pixelsHigh: pixels,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+        bitmap.size = NSSize(width: pixels, height: pixels)
+        return bitmap
     }
 }

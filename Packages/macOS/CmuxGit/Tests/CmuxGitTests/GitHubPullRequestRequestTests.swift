@@ -29,6 +29,55 @@ struct GitHubPullRequestRequestTests {
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().isEmpty)
     }
 
+    @Test func userAgentIdentifiesApplicationVersion() async throws {
+        let expectedVersion = (Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? "unknown"
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        let request = try #require(GitHubPullRequestStubURLProtocol.capturedRequests().first)
+        #expect(
+            request.value(forHTTPHeaderField: "User-Agent")
+                == "cmux-workspace-pr-poller/\(expectedVersion)"
+        )
+    }
+
+    @Test func userAgentValueAppendsApplicationVersion() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "1.2.3")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueTrimsSurroundingWhitespace() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  1.2.3  ")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueFallsBackWhenApplicationVersionIsUnavailable() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: nil)
+                == "cmux-workspace-pr-poller/unknown"
+        )
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  ")
+                == "cmux-workspace-pr-poller/unknown"
+        )
+    }
+
     @Test func cachedETagRevalidatesAndReusesBodyAfterNotModified() async throws {
         let body = Data("[{\"number\":8175}]".utf8)
         GitHubPullRequestStubURLProtocol.reset(stubs: [
@@ -125,6 +174,38 @@ struct GitHubPullRequestRequestTests {
         #expect(requests.count == 5)
         #expect(requests[3].value(forHTTPHeaderField: "If-None-Match") == "\"second\"")
         #expect(requests[4].value(forHTTPHeaderField: "If-None-Match") == nil)
+    }
+
+    @Test func inFlightNotModifiedUsesTheBodyThatSuppliedItsETag() async throws {
+        let originalBody = Data("[{\"number\":8175}]".utf8)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, headers: ["ETag": "\"original\""], data: originalBody),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            maximumCachedResponseCount: 1
+        )
+        _ = await coordinator.response(endpoint: endpoint, authHeader: "Bearer test-token")
+
+        let otherEndpoint = "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:other"
+        let requestsStarted = GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 304, gate: "revalidate"),
+            .init(statusCode: 200, headers: ["ETag": "\"other\""], data: Data("[]".utf8)),
+        ])
+        let revalidation = Task {
+            await coordinator.response(endpoint: endpoint, authHeader: "Bearer test-token")
+        }
+        #expect(await requestsStarted.wait())
+
+        _ = await coordinator.response(endpoint: otherEndpoint, authHeader: "Bearer test-token")
+        GitHubPullRequestStubURLProtocol.releaseGate("revalidate")
+        let response = await revalidation.value
+
+        #expect(response?.statusCode == 200)
+        #expect(response?.data == originalBody)
+        let requests = GitHubPullRequestStubURLProtocol.capturedRequests()
+        #expect(requests.count == 2)
+        #expect(try #require(requests.first).value(forHTTPHeaderField: "If-None-Match") == "\"original\"")
     }
 
     @Test func exhaustedRateLimitSuppressesRequestsUntilReset() async {
@@ -367,7 +448,12 @@ struct GitHubPullRequestRequestTests {
             .init(statusCode: 200, data: Data("[]".utf8), gate: "shared"),
         ])
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
-        let canceled = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer token") }
+        let cancellationFinished = GitHubPullRequestTestSignal()
+        let canceled = Task {
+            let response = await coordinator.response(endpoint: endpoint, authHeader: "Bearer token")
+            await cancellationFinished.signal()
+            return response
+        }
         #expect(await requestsStarted.wait())
         let survivor = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer token") }
         #expect(await GitHubPullRequestTestSignal.waitUntil {
@@ -375,6 +461,8 @@ struct GitHubPullRequestRequestTests {
             return inFlight.values.first?.waiterIDs.count == 2
         })
         canceled.cancel()
+        #expect(await cancellationFinished.wait(timeout: .milliseconds(500)))
+        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
         GitHubPullRequestStubURLProtocol.releaseGate("shared")
 
         #expect(await canceled.value == nil)

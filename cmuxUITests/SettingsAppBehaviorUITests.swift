@@ -38,9 +38,6 @@ import XCTest
 ///     observable after creating ≥2 workspaces and inspecting sidebar
 ///     order; requires workspace scaffolding the fresh UI-test launch
 ///     does not have (CMUX_UI_TEST_MODE skips session restore).
-///   - Inherit CWD effect on a real new workspace (the *subtitle* swap is
-///     TIER 1 below; the actual working-directory inheritance needs a
-///     spawned terminal to inspect, which is a terminal-surface seam).
 ///   - Keep Workspace Open When Closing Last Surface
 ///     (closeWorkspaceOnLastSurfaceShortcut): only observable by closing
 ///     the last surface of a real workspace and checking whether the
@@ -105,6 +102,9 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
         "commandPalette.switcherSearchAllSurfaces", // Palette all surfaces (default false)
+        "forwardNotificationsToPhone",
+        "forwardNotificationsToPhoneMode",
+        "forwardNotificationsHideContent",
     ]
 
     override func setUp() {
@@ -124,7 +124,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         static let minimalOff = "Use the standard workspace title bar and controls."
 
         static let inheritOn = "New workspaces start in the focused workspace's working directory."
-        static let inheritOff = "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+        static let inheritOff = "New workspaces use Ghostty's working-directory setting instead."
 
         static let paletteOn = "Cmd+P also matches panel surfaces across workspaces."
         static let paletteOff = "Cmd+P matches workspace rows only."
@@ -146,6 +146,56 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     /// A static-text whose visible string equals `text`.
     private func subtitleText(_ window: XCUIElement, _ text: String) -> XCUIElement {
         window.staticTexts[text]
+    }
+
+    func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += settingsLaunchArguments
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        // Headless CI leaves the app running in the background. Keep XCTest
+        // alive through that known launch failure, then restore fail-fast so
+        // every Settings assertion below remains a real regression failure.
+        continueAfterFailure = true
+        let launchOptions = XCTExpectedFailure.Options()
+        launchOptions.isStrict = false
+        XCTExpectFailure(
+            "Headless CI may launch the app without foreground activation",
+            options: launchOptions
+        ) {
+            app.launch()
+        }
+        continueAfterFailure = false
+        XCTAssertTrue(
+            poll(timeout: 10.0) {
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            "App failed to launch. state=\(app.state.rawValue)"
+        )
+        let window = app.windows["Settings"]
+        XCTAssertTrue(
+            poll(timeout: 8.0) { window.exists },
+            "Settings window did not open"
+        )
+        navigate(window, to: "Mobile")
+
+        let forwarding = toggle(
+            window,
+            id: "SettingsMobilePhonePushForwardingToggle"
+        )
+        XCTAssertEqual(forwarding.value as? String, "1")
+
+        let mode = requireElement(
+            candidates: [
+                window.popUpButtons["SettingsMobilePhonePushModePicker"],
+                window.menuButtons["SettingsMobilePhonePushModePicker"],
+                window.descendants(matching: .any)["SettingsMobilePhonePushModePicker"],
+            ],
+            timeout: 4,
+            description: "phone push forwarding mode picker"
+        )
+        XCTAssertTrue(mode.label.contains("Always") || mode.value as? String == "Always")
+        _ = toggle(window, id: "SettingsMobilePhonePushHideContentToggle")
     }
 
     // MARK: - TIER 1: Minimal Mode subtitle swap
@@ -207,7 +257,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
         XCTAssertTrue(
             poll(timeout: 4.0) { subtitleText(window, Subtitle.inheritOff).exists },
-            "Disabling inherit should show the unset-working-directory subtitle"
+            "Disabling inherit should show the Ghostty working-directory subtitle"
         )
         XCTAssertTrue(
             poll(timeout: 4.0) { !subtitleText(window, Subtitle.inheritOn).exists },

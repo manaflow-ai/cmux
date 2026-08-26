@@ -3,6 +3,7 @@ public import Foundation
 extension CmxIrohHostRuntime {
     func performSignOut(
         pendingRevocation: CmxIrohPendingRevocation?,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization?,
         requiresNetworkDeactivation: Bool,
         revision: UInt64
     ) async -> CmxIrohHostSignOutPreparation {
@@ -17,7 +18,8 @@ extension CmxIrohHostRuntime {
         let (persisted, _) = await (wasPersisted, networkTeardown)
         let preparation = CmxIrohHostSignOutPreparation(
             pendingRevocation: pendingRevocation,
-            wasPersisted: persisted
+            wasPersisted: persisted,
+            bindingAuthorization: bindingAuthorization
         )
 
         guard lifecyclePhase == .signingOut,
@@ -37,6 +39,7 @@ extension CmxIrohHostRuntime {
         }
 
         localBinding = nil
+        lastRegistrationRefreshState = nil
         lifecyclePhase = .inactive
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .inactive,
@@ -73,15 +76,21 @@ extension CmxIrohHostRuntime {
         notify: Bool,
         preserveBinding: Bool = false
     ) async {
-        supervisorEventTask?.cancel()
-        supervisorEventTask = nil
+        connectivityEventTask?.cancel()
+        connectivityEventTask = nil
         registrationRefreshTask?.cancel()
         registrationRefreshTask = nil
         registrationRenewalTask?.cancel()
         registrationRenewalTask = nil
         registrationRefreshPending = false
+        registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
+        lanPublicationGeneration &+= 1
+        lanPublicationTask?.cancel()
+        lanPublicationTask = nil
         await endpointServer?.stop()
         endpointServer = nil
         activePathConnections.removeAll(keepingCapacity: false)
@@ -99,11 +108,13 @@ extension CmxIrohHostRuntime {
         let bindingID = localBinding?.bindingID
         if !preserveBinding {
             localBinding = nil
+            lastRegistrationRefreshState = nil
         }
         endpointAttestation = nil
         lanRendezvous = nil
-        await supervisor?.deactivate()
-        supervisor = nil
+        authoritativeDiscovery = nil
+        await connectivityEngine?.stop()
+        connectivityEngine = nil
         if notify { await handleDeactivation(bindingID) }
     }
 }

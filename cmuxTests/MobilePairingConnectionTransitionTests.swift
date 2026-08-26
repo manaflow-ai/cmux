@@ -9,35 +9,41 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Mobile pairing connection transition")
+@Suite("Mobile pairing status transition")
 struct MobilePairingConnectionTransitionTests {
     private func makeReady() -> MobilePairingModel.Ready {
         MobilePairingModel.Ready(
-            attachURL: "cmux-ios://attach?ticket=abc",
-            legacyAttachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
-            primaryTransport: .iroh,
-            macName: "Test Mac",
+            attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
             tailscaleLines: ["100.64.0.1:7777"],
-            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
+            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777),
+            reachableViaIroh: true
         )
+    }
+
+    /// Routes matching ``makeReady()``, so a transition that recomputes the
+    /// diagnostics from them reproduces the same `Ready` value.
+    private func matchingRoutes() throws -> [CmxAttachRoute] {
+        [try irohRoute(), try tailscaleRoute()]
     }
 
     @Test("A phone attaching above the baseline flips a displayed ticket to connected")
-    func readyFlipsToConnectedOnAttach() {
+    func readyFlipsToConnectedOnAttach() throws {
         let ready = makeReady()
-        let next = MobilePairingModel.connectionTransition(
+        let next = MobilePairingModel.statusTransition(
             from: .ready(ready),
+            routes: try matchingRoutes(),
             activeConnectionCount: 1,
             baselineConnectionCount: 0
         )
-        #expect(next == .connected(ready))
+        #expect(next == .connected(from: .ready(ready)))
     }
 
     @Test("A ready ticket with no new connections stays in the waiting state")
-    func readyStaysReadyWithoutConnections() {
+    func readyStaysReadyWithoutConnections() throws {
         let ready = makeReady()
-        let next = MobilePairingModel.connectionTransition(
+        let next = MobilePairingModel.statusTransition(
             from: .ready(ready),
+            routes: try matchingRoutes(),
             activeConnectionCount: 0,
             baselineConnectionCount: 0
         )
@@ -45,30 +51,33 @@ struct MobilePairingConnectionTransitionTests {
     }
 
     @Test("Pairing an additional device: an already-connected phone does not flip the new QR")
-    func additionalDeviceStaysReadyUntilNewConnectionAboveBaseline() {
+    func additionalDeviceStaysReadyUntilNewConnectionAboveBaseline() throws {
         let ready = makeReady()
         // One phone already attached when the QR is shown (baseline 1). The same
         // count must keep showing the QR so a second device can still pair.
-        let stillWaiting = MobilePairingModel.connectionTransition(
+        let stillWaiting = MobilePairingModel.statusTransition(
             from: .ready(ready),
+            routes: try matchingRoutes(),
             activeConnectionCount: 1,
             baselineConnectionCount: 1
         )
         #expect(stillWaiting == .ready(ready))
         // A second device attaches (count rises above the baseline) -> connected.
-        let connected = MobilePairingModel.connectionTransition(
+        let connected = MobilePairingModel.statusTransition(
             from: .ready(ready),
+            routes: try matchingRoutes(),
             activeConnectionCount: 2,
             baselineConnectionCount: 1
         )
-        #expect(connected == .connected(ready))
+        #expect(connected == .connected(from: .ready(ready)))
     }
 
     @Test("Connected flips back to ready when the new connection drops to the baseline")
-    func connectedFlipsBackToReadyWhenConnectionsDrop() {
+    func connectedFlipsBackToReadyWhenConnectionsDrop() throws {
         let ready = makeReady()
-        let next = MobilePairingModel.connectionTransition(
-            from: .connected(ready),
+        let next = MobilePairingModel.statusTransition(
+            from: .connected(from: .ready(ready)),
+            routes: try matchingRoutes(),
             activeConnectionCount: 1,
             baselineConnectionCount: 1
         )
@@ -76,20 +85,79 @@ struct MobilePairingConnectionTransitionTests {
     }
 
     @Test("Connected stays connected while the new phone remains attached")
-    func connectedStaysConnectedWithActiveConnections() {
+    func connectedStaysConnectedWithActiveConnections() throws {
         let ready = makeReady()
-        let next = MobilePairingModel.connectionTransition(
-            from: .connected(ready),
+        let next = MobilePairingModel.statusTransition(
+            from: .connected(from: .ready(ready)),
+            routes: try matchingRoutes(),
             activeConnectionCount: 2,
             baselineConnectionCount: 1
         )
-        #expect(next == .connected(ready))
+        #expect(next == .connected(from: .ready(ready)))
+    }
+
+    @Test("An Iroh-only attach flips the no-Tailscale waiting state to connected")
+    func needsReachableTransportFlipsToConnectedOnAttach() throws {
+        let next = MobilePairingModel.statusTransition(
+            from: .needsReachableTransport(reachableViaIroh: true),
+            routes: [try irohRoute()],
+            activeConnectionCount: 1,
+            baselineConnectionCount: 0
+        )
+        #expect(next == .connected(
+            from: .needsReachableTransport(reachableViaIroh: true)
+        ))
+    }
+
+    @Test("Connected without a Tailscale route falls back to the no-route waiting state")
+    func connectedFallsBackToNeedsReachableTransportWhenConnectionsDrop() throws {
+        let next = MobilePairingModel.statusTransition(
+            from: .connected(
+                from: .needsReachableTransport(reachableViaIroh: true)
+            ),
+            routes: [try irohRoute()],
+            activeConnectionCount: 0,
+            baselineConnectionCount: 0
+        )
+        #expect(next == .needsReachableTransport(reachableViaIroh: true))
+    }
+
+    @Test("Ready diagnostics follow route changes while the code stays fixed")
+    func readyDiagnosticsFollowRouteChanges() throws {
+        let ready = makeReady()
+        // Iroh deregisters while the window is open: the diagnostics update,
+        // the displayed code does not.
+        let next = MobilePairingModel.statusTransition(
+            from: .ready(ready),
+            routes: [try tailscaleRoute()],
+            activeConnectionCount: 0,
+            baselineConnectionCount: 0
+        )
+        guard case let .ready(updated) = next else {
+            Issue.record("expected .ready, got \(next)")
+            return
+        }
+        #expect(updated.attachURL == ready.attachURL)
+        #expect(updated.reachableViaIroh == false)
+        #expect(updated.tailscaleLines == ready.tailscaleLines)
+    }
+
+    @Test("The no-route waiting state tracks Iroh registration")
+    func needsReachableTransportTracksIrohRegistration() throws {
+        let next = MobilePairingModel.statusTransition(
+            from: .needsReachableTransport(reachableViaIroh: false),
+            routes: [try irohRoute()],
+            activeConnectionCount: 0,
+            baselineConnectionCount: 0
+        )
+        #expect(next == .needsReachableTransport(reachableViaIroh: true))
     }
 
     @Test("Preparing is unaffected by connection-count changes")
-    func preparingIsUnaffected() {
-        let next = MobilePairingModel.connectionTransition(
+    func preparingIsUnaffected() throws {
+        let next = MobilePairingModel.statusTransition(
             from: .preparing,
+            routes: try matchingRoutes(),
             activeConnectionCount: 1,
             baselineConnectionCount: 0
         )
@@ -97,36 +165,40 @@ struct MobilePairingConnectionTransitionTests {
     }
 
     @Test("Signed-out is unaffected by connection-count changes")
-    func signedOutIsUnaffected() {
-        let next = MobilePairingModel.connectionTransition(
+    func signedOutIsUnaffected() throws {
+        let next = MobilePairingModel.statusTransition(
             from: .signedOut,
+            routes: try matchingRoutes(),
             activeConnectionCount: 1,
             baselineConnectionCount: 0
         )
         #expect(next == .signedOut)
     }
 
-    @Test("Iroh is the default and Tailscale remains a compatibility code")
-    func irohRouteWinsWithLegacyCompatibility() throws {
+    @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
+    func tailscaleRouteWinsWhenIrohIsAvailable() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
             try irohRoute(),
-            try tailscaleRoute(),
+            try tailscaleRoute()
         ]))
 
-        #expect(plan.primaryDisclosureMode == .irohIdentityOnly)
-        #expect(plan.primaryTransport == .iroh)
-        #expect(plan.offersLegacyCode)
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
     }
 
     @Test("Tailscale remains usable when Iroh is unavailable")
     func tailscaleOnlyPlanRetainsReleasedClientSupport() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
-            try tailscaleRoute(),
+            try tailscaleRoute()
         ]))
 
-        #expect(plan.primaryDisclosureMode == .legacyPrivateNetworkCompatibility)
-        #expect(plan.primaryTransport == .tailscaleCompatibility)
-        #expect(!plan.offersLegacyCode)
+        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
+    }
+
+    @Test("Iroh alone does not produce a Mac pairing QR")
+    func irohOnlyPlanIsUnavailable() throws {
+        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try irohRoute()
+        ]) == nil)
     }
 
     @Test("Loopback alone never produces a physical-device QR")

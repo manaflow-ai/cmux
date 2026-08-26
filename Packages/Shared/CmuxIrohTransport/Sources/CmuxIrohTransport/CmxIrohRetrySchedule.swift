@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Computes bounded exponential retry delays with a server-provided floor.
@@ -28,6 +29,16 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
         self.jitterFraction = min(1, max(0, jitterFraction))
     }
 
+    /// Interactive-client profile sharing the reconnect backoff bounds: the
+    /// first retry lands after about a second and no locally scheduled retry
+    /// exceeds 30 seconds. The type's 30 s / 1 h defaults remain the
+    /// host-side profile; an iOS client in the foreground must never nap for
+    /// minutes on a single transient failure.
+    public static let foregroundClient = CmxIrohRetrySchedule(
+        initialDelay: CmxIrohReconnectBackoffConfiguration.foreground.floor,
+        maximumDelay: CmxIrohReconnectBackoffConfiguration.foreground.cap
+    )
+
     /// Returns a retry delay that never precedes a server-provided floor.
     ///
     /// - Parameters:
@@ -49,5 +60,18 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
         let available = max(0, maximumDelay - floor)
         let jitterWindow = min(available, floor * jitterFraction)
         return floor + jitterWindow * jitter
+    }
+
+    /// Shared relay-policy retry cadence for both app platforms.
+    ///
+    /// A broker authorization failure already survived exactly-once
+    /// credential recovery and should re-check on auth-store timescales.
+    /// Availability failures keep the ordinary network backoff.
+    public static func relayPolicy(
+        for failureKind: DiagnosticFailureKind
+    ) -> Self {
+        failureKind == .authorizationFailed
+            ? Self(initialDelay: 2, maximumDelay: 120)
+            : Self()
     }
 }

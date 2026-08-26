@@ -6,6 +6,85 @@ import Testing
 
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
+    @MainActor
+    @Test("feature flag control plane starts its injected remote loader")
+    func featureFlagControlPlaneStartsInjectedRemoteLoader() async throws {
+        let suiteName = "cmux.feature.flags.loader.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let probe = FeatureFlagRemoteLoaderProbe()
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            remoteFlagLoader: { await probe.load() }
+        )
+
+        flags.start()
+        await probe.waitUntilCalled()
+
+        #expect(await probe.callCount == 1)
+    }
+
+    @MainActor
+    @Test("feature flag control plane uses a stable anonymous rollout identity and targeting context")
+    func featureFlagControlPlaneRespectsTelemetryConsent() throws {
+        let suiteName = "cmux.feature.flags.identity.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let identityKey = "cmux.flags.releaseControlDistinctID"
+
+        let firstRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest(
+            telemetryEnabled: true,
+            defaults: defaults
+        ))
+        let secondRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest(
+            telemetryEnabled: true,
+            defaults: defaults
+        ))
+        let firstBody = try #require(firstRequest.httpBody)
+        let secondBody = try #require(secondRequest.httpBody)
+        let firstPayload = try #require(
+            JSONSerialization.jsonObject(with: firstBody) as? [String: Any]
+        )
+        let secondPayload = try #require(
+            JSONSerialization.jsonObject(with: secondBody) as? [String: Any]
+        )
+        let distinctID = try #require(firstPayload["distinctId"] as? String)
+        let prefix = "cmux-desktop-release-control-"
+        let context = try #require(firstPayload["context"] as? [String: Any])
+        let personProperties = try #require(context["personProperties"] as? [String: Any])
+
+        #expect(firstRequest.url?.host == "cmux.com")
+        #expect(distinctID.hasPrefix(prefix))
+        #expect(UUID(uuidString: String(distinctID.dropFirst(prefix.count))) != nil)
+        #expect(secondPayload["distinctId"] as? String == distinctID)
+        #expect(personProperties["$os"] as? String == "macOS")
+        #expect((personProperties["cmux_architecture"] as? String)?.isEmpty == false)
+        #expect(firstPayload["$anon_distinct_id"] == nil)
+        #expect(firstPayload["person_properties"] == nil)
+    }
+
+    @MainActor
+    @Test("feature flag control plane sends no persistent identity after telemetry opt-out")
+    func featureFlagControlPlaneHonorsTelemetryOptOut() throws {
+        let suiteName = "cmux.feature.flags.optout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let request = try #require(CmuxFeatureFlags.postHogControlPlaneRequest(
+            telemetryEnabled: false,
+            defaults: defaults
+        ))
+        let body = try #require(request.httpBody)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+
+        #expect(payload["distinctId"] as? String == "cmux-desktop-release-control")
+        #expect((payload["context"] as? [String: Any])?.isEmpty == true)
+        #expect(defaults.object(forKey: "cmux.flags.releaseControlDistinctID") == nil)
+    }
+
     @Test("feature flag bool coercion accepts PostHog bool-like values")
     func featureFlagBoolCoercionAcceptsPostHogBoolLikeValues() {
         #expect(CmuxFeatureFlags.coerceBoolFlagValue(true, default: false))
@@ -20,10 +99,48 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(!CmuxFeatureFlags.coerceBoolFlagValue(nil, default: false))
     }
 
+    @Test("feature flag control plane rejects partial errored responses")
+    func featureFlagControlPlaneRejectsPartialErroredResponses() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            !$0.defaultWhenUnavailable
+        })
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "featureFlags": [flag.key: true],
+            "featureFlagPayloads": [:],
+            "errorsWhileComputingFlags": true,
+        ])
+        let completePayload = try JSONSerialization.data(withJSONObject: [
+            "featureFlags": [flag.key: true],
+            "featureFlagPayloads": [:],
+            "errorsWhileComputingFlags": false,
+        ])
+
+        #expect(CmuxFeatureFlags.postHogControlPlaneFlagValues(from: payload) == nil)
+        #expect(CmuxFeatureFlags.postHogControlPlaneFlagValues(
+            from: completePayload
+        ) == [flag.key: true])
+    }
+
+    @Test("feature flag control plane stops consuming an oversized response")
+    func featureFlagControlPlaneBoundsStreamingResponse() async throws {
+        let counter = FeatureFlagByteConsumptionCounter()
+        let bytes = FeatureFlagCountingByteSequence(count: 100, counter: counter)
+
+        let data = try await CmuxFeatureFlags.boundedPostHogControlPlaneData(
+            from: bytes,
+            maximumByteCount: 3
+        )
+
+        #expect(data == nil)
+        #expect(await counter.count == 4)
+    }
+
     @MainActor
-    @Test("feature flag resolution prefers override, then remote, then default")
+    @Test("feature flag resolution prefers remote, then override, then default")
     func featureFlagResolutionPrecedence() throws {
-        let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
         let suiteName = "cmux.feature.flags.precedence.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
@@ -39,24 +156,178 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(flags.remoteValue(for: flag) == nil)
         #expect(flags.effectiveValue(for: flag))
 
-        remoteValues[flag.key] = false
+        flags.setOverride(false, for: flag)
+        #expect(flags.overrideValue(for: flag) == false)
+        #expect(!flags.effectiveValue(for: flag))
+
+        remoteValues[flag.key] = true
         flags.applyLoadedFlags()
-        #expect(flags.remoteValue(for: flag) == false)
-        #expect(!flags.effectiveValue(for: flag))
-
-        flags.setOverride(true, for: flag)
-        #expect(flags.overrideValue(for: flag) == true)
-        #expect(flags.remoteValue(for: flag) == false)
+        #expect(flags.overrideValue(for: flag) == false)
+        #expect(flags.remoteValue(for: flag) == true)
         #expect(flags.effectiveValue(for: flag))
-
-        flags.setOverride(nil, for: flag)
-        #expect(flags.overrideValue(for: flag) == nil)
-        #expect(!flags.effectiveValue(for: flag))
 
         remoteValues.removeValue(forKey: flag.key)
         flags.applyLoadedFlags()
         #expect(flags.remoteValue(for: flag) == nil)
+        #expect(!flags.effectiveValue(for: flag))
+
+        flags.setOverride(nil, for: flag)
+        #expect(flags.overrideValue(for: flag) == nil)
         #expect(flags.effectiveValue(for: flag))
+    }
+
+    @MainActor
+    @Test("AppKit sidebar feature flag defaults on")
+    func appKitSidebarFeatureFlagDefaultsOn() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        #expect(flag.defaultWhenUnavailable)
+    }
+
+    @MainActor
+    @Test("Tailscale Pairing button defaults hidden without a flag value")
+    func tailscalePairingButtonDefaultsHidden() throws {
+        let suiteName = "cmux.feature.flags.mobile-connect.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil }
+        )
+
+        #expect(!flags.isMobileConnectButtonEnabled)
+    }
+
+    @MainActor
+    @Test("remote-controlled flags reject new local override writes")
+    func remoteControlledFlagsRejectNewLocalOverrideWrites() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        let suiteName = "cmux.feature.flags.remote.controlled.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let remoteValues: [String: Any] = [flag.key: true]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        flags.applyLoadedFlags()
+
+        flags.setOverride(false, for: flag)
+
+        #expect(flags.overrideValue(for: flag) == nil)
+        #expect(flags.effectiveValue(for: flag))
+    }
+
+    @MainActor
+    @Test("Simulator defaults enabled and accepts a remote disable")
+    func simulatorFeatureFlagKillSwitch() throws {
+        let suiteName = "cmux.feature.flags.simulator.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let flags = CmuxFeatureFlags(defaults: defaults) { _ in false }
+        #expect(flags.isSimulatorEnabled)
+
+        flags.applyLoadedFlags()
+        #expect(!flags.isSimulatorEnabled)
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(!offlineRelaunch.isSimulatorEnabled)
+
+        offlineRelaunch.applyLoadedFlags()
+        #expect(!offlineRelaunch.isSimulatorEnabled)
+    }
+
+    @MainActor
+    @Test("Mobile terminal Files chip defaults enabled and accepts a remote disable")
+    func mobileTerminalFilesChipFeatureFlagKillSwitch() throws {
+        let suiteName = "cmux.feature.flags.mobile-terminal-files-chip.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        #expect(flags.isMobileTerminalFilesChipEnabled)
+
+        remoteValues[CmuxFeatureFlags.mobileTerminalFilesChipFlag.key] = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileTerminalFilesChipEnabled)
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(!offlineRelaunch.isMobileTerminalFilesChipEnabled)
+    }
+
+    @MainActor
+    @Test("successful control-plane omission clears a cached remote disable")
+    func successfulControlPlaneOmissionClearsCachedDisable() async throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.defaultWhenUnavailable
+        })
+        let suiteName = "cmux.feature.flags.omitted-disable.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let remoteCacheKey = "cmux.flags.remote.\(flag.key)"
+        defaults.set(false, forKey: remoteCacheKey)
+        let probe = FeatureFlagRemoteLoaderProbe()
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            remoteFlagLoader: { await probe.load() }
+        )
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.effectiveValue(for: flag))
+
+        flags.start()
+        await probe.waitUntilCalled()
+        for _ in 0..<1_000 where flags.remoteValue(for: flag) != nil {
+            await Task.yield()
+        }
+
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(flags.effectiveValue(for: flag))
+        #expect(defaults.object(forKey: remoteCacheKey) == nil)
+    }
+
+    @MainActor
+    @Test("missing refresh clears a cached enable for a default-off flag")
+    func missingRefreshClearsCachedEnableForDefaultOffFlag() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first { !$0.defaultWhenUnavailable })
+        let suiteName = "cmux.feature.flags.missing-enable.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [flag.key: true]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        flags.applyLoadedFlags()
+        #expect(flags.remoteValue(for: flag) == true)
+        #expect(flags.effectiveValue(for: flag))
+
+        remoteValues.removeValue(forKey: flag.key)
+        flags.applyLoadedFlags()
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(!flags.effectiveValue(for: flag))
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(offlineRelaunch.remoteValue(for: flag) == nil)
+        #expect(!offlineRelaunch.effectiveValue(for: flag))
     }
 
     @MainActor
@@ -113,47 +384,40 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
-    @Test("feature flag override notifications follow effective value changes")
-    func featureFlagOverrideNotificationsFollowEffectiveValueChanges() throws {
-        let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })
+    @Test("remote payload superseding a local override posts a change notification")
+    func remotePayloadSupersedingLocalOverridePostsChangeNotification() async throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
         let suiteName = "cmux.feature.flags.notifications.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        let remoteValues: [String: Any] = [flag.key: false]
+        var remoteValues: [String: Any] = [:]
         let flags = CmuxFeatureFlags(defaults: defaults) { key in
             remoteValues[key]
         }
-        flags.applyLoadedFlags()
-
-        let notificationQueue = DispatchQueue(label: "cmux.feature.flags.notification.count")
-        var notificationCount = 0
-        let token = NotificationCenter.default.addObserver(
-            forName: .cmuxFeatureFlagsDidChange,
-            object: flags,
-            queue: nil
-        ) { _ in
-            notificationQueue.sync {
-                notificationCount += 1
-            }
-        }
-        defer {
-            NotificationCenter.default.removeObserver(token)
-        }
-
         flags.setOverride(false, for: flag)
-        #expect(notificationQueue.sync { notificationCount } == 0)
 
-        flags.setOverride(true, for: flag)
-        #expect(notificationQueue.sync { notificationCount } == 1)
+        await confirmation("feature flag resolution changed") { didChange in
+            let token = NotificationCenter.default.addObserver(
+                forName: .cmuxFeatureFlagsDidChange,
+                object: flags,
+                queue: nil
+            ) { _ in
+                didChange()
+            }
+            defer { NotificationCenter.default.removeObserver(token) }
 
-        flags.setOverride(true, for: flag)
-        #expect(notificationQueue.sync { notificationCount } == 1)
+            remoteValues[flag.key] = true
+            flags.applyLoadedFlags()
+        }
 
-        flags.setOverride(nil, for: flag)
-        #expect(notificationQueue.sync { notificationCount } == 2)
+        #expect(flags.overrideValue(for: flag) == false)
+        #expect(flags.remoteValue(for: flag) == true)
+        #expect(flags.effectiveValue(for: flag))
     }
 
     @Test
@@ -350,6 +614,54 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(flushReturned.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
         flushCanReturn.signal()
         #expect(flushReturned.wait(timeout: .now() + .seconds(1)) == .success)
+    }
+}
+
+private actor FeatureFlagRemoteLoaderProbe {
+    private(set) var callCount = 0
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func load() -> [String: Bool]? {
+        callCount += 1
+        waiter?.resume()
+        waiter = nil
+        return [:]
+    }
+
+    func waitUntilCalled() async {
+        if callCount > 0 { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+}
+
+private actor FeatureFlagByteConsumptionCounter {
+    private(set) var count = 0
+
+    func recordByte() {
+        count += 1
+    }
+}
+
+private struct FeatureFlagCountingByteSequence: AsyncSequence, Sendable {
+    typealias Element = UInt8
+
+    let count: Int
+    let counter: FeatureFlagByteConsumptionCounter
+
+    func makeAsyncIterator() -> Iterator {
+        Iterator(remaining: count, counter: counter)
+    }
+
+    struct Iterator: AsyncIteratorProtocol {
+        var remaining: Int
+        let counter: FeatureFlagByteConsumptionCounter
+
+        mutating func next() async -> UInt8? {
+            guard remaining > 0 else { return nil }
+            remaining -= 1
+            await counter.recordByte()
+            return 0x7B
+        }
     }
 }
 #endif

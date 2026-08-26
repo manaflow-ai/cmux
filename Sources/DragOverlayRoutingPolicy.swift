@@ -354,10 +354,10 @@ enum DragOverlayRoutingPolicy {
 
     static func shouldPassThroughPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
-        guard routingContext.allowsBrowserPortalDragRouting else { return false }
         let hasTabTransfer = hasBonsplitTabTransfer(pasteboardTypes)
         let hasSidebarReorder = hasSidebarTabReorder(pasteboardTypes)
         switch routingContext.eventKind {
@@ -367,7 +367,12 @@ enum DragOverlayRoutingPolicy {
                 || hasSidebarReorder
         case .pointerHover:
             return hasTabTransfer || hasSidebarReorder
-        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+        case .pointerUp:
+            guard hasActiveDropDrag else { return false }
+            return hasTabTransfer
+                || hasFilePreviewTransfer(pasteboardTypes)
+                || hasSidebarReorder
+        case .noEvent, .keyboard, .pointerDown, .scroll, .appKitRouting, .other:
             return false
         }
     }
@@ -383,13 +388,15 @@ enum DragOverlayRoutingPolicy {
         case .pointerDrag:
             return shouldPassThroughPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
-                eventType: eventType
+                eventType: eventType,
+                hasActiveDropDrag: hasActiveDropDrag
             ) || hasFileURL(pasteboardTypes)
         case .pointerUp:
-            guard hasActiveDropDrag else { return false }
-            return hasBonsplitTabTransfer(pasteboardTypes)
-                || hasFilePreviewTransfer(pasteboardTypes)
-                || hasSidebarTabReorder(pasteboardTypes)
+            return shouldPassThroughPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: eventType,
+                hasActiveDropDrag: hasActiveDropDrag
+            )
         case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
             return false
         }

@@ -25,7 +25,7 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
     }
 
     func testCommandPaletteCloseOtherWorkspacesKeepsControlsVisibleAndScrollsDetails() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketLaunchEnvironment(app)
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
@@ -84,7 +84,7 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
     }
 
     func testCmdShiftWUsesSidebarMultiSelectionSummaryDialog() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureSocketLaunchEnvironment(app)
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_SELECTED_WORKSPACE_INDICES"] = "0,1"
@@ -124,7 +124,7 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
     }
 
     func testCmdShiftWCloseWorkspacesPromptIsWindowModalSheet() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let recorderPath = "/tmp/cmux-ui-test-close-workspaces-presentation-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: recorderPath)
         configureSocketLaunchEnvironment(app)

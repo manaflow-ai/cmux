@@ -48,10 +48,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // Pulling an anchor into a new group would orphan the
         // source group (its anchorWorkspaceId would no longer match), so we
         // reject those silently and let the user explicitly ungroup first.
-        let existingAnchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
+        let existingAnchorIds = Set(model.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard let tab = model.tabs.first(where: { $0.id == id }),
-                  !tab.isPinned,
+            guard model.tabs.contains(where: { $0.id == id }),
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
@@ -67,12 +66,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             ?? firstChildTab?.currentDirectory
         let originalTabOrder = model.tabs.map(\.id)
 
-        let anchor = host.createGroupAnchorWorkspace(
+        guard let anchor = host.createGroupAnchorWorkspace(
             title: resolvedName,
             workingDirectory: inferredCwd,
             inheritWorkingDirectory: inferredCwd == nil,
             select: selectAnchor
-        )
+        ) else { return nil }
 
         let group = WorkspaceGroup(
             id: UUID(),
@@ -118,7 +117,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Create a brand-new workspace inheriting the anchor's cwd, attach it
     /// to the group, and position it within the group's tabs[] range per
-    /// `placement`. Returns the new workspace.
+    /// `placement`. Generated-purpose workspaces can keep a creation title as
+    /// automatic metadata instead of adopting it as a user-owned custom title.
+    /// Returns the new workspace.
     @discardableResult
     public func createWorkspaceInGroup(
         groupId: UUID,
@@ -129,17 +130,20 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false
+        initialBrowserTransparentBackground: Bool = false,
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Tab? {
         guard let host else { return nil }
-        // nil resolves to the stored global default at call time, matching
-        // the legacy default-argument read of the
-        // workspaceGroups.newWorkspacePlacement setting.
+        // nil resolves to the stored global default at call time, matching the
+        // legacy workspaceGroups.newWorkspacePlacement default-argument read.
         let placement = explicitPlacement
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
-        let cwd = model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-        let newWorkspace = host.createWorkspaceForGroup(
+        let originalTopLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+        let emptyHeaderId = group.isEmpty ? group.anchorWorkspaceId : nil
+        let cwd = group.liveAnchorWorkspaceId
+            .flatMap { anchorId in model.tabs.first(where: { $0.id == anchorId })?.currentDirectory }
+        guard let newWorkspace = host.createWorkspaceForGroup(
             title: title,
             workingDirectory: cwd,
             initialSurface: initialSurface,
@@ -147,16 +151,24 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
-            select: select
-        )
+            select: select,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+        ) else { return nil }
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
+        var preferredTopLevelIds = originalTopLevelIds.filter { $0 != newWorkspace.id }
+        if let emptyHeaderId,
+           let slot = preferredTopLevelIds.firstIndex(of: emptyHeaderId) {
+            preferredTopLevelIds[slot] = newWorkspace.id
+        }
         placeWithinGroup(
             workspaceId: newWorkspace.id,
             groupId: groupId,
             placement: placement,
             referenceWorkspaceId: referenceWorkspaceId
         )
-        model.normalizeWorkspaceGroupContiguity()
+        model.normalizeWorkspaceGroupContiguity(
+            preservingTopLevelIds: preferredTopLevelIds
+        )
         host.workspaceOrderDidChange(movedWorkspaceIds: [newWorkspace.id])
         return newWorkspace
     }
@@ -238,16 +250,22 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         referenceWorkspaceId: UUID? = nil
     ) {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }) else { return }
-        guard model.workspaceGroups.contains(where: { $0.id == groupId }) else { return }
+        guard let targetGroup = model.workspaceGroups.first(where: { $0.id == groupId }) else { return }
         guard tab.groupId != groupId else { return }
         let isAnchorOfOtherGroup = model.workspaceGroups.contains { group in
-            group.id != groupId && group.anchorWorkspaceId == workspaceId
+            group.id != groupId && group.liveAnchorWorkspaceId == workspaceId
         }
         if isAnchorOfOtherGroup { return }
-        let originalTopLevelIds = model.sidebarTopLevelWorkspaceIds()
+        let originalTopLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+        let emptyHeaderId = targetGroup.isEmpty ? targetGroup.anchorWorkspaceId : nil
         model.assignGroup(workspaceId: workspaceId, groupId: groupId)
+        var preferredTopLevelIds = originalTopLevelIds.filter { $0 != workspaceId }
+        if let emptyHeaderId,
+           let slot = preferredTopLevelIds.firstIndex(of: emptyHeaderId) {
+            preferredTopLevelIds[slot] = workspaceId
+        }
         model.normalizeWorkspaceGroupContiguity(
-            preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
+            preservingTopLevelIds: preferredTopLevelIds
         )
         if let placement {
             placeWithinGroup(
@@ -261,13 +279,13 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     /// Remove a non-anchor workspace from its group. If the workspace is its
-    /// group's anchor, the group is dissolved instead (other members survive
-    /// as ungrouped workspaces).
+    /// group's anchor, the group is explicitly ungrouped instead (other
+    /// members survive as ungrouped workspaces).
     public func removeWorkspaceFromGroup(workspaceId: UUID) {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }),
               let groupId = tab.groupId else { return }
         if let group = model.workspaceGroups.first(where: { $0.id == groupId }),
-           group.anchorWorkspaceId == workspaceId {
+           group.liveAnchorWorkspaceId == workspaceId {
             ungroupWorkspaceGroup(groupId: groupId)
             return
         }
@@ -288,7 +306,11 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// instead of a flatten-in-place.
     public func ungroupWorkspaceGroup(groupId: UUID) {
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
-        guard !memberIds.isEmpty || model.workspaceGroups.contains(where: { $0.id == groupId }) else { return }
+        guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return }
+        // An empty pinned group is durable state. Removing it through Ungroup
+        // would bypass the explicit Delete Group action that owns its
+        // confirmation; users can unpin it first if they want to flatten it.
+        guard !memberIds.isEmpty || !group.isPinned else { return }
         for id in memberIds {
             model.assignGroup(workspaceId: id, groupId: nil)
         }
@@ -336,7 +358,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let index = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         let nextCollapsed = !model.workspaceGroups[index].isCollapsed
         if nextCollapsed {
-            let anchorId = model.workspaceGroups[index].anchorWorkspaceId
+            guard let anchorId = model.workspaceGroups[index].liveAnchorWorkspaceId else {
+                setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: nextCollapsed)
+                return
+            }
             if let selectedTabId = model.selectedTabId,
                selectedTabId != anchorId,
                let selectedTab = model.tabs.first(where: { $0.id == selectedTabId }),
@@ -418,7 +443,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     public func setWorkspaceGroupAnchor(groupId: UUID, workspaceId: UUID) {
         guard let groupIndex = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }), tab.groupId == groupId else { return }
-        guard model.workspaceGroups[groupIndex].anchorWorkspaceId != workspaceId else { return }
+        guard model.workspaceGroups[groupIndex].liveAnchorWorkspaceId != workspaceId else { return }
         model.workspaceGroups[groupIndex].anchorWorkspaceId = workspaceId
         // Hoist the new anchor to the front of its members in tabs[] so the
         // sidebar header is rendered at the anchor's position. Without this,
@@ -471,8 +496,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     private func applyWorkspaceGroupSlotOrderToTabs() {
-        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: model.workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
-        let topLevelIds = model.sidebarTopLevelWorkspaceIds()
+        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: model.workspaceGroups.map {
+            ($0.anchorWorkspaceId, $0)
+        })
+        let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
         let tabsById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
 
         var pinnedTopLevelIds: [UUID] = []
@@ -495,15 +522,19 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         unpinnedAnchors.reserveCapacity(model.workspaceGroups.count)
         for group in model.workspaceGroups {
             if group.isPinned {
-                pinnedAnchors.append(group.anchorWorkspaceId)
+                if let anchorId = group.liveAnchorWorkspaceId {
+                    pinnedAnchors.append(anchorId)
+                }
             } else {
-                unpinnedAnchors.append(group.anchorWorkspaceId)
+                if let anchorId = group.liveAnchorWorkspaceId {
+                    unpinnedAnchors.append(anchorId)
+                }
             }
         }
         var pinnedAnchorIndex = 0
         var unpinnedAnchorIndex = 0
         let desiredIds = tieredTopLevelIds.map { id -> UUID in
-            guard let group = groupsByAnchorId[id] else { return id }
+            guard let group = groupsByAnchorId[id], !group.isEmpty else { return id }
             if group.isPinned, pinnedAnchorIndex < pinnedAnchors.count {
                 defer { pinnedAnchorIndex += 1 }
                 return pinnedAnchors[pinnedAnchorIndex]
@@ -515,7 +546,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             return id
         }
         model.normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
-        model.syncWorkspaceGroupsOrderToAnchorOrder()
+        model.syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: desiredIds)
     }
 
     // MARK: - Creation placement

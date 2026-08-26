@@ -112,12 +112,9 @@ public actor CmxIrohLANPeerDiscovery {
         expectedEndpointID: CmxIrohPeerIdentity,
         timeout: TimeInterval = 0.75
     ) async -> CmxIrohLANPeerDiscoveryOutcome {
-        guard authenticatedBindings.count <= CmxIrohDiscoveryResponse.maximumBindingCount else {
-            return .notFound
-        }
         let path = await networkPath()
         let key = RequestKey(
-            deviceID: expectedMacDeviceID.lowercased(),
+            deviceID: cmxCanonicalDeviceID(expectedMacDeviceID),
             endpointID: expectedEndpointID
         )
         guard requests[key] != nil || requests.count < 32 else { return .notFound }
@@ -132,7 +129,7 @@ public actor CmxIrohLANPeerDiscovery {
         if let outcome = await currentOutcome(for: key) { return outcome }
         guard !permissionDenied else { return .policyDenied }
         let changeGeneration = await changeSignal.snapshot()
-        startBrowserIfNeeded()
+        await startBrowserIfNeeded()
         guard timeout.isFinite, timeout > 0 else { return .notFound }
         await waitForChangeOrTimeout(timeout, after: changeGeneration)
         if let outcome = await currentOutcome(for: key) { return outcome }
@@ -176,18 +173,48 @@ public actor CmxIrohLANPeerDiscovery {
         await pathDidChange()
     }
 
-    private func startBrowserIfNeeded() {
-        guard browser == nil else { return }
-        let browser = browserFactory()
-        self.browser = browser
+    private func startBrowserIfNeeded() async {
+        let allowlist = serviceNameAllowlist(at: clock.now())
+        if let browser {
+            await browser.replaceServiceNameAllowlist(allowlist)
+            return
+        }
+        let newBrowser = browserFactory()
         let revision = lifecycleRevision
+        browser = newBrowser
+        await newBrowser.replaceServiceNameAllowlist(allowlist)
+        guard revision == lifecycleRevision else {
+            await newBrowser.stop()
+            return
+        }
         browserTask = Task { [weak self] in
-            let events = await browser.events()
+            let events = await newBrowser.events()
             for await event in events {
                 guard !Task.isCancelled else { return }
                 await self?.handle(event, revision: revision)
             }
         }
+    }
+
+    private func serviceNameAllowlist(at date: Date) -> Set<String> {
+        var serviceNames = Set<String>()
+        for context in requests.values {
+            guard let generator = try? CmxIrohLANRendezvousAliasGenerator(
+                rendezvous: context.rendezvous
+            ) else { continue }
+            for binding in context.bindings
+            where binding.platform == .mac
+                && cmxCanonicalDeviceID(binding.deviceID)
+                    == cmxCanonicalDeviceID(context.expectedDeviceID)
+                && binding.endpointID == context.expectedEndpointID {
+                guard let aliases = try? generator.acceptedAliases(
+                    for: binding,
+                    at: date
+                ) else { continue }
+                serviceNames.formUnion(aliases)
+            }
+        }
+        return serviceNames
     }
 
     private func handle(

@@ -68,6 +68,28 @@ struct CmuxNavigationTargetResolverTests {
         )
     }
 
+    @Test func ownedSurfaceRuntimeIdResolvesToContainerPanel() {
+        let ownedSurfaceId = UUID()
+        let descriptor = Resolver.WorkspaceDescriptor(
+            workspaceId: workspaceId,
+            stableId: stableWorkspaceId,
+            paneIds: [],
+            surfaces: [
+                Resolver.SurfaceDescriptor(
+                    panelId: panelId,
+                    runtimeSurfaceIds: [ownedSurfaceId],
+                    stableSurfaceId: stableSurfaceId
+                )
+            ]
+        )
+        let resolver = Resolver(workspaces: [descriptor])
+
+        #expect(
+            resolver.resolve(.surface(workspaceId: workspaceId, surfaceId: ownedSurfaceId))
+                == .surface(workspaceId: workspaceId, panelId: panelId)
+        )
+    }
+
     @Test func surfaceResolvesByStableIdsAfterRestart() {
         let resolver = Resolver(workspaces: [workspace])
 
@@ -94,6 +116,23 @@ struct CmuxNavigationTargetResolverTests {
             resolver.resolve(.surface(workspaceId: workspaceId, surfaceId: collidingPanelId))
                 == .surface(workspaceId: workspaceId, panelId: collidingPanelId)
         )
+    }
+
+    @Test func surfaceRequestUsesStableFallbackAfterRuntimeIdsChange() throws {
+        let resolver = Resolver(workspaces: [workspace])
+        let oldWorkspaceId = UUID()
+        let oldSurfaceId = UUID()
+        let request = CmuxNavigationURLRequest(
+            originalURL: try #require(
+                URL(string: "cmux-test://workspace/\(oldWorkspaceId.uuidString)/surface/\(oldSurfaceId.uuidString)")
+            ),
+            target: .surface(workspaceId: oldWorkspaceId, surfaceId: oldSurfaceId),
+            stableFallbackWorkspaceId: stableWorkspaceId,
+            stableFallbackSurfaceId: stableSurfaceId
+        )
+
+        #expect(resolver.resolve(request.target) == nil)
+        #expect(resolver.resolve(request) == .surface(workspaceId: workspaceId, panelId: panelId))
     }
 
     @Test func surfaceMovedToAnotherWorkspaceStillResolves() {

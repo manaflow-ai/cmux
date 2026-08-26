@@ -10,7 +10,28 @@ use cmux_tui_core::{Mux, MuxEvent, SurfaceOptions, server};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket, client};
 
+const TEST_TOKEN: &str = "test-token";
+const LARGE_RENDER_IMAGE_WIDTH: usize = 1_024;
+const LARGE_RENDER_IMAGE_HEIGHT: usize = 768;
+const LARGE_RENDER_IMAGE_RAW_BYTES: usize =
+    LARGE_RENDER_IMAGE_WIDTH * LARGE_RENDER_IMAGE_HEIGHT * 4;
+const LARGE_RENDER_IMAGE_BASE64_CHARS: usize = LARGE_RENDER_IMAGE_RAW_BYTES.div_ceil(3) * 4;
+
+fn large_rgba_kitty_transmission() -> Vec<u8> {
+    let data =
+        base64::engine::general_purpose::STANDARD.encode(vec![0x7f; LARGE_RENDER_IMAGE_RAW_BYTES]);
+    assert_eq!(data.len(), LARGE_RENDER_IMAGE_BASE64_CHARS);
+    format!(
+        "\x1b_Ga=T,t=d,f=32,i=51,p=1,s={LARGE_RENDER_IMAGE_WIDTH},v={LARGE_RENDER_IMAGE_HEIGHT},c=80,r=24,q=2;{data}\x1b\\"
+    )
+    .into_bytes()
+}
+
 fn connect(addr: SocketAddr) -> WebSocket<TcpStream> {
+    connect_raw(addr)
+}
+
+fn connect_raw(addr: SocketAddr) -> WebSocket<TcpStream> {
     let stream = TcpStream::connect(addr).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     client(format!("ws://{addr}/"), stream).unwrap().0
@@ -18,7 +39,7 @@ fn connect(addr: SocketAddr) -> WebSocket<TcpStream> {
 
 fn authenticated_connect(addr: SocketAddr) -> WebSocket<TcpStream> {
     let mut websocket = connect(addr);
-    send_json(&mut websocket, json!({"auth": {"token": "test-token"}}));
+    send_json(&mut websocket, json!({"auth": {"token": TEST_TOKEN}}));
     websocket
 }
 
@@ -27,10 +48,17 @@ fn send_json(websocket: &mut WebSocket<TcpStream>, value: Value) {
 }
 
 fn read_json(websocket: &mut WebSocket<TcpStream>) -> Value {
+    read_json_with_size(websocket).0
+}
+
+fn read_json_with_size(websocket: &mut WebSocket<TcpStream>) -> (Value, usize) {
     loop {
         // valgrind's signal delivery interrupts blocking reads with EINTR.
         match websocket.read() {
-            Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
+            Ok(Message::Text(text)) => {
+                let bytes = text.len();
+                return (serde_json::from_str(&text).unwrap(), bytes);
+            }
             Ok(Message::Ping(data)) => websocket.send(Message::Pong(data)).unwrap(),
             Ok(message) => panic!("expected a JSON text frame, got {message:?}"),
             Err(tungstenite::Error::Io(error))
@@ -75,6 +103,78 @@ fn read_json_line(reader: &mut impl BufRead) -> Value {
 }
 
 #[test]
+fn websocket_server_allows_pairing_without_a_static_token() {
+    let mux = Mux::new("ws-token-optional", SurfaceOptions::default());
+
+    for token in [None, Some(String::new()), Some("   ".to_string())] {
+        let server =
+            server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), token, false);
+        assert!(server.is_ok(), "WebSocket listener rejected pairing mode");
+    }
+
+    mux.shutdown();
+}
+
+#[test]
+fn websocket_server_rejects_tokens_that_cannot_fit_the_auth_limit() {
+    let mux = Mux::new("ws-token-size", SurfaceOptions::default());
+    let result = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some("x".repeat(8 * 1024)),
+        false,
+    );
+
+    assert!(result.is_err(), "WebSocket listener accepted an unusably large token");
+    mux.shutdown();
+}
+
+#[test]
+fn websocket_rejects_oversized_authentication_frames() {
+    let mux = Mux::new("ws-auth-frame-limit", SurfaceOptions::default());
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
+
+    let mut websocket = connect_raw(server.local_addr());
+    websocket.send(Message::Text("x".repeat(8 * 1024).into())).unwrap();
+    assert!(
+        matches!(websocket.read(), Ok(Message::Close(_)) | Err(_)),
+        "oversized pre-authentication frame remained accepted"
+    );
+
+    mux.shutdown();
+}
+
+#[test]
+fn websocket_keeps_authenticated_inbound_requests_at_four_mib() {
+    let mux = Mux::new("ws-inbound-frame-limit", SurfaceOptions::default());
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
+
+    let mut websocket = authenticated_connect(server.local_addr());
+    let rejected = match websocket.send(Message::Text("x".repeat(4 * 1024 * 1024 + 1).into())) {
+        Ok(()) => matches!(websocket.read(), Ok(Message::Close(_)) | Err(_)),
+        Err(_) => true,
+    };
+    assert!(rejected, "oversized authenticated request remained accepted");
+
+    let mut next = authenticated_connect(server.local_addr());
+    send_json(&mut next, json!({"id": 1, "cmd": "ping"}));
+    assert_eq!(read_until(&mut next, |value| value["id"] == 1)["ok"], true);
+    mux.shutdown();
+}
+
+#[test]
 fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
     let mux = Mux::new("ws-auth", SurfaceOptions::default());
     let server = server::serve_websocket(
@@ -88,7 +188,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
     for first_frame in
         [json!({"id": 1, "cmd": "identify"}), json!({"auth": {"token": "wrong battery"}})]
     {
-        let mut websocket = connect(server.local_addr());
+        let mut websocket = connect_raw(server.local_addr());
         send_json(&mut websocket, first_frame);
         assert!(matches!(
             websocket.read(),
@@ -98,7 +198,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
         ));
     }
 
-    let mut websocket = connect(server.local_addr());
+    let mut websocket = connect_raw(server.local_addr());
     send_json(&mut websocket, json!({"auth": {"token": "correct horse"}}));
     send_json(&mut websocket, json!({"id": 7, "cmd": "identify"}));
     let identify = read_json(&mut websocket);
@@ -164,7 +264,7 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let server = server::serve_websocket(
         mux.clone(),
         "127.0.0.1:0".parse().unwrap(),
-        Some("test-token".to_string()),
+        Some(TEST_TOKEN.to_string()),
         false,
     )
     .unwrap();
@@ -210,6 +310,52 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let identify = read_json(&mut second);
     assert_eq!(identify["ok"], true);
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
+
+    mux.shutdown();
+}
+
+#[test]
+fn websocket_render_attach_carries_large_rgba_state_and_stays_connected() {
+    let mux = Mux::new("ws-large-render", SurfaceOptions::default());
+    let surface = mux
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .unwrap()
+        .surface;
+    mux.surface(surface)
+        .unwrap()
+        .try_with_terminal(|terminal| terminal.vt_write(&large_rgba_kitty_transmission()))
+        .unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
+
+    let mut websocket = authenticated_connect(server.local_addr());
+    send_json(
+        &mut websocket,
+        json!({"id": 1, "cmd": "attach-surface", "surface": surface, "mode": "render"}),
+    );
+    let (render_state, render_state_bytes) = read_json_with_size(&mut websocket);
+    assert_eq!(render_state["event"], "render-state");
+    assert_eq!(render_state["surface"], surface);
+    assert_eq!(
+        render_state["graphics"]["images"][0]["data"].as_str().unwrap().len(),
+        LARGE_RENDER_IMAGE_BASE64_CHARS
+    );
+    assert!(
+        render_state_bytes > 4 * 1024 * 1024,
+        "{render_state_bytes}-byte render state did not cross the old 4 MiB boundary"
+    );
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 1)["ok"], true);
+
+    send_json(&mut websocket, json!({"id": 2, "cmd": "ping"}));
+    let ping = read_until(&mut websocket, |value| value["id"] == 2);
+    assert_eq!(ping["ok"], true);
+    assert_eq!(ping["data"]["ok"], true);
+    eprintln!("WebSocket render-state and follow-up request bytes: {render_state_bytes}");
 
     mux.shutdown();
 }
@@ -283,7 +429,7 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let websocket_server = server::serve_websocket(
         mux.clone(),
         "127.0.0.1:0".parse().unwrap(),
-        Some("test-token".to_string()),
+        Some(TEST_TOKEN.to_string()),
         false,
     )
     .unwrap();
@@ -329,6 +475,13 @@ fn clients_list_identify_resize_and_detach_across_transports() {
     let unix_id = unix_client["client"].as_u64().unwrap();
     let ws_id = ws_client["client"].as_u64().unwrap();
 
+    writeln!(
+        unix_writer,
+        r#"{{"id":60,"cmd":"resize-surface","surface":{surface},"cols":120,"rows":40}}"#
+    )
+    .unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 60)["ok"], true);
+
     send_json(
         &mut websocket,
         json!({"id": 6, "cmd": "resize-surface", "surface": surface, "cols": 101, "rows": 37}),
@@ -342,7 +495,39 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         .iter()
         .find(|client| client["client"] == ws_id)
         .unwrap();
-    assert_eq!(ws_client["sizes"], json!([{"surface": surface, "cols": 101, "rows": 37}]));
+    assert_eq!(
+        ws_client["sizes"],
+        json!([{
+            "surface": surface,
+            "cols": 101,
+            "rows": 37,
+            "size_participating": false,
+        }])
+    );
+    assert_eq!(mux.surface(surface).unwrap().size(), (80, 24));
+
+    send_json(
+        &mut websocket,
+        json!({
+            "id": 61,
+            "cmd": "set-client-sizing",
+            "surface": surface,
+            "enabled": true,
+            "exclusive": true,
+        }),
+    );
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 61)["ok"], true);
+    assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
+
+    writeln!(unix_writer, r#"{{"id":62,"cmd":"list-clients"}}"#).unwrap();
+    let clients = read_line_until(&mut unix_reader, |value| value["id"] == 62);
+    let ws_client = clients["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|client| client["client"] == ws_id)
+        .unwrap();
+    assert_eq!(ws_client["sizes"][0]["size_participating"], true);
 
     writeln!(unix_writer, r#"{{"id":8,"cmd":"detach-client","client":{ws_id}}}"#).unwrap();
     assert_eq!(
@@ -368,6 +553,15 @@ fn clients_list_identify_resize_and_detach_across_transports() {
             saw_response = true;
         }
     }
+    assert_eq!(mux.surface(surface).unwrap().size(), (101, 37));
+
+    writeln!(
+        unix_writer,
+        r#"{{"id":63,"cmd":"set-client-sizing","surface":{surface},"enabled":true,"exclusive":true}}"#
+    )
+    .unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 63)["ok"], true);
+    assert_eq!(mux.surface(surface).unwrap().size(), (120, 40));
 
     writeln!(unix_writer, r#"{{"id":9,"cmd":"detach-client","client":{unix_id}}}"#).unwrap();
     assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 9)["ok"], true);
@@ -375,8 +569,15 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         read_line_until(&mut unix_reader, |value| value["event"] == "detached")["surface"],
         surface
     );
-    let mut eof = String::new();
-    assert_eq!(unix_reader.read_line(&mut eof).unwrap(), 0);
+    // A subscription may already have complete event frames queued behind the
+    // detach acknowledgement. The connection must close after draining them.
+    loop {
+        let mut trailing = String::new();
+        if unix_reader.read_line(&mut trailing).unwrap() == 0 {
+            break;
+        }
+        serde_json::from_str::<Value>(&trailing).expect("trailing frame before EOF must be JSON");
+    }
 
     mux.shutdown();
     server::cleanup(&socket_path);
@@ -385,15 +586,20 @@ fn clients_list_identify_resize_and_detach_across_transports() {
 #[test]
 fn websocket_non_loopback_bind_requires_and_accepts_explicit_insecure_opt_in() {
     let mux = Mux::new("ws-bind", SurfaceOptions::default());
-    let error = server::serve_websocket(mux.clone(), "0.0.0.0:0".parse().unwrap(), None, false)
-        .err()
-        .expect("non-loopback bind should fail");
+    let error = server::serve_websocket(
+        mux.clone(),
+        "0.0.0.0:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .err()
+    .expect("non-loopback bind should fail");
     assert!(error.to_string().contains("--ws-insecure-bind"));
 
     let server = server::serve_websocket(
         mux.clone(),
         "0.0.0.0:0".parse().unwrap(),
-        Some("test-token".to_string()),
+        Some(TEST_TOKEN.to_string()),
         true,
     )
     .unwrap();

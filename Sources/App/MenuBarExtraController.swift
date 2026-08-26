@@ -8,6 +8,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
+    private let caffeineController: CaffeineController
     private let onShowGlobalSearch: (NSStatusBarButton, (() -> Void)?) -> Void
     private let onShowMainWindow: () -> Void
     private let onShowNotifications: () -> Void
@@ -28,6 +29,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let showMainWindowItem = NSMenuItem(title: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux"), action: nil, keyEquivalent: "")
     private let taskManagerItem = NSMenuItem(title: String(localized: "statusMenu.taskManager", defaultValue: "Task Manager..."), action: nil, keyEquivalent: "")
     private let sleepyModeItem = NSMenuItem(title: String(localized: "statusMenu.sleepyMode", defaultValue: "Sleepy Mode"), action: nil, keyEquivalent: "")
+    private let caffeineItem = NSMenuItem(title: String(localized: "statusMenu.keepMacAwake", defaultValue: "Keep Mac Awake"), action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
     private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
@@ -41,6 +43,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private var notificationItems: [NSMenuItem] = []
     init(
         notificationStore: TerminalNotificationStore,
+        caffeineController: CaffeineController,
         onShowGlobalSearch: @escaping (NSStatusBarButton, (() -> Void)?) -> Void,
         onShowMainWindow: @escaping () -> Void,
         onShowNotifications: @escaping () -> Void,
@@ -53,6 +56,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onQuitApp: @escaping () -> Void
     ) {
         self.notificationStore = notificationStore
+        self.caffeineController = caffeineController
         self.onShowGlobalSearch = onShowGlobalSearch
         self.onShowMainWindow = onShowMainWindow
         self.onShowNotifications = onShowNotifications
@@ -121,6 +125,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         sleepyModeItem.target = self
         sleepyModeItem.action = #selector(sleepyModeAction)
         menu.addItem(sleepyModeItem)
+
+        caffeineItem.target = self
+        caffeineItem.action = #selector(caffeineAction)
+        menu.addItem(caffeineItem)
 
         menu.addItem(MenuBarProfilingMenuItem.make())
         menu.addItem(notificationListSeparator)
@@ -196,6 +204,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         stateHintItem.title = snapshot.stateHintTitle
         showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
         sleepyModeItem.state = SleepyModeController.shared.isActive ? .on : .off
+        caffeineItem.state = caffeineController.isEnabled ? .on : .off
 
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .globalSearch), to: globalSearchItem)
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .showNotifications), to: showNotificationsItem)
@@ -270,7 +279,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     @objc private func globalSearchAction() {
-        toggleGlobalSearchPalette()
+        AppDelegate.shared?.toggleGlobalSearchPalette()
     }
 
     @objc private func showMainWindowAction() {
@@ -291,6 +300,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
     @objc private func sleepyModeAction() {
         onToggleSleepyMode()
+    }
+
+    @objc private func caffeineAction() {
+        caffeineController.toggle()
     }
 
     @objc private func markAllReadAction() {

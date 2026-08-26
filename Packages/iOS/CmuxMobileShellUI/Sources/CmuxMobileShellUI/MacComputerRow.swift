@@ -23,16 +23,10 @@ struct MacComputerRow: View {
     }
 
     let computer: MacComputerSnapshot
-    /// Request confirmation before removing this computer. When `nil`, the
-    /// destructive affordances are hidden.
-    var requestRemove: ((String) -> Void)? = nil
-    /// Whether this row's destructive remove action is awaiting confirmation.
-    /// The binding is owned by the list so recycled rows do not own presentation
-    /// state, but the presenter stays attached to the swiped row.
-    var isConfirmingRemove: Binding<Bool> = .constant(false)
-    /// Performs the confirmed removal. Separate from ``requestRemove`` so a
-    /// full-swipe can request confirmation without directly removing the row.
-    var confirmRemove: ((String) -> Void)? = nil
+    /// Changes whether this computer appears on the current iPhone. When `nil`,
+    /// the visibility switch is omitted.
+    var setVisible: ((Bool) -> Void)? = nil
+    var isVisibilityMutating = false
     var style: Style = .computers
     /// Reconnect action for `.reconnect` rows; tapping the row calls this with
     /// the device id instead of navigating.
@@ -43,42 +37,30 @@ struct MacComputerRow: View {
     var isConnecting: Bool = false
 
     var body: some View {
-        rowContainer
-        .contextMenu { removeMenuButton }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            removeSwipeButton
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.id)")
-        .confirmationDialog(
-            removeTitle,
-            isPresented: isConfirmingRemove,
-            titleVisibility: .visible
-        ) {
-            if let confirmRemove {
-                Button(
-                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                    role: .destructive
-                ) {
-                    confirmRemove(computer.id)
-                }
-                .accessibilityIdentifier("MobileComputerRemoveConfirm-\(computer.id)")
+        HStack(spacing: 8) {
+            rowContainer
+            if let setVisible {
+                ComputerVisibilityToggle(
+                    computerID: computer.id,
+                    computerName: computer.title,
+                    isVisible: true,
+                    isDisabled: isVisibilityMutating,
+                    setVisible: setVisible
+                )
             }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                isConfirmingRemove.wrappedValue = false
-            }
-        } message: {
-            Text(removeMessage)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileComputerRow-\(computer.connectionRef.automationID)")
     }
 
     @ViewBuilder
     private var rowContainer: some View {
         switch style {
         case .computers:
-            NavigationLink(value: computer.id) {
+            NavigationLink(value: computer.connectionRef) {
                 rowLabel
             }
+            .accessibilityElement(children: .combine)
         case .reconnect:
             Button {
                 connect?(computer.id)
@@ -86,6 +68,7 @@ struct MacComputerRow: View {
                 rowLabel
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -112,7 +95,7 @@ struct MacComputerRow: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if let buildLabel = computer.buildLabel {
-                        buildBadge(buildLabel)
+                        ComputerBuildBadge(label: buildLabel)
                     }
                 }
                 Text(connectionLine)
@@ -131,57 +114,6 @@ struct MacComputerRow: View {
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder
-    private var removeSwipeButton: some View {
-        if let requestRemove {
-            Button {
-                requestRemove(computer.id)
-            } label: {
-                Label(
-                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                    systemImage: "trash"
-                )
-            }
-            .tint(.red)
-            .accessibilityIdentifier("MobileComputerRemoveSwipeButton-\(computer.id)")
-        }
-    }
-
-    @ViewBuilder
-    private var removeMenuButton: some View {
-        if let requestRemove {
-            Button(role: .destructive) {
-                requestRemove(computer.id)
-            } label: {
-                Label(
-                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                    systemImage: "trash"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerRemoveMenuButton-\(computer.id)")
-        }
-    }
-
-    private var removeTitle: String {
-        String(
-            format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
-            computer.title
-        )
-    }
-
-    private var removeMessage: String {
-        guard computer.aliasIDs.count > 1 else {
-            return L10n.string(
-                "mobile.computers.removeMessage",
-                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
-            )
-        }
-        return L10n.string(
-            "mobile.computers.removeMessageRepresentativeFormat",
-            defaultValue: "This removes this computer and its matching paired records. Its workspaces stop appearing here. Pair it again to add it back."
-        )
-    }
-
     /// The connection dot: green only when the PHONE is actually connected to this
     /// Mac. Orange while reconnecting, grey when the phone is not connected (even
     /// if presence says the Mac is online — that's the route/tailscale signal).
@@ -198,29 +130,10 @@ struct MacComputerRow: View {
                 .font(.caption2)
                 .foregroundStyle(dotColor)
                 .accessibilityLabel(primaryStatusPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(statusIdentifierSuffix)")
+                .accessibilityIdentifier(
+                    "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
+                )
         }
-    }
-
-    /// A small build-channel pill (e.g. "DEV · teams", "Nightly"). DEV/RC/Staging
-    /// are tinted orange (pre-release), Nightly blue, Stable secondary, so a glance
-    /// tells you what kind of build a host runs.
-    private func buildBadge(_ label: String) -> some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(buildBadgeTint(label).opacity(0.18), in: Capsule())
-            .foregroundStyle(buildBadgeTint(label))
-            .accessibilityLabel(
-                "\(L10n.string("mobile.computers.buildLabelPrefix", defaultValue: "Build:")) \(label)")
-    }
-
-    private func buildBadgeTint(_ label: String) -> Color {
-        if label.hasPrefix("DEV") || label == "RC" || label == "Staging" { return .orange }
-        if label == "Nightly" { return .blue }
-        return .secondary
     }
 
     private var dotColor: Color {
@@ -246,7 +159,8 @@ struct MacComputerRow: View {
     /// connection on the Computers screen, presence on the reconnect list.
     private var statusIdentifierSuffix: String {
         switch style {
-        case .computers: return isConnected ? "connected" : "disconnected"
+        case .computers:
+            return isConnected ? "connected" : "disconnected"
         case .reconnect: return computer.presence == .online ? "online" : "offline"
         }
     }

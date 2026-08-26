@@ -25,9 +25,12 @@ extension MobileHostIrohRuntime {
         }
 
         #if DEBUG
-        let debugRelayOnlyEnabled: Bool? = Self.isDebugRelayOnlyEnabled
+        let debugTransportVerificationMode: CmxIrohTransportVerificationMode? =
+            transportVerificationMode
+        let pathPreference = CmxIrohPathPreference.stored(in: UserDefaults.standard)
         #else
-        let debugRelayOnlyEnabled: Bool? = nil
+        let debugTransportVerificationMode: CmxIrohTransportVerificationMode? = nil
+        let pathPreference: CmxIrohPathPreference = .automatic
         #endif
         return CmxIrohSettingsSnapshot(
             runtimeStatus: Self.settingsRuntimeStatus(
@@ -37,6 +40,7 @@ extension MobileHostIrohRuntime {
             ),
             selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
+            pathPreference: pathPreference,
             managedRelays: managedPolicy?.relays.map { relay in
                 CmxIrohSettingsSnapshot.ManagedRelay(
                     id: relay.id,
@@ -55,7 +59,7 @@ extension MobileHostIrohRuntime {
             policyExpiresAt: diagnostics?.policyExpiresAt,
             staleRelayIDs: Set(diagnostics?.staleRelayIDs ?? []),
             failureDescription: diagnostics?.failure?.rawValue,
-            debugRelayOnlyEnabled: debugRelayOnlyEnabled
+            debugTransportVerificationMode: debugTransportVerificationMode
         )
     }
 

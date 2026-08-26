@@ -17,6 +17,8 @@ extension MobilePairedMacStore {
         var customName: String? = nil
         var customColor: String? = nil
         var customIcon: String? = nil
+        var connectionMethodRawValue: String? = nil
+        var directAddressesRawJSON: String? = nil
     }
 
     func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MacRow? {
@@ -170,6 +172,15 @@ extension MobilePairedMacStore {
             .text(fromOwnerKey),
         ])
         try exec("""
+            UPDATE legacy_tailscale_route_grants
+            SET owner_key = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(toOwnerKey),
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+        try exec("""
             DELETE FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -202,7 +213,7 @@ extension MobilePairedMacStore {
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon, team_id, instance_tag
+                   custom_name, custom_color, custom_icon, team_id, instance_tag, connection_method, direct_addresses
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -235,12 +246,18 @@ extension MobilePairedMacStore {
                 isActive: isActive,
                 customName: Self.readNullableText(statement, column: 7),
                 customColor: Self.readNullableText(statement, column: 8),
-                customIcon: Self.readNullableText(statement, column: 9)
+                customIcon: Self.readNullableText(statement, column: 9),
+                connectionMethodRawValue: Self.readNullableText(statement, column: 12),
+                directAddressesRawJSON: Self.readNullableText(statement, column: 13)
             ))
         }
 
         return try rows.map { row in
             let routes = try fetchRoutes(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
+            let legacyTailscaleRoutes = try fetchLegacyTailscaleRoutes(
+                macDeviceID: row.macDeviceID,
+                ownerKey: row.ownerKey
+            )
             return MobilePairedMac(
                 macDeviceID: row.macDeviceID,
                 displayName: row.displayName,
@@ -253,9 +270,50 @@ extension MobilePairedMacStore {
                 customName: row.customName,
                 customColor: row.customColor,
                 customIcon: row.customIcon,
-                instanceTag: row.instanceTag
+                instanceTag: row.instanceTag,
+                legacyTailscaleRoutes: legacyTailscaleRoutes.isEmpty
+                    ? nil
+                    : legacyTailscaleRoutes,
+                connectionMethodRawValue: row.connectionMethodRawValue,
+                directAddressesRawJSON: row.directAddressesRawJSON
             )
         }
+    }
+
+    func fetchLegacyTailscaleRoutes(
+        macDeviceID: String,
+        ownerKey: String
+    ) throws -> [CmxAttachRoute] {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let result = sqlite3_prepare_v2(
+            db,
+            """
+            SELECT endpoint_json
+            FROM legacy_tailscale_route_grants
+            WHERE mac_device_id = ? AND owner_key = ?
+            ORDER BY id ASC;
+            """,
+            -1,
+            &statement,
+            nil
+        )
+        guard result == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(result, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
+        let decoder = JSONDecoder()
+        var routes: [CmxAttachRoute] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let json = Self.readNullableText(statement, column: 0),
+                  let data = json.data(using: .utf8),
+                  let route = try? decoder.decode(CmxAttachRoute.self, from: data),
+                  route.kind == .tailscale else {
+                continue
+            }
+            routes.append(route)
+        }
+        return routes
     }
 
     func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
@@ -286,6 +344,44 @@ extension MobilePairedMacStore {
             routes.append(route)
         }
         return routes
+    }
+
+    /// Whether this owner scope already has an app-tagged row for the device.
+    /// Device-only writes must fail closed when such a sibling exists, even if
+    /// no legacy nil-tag row has been stored yet.
+    func hasClaimedSibling(
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) throws -> Bool {
+        var clauses = [
+            "mac_device_id = ?",
+            "instance_tag IS NOT NULL",
+            "stack_user_id IS ?",
+        ]
+        var bindings: [BindValue] = [
+            .text(macDeviceID),
+            stackUserID.map(BindValue.text) ?? .null,
+        ]
+        if let teamID {
+            clauses.append("(team_id IS ? OR team_id IS NULL)")
+            bindings.append(.text(teamID))
+        } else {
+            clauses.append("team_id IS NULL")
+        }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT 1 FROM paired_macs WHERE \(clauses.joined(separator: " AND ")) LIMIT 1;"
+        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: bindings)
+        let step = sqlite3_step(statement)
+        guard step == SQLITE_ROW || step == SQLITE_DONE else {
+            throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
+        }
+        return step == SQLITE_ROW
     }
 
     static func encodeRoute(_ route: CmxAttachRoute) throws -> String {

@@ -282,11 +282,65 @@ extension CMUXCLIErrorOutputRegressionTests {
         processEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         processEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", agent, "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        // Require rather than expect: letting a failed process fall through makes every caller fail
+        // on JSON parsing instead of on the real reason. Report both streams because the runner keeps
+        // stderr out of JSON stdout. An unknown-agent fixture otherwise read as a decoding problem.
+        try #require(!result.timedOut, Comment(rawValue: result.diagnostics))
+        try #require(result.status == 0, Comment(rawValue: result.diagnostics))
         let outputData = try #require(result.stdout.data(using: .utf8))
         let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
         let sessions = try #require(object["sessions"] as? [[String: Any]])
         return try #require(sessions.first)
+    }
+
+    @Test func testSessionsListFailsClosedForUnverifiedPiFamilyVersions() throws {
+        for agent in ["pi", "omp"] {
+            let session = try sessionsListDiagnosticSession(
+                agent: agent,
+                launcher: agent,
+                executablePath: agent,
+                arguments: [agent, "--session", "session-id"]
+            )
+            #expect(session["fork_command_available"] as? Bool == true)
+            #expect(session["fork_supported"] as? Bool == false)
+            #expect(session["fork_unavailable_reason"] as? String == "\(agent)_version_unverified")
+            #expect(session["fork_startup_input_available"] as? Bool == true)
+        }
+    }
+
+    @Test func testSessionsListUsesRequestedPiFamilyAgentBeforeExecutableBasename() throws {
+        let session = try sessionsListDiagnosticSession(
+            agent: "omp",
+            launcher: "omp",
+            executablePath: "/tmp/pi",
+            arguments: ["/tmp/pi", "--session", "session-id"]
+        )
+
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "omp_version_unverified")
+    }
+
+    @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {
+        // The agent and the launcher have to be a matched pair: a captured launch command is
+        // only used when its launcher describes the requested agent, and an unmatched pair is
+        // dropped, which leaves the record with no fork argv at all instead of exercising the
+        // rule below. "omo" is opencode's wrapper launcher, so this record is forkable and its
+        // structured identity is opencode, while the executable basename is still "pi" — that
+        // disagreement is what must not promote the record into the pi family. Nothing stats
+        // /tmp/pi here, because the omo launcher answers fork support before the opencode
+        // executable probe.
+        let session = try sessionsListDiagnosticSession(
+            agent: "opencode",
+            launcher: "omo",
+            executablePath: "/tmp/pi",
+            arguments: ["/tmp/pi", "omo"]
+        )
+
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == true)
+        #expect(session["fork_unavailable_reason"] as? String == "available")
+        #expect(session["fork_startup_input_available"] as? Bool == true)
     }
 
     @Test func testSessionsListForkStartupInputCountsSelectedEnvironment() throws {

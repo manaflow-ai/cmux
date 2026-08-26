@@ -3,18 +3,22 @@ import Combine
 import AppKit
 
 /// Type of panel content
-public enum PanelType: String, Codable, Sendable {
+public enum PanelType: String, Codable, CaseIterable, Sendable {
     case terminal
     case browser
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
     case customSidebar
+    case simulator
     case agentSession
     case project
     case extensionBrowser
     case workspaceTodo
+    case notifications
     case cloudVMLoading
+    case mobilePairing
+    case accountSignIn
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -43,8 +47,20 @@ public enum PanelType: String, Codable, Sendable {
             self = .workspaceTodo
             return
         }
+        if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
+            self = .notifications
+            return
+        }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
             self = .cloudVMLoading
+            return
+        }
+        if rawValue.lowercased() == Self.mobilePairing.rawValue.lowercased() {
+            self = .mobilePairing
+            return
+        }
+        if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
+            self = .accountSignIn
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -96,12 +112,14 @@ public enum PanelFocusIntent: Equatable {
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
+    case userInitiated
     case notificationArrival
     case notificationDismiss
     case unreadIndicatorDismiss
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
 
@@ -158,7 +176,7 @@ enum WorkspaceAttentionCoordinator {
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .navigation, .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return flashRingStyle
         }
     }
@@ -172,7 +190,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 
