@@ -13,6 +13,10 @@ import { loadMessages } from "../../../../i18n/messages";
 // Top-level, not an iframe: the gateway sets its `bl_preview_token` cookie on
 // the tokened request and every asset and the websockify upgrade need it, and
 // WebKit blocks third-party cookies inside a cross-site frame.
+// The redirect target depends on the request (token, host, expiry), so this route is
+// never prerendered or instant-navigated; say so instead of tripping the guard.
+export const instant = false;
+
 export default async function VmDesktopPage({
   params,
   searchParams,
