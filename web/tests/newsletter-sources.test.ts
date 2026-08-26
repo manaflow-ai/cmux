@@ -89,6 +89,74 @@ describe("listStackContacts", () => {
     expect(ada).toMatchObject({ firstName: "Ada", lastName: "Lovelace" });
   });
 
+  test("follows Stack's current end_cursor pagination shape", async () => {
+    const { fetchImpl, calls } = fetchScript((url) => {
+      const cursor = new URL(url).searchParams.get("cursor");
+      if (!cursor) {
+        return {
+          body: {
+            items: [
+              {
+                id: "user-first",
+                primary_email: "first@example.com",
+                primary_email_verified: true,
+                server_metadata: { cmuxNewsletterOptIn: true },
+              },
+            ],
+            pagination: {
+              has_next_page: true,
+              end_cursor: "stack-end-1",
+            },
+          },
+        };
+      }
+      expect(cursor).toBe("stack-end-1");
+      return {
+        body: {
+          items: [
+            {
+              id: "user-second",
+              primary_email: "second@example.com",
+              primary_email_verified: true,
+              server_metadata: { cmuxNewsletterOptIn: true },
+            },
+          ],
+          pagination: { has_next_page: false, end_cursor: "stack-end-2" },
+        },
+      };
+    });
+
+    const result = await listStackContacts({
+      projectId: "proj",
+      secretServerKey: "secret",
+      fetchImpl,
+      requireNewsletterOptIn: true,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(result.contacts.map((contact) => contact.email)).toEqual([
+      "first@example.com",
+      "second@example.com",
+    ]);
+  });
+
+  test("fails closed when Stack promises another page without a cursor", async () => {
+    const { fetchImpl } = fetchScript(() => ({
+      body: {
+        items: [],
+        pagination: { has_next_page: true, end_cursor: null },
+      },
+    }));
+
+    await expect(
+      listStackContacts({
+        projectId: "proj",
+        secretServerKey: "secret",
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/no progress/);
+  });
+
   test("fails loudly when the cursor stops advancing", async () => {
     const { fetchImpl } = fetchScript(() => ({
       body: {
@@ -163,6 +231,30 @@ describe("listStackContacts", () => {
     expect(result.contacts).toEqual([]);
     expect(result.revokedEmails).toEqual(["revoked@example.com"]);
     expect(result.skippedNotOptedIn).toBe(0);
+  });
+
+  test("retains the Stack identity for a revocation after an email change", async () => {
+    const { fetchImpl } = fetchScript(() => ({
+      body: {
+        items: [
+          {
+            id: "stack-rotated",
+            primary_email: "new-address@example.com",
+            primary_email_verified: true,
+            server_metadata: { cmuxNewsletterOptIn: false },
+          },
+        ],
+        pagination: { next_cursor: null },
+      },
+    }));
+    const result = await listStackContacts({
+      projectId: "proj",
+      secretServerKey: "secret",
+      fetchImpl,
+      requireNewsletterOptIn: true,
+    });
+    expect(result.revokedStackUserIds).toEqual(["stack-rotated"]);
+    expect(result.revokedEmails).toEqual(["new-address@example.com"]);
   });
 
   test("surfaces permanent API errors with status, without retrying", async () => {

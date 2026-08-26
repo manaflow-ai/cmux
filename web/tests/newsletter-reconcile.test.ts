@@ -199,15 +199,32 @@ describe("planSegmentSync", () => {
       segmentMemberEmails: new Set(["old@example.com"]),
     });
     expect(plan.toCreate).toHaveLength(0);
-    expect(plan.toUpdateEmail).toEqual([
-      {
-        contactId: "c_old",
-        previousEmail: "old@example.com",
-        email: "new@example.com",
-        stackUserId: "stack-1",
-        previousEmails: ["old@example.com"],
-      },
+    expect(plan.blockedIdentityChanges).toBe(1);
+    expect(plan.toRemoveForIdentityChange).toEqual([
+      { contactId: "c_old", email: "old@example.com" },
     ]);
+    expect(plan.toAddToSegment).toHaveLength(0);
+    expect(plan.toBackfillName).toHaveLength(0);
+  });
+
+  test("keeps an old address claimed by another active source", () => {
+    const plan = planSegmentSync({
+      desired: [
+        contact("new@example.com", undefined, undefined, "stack-1"),
+        { email: "old@example.com", sources: ["stripe"] },
+      ],
+      existingContacts: [
+        {
+          id: "c_old",
+          email: "old@example.com",
+          stackUserId: "stack-1",
+          unsubscribed: false,
+        },
+      ],
+      segmentMemberEmails: new Set(["old@example.com"]),
+    });
+    expect(plan.blockedIdentityChanges).toBe(1);
+    expect(plan.toRemoveForIdentityChange).toHaveLength(0);
   });
 
   test("backfills the stable Stack identity on an existing email match", () => {
@@ -243,6 +260,24 @@ describe("planSegmentSync", () => {
     expect(plan.skippedUnsubscribed).toBe(1);
   });
 
+  test("does not backfill identity properties on a globally unsubscribed contact", () => {
+    const plan = planSegmentSync({
+      desired: [contact("unsub@example.com", undefined, undefined, "stack-unsub")],
+      existingContacts: [
+        {
+          id: "c_unsub",
+          email: "unsub@example.com",
+          unsubscribed: true,
+        },
+      ],
+      segmentMemberEmails: new Set(["unsub@example.com"]),
+    });
+    expect(plan.toBackfillProperties).toHaveLength(0);
+    expect(plan.toBackfillName).toHaveLength(0);
+    expect(plan.toAddToSegment).toHaveLength(0);
+    expect(plan.skippedUnsubscribed).toBe(1);
+  });
+
   test("no plan entry ever carries subscription state", () => {
     const plan = planSegmentSync({
       desired: [
@@ -257,6 +292,8 @@ describe("planSegmentSync", () => {
       ...plan.toCreate,
       ...plan.toAddToSegment,
       ...plan.toBackfillName,
+      ...plan.toBackfillProperties,
+      ...plan.toRemoveForIdentityChange,
     ]) {
       expect("unsubscribed" in entry).toBe(false);
       expect("topics" in entry).toBe(false);

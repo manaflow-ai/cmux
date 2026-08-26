@@ -487,6 +487,34 @@ describe("syncSegment", () => {
     expect(fake.writes).toEqual([]);
   });
 
+  test("resolves a consent revocation by Stack identity after an email change", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
+    fake.contacts.push({
+      id: "con_rotated",
+      email: "old-address@example.com",
+      unsubscribed: false,
+      properties: { cmux_stack_user_id: "stack-rotated" },
+      segmentIds: new Set(["seg_users"]),
+    });
+
+    const summary = await syncSegment({
+      client: client(fake),
+      segmentName: USERS_SEGMENT_NAME,
+      topic: USERS_TOPIC,
+      desired: [],
+      existingContacts: await listContactsOf(fake),
+      apply: false,
+      revokedStackUserIds: new Set(["stack-rotated"]),
+    });
+    expect(summary.revokedFromSegment).toBe(1);
+  });
+
   test("does not write even a revocation delete for a globally unsubscribed contact", async () => {
     const fake = fakeResend();
     fake.segments.push({ id: "seg_founders", name: FOUNDERS_SEGMENT_NAME });
@@ -656,7 +684,7 @@ describe("syncSegment", () => {
     expect(summary.addedToSegment).toBe(0);
   });
 
-  test("migrates a Stack contact's email without resetting subscription state", async () => {
+  test("blocks a Stack email change instead of creating a new subscribed contact", async () => {
     const fake = fakeResend();
     fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
     fake.topics.push({
@@ -687,12 +715,15 @@ describe("syncSegment", () => {
       apply: true,
     });
 
-    expect(summary.emailMigrated).toBe(1);
+    expect(summary.blockedIdentityChanges).toBe(1);
+    expect(summary.identityMembershipRemoved).toBe(1);
     expect(summary.created).toBe(0);
-    expect(fake.writes).toContain("patch-contact:new@example.com");
-    expect(fake.contacts[0].email).toBe("new@example.com");
+    expect(fake.writes).toEqual([
+      "remove-from-segment:old@example.com:seg_users",
+    ]);
+    expect(fake.contacts[0].email).toBe("old@example.com");
     expect(fake.contacts[0].unsubscribed).toBe(false);
-    expect(fake.contacts[0].segmentIds.has("seg_users")).toBe(true);
+    expect(fake.contacts[0].segmentIds.has("seg_users")).toBe(false);
   });
 
   test("backfills the Stack identity property on an existing contact", async () => {
