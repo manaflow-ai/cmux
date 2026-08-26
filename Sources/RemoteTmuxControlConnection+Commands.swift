@@ -18,6 +18,16 @@ extension RemoteTmuxControlConnection {
     /// mirrored by a local cmux over ssh-tmux (`tmux -CC`, no relay socket).
     static let mirrorMarkerEnvironmentKey = "CMUX_REMOTE_TMUX_MIRROR"
 
+    /// Host-local route values that must not cross into an ssh-tmux mirror.
+    /// Empty session values shadow stale tmux-global values and are observable
+    /// by an already-running shell's session-scoped environment refresh.
+    private static let mirrorSuppressedLocalRoutingEnvironmentKeys = [
+        "CMUX_PANEL_ID",
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SURFACE_ID",
+    ]
+
     /// Pushes the mirror marker + identity pairs into the remote tmux SESSION
     /// environment. Called from the first post-attach `list-windows` result, so
     /// both paths — first connect and every reconnect — refresh values that
@@ -25,11 +35,12 @@ extension RemoteTmuxControlConnection {
     /// the `tmux -CC` attach has no cmux wrapper shell outside tmux on the
     /// remote, so nobody else ever re-publishes them).
     ///
-    /// Deliberately NOT pushed: `CMUX_SOCKET_PATH`. The ssh-tmux transport has
-    /// no relay/reverse forward, so the local Mac socket path is meaningless on
-    /// the remote host; publishing it would point remote `cmux` CLI invocations
-    /// at a dead socket. Notification delivery instead rides the OSC 777/9
-    /// intercept in ``RemoteTmuxSessionMirror`` (see
+    /// Host-local socket and surface values are pushed as EMPTY session values.
+    /// Merely omitting them is insufficient: tmux would expose a stale global
+    /// value inherited from the pane that created the session, and an existing
+    /// shell would retain its launch-time value. The ssh-tmux transport has no
+    /// relay/reverse forward, so agent notification delivery instead rides the
+    /// OSC 777/9 intercept in ``RemoteTmuxSessionMirror`` (see
     /// ``RemoteTmuxNotificationOSCFilter``).
     ///
     /// Session scope (`-t`, not `-g`): the shell-integration refresh path runs
@@ -42,6 +53,9 @@ extension RemoteTmuxControlConnection {
                 .map(RemoteTmuxHost.shellSingleQuoted)
         else { return }
         var pairs = mirrorEnvironment
+        for key in Self.mirrorSuppressedLocalRoutingEnvironmentKeys {
+            pairs[key] = ""
+        }
         pairs[Self.mirrorMarkerEnvironmentKey] = "1"
         let commands = Self.mirrorEnvironmentCommands(target: target, pairs: pairs)
         guard !commands.isEmpty else { return }
@@ -61,7 +75,7 @@ extension RemoteTmuxControlConnection {
             // would terminate the command line before tmux parses the quotes.
             guard RemoteTmuxHost.controlModeLineSafeName(key) != nil,
                   !key.contains(" "),
-                  RemoteTmuxHost.controlModeLineSafeName(value) != nil
+                  value.isEmpty || RemoteTmuxHost.controlModeLineSafeName(value) != nil
             else { return nil }
             return "set-environment -t \(target) \(key) "
                 + RemoteTmuxHost.shellSingleQuoted(value)
