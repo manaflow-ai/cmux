@@ -2310,6 +2310,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             sessionId: sessionId,
             now: now.addingTimeInterval(AutoNamingEngine().config.inFlightExpiry + 1)
         ))
+        let missingSession = "auto-name-spawn-missing-record"
+        XCTAssertTrue(try store.claimAutoNamingSpawn(
+            sessionId: missingSession,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            now: now
+        ))
     }
 
     func testCodexStopKeepsDetachedAutoNameForManualWorkspaceWithReplayableTitle() throws {
