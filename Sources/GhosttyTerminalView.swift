@@ -3844,6 +3844,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case paste(UUID)
     }
     private var pendingInputReplayActions: [PendingInputReplayAction] = []
+    private var pendingKeyDownActionCount = 0
+    private var pendingKeyActionCount = 0
+    private var pendingPasteActionCount = 0
     /// Surface identity that owns deferred key actions. Portal reuse can
     /// attach a different terminal before the original runtime is ready; never
     /// replay the old terminal's input into that replacement.
@@ -4155,10 +4158,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
         if !isSameSurface {
-            if pendingExplicitKeyDownSurface !== surface {
+            if pendingKeyActionCount > 0,
+               (pendingExplicitKeyDownSurface !== surface
+                || pendingExplicitKeyDownSurfaceID != surface.id) {
                 discardPendingExplicitKeyDownEvents()
             }
-            if pendingPasteSurface !== surface {
+            if pendingPasteActionCount > 0,
+               (pendingPasteSurface !== surface
+                || pendingPasteSurfaceID != surface.id) {
                 discardPendingPasteAfterSurfaceReady()
             }
             appliedColorScheme = nil
@@ -4182,23 +4189,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
         guard let owningSurface = terminalSurface else { return }
-        let pendingKeyDownCount = pendingInputReplayActions.reduce(into: 0) {
-            count, action in
-            if case .keyDown = action { count += 1 }
-        }
-        guard pendingKeyDownCount < Self.maximumPendingExplicitKeyDownEvents,
+        guard pendingKeyDownActionCount < Self.maximumPendingExplicitKeyDownEvents,
               pendingInputReplayActions.count < Self.maximumPendingInputReplayActions else {
             return
         }
-        let hasPendingKeyActions = pendingInputReplayActions.contains { action in
-            switch action {
-            case .keyDown, .keyUp:
-                return true
-            case .paste:
-                return false
-            }
-        }
-        if !hasPendingKeyActions {
+        if pendingKeyActionCount == 0 {
             pendingExplicitKeyDownSurfaceID = owningSurface.id
             pendingExplicitKeyDownSurface = owningSurface
         } else if pendingExplicitKeyDownSurface !== owningSurface {
@@ -4206,6 +4201,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         pendingInputReplayActions.append(.keyDown(event))
+        pendingKeyDownActionCount += 1
+        pendingKeyActionCount += 1
         pendingExplicitKeyDownKeyCodes[event.keyCode, default: 0] += 1
     }
 
@@ -4214,7 +4211,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     fileprivate func discardPendingExplicitKeyDownEvents() {
-        pendingInputReplayActions.removeAll { action in
+        removePendingInputReplayActions { action in
             switch action {
             case .keyDown, .keyUp:
                 return true
@@ -4231,10 +4228,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func queuePasteAfterSurfaceReady(for surface: TerminalSurface) -> Bool {
         if pendingPasteSurface !== surface {
             discardPendingPasteAfterSurfaceReady()
-        }
-        let pendingPasteActionCount = pendingInputReplayActions.reduce(into: 0) {
-            count, action in
-            if case .paste = action { count += 1 }
         }
         guard pendingPasteActionCount < Self.maximumPendingPasteActions,
               pendingInputReplayActions.count < Self.maximumPendingInputReplayActions,
@@ -4257,6 +4250,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         let preparationID = UUID()
         pendingInputReplayActions.append(.paste(preparationID))
+        pendingPasteActionCount += 1
         let pasteboardService = GhosttyApp.terminalPasteboard
         let preparationTask = Task.detached(priority: .utility) {
             let payload = await preparationService.prepare(
@@ -4301,7 +4295,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         pendingPastePreparedPayloadsByID.removeAll(keepingCapacity: false)
-        pendingInputReplayActions.removeAll { action in
+        removePendingInputReplayActions { action in
             if case .paste = action { return true }
             return false
         }
@@ -4331,7 +4325,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         guard pendingPasteSurface?.id == surfaceID,
               pendingPasteSurfaceID == surfaceID else {
-            pendingInputReplayActions.removeAll { action in
+            removePendingInputReplayActions { action in
                 if case .paste(let actionID) = action {
                     return actionID == preparationID
                 }
@@ -4372,23 +4366,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               surface != nil else {
             return
         }
-        let hasPendingKeyActions = pendingInputReplayActions.contains { action in
-            switch action {
-            case .keyDown, .keyUp:
-                return true
-            case .paste:
-                return false
-            }
-        }
-        let keySurfaceMatches = !hasPendingKeyActions
+        let keySurfaceMatches = pendingKeyActionCount == 0
             ? true
             : pendingExplicitKeyDownSurface === readySurface
                 && pendingExplicitKeyDownSurfaceID == readySurface.id
-        let hasPendingPasteActions = pendingInputReplayActions.contains { action in
-            if case .paste = action { return true }
-            return false
-        }
-        let pasteSurfaceMatches = !hasPendingPasteActions
+        let pasteSurfaceMatches = pendingPasteActionCount == 0
             ? true
             : pendingPasteSurface === readySurface
                 && pendingPasteSurfaceID == readySurface.id
@@ -4401,24 +4383,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         replayingPendingInput = true
         defer {
             replayingPendingInput = false
-            let hasPendingKeys = pendingInputReplayActions.contains { action in
-                switch action {
-                case .keyDown, .keyUp:
-                    return true
-                case .paste:
-                    return false
-                }
-            }
-            if !hasPendingKeys {
+            if pendingKeyActionCount == 0 {
                 pendingExplicitKeyDownSurfaceID = nil
                 pendingExplicitKeyDownSurface = nil
                 pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
             }
-            let hasPendingPastes = pendingInputReplayActions.contains { action in
-                if case .paste = action { return true }
-                return false
-            }
-            if !hasPendingPastes {
+            if pendingPasteActionCount == 0 {
                 pendingPasteSurface = nil
                 pendingPasteSurfaceID = nil
                 pendingPastePayloadBytes = 0
@@ -4435,7 +4405,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
             switch action {
             case .keyDown(let event):
-                pendingInputReplayActions.removeFirst()
+                _ = removeFirstPendingInputReplayAction()
                 let remainingKeyDowns =
                     (pendingExplicitKeyDownKeyCodes[event.keyCode] ?? 1) - 1
                 if remainingKeyDowns > 0 {
@@ -4447,7 +4417,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 keyDown(with: event)
             case .keyUp(let event):
-                pendingInputReplayActions.removeFirst()
+                _ = removeFirstPendingInputReplayAction()
                 keyUp(with: event)
             case .paste(let preparationID):
                 guard let payload = pendingPastePreparedPayloadsByID[
@@ -4457,7 +4427,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     // completes; later key events must not overtake it.
                     return
                 }
-                pendingInputReplayActions.removeFirst()
+                _ = removeFirstPendingInputReplayAction()
                 pendingPastePreparedPayloadsByID.removeValue(
                     forKey: preparationID
                 )
@@ -4478,6 +4448,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         using: GhosttyApp.terminalPasteboard
                     )
                 }
+            }
+        }
+    }
+
+    @discardableResult
+    private func removeFirstPendingInputReplayAction() -> PendingInputReplayAction {
+        let action = pendingInputReplayActions.removeFirst()
+        switch action {
+        case .keyDown:
+            pendingKeyDownActionCount = max(0, pendingKeyDownActionCount - 1)
+            pendingKeyActionCount = max(0, pendingKeyActionCount - 1)
+        case .keyUp:
+            pendingKeyActionCount = max(0, pendingKeyActionCount - 1)
+        case .paste:
+            pendingPasteActionCount = max(0, pendingPasteActionCount - 1)
+        }
+        return action
+    }
+
+    private func removePendingInputReplayActions(
+        where shouldRemove: (PendingInputReplayAction) -> Bool
+    ) {
+        pendingInputReplayActions.removeAll(where: shouldRemove)
+        pendingKeyDownActionCount = 0
+        pendingKeyActionCount = 0
+        pendingPasteActionCount = 0
+        for action in pendingInputReplayActions {
+            switch action {
+            case .keyDown:
+                pendingKeyDownActionCount += 1
+                pendingKeyActionCount += 1
+            case .keyUp:
+                pendingKeyActionCount += 1
+            case .paste:
+                pendingPasteActionCount += 1
             }
         }
     }
