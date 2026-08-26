@@ -499,6 +499,9 @@ struct MachineRowActions {
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
+    /// A locked (free-window-expired) machine routes here instead of a doomed
+    /// connect; the backend enforces the same boundary with 402s.
+    let promptUpgrade: @MainActor () -> Void
 
     static func bound(
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
@@ -534,6 +537,9 @@ struct MachineRowActions {
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            },
+            promptUpgrade: {
+                ProUpgradePresenter.present()
             }
         )
     }
@@ -762,17 +768,31 @@ private struct MachineRow: View, Equatable {
         .contentShape(Rectangle())
         .background(rowBackground)
         .onHover { isHovered = $0 }
-        .onTapGesture(count: 2) { actions.openShell(machine.id) }
+        .onTapGesture(count: 2) {
+            if machine.freeAccess == .expired {
+                actions.promptUpgrade()
+            } else {
+                actions.openShell(machine.id)
+            }
+        }
         .help(helpText)
         .contextMenu { menuItems }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
     }
 
+    @ViewBuilder
     private var activityDot: some View {
-        Circle()
-            .fill(dotColor)
-            .frame(width: 7, height: 7)
+        if machine.freeAccess == .expired {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundColor(.secondary.opacity(0.8))
+                .frame(width: 7)
+        } else {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 7, height: 7)
+        }
     }
 
     private var rowBackground: some View {
@@ -800,6 +820,18 @@ private struct MachineRow: View, Equatable {
         if let createdAt = machine.createdAt {
             parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
         }
+        switch machine.freeAccess {
+        case .unrestricted:
+            break
+        case .expired:
+            parts.append(String(localized: "machines.row.locked", defaultValue: "Locked"))
+        case .active(let daysLeft):
+            parts.append(
+                daysLeft == 1
+                    ? String(localized: "machines.row.dayLeft", defaultValue: "1 day left")
+                    : String(format: String(localized: "machines.row.daysLeft", defaultValue: "%d days left"), daysLeft)
+            )
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -809,12 +841,18 @@ private struct MachineRow: View, Equatable {
 
     @ViewBuilder
     private var menuItems: some View {
-        Button(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) {
-            actions.openShell(machine.id)
-        }
-        if machine.isDesktop {
-            Button(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                actions.openDesktop(machine.id)
+        if machine.freeAccess == .expired {
+            Button(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) {
+                actions.promptUpgrade()
+            }
+        } else {
+            Button(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) {
+                actions.openShell(machine.id)
+            }
+            if machine.isDesktop {
+                Button(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
+                    actions.openDesktop(machine.id)
+                }
             }
         }
         Divider()
