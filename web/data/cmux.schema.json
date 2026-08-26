@@ -189,7 +189,8 @@
               "id": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9._-]+$",
-                "description": "Stable lowercase-ish identifier used in Vault persistence, for example pi."
+                "maxLength": 64,
+                "description": "Stable case-preserving ASCII identifier used in Vault persistence, for example pi."
               },
               "name": {
                 "type": "string",
@@ -957,6 +958,7 @@
           "propertyNames": {
             "allOf": [
               { "pattern": "^[A-Za-z0-9._-]+$" },
+              { "maxLength": 64 },
               { "not": { "enum": [".", ".."] } }
             ]
           },

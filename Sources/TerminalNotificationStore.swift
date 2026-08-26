@@ -2065,7 +2065,6 @@ final class TerminalNotificationStore: ObservableObject {
             return notification.id
         }
         ids.forEach(remove)
-        removePendingNotificationRequests(withIdentifiers: ids.map { $0.uuidString })
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {

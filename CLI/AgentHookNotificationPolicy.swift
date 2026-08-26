@@ -32,7 +32,7 @@ enum AgentHookNotifyCategory: String {
     /// Extended meta segment carrying optional agent-event context for the
     /// app's notification-policy hooks:
     /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;k=<uuid>]` (canonical
-    /// field order; `a=` is the stable lowercase agent slug, `n=` marks a
+    /// field order; `a=` is the case-preserving registry identifier, `n=` marks a
     /// nested subagent session, and `k=` is an opaque notification identity).
     /// An agent kind or correlation key that fails validation is dropped rather
     /// than risking the app-side parser folding the whole meta back into the
@@ -57,9 +57,9 @@ enum AgentHookNotifyCategory: String {
         return segment
     }
 
-    /// Mirror of the app-side `AgentNotificationMeta` slug grammar: 1-64
-    /// characters of `[a-z0-9._-]`. Both sides must agree exactly or the app
-    /// folds the meta back into the notification body.
+    /// Mirror of the app-side `AgentNotificationMeta` slug grammar: 1-64 ASCII
+    /// characters of `[A-Za-z0-9._-]`, excluding `.` and `..`. Both sides must
+    /// agree exactly or the app folds the meta back into the notification body.
     static func isValidAgentKindTag(_ value: String) -> Bool {
         NotificationSoundOverrideContext.isValidAgentID(value)
     }

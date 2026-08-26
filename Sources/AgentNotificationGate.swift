@@ -34,8 +34,8 @@ enum AgentTurnCompleteMode: String {
 /// entirely for ungated alerts.)
 ///
 /// The optional trailing fields carry agent-event context for the user's
-/// notification-policy hooks: `a=` is the stable lowercase agent slug
-/// (`claude`, `codex`, `grok`, …) and `n=` marks a nested subagent session.
+/// notification-policy hooks: `a=` is the case-preserving registry identifier
+/// (`claude`, `codex`, `MyAgent`, …) and `n=` marks a nested subagent session.
 /// Pre-extension senders emit only `c=;p=` and parse exactly as before.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
@@ -115,8 +115,8 @@ struct AgentNotificationMeta {
     }
 
     /// Mirror of the CLI's `AgentHookNotifyCategory.isValidAgentKindTag` slug
-    /// grammar: 1-64 characters of `[a-z0-9._-]`. Both sides must agree
-    /// exactly or the meta folds back into the notification body.
+    /// grammar: 1-64 ASCII characters of `[A-Za-z0-9._-]`, excluding `.` and
+    /// `..`. Both sides must agree exactly or the meta folds back into the body.
     static func isValidAgentKindTag(_ value: String) -> Bool {
         NotificationSoundOverrideContext.isValidAgentID(value)
     }

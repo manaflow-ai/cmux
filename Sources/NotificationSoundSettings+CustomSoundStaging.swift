@@ -102,6 +102,10 @@ struct NotificationSoundProcessRunner: Sendable {
     private let executableURL: URL
     private let timeoutNanoseconds: UInt64
     private let argumentBuilder: @Sendable (URL, URL) -> [String]
+    /// Custom notification commands historically discarded stderr. Keep that
+    /// contract explicit so a background descendant cannot retain the
+    /// conversion diagnostic pipe after its shell exits.
+    private let capturesErrorOutput: Bool
 
     init(
         executableURL: URL = defaultExecutableURL,
@@ -113,11 +117,13 @@ struct NotificationSoundProcessRunner: Sendable {
                 sourceURL.standardizedFileURL.path,
                 destinationURL.standardizedFileURL.path,
             ]
-        }
+        },
+        capturesErrorOutput: Bool = true
     ) {
         self.executableURL = executableURL
         self.timeoutNanoseconds = timeoutNanoseconds
         self.argumentBuilder = argumentBuilder
+        self.capturesErrorOutput = capturesErrorOutput
     }
 
     func run(
@@ -145,7 +151,8 @@ struct NotificationSoundProcessRunner: Sendable {
                             try await runProcess(
                                 arguments: [executableURL.path] + arguments,
                                 environment: environment,
-                                cancellation: cancellation
+                                cancellation: cancellation,
+                                capturesErrorOutput: capturesErrorOutput
                             )
                         },
                         onCancel: {
@@ -181,7 +188,8 @@ struct NotificationSoundProcessRunner: Sendable {
     private func runProcess(
         arguments: [String],
         environment: [String: String]?,
-        cancellation: NotificationSoundProcessCancellation
+        cancellation: NotificationSoundProcessCancellation,
+        capturesErrorOutput: Bool
     ) async throws -> Result {
         try Task.checkCancellation()
 
@@ -211,7 +219,8 @@ struct NotificationSoundProcessRunner: Sendable {
             processIdentifier = try spawnProcess(
                 arguments: arguments,
                 environment: environment,
-                errorFileDescriptor: pipeDescriptors[1]
+                errorFileDescriptor: pipeDescriptors[1],
+                discardErrorOutput: !capturesErrorOutput
             )
         } catch {
             Darwin.close(pipeDescriptors[1])
@@ -286,7 +295,8 @@ struct NotificationSoundProcessRunner: Sendable {
     private func spawnProcess(
         arguments: [String],
         environment: [String: String]?,
-        errorFileDescriptor: Int32
+        errorFileDescriptor: Int32,
+        discardErrorOutput: Bool
     ) throws -> pid_t {
         guard !arguments.isEmpty,
               arguments.allSatisfy({ !$0.utf8.contains(0) }) else {
@@ -324,17 +334,38 @@ struct NotificationSoundProcessRunner: Sendable {
             }
         }
         if setupStatus == 0 {
-            setupStatus = posix_spawn_file_actions_adddup2(
-                &fileActions,
-                errorFileDescriptor,
-                STDERR_FILENO
-            )
-        }
-        if setupStatus == 0 {
-            setupStatus = posix_spawn_file_actions_addclose(
-                &fileActions,
-                errorFileDescriptor
-            )
+            if discardErrorOutput {
+                // Keep custom-command stderr at the historical null device.
+                // Closing the diagnostic pipe in the child is important: a
+                // background shell descendant must not keep the reader alive.
+                setupStatus = "/dev/null".withCString {
+                    posix_spawn_file_actions_addopen(
+                        &fileActions,
+                        STDERR_FILENO,
+                        $0,
+                        O_WRONLY,
+                        0
+                    )
+                }
+                if setupStatus == 0 {
+                    setupStatus = posix_spawn_file_actions_addclose(
+                        &fileActions,
+                        errorFileDescriptor
+                    )
+                }
+            } else {
+                setupStatus = posix_spawn_file_actions_adddup2(
+                    &fileActions,
+                    errorFileDescriptor,
+                    STDERR_FILENO
+                )
+                if setupStatus == 0 {
+                    setupStatus = posix_spawn_file_actions_addclose(
+                        &fileActions,
+                        errorFileDescriptor
+                    )
+                }
+            }
         }
         guard setupStatus == 0 else {
             throw processError(code: setupStatus, operation: "file actions")

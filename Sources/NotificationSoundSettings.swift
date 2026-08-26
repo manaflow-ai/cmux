@@ -387,7 +387,8 @@ nonisolated enum NotificationSoundSettings {
         customCommandQueue.async {
             let runner = NotificationSoundProcessRunner(
                 executableURL: URL(fileURLWithPath: "/bin/sh"),
-                timeoutNanoseconds: maximumCustomCommandTimeoutNanoseconds
+                timeoutNanoseconds: maximumCustomCommandTimeoutNanoseconds,
+                capturesErrorOutput: false
             )
             var commandEnvironment = ProcessInfo.processInfo.environment
             commandEnvironment["CMUX_NOTIFICATION_TITLE"] = title

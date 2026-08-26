@@ -46,14 +46,14 @@ nonisolated public struct NotificationSoundOverrideContext: Codable, Equatable, 
         try container.encode(alertType, forKey: .alertType)
     }
 
-    /// Returns whether a string is safe to use as a dynamic settings key.
+    /// Returns whether a string is a bounded, case-preserving registry key.
     public static func isValidAgentID(_ value: String) -> Bool {
         guard value != ".", value != "..", !value.isEmpty, value.count <= 64 else {
             return false
         }
         return value.allSatisfy { character in
             character.isASCII
-                && (character.isLowercase || character.isNumber
+                && (character.isUppercase || character.isLowercase || character.isNumber
                     || character == "." || character == "_" || character == "-")
         }
     }

@@ -107,8 +107,14 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     }
 
     static func isValidID(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
-        return value.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
+        guard value != ".", value != "..", !value.isEmpty, value.count <= 64 else {
+            return false
+        }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isUppercase || character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
+        }
     }
 
     private static func normalizedOptional(_ value: String?) -> String? {
