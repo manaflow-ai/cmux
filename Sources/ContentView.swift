@@ -13804,6 +13804,15 @@ struct VerticalTabsSidebar: View, Equatable {
             performDrop: { point, targets in
                 performWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
             },
+            performPendingDrop: { pendingDrop, targets in
+                performWorkspaceReorderDrop(
+                    point: pendingDrop.point,
+                    targets: targets,
+                    pasteboardWorkspaceId: pendingDrop.workspaceId,
+                    pendingSessionId: pendingDrop.sessionId,
+                    renderContext: renderContext
+                )
+            },
             clearDropIndicator: {
                 dragState.clearDropIndicator()
                 dragAutoScrollController.stop()
@@ -13950,6 +13959,7 @@ struct VerticalTabsSidebar: View, Equatable {
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
         pasteboardWorkspaceId: UUID? = nil,
+        pendingSessionId: UUID? = nil,
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
         defer {
@@ -13959,19 +13969,58 @@ struct VerticalTabsSidebar: View, Equatable {
             dragState.dismissPresentation()
             dragAutoScrollController.stop()
         }
-        guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId),
-              let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
+        let plan: SidebarWorkspaceReorderDropPlan?
+        if let pendingSessionId {
+            guard let draggedWorkspaceId = pasteboardWorkspaceId,
+                  canCommitPendingWorkspaceDrop(
+                      workspaceId: draggedWorkspaceId,
+                      sessionId: pendingSessionId
+                  ) else {
+                return false
+            }
+            plan = workspaceReorderPlan(
+                point: point,
+                targets: targets,
+                renderContext: renderContext,
+                draggedWorkspaceId: draggedWorkspaceId
+            )
+        } else {
+            guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId) else {
+                return false
+            }
+            plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext)
+        }
+        guard let plan else { return false }
+        return performWorkspaceReorderPlan(plan)
+    }
+
+    /// Accepts a deferred drop only while its generation is still current or
+    /// has already completed. A newer native drag must never inherit an older
+    /// pending drop's workspace identity.
+    private func canCommitPendingWorkspaceDrop(
+        workspaceId: UUID,
+        sessionId: UUID
+    ) -> Bool {
+        if let mostRecentSessionId = dragState.mostRecentWorkspaceDragSessionId,
+           mostRecentSessionId != sessionId {
             return false
         }
-        return performWorkspaceReorderPlan(plan)
+        if let currentSessionId = dragState.currentWorkspaceDragSessionId {
+            return currentSessionId == sessionId
+                && dragState.currentWorkspaceDragId == workspaceId
+        }
+        return true
     }
 
     private func workspaceReorderPlan(
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        draggedWorkspaceId explicitDraggedWorkspaceId: UUID? = nil
     ) -> SidebarWorkspaceReorderDropPlan? {
-        guard let draggedTabId = dragState.draggedTabId else { return nil }
+        guard let draggedTabId = explicitDraggedWorkspaceId ?? dragState.draggedTabId else { return nil }
+        let foreignDraggedIsPinned = dragState.foreignDraggedIsPinned
+            ?? resolvedDraggedWorkspacePinState(for: draggedTabId)
         let draggedBlockIds = SidebarWorkspaceDragBlockResolver().movingWorkspaceIds(
             orderedWorkspaceIds: renderContext.tabs.map(\.id),
             selectedIds: selectedTabIds,
@@ -13982,7 +14031,7 @@ struct VerticalTabsSidebar: View, Equatable {
             for: SidebarWorkspaceReorderDropRequest(
                 point: point,
                 draggedWorkspaceId: draggedTabId,
-                foreignDraggedIsPinned: dragState.foreignDraggedIsPinned,
+                foreignDraggedIsPinned: foreignDraggedIsPinned,
                 workspaces: renderContext.tabs.map {
                     SidebarWorkspaceReorderWorkspaceSnapshot(
                         id: $0.id,
@@ -14009,6 +14058,15 @@ struct VerticalTabsSidebar: View, Equatable {
                 draggedBlockWorkspaceIds: Set(draggedBlockIds)
             )
         )
+    }
+
+    /// Resolves the frozen pin tier needed by a deferred cross-window drop.
+    private func resolvedDraggedWorkspacePinState(for workspaceId: UUID) -> Bool? {
+        if let localWorkspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+            return localWorkspace.isPinned
+        }
+        return AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs
+            .first { $0.id == workspaceId }?.isPinned
     }
 
     private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {

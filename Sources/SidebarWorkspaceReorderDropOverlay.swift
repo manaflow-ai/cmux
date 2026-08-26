@@ -10,6 +10,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
     let isValidDrag: () -> Bool
     let updateDrag: (CGPoint, [Target]) -> Bool
     let performDrop: (CGPoint, [Target]) -> Bool
+    let performPendingDrop: ((SidebarWorkspaceReorderPendingDrop, [Target]) -> Bool)?
     let clearDropIndicator: () -> Void
     let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
     let hasLiveWorkspaceDrag: () -> Bool
@@ -20,6 +21,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         isValidDrag: @escaping () -> Bool,
         updateDrag: @escaping (CGPoint, [Target]) -> Bool,
         performDrop: @escaping (CGPoint, [Target]) -> Bool,
+        performPendingDrop: ((SidebarWorkspaceReorderPendingDrop, [Target]) -> Bool)? = nil,
         clearDropIndicator: @escaping () -> Void,
         setWorkspaceDropTargetCollectionActive: @escaping (Bool) -> Void,
         hasLiveWorkspaceDrag: @escaping () -> Bool = { false },
@@ -29,6 +31,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         self.isValidDrag = isValidDrag
         self.updateDrag = updateDrag
         self.performDrop = performDrop
+        self.performPendingDrop = performPendingDrop
         self.clearDropIndicator = clearDropIndicator
         self.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
         self.hasLiveWorkspaceDrag = hasLiveWorkspaceDrag
@@ -52,6 +55,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         view.isValidDrag = isValidDrag
         view.updateDrag = updateDrag
         view.performDropAtPoint = performDrop
+        view.performPendingDropAtPoint = performPendingDrop
         view.clearDropIndicator = clearDropIndicator
         view.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
         view.hasLiveWorkspaceDrag = hasLiveWorkspaceDrag

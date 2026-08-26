@@ -65,6 +65,13 @@ public final class SidebarDragState {
         workspaceDragRegistry.currentSessionId
     }
 
+    /// The most recently issued session token, including completed sessions.
+    /// A deferred drop uses this generation fence to reject work after a newer
+    /// drag has already started and ended.
+    public var mostRecentWorkspaceDragSessionId: UUID? {
+        workspaceDragRegistry.mostRecentSessionId
+    }
+
     /// Marks `tabId` as this window's dragged workspace and records it as the
     /// process-wide in-flight drag.
     @discardableResult

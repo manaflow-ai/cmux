@@ -168,8 +168,21 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
                 forType: NSPasteboard.PasteboardType(
                     SidebarWorkspaceDragSession.pasteboardTypeIdentifier
                 )
-            ) == second.pasteboardValue
+        ) == second.pasteboardValue
         )
+    }
+
+    @Test func mostRecentSessionTokenSurvivesCompletionForGenerationFencing() {
+        let registry = SidebarWorkspaceDragRegistry()
+        let first = registry.beginSession(workspaceId: UUID())
+        registry.end(sessionId: first.id)
+
+        let second = registry.beginSession(workspaceId: UUID())
+        registry.end(sessionId: second.id)
+
+        #expect(registry.currentSessionId == nil)
+        #expect(registry.mostRecentSessionId == second.id)
+        #expect(registry.mostRecentSessionId != first.id)
     }
 
     @Test func tokenizedPayloadRoundTripsWorkspaceAndSessionIdentity() {

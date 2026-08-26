@@ -14,6 +14,8 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering
 
     /// The generation-fenced session currently owned by the process.
     private(set) var currentSession: SidebarWorkspaceDragSession?
+    /// The last token issued, retained after completion for generation checks.
+    public private(set) var mostRecentSessionId: UUID?
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
     private var participants: [SidebarWorkspaceDragParticipantReference] = []
     private let dragPasteboardProvider: DragPasteboardProvider
@@ -49,6 +51,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering
         endCurrentSession()
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session
+        mostRecentSessionId = session.id
         return session
     }
 

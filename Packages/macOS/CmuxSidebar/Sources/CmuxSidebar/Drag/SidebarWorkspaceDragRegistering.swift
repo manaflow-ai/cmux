@@ -15,6 +15,11 @@ public protocol SidebarWorkspaceDragRegistering: AnyObject {
     /// The token for the current drag, or `nil` when idle.
     var currentSessionId: UUID? { get }
 
+    /// The token most recently issued by this registry, including completed
+    /// sessions. Deferred drops use it to reject work from an older generation
+    /// after a newer drag has already started and ended.
+    var mostRecentSessionId: UUID? { get }
+
     /// Record the start of a sidebar drag. Called by the originating window.
     func begin(workspaceId: UUID)
 
@@ -53,6 +58,9 @@ public protocol SidebarWorkspaceDragRegistering: AnyObject {
 public extension SidebarWorkspaceDragRegistering {
     /// Provides the current generation token for identity-only registries.
     var currentSessionId: UUID? { currentWorkspaceId }
+
+    /// Compatibility registries have no history beyond their current token.
+    var mostRecentSessionId: UUID? { currentSessionId }
 
     /// Starts a compatibility session using the workspace id as its token.
     /// - Parameter workspaceId: The workspace represented by the drag.

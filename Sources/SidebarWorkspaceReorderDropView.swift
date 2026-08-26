@@ -106,7 +106,12 @@ final class SidebarWorkspaceReorderDropView: NSView {
         }
         self.pendingDrop = nil
         awaitsTargetsAfterDragTeardown = false
-        let performed = performDropAtPoint(pendingDrop.point, targets)
+        let performed: Bool
+        if let performPendingDropAtPoint {
+            performed = performPendingDropAtPoint(pendingDrop, targets)
+        } else {
+            performed = performDropAtPoint(pendingDrop.point, targets)
+        }
         setTargetCollectionActive(false)
         if !performed {
             clearDropIndicator?()
