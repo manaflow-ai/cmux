@@ -296,4 +296,42 @@ import CmuxGit
         #expect(service.workspaceGitMetadataCreationWatchersByAncestor.isEmpty)
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func configCreatedBeforeWatcherRegistrationForcesDescriptorRefresh() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let configPath = fixture.root.appendingPathComponent("appeared.inc")
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        try "[remote \"origin\"]\n".write(
+            to: configPath,
+            atomically: true,
+            encoding: .utf8
+        )
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "creation-race",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
+            creationWatchPaths: [configPath.path]
+        ))
+        var logIterator = logEvents.makeAsyncIterator()
+        _ = try #require(await logIterator.next())
+
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: nil)
+        service.resetAllWorkspaceGitProbeTracking()
+    }
 }
