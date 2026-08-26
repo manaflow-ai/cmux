@@ -313,7 +313,7 @@ final class BrowserShortcutCaptureTests {
 
         AppDelegate.installWindowResponderSwizzlesForTesting()
         let windowId = appDelegate.createMainWindow()
-        guard let window = window(withId: windowId),
+        guard let window = waitForWindow(withId: windowId),
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserURL = URL(string: "data:text/html;base64,PGh0bWw+PGJvZHk+Zm9jdXM8L2JvZHk+PC9odG1sPg=="),
@@ -347,6 +347,24 @@ final class BrowserShortcutCaptureTests {
             panel: browserPanel,
             webView: webView
         )
+    }
+
+    private func waitForWindow(withId windowId: UUID) -> NSWindow? {
+        let deadline = Date().addingTimeInterval(3.0)
+        repeat {
+            // `createMainWindow()` installs the SwiftUI-hosted window on a
+            // later run-loop turn. Prefer the AppDelegate context once it is
+            // available, then fall back to the identifier used by the shared
+            // test helpers.
+            if let window = AppDelegate.shared?.mainWindow(for: windowId) {
+                return window
+            }
+            if let window = window(withId: windowId) {
+                return window
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        } while Date() < deadline
+        return nil
     }
 
     private func ancestorSlot(for webView: NSView) -> WindowBrowserSlotView? {
