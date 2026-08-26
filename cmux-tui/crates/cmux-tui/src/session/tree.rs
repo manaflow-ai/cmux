@@ -650,11 +650,27 @@ mod tests {
 
     #[test]
     fn retain_not_retired_keeps_tabs_when_local_catalog_is_empty() {
-        let mut tree = parse_tree(
-            &json!({"workspaces":[{"id":1,"screens":[{"id":2,"panes":[{"id":3,"tabs":[{"surface":7},{"surface":8}],"active_tab":1}]}]}]}),
-        );
+        // The fixture must be a COMPLETE tree: parse_tree drops
+        // underspecified workspaces/screens, and this test shipped with a
+        // minimal shape that parsed to an empty tree (the panic was masked
+        // in CI by a clippy failure earlier in the same job).
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1, "active": true,
+                "screens": [{
+                    "id": 2, "active": true, "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{"id": 3, "active_tab": 1, "tabs": [
+                        {"surface": 7, "title": "a"},
+                        {"surface": 8, "title": "b"}
+                    ]}]
+                }]
+            }]
+        }));
         tree.retain_not_retired(&HashSet::new());
-        assert_eq!(tree.workspaces[0].screens[0].panes[0].tabs.len(), 2);
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.len(), 2);
+        assert_eq!(pane.active_tab, 1);
     }
 
     #[test]
