@@ -349,6 +349,8 @@ if [ "$config_home_alias_status" -ne 0 ]; then
 fi
 
 mkdir -p "$RESOLVED_APP_HOST_HOME/.config/ghostty"
+# The mock still goes through the PTY wrapper; allow slow interpreter startup
+# on a loaded builder before asserting the path-validation rejection.
 set +e
 PATH="$TMP_DIR:$PATH" \
 RUNNER_TEMP="$RUNNER_TEMP_DIR" \
@@ -360,8 +362,6 @@ CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/config-home-alias-traversal-runner-h
   CMUX_MOCK_XCODEBUILD_MODE=config-home-alias-traversal \
   CMUX_MOCK_CONFIG_HOME_ALIAS="$CONFIG_HOME_ALIAS" \
   CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
-  # The mock still goes through the PTY wrapper; allow slow interpreter startup
-  # on a loaded builder before asserting the path-validation rejection.
   CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=15 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
