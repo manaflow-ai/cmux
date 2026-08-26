@@ -17,28 +17,6 @@ final class FileContentChangeCoordinator {
         String.Encoding
     ) async -> FilePreviewTextSaver.Result
 
-    private typealias WatchRegistration = (
-        watcher: FileWatcher?,
-        task: Task<Void, Never>?
-    )
-    private typealias Observation = (
-        canonicalPath: String,
-        watchedPath: String
-    )
-
-    /// Private storage for one canonical path; it has no independent lifecycle
-    /// or consumer, so keeping it nested preserves the coordinator's ownership
-    /// boundary instead of introducing another app-target type.
-    private struct Entry {
-        /// Fingerprints are tracked per watched path because an alias can be
-        /// retargeted while a panel opened through the real path remains valid.
-        var lastObservedStates: [String: FilePreviewFileState] = [:]
-        var watches: [String: WatchRegistration] = [:]
-        var lookupPathsByWatchedPath: [String: Set<String>] = [:]
-        var indexedLookupPaths: Set<String> = []
-        var observers: [UUID: ChangeHandler] = [:]
-    }
-
     private let makeFileWatcher: FileWatcherFactory
     private var entriesByPath: [String: Entry] = [:]
     private var observationsByID: [UUID: Observation] = [:]

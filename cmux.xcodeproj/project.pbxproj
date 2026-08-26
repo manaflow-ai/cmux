@@ -1091,6 +1091,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00A /* FeedPreviewWindowController.swift */; };
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
 		FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */; };
+		10200F1E0000000000000007 /* FileContentChangeCoordinator+Entry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E0000000000000008 /* FileContentChangeCoordinator+Entry.swift */; };
 		10200F1E0000000000000001 /* FileContentChangeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E0000000000000002 /* FileContentChangeCoordinator.swift */; };
 		10200F1E0000000000000005 /* FileContentChangeObservingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E0000000000000006 /* FileContentChangeObservingPanel.swift */; };
 		10200F1E0000000000000003 /* FileContentObserverTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E0000000000000004 /* FileContentObserverTransferTests.swift */; };
@@ -3923,6 +3924,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FEED0000000000000000F00A /* FeedPreviewWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPreviewWindowController.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedTextEditorDebugWindowController.swift; sourceTree = "<group>"; };
+		10200F1E0000000000000008 /* FileContentChangeCoordinator+Entry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FileContentChangeCoordinator+Entry.swift; sourceTree = "<group>"; };
 		10200F1E0000000000000002 /* FileContentChangeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FileContentChangeCoordinator.swift; sourceTree = "<group>"; };
 		10200F1E0000000000000006 /* FileContentChangeObservingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FileContentChangeObservingPanel.swift; sourceTree = "<group>"; };
 		10200F1E0000000000000004 /* FileContentObserverTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileContentObserverTransferTests.swift; sourceTree = "<group>"; };
@@ -7343,6 +7345,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				10200F1E0000000000000002 /* FileContentChangeCoordinator.swift */,
+				10200F1E0000000000000008 /* FileContentChangeCoordinator+Entry.swift */,
 				10200F1E0000000000000006 /* FileContentChangeObservingPanel.swift */,
 				8311EFDE1BC83CBAB1F21B6F /* WorkspaceTodoPanelView.swift */,
 				28F2A069A4931E9403474975 /* WorkspaceTodoPanel.swift */,
@@ -9713,6 +9716,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */,
 				FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */,
 				FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */,
+				10200F1E0000000000000007 /* FileContentChangeCoordinator+Entry.swift in Sources */,
 				10200F1E0000000000000001 /* FileContentChangeCoordinator.swift in Sources */,
 				10200F1E0000000000000005 /* FileContentChangeObservingPanel.swift in Sources */,
 				D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */,
