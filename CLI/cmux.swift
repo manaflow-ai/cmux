@@ -492,7 +492,8 @@ final class ClaudeHookSessionStore {
                         command: normalizedCommand,
                         toolUseId: normalizedToolUseId,
                         createdAt: existing.createdAt,
-                        requiresToolUseId: existing.requiresToolUseId
+                        requiresToolUseId: existing.requiresToolUseId,
+                        notificationCorrelationKey: existing.notificationCorrelationKey
                     )
                 }
                 if hadExpiredApprovals || pending.count != pendingCountBeforePrune
