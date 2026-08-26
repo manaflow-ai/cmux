@@ -18,6 +18,10 @@ final class WebSurfaceSelectionEvaluationOwner {
         let requestID = UUID()
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
                 activeID = requestID
                 activeContinuation = continuation
                 webView.callAsyncJavaScript(
