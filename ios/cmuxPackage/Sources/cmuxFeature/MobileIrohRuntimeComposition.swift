@@ -175,7 +175,7 @@ public final class MobileIrohRuntimeComposition:
         tag: String
     ) async throws -> (material: CmxIrohIdentityMaterial, appInstanceID: String, deviceID: String)? {
         guard let durable = await deviceID() else { return nil }
-        let appInstanceID = try appInstances.appInstanceID(accountID: accountID, tag: tag)
+        let appInstanceID = try await appInstances.appInstanceID(accountID: accountID, tag: tag)
         let material = try await identities.identity(
             accountID: accountID, appInstanceID: appInstanceID)
         return (material, appInstanceID, cmxCanonicalDeviceID(durable))
