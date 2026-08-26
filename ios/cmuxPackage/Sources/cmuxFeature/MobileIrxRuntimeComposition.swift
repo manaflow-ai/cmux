@@ -17,6 +17,9 @@ public actor MobileIrxRuntimeComposition {
     public nonisolated static var isEnabled: Bool {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_ENABLED"] == "1" {
+            // Sticky: launch-env opt-in persists so later env-less launches
+            // (queue drains, manual taps, sim-leg relaunches) stay in irx mode.
+            UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
             return true
         }
         return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
@@ -28,6 +31,7 @@ public actor MobileIrxRuntimeComposition {
     public nonisolated static var forceRelayOnly: Bool {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
+            UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
             return true
         }
         return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
