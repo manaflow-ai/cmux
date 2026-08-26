@@ -217,38 +217,51 @@ public final class ArtifactSidebarModel {
         tasks.replaceWatcher {
             Task { @MainActor [weak self] in
                 let signals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-                let eventTask = Task { @MainActor [weak self] in
-                    for await _ in changes {
-                        guard !Task.isCancelled, let self else { break }
-                        self.watcherEventGeneration &+= 1
-                        self.watcherReloadPending = true
-                        if !self.watcherReloadInFlight {
-                            signals.continuation.yield(())
+                defer { signals.continuation.finish() }
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask { @MainActor [weak self] in
+                        for await _ in changes {
+                            guard !Task.isCancelled,
+                                  let self,
+                                  self.bindingRevision == revision else {
+                                break
+                            }
+                            self.watcherEventGeneration &+= 1
+                            self.watcherReloadPending = true
+                            if !self.watcherReloadInFlight {
+                                signals.continuation.yield(())
+                            }
+                        }
+                        signals.continuation.finish()
+                    }
+                    group.addTask { @MainActor [weak self] in
+                        for await _ in signals.stream {
+                            guard !Task.isCancelled,
+                                  let self,
+                                  self.bindingRevision == revision else {
+                                break
+                            }
+                            self.watcherReloadInFlight = true
+                            repeat {
+                                self.watcherReloadPending = false
+                                let generation = self.watcherEventGeneration
+                                do {
+                                    try await self.watcherClock.sleep(for: self.watcherDebounce)
+                                } catch {
+                                    break
+                                }
+                                guard !Task.isCancelled,
+                                      self.bindingRevision == revision else {
+                                    break
+                                }
+                                guard generation == self.watcherEventGeneration else { continue }
+                                await self.reload(projectRoot: projectRoot, revision: revision)
+                            } while self.watcherEventGeneration != generation && !Task.isCancelled
+                            if self.bindingRevision == revision {
+                                self.watcherReloadInFlight = false
+                            }
                         }
                     }
-                    signals.continuation.finish()
-                }
-                defer {
-                    eventTask.cancel()
-                    signals.continuation.finish()
-                }
-
-                for await _ in signals.stream {
-                    guard !Task.isCancelled, let self else { break }
-                    self.watcherReloadInFlight = true
-                    repeat {
-                        self.watcherReloadPending = false
-                        let generation = self.watcherEventGeneration
-                        do {
-                            try await self.watcherClock.sleep(for: self.watcherDebounce)
-                        } catch {
-                            break
-                        }
-                        guard !Task.isCancelled else { break }
-                        guard generation == self.watcherEventGeneration else { continue }
-                        await self.reload(projectRoot: projectRoot, revision: revision)
-                    } while self.watcherEventGeneration != generation && !Task.isCancelled
-                    self.watcherReloadInFlight = false
                 }
             }
         }
