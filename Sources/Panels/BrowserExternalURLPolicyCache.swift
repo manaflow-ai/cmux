@@ -34,8 +34,9 @@ final class BrowserExternalURLPolicyCache {
             return "array:\(boundedSignature(values))"
         }
         if let values = rawValue as? NSArray {
-            let strings = values.compactMap { $0 as? String }
-            guard strings.count == values.count else { return "unsupported-array:\(values.count)" }
+            let limitedValues = Array(values.prefix(maximumSignatureValues))
+            let strings = limitedValues.compactMap { $0 as? String }
+            guard strings.count == limitedValues.count else { return "unsupported-array:\(limitedValues.count)" }
             return "array:\(boundedSignature(strings))"
         }
         return rawValue == nil ? "absent" : "unsupported"

@@ -28,8 +28,9 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
         if let values = rawValue as? [String] {
             self.init(patterns: values)
         } else if let values = rawValue as? NSArray {
-            let strings = values.compactMap { $0 as? String }
-            self.init(patterns: strings.count == values.count ? strings : [])
+            let limitedValues = Array(values.prefix(512))
+            let strings = limitedValues.compactMap { $0 as? String }
+            self.init(patterns: strings.count == limitedValues.count ? strings : [])
         } else if let value = rawValue as? String {
             self.init(patterns: [value])
         } else {
@@ -54,7 +55,7 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
             return values
         }
         if let values = rawValue as? NSArray {
-            return values.compactMap { $0 as? String }
+            return values.prefix(maximumInputValueCount).compactMap { $0 as? String }
         }
         if let value = rawValue as? String {
             return [value]
@@ -196,7 +197,8 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
         guard let values = rawValue as? NSArray else {
             return nil
         }
-        let strings = values.compactMap { $0 as? String }
-        return strings.count == values.count ? strings : nil
+        let limitedValues = Array(values.prefix(maximumInputValueCount))
+        let strings = limitedValues.compactMap { $0 as? String }
+        return strings.count == limitedValues.count ? strings : nil
     }
 }
