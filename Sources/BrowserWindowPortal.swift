@@ -483,7 +483,7 @@ final class WindowBrowserHostView: NSView {
             hasLiveTabTransfer: (
                 dragPasteboard.types?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
                     || dragPasteboard.types?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
-            ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(from: dragPasteboard) != nil
+            ) && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: dragPasteboard) != nil
         ) {
             if routingContext.eventKind == .pointerUp,
                hasActivePaneDropDrag,

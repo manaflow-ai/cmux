@@ -2088,7 +2088,7 @@ final class CmuxWebView: WKWebView {
             let types = pasteboard.types
             let hasLiveTabTransfer = types?.contains(
                 DragOverlayRoutingPolicy.bonsplitTabTransferType
-            ) == true && AppDelegate.shared?.tabDragTransferRegistry.resolve(
+            ) == true && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
                 from: pasteboard
             ) != nil
             let hasLiveSidebarDrag: Bool = {

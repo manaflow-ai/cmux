@@ -66,6 +66,7 @@ final class SessionDragCoordinator {
         dragPasteboard.clearContents()
         guard transferRegistration.write(to: dragPasteboard) else {
             tabDragTransferRegistry.end(transferRegistration)
+            AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
             registry.discard(id: dragID)
             return false
         }

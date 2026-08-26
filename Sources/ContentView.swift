@@ -14011,7 +14011,8 @@ struct VerticalTabsSidebar: View, Equatable {
         sessionId: UUID
     ) -> Bool {
         if let mostRecentSessionId = dragState.mostRecentWorkspaceDragSessionId,
-           mostRecentSessionId != sessionId {
+           (mostRecentSessionId != sessionId
+                || dragState.mostRecentWorkspaceDragWorkspaceId != workspaceId) {
             return false
         }
         if let currentSessionId = dragState.currentWorkspaceDragSessionId {
@@ -16835,6 +16836,10 @@ enum BonsplitTabDragPayload {
         from pasteboard: NSPasteboard,
         registry: TabDragTransferRegistry?
     ) -> TabDragTransfer? {
+        if let app = AppDelegate.shared,
+           registry == nil || registry === app.tabDragTransferRegistry {
+            return app.liveTabDragCapabilityResolver.resolve(from: pasteboard)
+        }
         return registry?.resolve(from: pasteboard)
     }
 }

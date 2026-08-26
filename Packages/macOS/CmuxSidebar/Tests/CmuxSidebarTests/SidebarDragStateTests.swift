@@ -183,6 +183,7 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         #expect(registry.currentSessionId == nil)
         #expect(registry.mostRecentSessionId == second.id)
         #expect(registry.mostRecentSessionId != first.id)
+        #expect(registry.mostRecentWorkspaceId == second.workspaceId)
     }
 
     @Test func tokenizedPayloadRoundTripsWorkspaceAndSessionIdentity() {

@@ -16,6 +16,8 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering
     private(set) var currentSession: SidebarWorkspaceDragSession?
     /// The last token issued, retained after completion for generation checks.
     public private(set) var mostRecentSessionId: UUID?
+    /// Workspace identity paired with ``mostRecentSessionId``.
+    public private(set) var mostRecentWorkspaceId: UUID?
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
     private var participants: [SidebarWorkspaceDragParticipantReference] = []
     private let dragPasteboardProvider: DragPasteboardProvider
@@ -52,6 +54,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session
         mostRecentSessionId = session.id
+        mostRecentWorkspaceId = session.workspaceId
         return session
     }
 

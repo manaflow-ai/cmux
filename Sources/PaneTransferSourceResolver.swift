@@ -48,7 +48,13 @@ struct PaneTransferSourceResolver {
     /// exclusively by the injected live registry.
     @MainActor
     func transfer(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
-        guard let transfer = tabTransferRegistry()?.resolve(from: pasteboard) else {
+        let transfer: TabDragTransfer?
+        if let app = AppDelegate.shared {
+            transfer = app.liveTabDragCapabilityResolver.resolve(from: pasteboard)
+        } else {
+            transfer = tabTransferRegistry()?.resolve(from: pasteboard)
+        }
+        guard let transfer else {
             return nil
         }
         return PaneDragTransfer(tabDragTransfer: transfer)

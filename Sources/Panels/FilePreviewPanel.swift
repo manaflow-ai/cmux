@@ -557,7 +557,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
     }
 
     static func dragID(from pasteboard: NSPasteboard) -> UUID? {
-        if let transfer = AppDelegate.shared?.tabDragTransferRegistry.resolve(from: pasteboard) {
+        if let transfer = AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pasteboard) {
             return transfer.tab.id.uuid
         }
         for type in [DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType] {
@@ -574,9 +574,27 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
     }
 
     static func discardRegisteredDrag(from pasteboard: NSPasteboard) {
+        let bonsplitCapability = pasteboard.string(forType: Self.bonsplitTransferType)
+        let filePreviewData = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        let dragId = dragID(from: pasteboard)
         AppDelegate.shared?.tabDragTransferRegistry.end(from: pasteboard)
-        if let id = dragID(from: pasteboard) {
-            FilePreviewDragRegistry.shared.discard(id: id)
+        AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
+        if let bonsplitCapability {
+            DragPasteboardCapabilityCleaner().remove(
+                type: Self.bonsplitTransferType,
+                capabilityValue: bonsplitCapability,
+                from: pasteboard
+            )
+        }
+        if let filePreviewData {
+            DragPasteboardCapabilityCleaner().remove(
+                type: DragOverlayRoutingPolicy.filePreviewTransferType,
+                capabilityData: filePreviewData,
+                from: pasteboard
+            )
+        }
+        if let dragId {
+            FilePreviewDragRegistry.shared.discard(id: dragId)
         }
         FilePreviewDragRegistry.shared.discardExpired()
     }

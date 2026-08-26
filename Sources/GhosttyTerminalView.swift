@@ -3578,7 +3578,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         MainActor.assumeIsolated {
             let app = AppDelegate.shared
             if pasteboard.types?.contains(tabTransferPasteboardType) == true,
-               app?.tabDragTransferRegistry.resolve(from: pasteboard) != nil {
+               app?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil {
                 return true
             }
             guard pasteboard.types?.contains(sidebarTabReorderPasteboardType) == true,

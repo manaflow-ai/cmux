@@ -20,6 +20,9 @@ public protocol SidebarWorkspaceDragRegistering: AnyObject {
     /// after a newer drag has already started and ended.
     var mostRecentSessionId: UUID? { get }
 
+    /// The workspace identity paired with ``mostRecentSessionId``.
+    var mostRecentWorkspaceId: UUID? { get }
+
     /// Record the start of a sidebar drag. Called by the originating window.
     func begin(workspaceId: UUID)
 
@@ -61,6 +64,10 @@ public extension SidebarWorkspaceDragRegistering {
 
     /// Compatibility registries have no history beyond their current token.
     var mostRecentSessionId: UUID? { currentSessionId }
+
+    /// Compatibility registries expose the current workspace as their latest
+    /// identity and fail closed after completion.
+    var mostRecentWorkspaceId: UUID? { currentWorkspaceId }
 
     /// Starts a compatibility session using the workspace id as its token.
     /// - Parameter workspaceId: The workspace represented by the drag.

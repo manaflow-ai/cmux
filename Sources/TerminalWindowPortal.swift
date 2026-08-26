@@ -159,7 +159,8 @@ final class WindowTerminalHostView: NSView {
             clearActiveDividerCursor(restoreArrow: true)
             if routingContext.allowsTerminalPortalDragRouting,
                routingContext.eventKind != .pointerUp || hasActivePaneDropDrag {
-                let dragPasteboardTypes = NSPasteboard(name: .drag).types ?? []
+                let dragPasteboard = NSPasteboard(name: .drag)
+                let dragPasteboardTypes = dragPasteboard.types ?? []
                 let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                     pasteboardTypes: dragPasteboardTypes,
                     eventType: eventType,
@@ -167,8 +168,8 @@ final class WindowTerminalHostView: NSView {
                     hasLiveTabTransfer: (
                         dragPasteboardTypes.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
                             || dragPasteboardTypes.contains(DragOverlayRoutingPolicy.filePreviewTransferType)
-                    ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(
-                        from: NSPasteboard(name: .drag)
+                    ) && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
+                        from: dragPasteboard
                     ) != nil
                 )
                 if shouldPassThrough {

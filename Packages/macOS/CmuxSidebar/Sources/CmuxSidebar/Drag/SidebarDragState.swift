@@ -72,6 +72,11 @@ public final class SidebarDragState {
         workspaceDragRegistry.mostRecentSessionId
     }
 
+    /// The workspace paired with the most recently issued drag session.
+    public var mostRecentWorkspaceDragWorkspaceId: UUID? {
+        workspaceDragRegistry.mostRecentWorkspaceId
+    }
+
     /// Marks `tabId` as this window's dragged workspace and records it as the
     /// process-wide in-flight drag.
     @discardableResult

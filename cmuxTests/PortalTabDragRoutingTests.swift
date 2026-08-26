@@ -368,6 +368,68 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
+    func testLiveTabDragCapabilityResolverCachesOneLookupPerPasteboardGeneration() {
+        let registry = TabDragTransferRegistry()
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("live-tab-resolver-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        var lookupCount = 0
+        let resolver = LiveTabDragCapabilityResolver(
+            registryProvider: { registry },
+            transferResolver: { _, _ in
+                lookupCount += 1
+                return nil
+            }
+        )
+
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 1)
+
+        pasteboard.setString("changed", forType: .string)
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 2)
+
+        resolver.invalidate()
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 3)
+    }
+
+    func testDragPasteboardCapabilityCleanerPreservesUnrelatedRepresentations() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("drag-capability-cleaner-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let capabilityType = NSPasteboard.PasteboardType("com.cmux.test.capability")
+        let capability = "capability-\(UUID().uuidString)"
+        let previewType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
+        let previewData = Data("preview".utf8)
+        XCTAssertTrue(pasteboard.setString(capability, forType: capabilityType))
+        XCTAssertTrue(pasteboard.setString("file:///tmp/preview.txt", forType: .fileURL))
+        XCTAssertTrue(pasteboard.setData(previewData, forType: previewType))
+        let fileURLData = pasteboard.data(forType: .fileURL)
+
+        DragPasteboardCapabilityCleaner().remove(
+            type: capabilityType,
+            capabilityValue: capability,
+            from: pasteboard
+        )
+
+        XCTAssertNil(pasteboard.string(forType: capabilityType))
+        XCTAssertEqual(pasteboard.data(forType: .fileURL), fileURLData)
+        XCTAssertEqual(pasteboard.data(forType: previewType), previewData)
+
+        let capabilityData = Data(capability.utf8)
+        XCTAssertTrue(pasteboard.setData(capabilityData, forType: capabilityType))
+        DragPasteboardCapabilityCleaner().remove(
+            type: capabilityType,
+            capabilityData: capabilityData,
+            from: pasteboard
+        )
+        XCTAssertNil(pasteboard.data(forType: capabilityType))
+    }
+
     func testInterruptedSidebarSessionCannotBlockTheNextPaneOrWorkspaceDrag() throws {
         let pasteboard = NSPasteboard(
             name: NSPasteboard.Name("portal-drag-session-\(UUID().uuidString)")

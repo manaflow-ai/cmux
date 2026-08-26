@@ -12245,7 +12245,7 @@ class TerminalController {
                 hasLiveTabTransfer: (
                     pb.types?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
                         || pb.types?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
-                ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(from: pb) != nil
+                ) && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pb) != nil
             )
         }
         return shouldPassThrough ? "true" : "false"

@@ -90,12 +90,13 @@ final class BrowserPaneDropTargetView: NSView {
             return nil
         }
 
-        let pasteboardTypes = NSPasteboard(name: .drag).types
+        let dragPasteboard = NSPasteboard(name: .drag)
+        let pasteboardTypes = dragPasteboard.types
         let hasLiveTabTransfer = (
             pasteboardTypes?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
                 || pasteboardTypes?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
-        ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(
-            from: NSPasteboard(name: .drag)
+        ) && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
+            from: dragPasteboard
         ) != nil
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
