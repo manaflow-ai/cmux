@@ -383,8 +383,8 @@ function sendFeed(
   if (boundedToolCallId !== undefined) payload.tool_call_id = boundedToolCallId;
   const boundedToolName = utf8Prefix(toolName, 256);
   if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
-  if (toolInput !== undefined) payload.tool_input = toolInput;
-  if (isError !== undefined) payload.is_error = isError;
+  // Security: tool_input can contain tokens, secrets, or auth headers from
+  // bash commands. Do not send it to Feed — tool_name is enough for progress.
 
   const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
   try {

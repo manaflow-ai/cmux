@@ -702,10 +702,26 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stderr={check.stderr.strip()}")
             return 1
         expected_invocations = 20
-        # Wait for all entries (lifecycle SIGSTOP + feed/status fast-path) to settle.
+        # Wait for lifecycle hooks (SIGSTOP path) to settle.
         args_log = wait_for_stable_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_stable_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_stable_text(fake_env_log, expected_invocations * 4, timeout=20.0)
+        # Fire-and-forget feed/status children may still be writing. Poll for the
+        # exact feed/status command records with a deadline instead of relying on
+        # the 0.5s quiet-period of wait_for_stable_text.
+        feed_status_patterns = [
+            "hooks feed --source omp --event PreToolUse",
+            "hooks feed --source omp --event PostToolUse",
+            "set-status omp_agent Read --icon hammer",
+            "clear-status omp_agent",
+        ]
+        feed_status_deadline = time.monotonic() + 10.0
+        while time.monotonic() < feed_status_deadline:
+            current = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
+            if all(p in current for p in feed_status_patterns):
+                args_log = current
+                break
+            time.sleep(0.05)
         args_lines = [line for line in args_log.splitlines() if line.strip()]
         # Lifecycle hooks go through the SIGSTOP path; feed/status calls go through
         # the fast path. Count only lifecycle hooks for the exact count check.
