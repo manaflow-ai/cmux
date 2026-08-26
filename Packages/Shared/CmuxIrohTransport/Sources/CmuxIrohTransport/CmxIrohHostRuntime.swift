@@ -170,6 +170,17 @@ public actor CmxIrohHostRuntime {
     /// waits for a usable home relay so the Mac is never
     /// discoverable-but-undialable.
     public func start() async throws {
+        try await start(debugRelayOverride: CmxIrohDebugRelayOverride.activeProfile())
+    }
+
+    /// The injectable core of ``start()``.
+    ///
+    /// `debugRelayOverride` is the DEBUG-only forced relay, read once from
+    /// the ``CmxIrohDebugRelayOverride`` funnel by the public entrypoint so
+    /// tests can inject it deterministically.
+    func start(
+        debugRelayOverride: CmxIrohEndpointRelayProfile?
+    ) async throws {
         guard lifecyclePhase.allowsStart else {
             throw CmxIrohHostRuntimeError.alreadyActive
         }
@@ -189,8 +200,19 @@ public actor CmxIrohHostRuntime {
         )
 
         do {
-            let endpointRelayProfile = try currentEndpointRelayProfile
-                ?? configuration.resolvedEndpointRelayProfile()
+            // The debug-only forced relay wins over every stored or
+            // configured profile, including the relay-less
+            // `.unavailableManagedSelection` placeholder a host without a
+            // verifiable cached policy is configured with. The override is a
+            // custom profile, and custom relays are exempt from the
+            // withhold-until-registered ordering below, so it stays installed
+            // at bind and the endpoint dials the test relay immediately
+            // without reintroducing the pre-registration managed-relay race.
+            let endpointRelayProfile = try debugRelayOverride
+                ?? currentEndpointRelayProfile
+                ?? configuration.resolvedEndpointRelayProfile(
+                    debugOverride: debugRelayOverride
+                )
             currentEndpointRelayProfile = endpointRelayProfile
             // A verified cached policy proves the broker has acknowledged
             // this endpoint, so its relay dials pass the relay's allow hook
