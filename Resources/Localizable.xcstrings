@@ -51038,6 +51038,23 @@
         }
       }
     },
+    "cli.restore.codexCheckpointUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: the saved Codex checkpoint is unavailable. The terminal remains in its saved directory; retry later or start a new Codex session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 保存された Codex チェックポイントを利用できません。ターミナルは保存されたディレクトリに残っています。後でもう一度試すか、新しい Codex セッションを開始してください。"
+          }
+        }
+      }
+    },
     "cli.restore.error.checkpointMismatch": {
       "extractionState": "manual",
       "localizations": {

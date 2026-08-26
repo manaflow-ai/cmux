@@ -114,6 +114,32 @@ extension CMUXCLI {
             )
         }
 
+        if let codexValidation = codexRestoreValidation(
+            record: record,
+            bindingPayload: payload["resume_binding"] as? [String: Any],
+            processEnvironment: processEnvironment
+        ) {
+            let shouldContinue: Bool
+            switch codexValidation {
+            case .allowed:
+                shouldContinue = true
+            case .missing, .unavailable, .rejectedChild, .bindingChanged:
+                shouldContinue = false
+            }
+            if !shouldContinue {
+                try handleRejectedCodexRestore(
+                    codexValidation,
+                    record: record,
+                    bindingPayload: payload["resume_binding"] as? [String: Any],
+                    surfaceID: params["surface_id"] as? String,
+                    workspaceID: payload["workspace_id"] as? String
+                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                    client: client
+                )
+                return
+            }
+        }
+
         let environment = processEnvironment.merging(record.environment) { _, restored in
             restored
         }

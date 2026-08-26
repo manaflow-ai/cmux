@@ -199,8 +199,15 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                 "originator": "codex-tui",
             ],
         ]
-        try JSONSerialization.data(withJSONObject: parentMetadata, options: [.sortedKeys])
-            .write(to: parentRollout, options: .atomic)
+        let parentMetadataLine = try JSONSerialization.data(
+            withJSONObject: parentMetadata,
+            options: [.sortedKeys]
+        )
+        let parentTranscript = String(decoding: parentMetadataLine, as: UTF8.self)
+            + "\n"
+            + #"{"type":"event_msg","payload":{"message":"codex thread: 01a03bc1-7649-7ec3-bdf7-03acf979e086"}}"#
+            + "\n"
+        try parentTranscript.write(to: parentRollout, atomically: true, encoding: .utf8)
         try createCodexStateDatabase(at: codexHome.appendingPathComponent("state_5.sqlite"))
         try insertCodexThread(
             at: codexHome.appendingPathComponent("state_5.sqlite"),

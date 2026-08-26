@@ -1276,6 +1276,8 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager
         )
         let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
+        let codexResumeVerifier = CodexSessionResumeVerifier()
+        var codexVerificationCache: [String: CodexSessionResumeVerification] = [:]
         let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator()
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
@@ -1288,6 +1290,37 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
+
+        func codexDurableVerification(
+            for record: RestorableAgentHookSessionRecord
+        ) -> CodexSessionResumeVerification? {
+            guard record.isRestorable == true else { return nil }
+            let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionID.isEmpty else { return .missing }
+            let launchEnvironment = record.launchCommand?.environment
+            let rawHome = Self.normalizedNonEmptyValue(launchEnvironment?["CODEX_HOME"])
+                ?? Self.normalizedNonEmptyValue(record.launchCommand?.verificationHome).map {
+                    URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true)
+                        .appendingPathComponent(".codex", isDirectory: true)
+                        .path
+                }
+                ?? URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                    .appendingPathComponent(".codex", isDirectory: true)
+                    .path
+            let codexHome = (NSString(string: rawHome).expandingTildeInPath as NSString).standardizingPath
+            let cacheKey = codexHome + "\u{0}" + sessionID
+            if let cached = codexVerificationCache[cacheKey] {
+                return cached
+            }
+            let result = codexResumeVerifier.verify(
+                sessionId: sessionID,
+                transcriptPath: record.transcriptPath,
+                codexHome: codexHome,
+                fileManager: fileManager
+            )
+            codexVerificationCache[cacheKey] = result
+            return result
+        }
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1326,7 +1359,10 @@ struct RestorableAgentSessionIndex: Sendable {
                           effectiveRecord,
                           kind: kind,
                           fileManager: fileManager,
-                          claudeTranscriptLookup: claudeTranscriptLookup
+                          claudeTranscriptLookup: claudeTranscriptLookup,
+                          codexDurableVerification: kind == .codex
+                              ? codexDurableVerification(for: effectiveRecord)
+                              : nil
                       ) else {
                     continue
                 }
@@ -1745,14 +1781,18 @@ struct RestorableAgentSessionIndex: Sendable {
         _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         fileManager: FileManager,
-        claudeTranscriptLookup: ClaudeTranscriptLookupCache
+        claudeTranscriptLookup: ClaudeTranscriptLookupCache,
+        codexDurableVerification: CodexSessionResumeVerification?
     ) -> Bool {
         if kind == .codex {
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+            if record.isRestorable == true {
+                guard case .exists = codexDurableVerification else { return false }
+                return true
+            }
             let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
-            if record.isRestorable == true
-                || launchSource == "default"
+            if launchSource == "default"
                 || (record.launchCommand?.arguments.isEmpty == false
                     && (launchSource == nil || ["environment", "process"].contains(launchSource))
                     && !(launchSource == "environment" && normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))

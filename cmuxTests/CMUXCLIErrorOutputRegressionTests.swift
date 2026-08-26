@@ -447,6 +447,7 @@ import Testing
         let clearParams = try XCTUnwrap(requests.last?["params"] as? [String: Any])
         XCTAssertEqual(clearParams["checkpoint_id"] as? String, checkpointID)
         XCTAssertEqual(clearParams["source"] as? String, "agent-hook")
+        XCTAssertEqual(clearParams["agent_session_ended"] as? Bool, true)
     }
 
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {

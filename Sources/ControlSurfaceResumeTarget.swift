@@ -94,7 +94,10 @@ enum ControlSurfaceResumeTarget {
     ) {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            _ = workspace.clearSurfaceResumeBinding(panelId: surfaceID)
+            _ = workspace.clearSurfaceResumeBinding(
+                panelId: surfaceID,
+                agentSessionEnded: agentSessionEnded
+            )
         case .dock(_, let dock, let surfaceID):
             _ = dock.clearSurfaceResumeBinding(
                 panelId: surfaceID,

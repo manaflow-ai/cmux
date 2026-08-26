@@ -5490,8 +5490,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     @discardableResult
-    func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
+    func clearSurfaceResumeBinding(
+        panelId: UUID,
+        agentSessionEnded: Bool = false
+    ) -> Bool {
         let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        if removed,
+           agentSessionEnded,
+           let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
+            // A restore-time rejection is an authoritative end of the stale
+            // checkpoint. Keep a completed tombstone so the old snapshot cannot
+            // be auto-resumed on the next save, while the terminal's tracked cwd
+            // remains available for the shell fallback.
+            markRestoredAgentCompleted(panelId: panelId, snapshot: restoredAgent)
+        }
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
