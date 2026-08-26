@@ -1574,18 +1574,21 @@ extension Workspace {
                 restoresRemoteWorkspaceTerminalSnapshot,
                 restorableAgent == nil,
                 let restoredRemotePTYSessionID {
-                let deferredBinding = sessionRestorePolicy.approvedSurfaceResumeBinding(
-                    resumeBinding,
-                    autoResumeAgentSessions: shouldAutoResumeAgent,
-                    promptForApproval: true,
-                    approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-                )
-                persistentSSHResumeCommand(
-                    for: deferredBinding,
-                    expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
-                    expectedSurfaceID: snapshot.id,
-                    persistentPTYSessionID: restoredRemotePTYSessionID
-                )
+                sessionRestorePolicy
+                    .approvedSurfaceResumeBinding(
+                        resumeBinding,
+                        autoResumeAgentSessions: shouldAutoResumeAgent,
+                        promptForApproval: true,
+                        approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                    )
+                    .flatMap { deferredBinding in
+                        persistentSSHResumeCommand(
+                            for: deferredBinding,
+                            expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
+                            expectedSurfaceID: snapshot.id,
+                            persistentPTYSessionID: restoredRemotePTYSessionID
+                        )
+                    }
             } else {
                 nil
             }
