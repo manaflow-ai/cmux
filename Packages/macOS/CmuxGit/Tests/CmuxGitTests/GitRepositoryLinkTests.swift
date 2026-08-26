@@ -555,14 +555,16 @@ import Testing
         let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
         let includedURL = fixture.root.appendingPathComponent("hasconfig.inc")
         try """
-        [remote "mirror"]
-            url = https://github.com/included/remote.git
+        [url "https://github.com/"]
+            insteadOf = corp:
         """.write(to: includedURL, atomically: true, encoding: .utf8)
         try """
         [includeIf "hasconfig:remote.*.url:https://example.com/**"]
             path = hasconfig.inc
+        [remote "trigger"]
+            url = https://example.com/trigger.git
         [remote "origin"]
-            url = https://example.com/owner/repo.git
+            url = corp:owner/repo.git
         """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
 
         let repository = try #require(
@@ -576,7 +578,7 @@ import Testing
             ]
         )
 
-        #expect(snapshot.remoteVOutput?.contains("https://github.com/included/remote.git") == true)
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/owner/repo.git") == true)
     }
 
     @Test func configuredHomeResolvesTildeIncludes() throws {
@@ -623,14 +625,16 @@ import Testing
             url = https://conditional.example/trigger.git
         """.write(to: conditionalURL, atomically: true, encoding: .utf8)
         try """
-        [remote "mirror"]
-            url = https://github.com/conditional-hasconfig/repo.git
+        [url "https://github.com/conditional-hasconfig/"]
+            insteadOf = corp:
         """.write(to: hasConfigURL, atomically: true, encoding: .utf8)
         try """
         [includeIf "gitdir:\(fixture.gitDirectory.path)/"]
             path = conditional.inc
         [includeIf "hasconfig:remote.*.url:https://conditional.example/**"]
             path = hasconfig.inc
+        [remote "origin"]
+            url = corp:repo.git
         """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
 
         let repository = try #require(
@@ -645,6 +649,40 @@ import Testing
         )
 
         #expect(snapshot.remoteVOutput?.contains("https://github.com/conditional-hasconfig/repo.git") == true)
+    }
+
+    @Test func hasConfigDiscoveryHonorsEmptyRemoteURLReset() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        let includedURL = fixture.root.appendingPathComponent("reset.inc")
+        try """
+        [url "https://github.com/"]
+            insteadOf = corp:
+        """.write(to: includedURL, atomically: true, encoding: .utf8)
+        try """
+        [remote "trigger"]
+            url = https://reset.example/repository.git
+            url =
+        [includeIf "hasconfig:remote.*.url:https://reset.example/**"]
+            path = reset.inc
+        [remote "origin"]
+            url = corp:owner/repo.git
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(!snapshot.configURLs.contains(includedURL.standardizedFileURL))
+        #expect(snapshot.remoteVOutput?.contains("origin\tcorp:owner/repo.git") == true)
     }
 
     @Test func worktreeIncludeIfMatchesWorkingTreeRoot() throws {
