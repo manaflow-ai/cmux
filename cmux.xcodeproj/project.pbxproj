@@ -1092,6 +1092,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F008 /* FeedSidebarUITests.swift */; };
 		FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */; };
 		D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */; };
+		781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */; };
 		D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */; };
 		D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */; };
 		D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */; };
@@ -1903,12 +1904,15 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		46920100000000000000000C /* SessionDragSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000B /* SessionDragSourceView.swift */; };
 		992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230004 /* SessionEntryResumeLaunch.swift */; };
 		992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */; };
+		D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */; };
 		85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001A /* SessionIndexEntryProjection.swift */; };
+		D4476F020000000000000001 /* SessionIndexIconImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4476F020000000000000002 /* SessionIndexIconImage.swift */; };
 		850000000000000000000028 /* SessionIndexJSONLReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000018 /* SessionIndexJSONLReader.swift */; };
 		850000000000000000000004 /* SessionIndexJSONLReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000003 /* SessionIndexJSONLReaderTests.swift */; };
 		850000000000000000000029 /* SessionIndexJSONLReadMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000019 /* SessionIndexJSONLReadMetrics.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
 		B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
+		D4476F040000000000000001 /* SessionIndexResolvedSystemSymbolImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4476F040000000000000002 /* SessionIndexResolvedSystemSymbolImage.swift */; };
 		469200000000000000000002 /* SessionIndexRowSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200000000000000000001 /* SessionIndexRowSnapshot.swift */; };
 		850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000017 /* SessionIndexSnapshotLoader.swift */; };
 		850000000000000000000006 /* SessionIndexSnapshotLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */; };
@@ -3921,6 +3925,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FEED0000000000000000F008 /* FeedSidebarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedSidebarUITests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedTextEditorDebugWindowController.swift; sourceTree = "<group>"; };
 		D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropHintBadgeView.swift; sourceTree = "<group>"; };
+		781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayHitTestPerformanceTests.swift; sourceTree = "<group>"; };
 		D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayView.swift; sourceTree = "<group>"; };
 		D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewHitTesting.swift; sourceTree = "<group>"; };
 		D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewTests.swift; sourceTree = "<group>"; };
@@ -4722,12 +4727,15 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		46920100000000000000000B /* SessionDragSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSourceView.swift; sourceTree = "<group>"; };
 		992300019923000199230004 /* SessionEntryResumeLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunch.swift; sourceTree = "<group>"; };
 		992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunchTests.swift; sourceTree = "<group>"; };
+		D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexAgentIconImage.swift; sourceTree = "<group>"; };
 		85000000000000000000001A /* SessionIndexEntryProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexEntryProjection.swift; sourceTree = "<group>"; };
+		D4476F020000000000000002 /* SessionIndexIconImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexIconImage.swift; sourceTree = "<group>"; };
 		850000000000000000000018 /* SessionIndexJSONLReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLReader.swift; sourceTree = "<group>"; };
 		850000000000000000000003 /* SessionIndexJSONLReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLReaderTests.swift; sourceTree = "<group>"; };
 		850000000000000000000019 /* SessionIndexJSONLReadMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLReadMetrics.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
 		B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
+		D4476F040000000000000002 /* SessionIndexResolvedSystemSymbolImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexResolvedSystemSymbolImage.swift; sourceTree = "<group>"; };
 		469200000000000000000001 /* SessionIndexRowSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRowSnapshot.swift; sourceTree = "<group>"; };
 		850000000000000000000017 /* SessionIndexSnapshotLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoader.swift; sourceTree = "<group>"; };
 		850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoaderTests.swift; sourceTree = "<group>"; };
@@ -7649,6 +7657,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FE003005 /* RovoDevIndex.swift */,
 				F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */,
 				FE003006 /* SessionAgentPresentation.swift */,
+				D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */,
+				D4476F020000000000000002 /* SessionIndexIconImage.swift */,
+				D4476F040000000000000002 /* SessionIndexResolvedSystemSymbolImage.swift */,
 				FE003007 /* RovoDevTranscriptPreview.swift */,
 				F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */,
 				FE003009 /* SessionIndexTablePopoverIdentity.swift */,
@@ -8286,6 +8297,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */,
 				E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */,
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
+				781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */,
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */,
@@ -10244,11 +10256,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				46920100000000000000000E /* SessionDragSource.swift in Sources */,
 				46920100000000000000000C /* SessionDragSourceView.swift in Sources */,
 				992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */,
+				D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */,
 				85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */,
+				D4476F020000000000000001 /* SessionIndexIconImage.swift in Sources */,
 				850000000000000000000028 /* SessionIndexJSONLReader.swift in Sources */,
 				850000000000000000000029 /* SessionIndexJSONLReadMetrics.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
 				B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
+				D4476F040000000000000001 /* SessionIndexResolvedSystemSymbolImage.swift in Sources */,
 				469200000000000000000002 /* SessionIndexRowSnapshot.swift in Sources */,
 				850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */,
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
@@ -11425,6 +11440,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
+				781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */,
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,
