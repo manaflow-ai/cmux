@@ -53,6 +53,7 @@ private final class ScriptedTranscriber: SpeechTranscribing, @unchecked Sendable
     private let startError: (any Error)?
     let finishFlush: [DictationTranscriptionEvent]
     let finishError: (any Error)?
+    private(set) var finishCompleted = false
 
     init(
         startError: (any Error)? = nil,
@@ -83,6 +84,7 @@ private final class ScriptedTranscriber: SpeechTranscribing, @unchecked Sendable
             continuation?.finish()
         }
         continuation = nil
+        finishCompleted = true
     }
 
     func send(_ event: DictationTranscriptionEvent) {
@@ -91,6 +93,41 @@ private final class ScriptedTranscriber: SpeechTranscribing, @unchecked Sendable
 
     func fail(_ error: any Error) {
         continuation?.finish(throwing: error)
+        continuation = nil
+    }
+}
+
+/// Keeps finalization open until the test releases it, proving that stop does
+/// not use a wall-clock deadline to abandon late final results.
+private final class DelayedFinishTranscriber: SpeechTranscribing, @unchecked Sendable {
+    private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
+    private let finishGate: AsyncStream<Void>
+    private let finishGateContinuation: AsyncStream<Void>.Continuation
+    private(set) var finishStarted = false
+
+    init() {
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        finishGate = stream
+        finishGateContinuation = continuation
+    }
+
+    func transcribe(
+        locale: Locale
+    ) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream()
+        self.continuation = continuation
+        return stream
+    }
+
+    func releaseFinish() {
+        finishGateContinuation.finish()
+    }
+
+    func finishTranscribing() async {
+        finishStarted = true
+        for await _ in finishGate {}
+        continuation?.yield(.final("late"))
+        continuation?.finish()
         continuation = nil
     }
 }
@@ -265,6 +302,7 @@ struct DictationControllerTests {
         controller.toggle()
         #expect(await waitUntil { controller.phase == .failed(.insertionTargetUnavailable) })
         #expect(recorder.failures == [.insertionTargetUnavailable])
+        #expect(inserter.began == 1)
         // endSession is only paired with a successful beginSession.
         #expect(inserter.ended == 0)
     }
@@ -359,9 +397,34 @@ struct DictationControllerTests {
 
         // The engine stream ends after the failure; the session must stay
         // failed (no settle-to-idle clobber, no second failure callback).
-        for _ in 0..<200 { await Task.yield() }
+        #expect(await waitUntil { transcriber.finishCompleted })
         #expect(controller.phase == .failed(.insertionTargetUnavailable))
         #expect(recorder.failures == [.insertionTargetUnavailable])
+    }
+
+    @Test func stopWaitsForLateFinalizationWithoutDroppingText() async {
+        let transcriber = DelayedFinishTranscriber()
+        let inserter = RecordingInserter()
+        let recorder = FailureRecorder()
+        let delayedController = DictationController(
+            authorizer: FakeAuthorizer(),
+            inserter: inserter,
+            makeTranscriber: { transcriber },
+            localeProvider: { Locale(identifier: "en_US") }
+        )
+        delayedController.failureHandler = { recorder.record($0) }
+
+        delayedController.start()
+        #expect(await waitUntil { delayedController.phase == .listening })
+        delayedController.stop()
+        #expect(await waitUntil { transcriber.finishStarted })
+        #expect(delayedController.phase == .stopping)
+        #expect(inserter.insertions.isEmpty)
+        #expect(recorder.failures.isEmpty)
+
+        transcriber.releaseFinish()
+        #expect(await waitUntil { delayedController.phase == .idle })
+        #expect(inserter.insertions == ["late"])
     }
 
     @Test func stopWhilePreparingUnwindsToIdle() async {

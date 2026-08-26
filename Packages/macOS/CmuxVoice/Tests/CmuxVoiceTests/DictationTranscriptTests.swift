@@ -30,6 +30,39 @@ struct DictationTranscriptTests {
         #expect(transcript.committedText == "hello world")
     }
 
+    @Test func nonSpacingScriptsDoNotGetAsciiSeparators() {
+        let segments = [
+            ("こんにちは", "世界"),
+            ("안녕", "하세요"),
+            ("สวัสดี", "ครับ"),
+            ("ខ្មែរ", "ភាសា"),
+            ("ສະບາຍດີ", "ຄັບ"),
+            ("မြန်မာ", "စာ")
+        ]
+
+        for (first, second) in segments {
+            var transcript = DictationTranscript()
+            _ = transcript.apply(.final(first))
+            #expect(transcript.apply(.final(second)) == second)
+        }
+    }
+
+    @Test func punctuationKeepsNaturalBoundaries() {
+        var latin = DictationTranscript()
+        _ = latin.apply(.final("hello"))
+        #expect(latin.apply(.final(",")) == ",")
+        #expect(latin.apply(.final("world")) == " world")
+
+        var cjk = DictationTranscript()
+        _ = cjk.apply(.final("世界"))
+        #expect(cjk.apply(.final("。")) == "。")
+        #expect(cjk.apply(.final("次")) == "次")
+
+        var opening = DictationTranscript()
+        _ = opening.apply(.final("("))
+        #expect(opening.apply(.final("hello")) == "hello")
+    }
+
     @Test func noDoubleSeparatorWhenSegmentsAlreadySpaced() {
         var transcript = DictationTranscript()
         _ = transcript.apply(.final("hello "))
