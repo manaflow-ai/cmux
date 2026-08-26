@@ -288,6 +288,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A8610D00000000000000000F /* ArtifactRightSidebarModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */; };
 		A85870000000000000000069 /* ArtifactRuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */; };
 		A8610D00000000000000000B /* ArtifactSidebarBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D00000000000000000C /* ArtifactSidebarBinding.swift */; };
+		A85870000000000000000071 /* ArtifactSidebarFileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000070 /* ArtifactSidebarFileAccess.swift */; };
 		A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000030 /* ArtifactSidebarPanelView.swift */; };
 		A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000032 /* ArtifactSidebarRowActions.swift */; };
 		A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000034 /* ArtifactSidebarRowView.swift */; };
@@ -3260,6 +3261,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactRightSidebarModeTests.swift; sourceTree = "<group>"; };
 		A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactRuntimeLifecycleTests.swift; sourceTree = "<group>"; };
 		A8610D00000000000000000C /* ArtifactSidebarBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarBinding.swift; sourceTree = "<group>"; };
+		A85870000000000000000070 /* ArtifactSidebarFileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarFileAccess.swift; sourceTree = "<group>"; };
 		A85870000000000000000030 /* ArtifactSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarPanelView.swift; sourceTree = "<group>"; };
 		A85870000000000000000032 /* ArtifactSidebarRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowActions.swift; sourceTree = "<group>"; };
 		A85870000000000000000034 /* ArtifactSidebarRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowView.swift; sourceTree = "<group>"; };
@@ -7705,6 +7707,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
+				A85870000000000000000070 /* ArtifactSidebarFileAccess.swift */,
 				A85870000000000000000030 /* ArtifactSidebarPanelView.swift */,
 				A8610D00000000000000000C /* ArtifactSidebarBinding.swift */,
 				A8587000000000000000006A /* ArtifactSidebarSearchField.swift */,
@@ -9492,6 +9495,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A8610D000000000000000005 /* ArtifactHTMLPreviewNavigationPolicy.swift in Sources */,
 				A8610D000000000000000007 /* ArtifactHTMLPreviewWebViewFactory.swift in Sources */,
 				A8610D00000000000000000B /* ArtifactSidebarBinding.swift in Sources */,
+				A85870000000000000000071 /* ArtifactSidebarFileAccess.swift in Sources */,
 				A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */,
 				A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */,
 				A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */,
