@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -7,6 +8,18 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private func resetAgentChatActionGateForTest() {
+    let process = AgentChatActionInFlightGate.lock.withLock { state -> AgentChatSidecarProcessHandle? in
+        let process = state.ownedServerProcess
+        state.ownedServerSession = nil
+        state.ownedServerProcess = nil
+        state.isRunning = false
+        state.terminationInProgress = false
+        return process
+    }
+    _ = process?.terminate()
+}
 
 @Suite(.serialized)
 struct CmuxAgentChatConfigTests {
@@ -326,6 +339,16 @@ struct CmuxAgentChatConfigTests {
         }
     }
 
+    @Test func newAgentChatInFlightGateRejectsWhileTerminationIsInFlight() {
+        AgentChatActionInFlightGate.lock.withLock { state in
+            state.isRunning = false
+            state.terminationInProgress = true
+        }
+        defer { resetAgentChatActionGateForTest() }
+
+        #expect(!AgentChatActionInFlightGate.begin())
+    }
+
     @Test func agentChatThemePayloadUsesResolvedGhosttyConfigFields() throws {
         var config = GhosttyConfig()
         config.backgroundColor = try #require(NSColor(hex: "#102030"))
@@ -370,7 +393,7 @@ struct CmuxAgentChatConfigTests {
     @Test func agentChatThemeURLUsesTokenedOwnedServerWhenAvailable() {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.resetForTesting() }
+        defer { resetAgentChatActionGateForTest() }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(startCommand: "cmux-chat"),
             global: nil
@@ -383,7 +406,7 @@ struct CmuxAgentChatConfigTests {
     @Test func explicitAgentChatThemeURLIgnoresOwnedServer() {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.resetForTesting() }
+        defer { resetAgentChatActionGateForTest() }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(
                 url: "http://127.0.0.1:9000/chat",
@@ -399,7 +422,7 @@ struct CmuxAgentChatConfigTests {
     @Test func agentChatThemeConnectionFailureKeepsSessionWhenIdentityIsUnavailable() async {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.resetForTesting() }
+        defer { resetAgentChatActionGateForTest() }
 
         await AgentChatThemeSync.handleThemePostFailure(
             URLError(.cannotConnectToHost),
@@ -415,7 +438,7 @@ struct CmuxAgentChatConfigTests {
     @Test func agentChatThemeNonConnectionFailureKeepsOwnedSession() async {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.resetForTesting() }
+        defer { resetAgentChatActionGateForTest() }
 
         await AgentChatThemeSync.handleThemePostFailure(
             URLError(.badURL),

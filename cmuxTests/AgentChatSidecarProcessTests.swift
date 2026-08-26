@@ -142,8 +142,10 @@ struct AgentChatSidecarProcessTests {
         let didTerminate = AgentChatSidecarProcessTerminator(
             identityProvider: { _ in expected },
             processGroupProvider: { _ in 4127 },
+            processGroupExistsProvider: { _ in true },
             signalSender: { pid, signal in
                 signals.append((pid, signal))
+                errno = EPERM
                 return -1
             },
             sleepNanoseconds: { _ in }

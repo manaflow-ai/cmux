@@ -12,8 +12,8 @@ const statePath = join(root, "state.json");
 const serverPath = join(import.meta.dir, "..", "server.ts");
 const proc = Bun.spawn(["bun", serverPath, "--port=0"], {
   cwd: join(import.meta.dir, ".."),
-  stdout: "pipe",
-  stderr: "pipe",
+  stdout: "inherit",
+  stderr: "inherit",
   env: {
     ...process.env,
     CMUX_AGENT_CHAT_STATE_FILE: statePath,
