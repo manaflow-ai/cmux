@@ -11802,7 +11802,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard let launch = entry.resumeLaunch else { return false }
         switch destination {
         case .insert(let paneId, _):
-            return withNewTerminalTabZoomPolicy(inPane: paneId) {
+            switch withNewTerminalTabZoomPolicy(inPane: paneId, {
                 newTerminalSurfaceOutcome(
                     inPane: paneId,
                     focus: true,
@@ -11810,7 +11810,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     initialInput: launch.initialInput,
                     startupRestoreAgent: launch.startupRestoreAgent
                 )
-            }.panel != nil
+            }) {
+            case .created:
+                return true
+            case .routedToRemote:
+                // The tmux window was accepted and will arrive through the mirror;
+                // treat the drop as handled so the drag source is finalized once.
+                return true
+            case .failed:
+                return false
+            }
         case .split(let paneId, let orientation, let insertFirst):
             let panel = splitPaneWithNewTerminal(
                 targetPane: paneId,
