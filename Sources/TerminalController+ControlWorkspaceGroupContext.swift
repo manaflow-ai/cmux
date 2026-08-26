@@ -51,7 +51,6 @@ extension TerminalController: ControlWorkspaceGroupContext {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             anchorWorkspaceID: group.liveAnchorWorkspaceId,
-            isEmpty: group.isEmpty,
             customColor: group.customColor,
             iconSymbol: group.iconSymbol,
             memberWorkspaceIDs: memberIds

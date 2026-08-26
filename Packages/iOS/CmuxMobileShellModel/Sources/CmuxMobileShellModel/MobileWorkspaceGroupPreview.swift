@@ -51,6 +51,11 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     public var anchorWorkspaceID: MobileWorkspacePreview.ID
     /// Whether this group intentionally has no live workspace anchor.
     public var isEmpty: Bool
+    /// The action capabilities advertised by the Mac that owns this group.
+    /// `nil` means no per-Mac capability snapshot has been attached yet (for
+    /// example, while constructing a standalone preview or decoding a legacy
+    /// payload).
+    public var actionCapabilities: MobileWorkspaceActionCapabilities?
 
     /// The live anchor workspace, or `nil` for a header-only group.
     public var liveAnchorWorkspaceID: MobileWorkspacePreview.ID? {
@@ -93,6 +98,7 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     ///     when one exists. Empty groups use the group id as stable header
     ///     identity.
     ///   - isEmpty: Whether the group has no live workspace anchor.
+    ///   - actionCapabilities: The owning Mac's capability snapshot, when known.
     public init(
         id: ID,
         remoteGroupID: ID? = nil,
@@ -103,7 +109,8 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
         isPinned: Bool = false,
         iconSymbol: String? = nil,
         anchorWorkspaceID: MobileWorkspacePreview.ID? = nil,
-        isEmpty: Bool = false
+        isEmpty: Bool = false,
+        actionCapabilities: MobileWorkspaceActionCapabilities? = nil
     ) {
         self.id = id
         self.remoteGroupID = remoteGroupID
@@ -124,5 +131,6 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
         self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID ?? MobileWorkspacePreview.ID(rawValue: id.rawValue)
         self.isEmpty = isEmpty || anchorWorkspaceID == nil
+        self.actionCapabilities = actionCapabilities
     }
 }

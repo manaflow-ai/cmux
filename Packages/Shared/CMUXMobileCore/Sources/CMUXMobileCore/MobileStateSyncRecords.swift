@@ -318,8 +318,10 @@ public struct GroupSyncRecord: MobileSyncRecord {
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         iconSymbol = try container.decodeIfPresent(String.self, forKey: .iconSymbol)
         anchorWorkspaceID = try container.decodeIfPresent(String.self, forKey: .anchorWorkspaceID)
-        isEmpty = try container.decodeIfPresent(Bool.self, forKey: .isEmpty)
-            ?? (anchorWorkspaceID == nil)
+        let decodedIsEmpty = try container.decodeIfPresent(Bool.self, forKey: .isEmpty) ?? false
+        // A null anchor is authoritative even when an older or malformed
+        // sender omits the bit or reports `false`.
+        isEmpty = decodedIsEmpty || anchorWorkspaceID == nil
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
     }
 

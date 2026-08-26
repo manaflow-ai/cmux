@@ -111,6 +111,24 @@ import Testing
         #expect(items == [.groupHeader(empty, hasUnread: false)])
     }
 
+    @Test func optimisticMemberPromotesStaleEmptyGroupHeader() {
+        let staleEmptyGroup = group("group", pinned: true, isEmpty: true)
+        let predictedMember = workspace("member", group: "group")
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [predictedMember],
+            groups: [staleEmptyGroup]
+        )
+
+        let effectiveGroup = group(
+            "group",
+            anchor: "member",
+            pinned: true
+        )
+        #expect(items == [
+            .groupHeader(effectiveGroup, hasUnread: false),
+        ])
+    }
+
     @Test func emptyPinnedHeaderStaysOutsidePinnedGroupMembers() {
         let liveGroup = group("live", anchor: "anchor", pinned: true)
         let emptyGroup = group("empty", pinned: true, isEmpty: true)

@@ -264084,6 +264084,40 @@
         }
       }
     },
+    "workspaceGroup.error.cannotDeleteEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete every workspace in a window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ内のすべてのワークスペースは削除できません"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.couldNotCloseEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not close every workspace in the group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内のすべてのワークスペースを閉じられませんでした"
+          }
+        }
+      }
+    },
     "workspaceGroup.error.emptyPinnedCannotUngroup": {
       "extractionState": "manual",
       "localizations": {
@@ -264097,6 +264131,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "空のピン留めグループは「グループを削除」でのみ削除できます"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.noWorkspacesToClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group has no workspaces to close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループに閉じるワークスペースがありません"
           }
         }
       }

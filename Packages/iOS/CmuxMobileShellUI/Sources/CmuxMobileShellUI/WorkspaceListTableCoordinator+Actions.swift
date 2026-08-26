@@ -139,7 +139,7 @@ extension WorkspaceListTableCoordinator {
         }
 
         var destructiveActions: [UIAction] = []
-        if (!group.isPinned || !group.isEmpty),
+        if !group.isPinned && !group.isEmpty,
            capabilities.supportsGroupActions,
            let ungroupWorkspaceGroupRequest = configuration.ungroupWorkspaceGroupRequest {
             let action = UIAction(

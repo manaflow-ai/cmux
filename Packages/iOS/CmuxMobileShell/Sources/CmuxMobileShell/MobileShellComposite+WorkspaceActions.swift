@@ -453,23 +453,17 @@ extension MobileShellComposite {
         guard let group = workspaceGroups.first(where: { $0.id == id }) else {
             return .none
         }
+        if let capabilities = group.actionCapabilities {
+            // Group actions belong to the owning Mac, so this remains valid for
+            // a header-only group with no workspace row.
+            return capabilities
+        }
         if let anchorWorkspaceID = group.liveAnchorWorkspaceID {
             return workspaceActionCapabilities(for: anchorWorkspaceID)
         }
-        // Empty groups have no workspace row to carry capabilities. Reuse a
-        // live workspace owned by the same Mac only for the group-level RPC
-        // capability gate; never turn the stable header identity into a
-        // workspace mutation target.
-        let owner = workspaces.first { workspace in
-            CmxMacAppInstanceIdentity(
-                macDeviceID: group.macDeviceID ?? "",
-                instanceTag: group.macInstanceTag
-            ) == CmxMacAppInstanceIdentity(
-                macDeviceID: workspace.macDeviceID ?? "",
-                instanceTag: workspace.macInstanceTag
-            )
-        }
-        return owner?.actionCapabilities ?? .none
+        // Legacy/preview groups without a capability snapshot fail closed; a
+        // stable empty-header identity must never be used as a workspace target.
+        return .none
     }
 
     private func macScopedWorkspaceMutationIsAuthorized(target: WorkspaceMutationTarget) -> Bool {

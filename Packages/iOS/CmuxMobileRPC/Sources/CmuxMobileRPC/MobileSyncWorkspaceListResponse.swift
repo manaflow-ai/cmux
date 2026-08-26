@@ -237,8 +237,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             isPinned = try container.decode(Bool.self, forKey: .isPinned)
             iconSymbol = try container.decodeIfPresent(String.self, forKey: .iconSymbol)
             anchorWorkspaceID = try container.decodeIfPresent(String.self, forKey: .anchorWorkspaceID)
-            isEmpty = try container.decodeIfPresent(Bool.self, forKey: .isEmpty)
-                ?? (anchorWorkspaceID == nil)
+            let decodedIsEmpty = try container.decodeIfPresent(Bool.self, forKey: .isEmpty) ?? false
+            // A null anchor is authoritative even when a legacy or malformed
+            // sender reports `is_empty: false`.
+            isEmpty = decodedIsEmpty || anchorWorkspaceID == nil
         }
 
         /// Memberwise construction for locally-synced sources (state sync v2).

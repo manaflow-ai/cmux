@@ -382,12 +382,18 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
+        // An empty header has no live workspace capability. Carry the typed
+        // group identity so the resolver can route it through `.reorderGroup`;
+        // live groups continue to carry their anchor workspace id.
+        let dragPayloadId = snapshot.memberCount == 0
+            ? snapshot.groupId
+            : snapshot.anchorWorkspaceId
+        let onDragStart: () -> NSItemProvider = { [dragPayloadId] in
 #if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
+            cmuxDebugLog("sidebar.onDrag groupAnchor=\(dragPayloadId.uuidString.prefix(5))")
 #endif
-            dragState.beginDragging(tabId: anchorId)
-            return SidebarTabDragPayload(tabId: anchorId).provider()
+            dragState.beginDragging(tabId: dragPayloadId)
+            return SidebarTabDragPayload(tabId: dragPayloadId).provider()
         }
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: snapshot.groupId,

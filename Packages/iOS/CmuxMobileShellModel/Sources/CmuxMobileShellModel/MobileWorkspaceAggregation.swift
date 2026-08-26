@@ -257,6 +257,10 @@ public struct MobileWorkspaceAggregation: Sendable {
                 stamped.remoteGroupID = shouldScopeIDs ? remoteGroupID : group.remoteGroupID
                 stamped.macDeviceID = state.macDeviceID
                 stamped.macInstanceTag = state.instanceTag
+                // Group actions are scoped to the owning Mac, so retain that
+                // capability snapshot even when this group has no live anchor
+                // workspace to carry it.
+                stamped.actionCapabilities = state.actionCapabilities
                 guard shouldScopeIDs, !state.macDeviceID.isEmpty else {
                     result.append(stamped)
                     continue

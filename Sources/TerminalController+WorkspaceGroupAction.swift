@@ -91,7 +91,10 @@ extension TerminalController {
                 guard memberCount > 0 || isPinnedEmptyGroup else {
                     mutationError = .err(
                         code: "invalid_request",
-                        message: "Group has no workspaces to close",
+                        message: String(
+                            localized: "workspaceGroup.error.noWorkspacesToClose",
+                            defaultValue: "Group has no workspaces to close"
+                        ),
                         data: ["group_id": groupID.uuidString]
                     )
                     return
@@ -99,7 +102,10 @@ extension TerminalController {
                 guard isPinnedEmptyGroup || memberCount < tabManager.tabs.count else {
                     mutationError = .err(
                         code: "invalid_request",
-                        message: "Cannot delete every workspace in a window",
+                        message: String(
+                            localized: "workspaceGroup.error.cannotDeleteEveryWorkspace",
+                            defaultValue: "Cannot delete every workspace in a window"
+                        ),
                         data: [
                             "group_id": groupID.uuidString,
                             "workspace_count": memberCount,
@@ -111,7 +117,10 @@ extension TerminalController {
                 guard (isPinnedEmptyGroup ? closed == 0 : closed == memberCount) else {
                     mutationError = .err(
                         code: "invalid_request",
-                        message: "Could not close every workspace in the group",
+                        message: String(
+                            localized: "workspaceGroup.error.couldNotCloseEveryWorkspace",
+                            defaultValue: "Could not close every workspace in the group"
+                        ),
                         data: [
                             "group_id": groupID.uuidString,
                             "requested_close_count": memberCount,

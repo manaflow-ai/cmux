@@ -209,6 +209,26 @@ struct MobileStateSyncFrameCodingTests {
         #expect(decoded.anchorWorkspaceID == "group-empty")
     }
 
+    @Test func nullAnchorForcesEmptyStateWhenWireBitDisagrees() throws {
+        let decoded = try MobileSyncFrameCoder().decode(
+            GroupSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "group-null",
+              "name": "Pinned",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "is_empty": false,
+              "anchor_workspace_id": null,
+              "sort_index": 0
+            }
+            """
+        )
+
+        #expect(decoded.anchorWorkspaceID == nil)
+        #expect(decoded.isEmpty)
+    }
+
     @Test func deltaEventRoundTripsThroughJSONObject() throws {
         let event = MobileSyncDeltaEvent(
             epoch: "e1",

@@ -998,7 +998,7 @@ struct WorkspaceListView: View {
                             && renameWorkspaceGroup != nil,
                         canSetGroupPinned: anchorCapabilities.supportsGroupActions
                             && setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: (!group.isPinned || !group.isEmpty)
+                        canUngroupWorkspaceGroup: !group.isPinned && !group.isEmpty
                             && anchorCapabilities.supportsGroupActions
                             && ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: anchorCapabilities.supportsGroupActions
@@ -1103,20 +1103,16 @@ struct WorkspaceListView: View {
         _ group: MobileWorkspaceGroupPreview,
         workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     ) -> MobileWorkspaceActionCapabilities {
+        if let capabilities = group.actionCapabilities {
+            // Group actions are Mac-scoped and remain available for a
+            // header-only group without a live workspace row.
+            return capabilities
+        }
         if let anchorWorkspaceID = group.liveAnchorWorkspaceID,
            let capabilities = workspacesByID[anchorWorkspaceID]?.actionCapabilities {
             return capabilities
         }
-        let owner = workspacesByID.values.first { workspace in
-            CmxMacAppInstanceIdentity(
-                macDeviceID: group.macDeviceID ?? "",
-                instanceTag: group.macInstanceTag
-            ) == CmxMacAppInstanceIdentity(
-                macDeviceID: workspace.macDeviceID ?? "",
-                instanceTag: workspace.macInstanceTag
-            )
-        }
-        return owner?.actionCapabilities ?? .none
+        return .none
     }
 
     var settingsMenu: some View {

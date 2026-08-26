@@ -909,25 +909,21 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     /// Group actions are owned by the Mac connection, not by a particular
-    /// workspace row. Empty groups have no live anchor row, so use any live
-    /// workspace from the same Mac only as a capability witness.
+    /// workspace row. The group snapshot carries that Mac-scoped capability,
+    /// including when the group has no live anchor row.
     fileprivate func groupActionCapabilities(
         for group: MobileWorkspaceGroupPreview
     ) -> MobileWorkspaceActionCapabilities {
+        if let capabilities = group.actionCapabilities {
+            // Group actions are Mac-scoped and remain available for a
+            // header-only group without a live workspace row.
+            return capabilities
+        }
         if let anchorWorkspaceID = group.liveAnchorWorkspaceID,
            let capabilities = configuration.workspacesByID[anchorWorkspaceID]?.actionCapabilities {
             return capabilities
         }
-        let owner = configuration.workspacesByID.values.first { workspace in
-            CmxMacAppInstanceIdentity(
-                macDeviceID: group.macDeviceID ?? "",
-                instanceTag: group.macInstanceTag
-            ) == CmxMacAppInstanceIdentity(
-                macDeviceID: workspace.macDeviceID ?? "",
-                instanceTag: workspace.macInstanceTag
-            )
-        }
-        return owner?.actionCapabilities ?? .none
+        return .none
     }
 
     fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
@@ -1070,7 +1066,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                             && configuration.renameWorkspaceGroup != nil,
                         canSetGroupPinned: capabilities.supportsGroupActions
                             && configuration.setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: (!group.isPinned || !group.isEmpty)
+                        canUngroupWorkspaceGroup: !group.isPinned && !group.isEmpty
                             && capabilities.supportsGroupActions
                             && configuration.ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: capabilities.supportsGroupActions
