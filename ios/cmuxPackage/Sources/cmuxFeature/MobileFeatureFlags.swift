@@ -30,7 +30,8 @@ public final class MobileFeatureFlags {
     /// Delay between foreground refresh opportunities when the app remains active.
     /// Thirty minutes bounds steady-state control-plane traffic across the fleet;
     /// launch and scene-active refreshes keep flag propagation fast where it matters.
-    private static let refreshInterval: Duration = .seconds(30 * 60)
+    private static let refreshIntervalSeconds = 30 * 60
+    private static let refreshInterval: Duration = .seconds(refreshIntervalSeconds)
 
     /// Whether the chip and its count-only artifact scan are enabled.
     public private(set) var terminalFilesChipEnabled: Bool
@@ -59,6 +60,9 @@ public final class MobileFeatureFlags {
     @ObservationIgnored private var lifecycleGeneration: UInt64 = 0
     /// Whether the app root currently owns the periodic scheduler.
     @ObservationIgnored private var isStarted = false
+    /// The trigger for the most recently requested refresh, used to label the
+    /// next control-plane request (coalesced triggers keep the latest reason).
+    @ObservationIgnored private var pendingRefreshReason: ClientConfigAttribution.RefreshReason = .launch
 
     /// Creates the runtime flag store with an injected control-plane loader.
     public init(
@@ -86,7 +90,7 @@ public final class MobileFeatureFlags {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
-        requestRefresh()
+        requestRefresh(reason: .launch)
         scheduleNextPeriodicRefresh(for: lifecycleGeneration)
     }
 
@@ -108,14 +112,14 @@ public final class MobileFeatureFlags {
 
     /// Queues one foreground refresh without creating an unowned task at the call site.
     public func refreshOnForeground() {
-        requestRefresh()
+        requestRefresh(reason: .foreground)
     }
 
     /// Refreshes flags without allowing a failed request to erase the cache.
     public func refresh() async {
         await withCheckedContinuation { continuation in
             refreshWaiters.append(continuation)
-            requestRefresh()
+            requestRefresh(reason: .manual)
         }
     }
 
@@ -133,13 +137,14 @@ public final class MobileFeatureFlags {
                   self.isStarted,
                   self.lifecycleGeneration == generation else { return }
             self.periodicRefreshTask = nil
-            self.requestRefresh()
+            self.requestRefresh(reason: .timer)
             self.scheduleNextPeriodicRefresh(for: generation)
         }
     }
 
     /// Coalesces foreground and periodic triggers into one owned operation.
-    private func requestRefresh() {
+    private func requestRefresh(reason: ClientConfigAttribution.RefreshReason) {
+        pendingRefreshReason = reason
         guard refreshOperationTask == nil else {
             refreshRequested = true
             return
@@ -147,15 +152,18 @@ public final class MobileFeatureFlags {
         let generation = lifecycleGeneration
         refreshOperationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performRefresh()
+            await self.performRefresh(reason: reason)
             self.completeRefresh(for: generation)
         }
     }
 
     /// Performs one remote load and applies only a complete, valid response.
-    private func performRefresh() async {
+    private func performRefresh(reason: ClientConfigAttribution.RefreshReason) async {
         let loader = self.loader
-        let request = self.request
+        let request = self.request.labeled(
+            refreshReason: reason,
+            pollIntervalSeconds: Self.refreshIntervalSeconds
+        )
         let config = await Self.loadConfig(loader: loader, request: request)
 
         guard !Task.isCancelled,
@@ -189,7 +197,7 @@ public final class MobileFeatureFlags {
         refreshOperationTask = nil
         if refreshRequested {
             refreshRequested = false
-            requestRefresh()
+            requestRefresh(reason: pendingRefreshReason)
             return
         }
         let waiters = refreshWaiters

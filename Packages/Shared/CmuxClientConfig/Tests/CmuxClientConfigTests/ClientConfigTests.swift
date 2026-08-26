@@ -120,5 +120,47 @@ import Testing
         #expect(request?.httpMethod == "POST")
         #expect(request?.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request?.value(forHTTPHeaderField: "Accept") == "application/json")
+        #expect(request?.value(forHTTPHeaderField: "X-Cmux-Client") == nil)
+    }
+
+    @Test func httpLoaderSendsAttributionHeadersOutsideTheBody() async throws {
+        RecordingClientConfigURLProtocol.recorder.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingClientConfigURLProtocol.self]
+        let loader = HTTPClientConfigLoader(
+            apiBaseURL: "https://cmux.test/",
+            session: URLSession(configuration: configuration)
+        )
+        let request = ClientConfigRequest(
+            distinctId: "user-1",
+            attribution: ClientConfigAttribution(
+                client: "ios",
+                channel: "stable",
+                appVersion: "0.64.22",
+                appBuild: "6422"
+            )
+        ).labeled(refreshReason: .timer, pollIntervalSeconds: 1800)
+
+        _ = try await loader.load(request)
+
+        let sent = RecordingClientConfigURLProtocol.recorder.requests.first
+        #expect(sent?.value(forHTTPHeaderField: "X-Cmux-Client") == "ios")
+        #expect(sent?.value(forHTTPHeaderField: "X-Cmux-Channel") == "stable")
+        #expect(sent?.value(forHTTPHeaderField: "X-Cmux-App-Version") == "0.64.22")
+        #expect(sent?.value(forHTTPHeaderField: "X-Cmux-App-Build") == "6422")
+        #expect(sent?.value(forHTTPHeaderField: "X-Cmux-Refresh-Reason") == "timer")
+        #expect(sent?.value(forHTTPHeaderField: "X-Cmux-Poll-Interval") == "1800")
+
+        let object = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(request)
+        ) as? [String: Any]
+        #expect(object?["attribution"] == nil)
+        #expect(object?["distinctId"] as? String == "user-1")
+    }
+
+    @Test func labelingWithoutAttributionStaysUnlabeled() {
+        let request = ClientConfigRequest(distinctId: "user-1")
+            .labeled(refreshReason: .launch, pollIntervalSeconds: 1800)
+        #expect(request.attribution == nil)
     }
 }

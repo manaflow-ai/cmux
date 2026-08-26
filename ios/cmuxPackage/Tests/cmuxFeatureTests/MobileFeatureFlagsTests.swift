@@ -75,6 +75,36 @@ struct MobileFeatureFlagsTests {
         #expect(flags.terminalFilesChipEnabled)
     }
 
+    @Test("control-plane requests are labeled with their trigger and poll cadence")
+    func refreshRequestsCarryAttributionLabels() async throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let loader = QueueClientConfigLoader([
+            .success(config(terminalFilesChipEnabled: true)),
+            .success(config(terminalFilesChipEnabled: true)),
+        ])
+        let flags = MobileFeatureFlags(
+            loader: loader,
+            request: ClientConfigRequest(
+                distinctId: "test",
+                attribution: ClientConfigAttribution(client: "ios", channel: "dev")
+            ),
+            defaults: defaults
+        )
+        defer { flags.stop() }
+
+        await flags.refresh()
+        flags.refreshOnForeground()
+        await flags.refresh()
+
+        let requests = await loader.requests
+        let reasons = requests.compactMap { $0.attribution?.refreshReason }
+        #expect(reasons.first == .manual)
+        #expect(reasons.contains(.foreground))
+        #expect(requests.allSatisfy { $0.attribution?.client == "ios" })
+        #expect(requests.allSatisfy { $0.attribution?.pollIntervalSeconds == 30 * 60 })
+    }
+
     @Test("keyboard rebuild revert ships off so legacy pinning is the default")
     func keyboardDockRebuildRevertDefaultsOff() throws {
         let (defaults, suiteName) = try makeDefaults()
@@ -148,12 +178,14 @@ private enum StubClientConfigError: Error, Sendable {
 
 private actor QueueClientConfigLoader: ClientConfigLoading {
     private var results: [Result<ClientConfig, StubClientConfigError>]
+    private(set) var requests: [ClientConfigRequest] = []
 
     init(_ results: [Result<ClientConfig, StubClientConfigError>]) {
         self.results = results
     }
 
     func load(_ request: ClientConfigRequest) async throws -> ClientConfig {
+        requests.append(request)
         guard !results.isEmpty else { throw StubClientConfigError.unavailable }
         return try results.removeFirst().get()
     }

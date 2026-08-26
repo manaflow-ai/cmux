@@ -70,6 +70,17 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
     private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
+    /// Steady-state control-plane poll cadence. Also sent with every request as
+    /// `X-Cmux-Poll-Interval` so server logs can attribute request volume to a
+    /// client population without any per-user identifier.
+    nonisolated static let releaseControlRefreshIntervalSeconds: TimeInterval = 30 * 60
+
+    /// Why a control-plane refresh fired. Sent as `X-Cmux-Refresh-Reason` so
+    /// server logs can separate launch bursts from steady-state polling.
+    enum RefreshReason: String, Sendable {
+        case launch
+        case timer
+    }
 
     // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
@@ -377,7 +388,7 @@ final class CmuxFeatureFlags {
     @ObservationIgnored
     private let remoteFlagValueProvider: (String) -> Any?
     @ObservationIgnored
-    private let remoteFlagLoader: @Sendable () async -> [String: Bool]?
+    private let remoteFlagLoader: @Sendable (RefreshReason) async -> [String: Bool]?
     @ObservationIgnored
     private var refreshTask: Task<Void, Never>?
     @ObservationIgnored
@@ -391,7 +402,7 @@ final class CmuxFeatureFlags {
         defaults: UserDefaults = .standard,
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
-        remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil,
+        remoteFlagLoader: (@Sendable (RefreshReason) async -> [String: Bool]?)? = nil,
         publishesOffMainSnapshot: Bool = false
     ) {
         self.defaults = defaults
@@ -404,10 +415,11 @@ final class CmuxFeatureFlags {
                 telemetryEnabled: telemetryEnabled,
                 defaults: defaults
             )
-            self.remoteFlagLoader = {
+            self.remoteFlagLoader = { reason in
                 await CmuxFeatureFlags.loadPostHogControlPlaneFlags(
                     distinctID: target.distinctID,
-                    personProperties: target.personProperties
+                    personProperties: target.personProperties,
+                    reason: reason
                 )
             }
         }
@@ -433,17 +445,20 @@ final class CmuxFeatureFlags {
     /// properties, preserving a non-identifying emergency kill switch.
     func start() {
         guard refreshTimer == nil else { return }
-        refreshRemoteFlags()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshRemoteFlags() }
+        refreshRemoteFlags(reason: .launch)
+        refreshTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.releaseControlRefreshIntervalSeconds,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshRemoteFlags(reason: .timer) }
         }
     }
 
-    private func refreshRemoteFlags() {
+    private func refreshRemoteFlags(reason: RefreshReason) {
         guard refreshTask == nil else { return }
         let loader = remoteFlagLoader
         refreshTask = Task { @MainActor [weak self] in
-            let values = await loader()
+            let values = await loader(reason)
             guard let self else { return }
             self.refreshTask = nil
             guard let values, !Task.isCancelled else { return }
@@ -469,7 +484,8 @@ final class CmuxFeatureFlags {
     static func postHogControlPlaneRequest(
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         defaults: UserDefaults = .standard,
-        bundle: Bundle = .main
+        bundle: Bundle = .main,
+        reason: RefreshReason = .launch
     ) -> URLRequest? {
         let target = releaseControlTarget(
             telemetryEnabled: telemetryEnabled,
@@ -478,7 +494,9 @@ final class CmuxFeatureFlags {
         )
         return postHogControlPlaneRequest(
             distinctID: target.distinctID,
-            personProperties: target.personProperties
+            personProperties: target.personProperties,
+            reason: reason,
+            bundle: bundle
         )
     }
 
@@ -513,18 +531,48 @@ final class CmuxFeatureFlags {
         var properties = [
             "$os": "macOS",
             "cmux_architecture": releaseControlArchitecture,
+            "cmux_release_channel": releaseControlChannel(bundle: bundle),
         ]
-        if let version = bundle.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString"
-        ) as? String, !version.isEmpty {
+        if let version = releaseControlAppVersion(bundle: bundle) {
             properties["$app_version"] = version
         }
-        if let build = bundle.object(
-            forInfoDictionaryKey: "CFBundleVersion"
-        ) as? String, !build.isEmpty {
+        if let build = releaseControlAppBuild(bundle: bundle) {
             properties["$app_build"] = build
         }
         return properties
+    }
+
+    /// The release channel this binary belongs to, derived from the marketing
+    /// version the release pipelines stamp (`-nightly.<build>` for nightlies,
+    /// `-rc` for release candidates). Debug builds report `dev`.
+    nonisolated static func releaseControlChannel(bundle: Bundle = .main) -> String {
+        releaseControlChannel(version: releaseControlAppVersion(bundle: bundle))
+    }
+
+    nonisolated static func releaseControlChannel(version: String?) -> String {
+        if let version {
+            if version.contains("-nightly") { return "nightly" }
+            if version.contains("-rc") { return "rc" }
+        }
+        #if DEBUG
+        return "dev"
+        #else
+        return "stable"
+        #endif
+    }
+
+    nonisolated private static func releaseControlAppVersion(bundle: Bundle) -> String? {
+        guard let version = bundle.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String, !version.isEmpty else { return nil }
+        return version
+    }
+
+    nonisolated private static func releaseControlAppBuild(bundle: Bundle) -> String? {
+        guard let build = bundle.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String, !build.isEmpty else { return nil }
+        return build
     }
 
     private static var releaseControlArchitecture: String {
@@ -539,13 +587,32 @@ final class CmuxFeatureFlags {
 
     nonisolated private static func postHogControlPlaneRequest(
         distinctID: String,
-        personProperties: [String: String]
+        personProperties: [String: String],
+        reason: RefreshReason,
+        bundle: Bundle
     ) -> URLRequest? {
         guard let url = URL(string: "https://cmux.com/api/client-config") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Low-cardinality attribution labels, logged in aggregate by the web
+        // route. They carry no per-user identifier, so they are sent for
+        // opted-out launches too; the request body keeps the telemetry-consent
+        // contract (no persistent identity without consent).
+        request.setValue("macos", forHTTPHeaderField: "X-Cmux-Client")
+        request.setValue(releaseControlChannel(bundle: bundle), forHTTPHeaderField: "X-Cmux-Channel")
+        request.setValue(reason.rawValue, forHTTPHeaderField: "X-Cmux-Refresh-Reason")
+        request.setValue(
+            String(Int(releaseControlRefreshIntervalSeconds)),
+            forHTTPHeaderField: "X-Cmux-Poll-Interval"
+        )
+        if let version = releaseControlAppVersion(bundle: bundle) {
+            request.setValue(version, forHTTPHeaderField: "X-Cmux-App-Version")
+        }
+        if let build = releaseControlAppBuild(bundle: bundle) {
+            request.setValue(build, forHTTPHeaderField: "X-Cmux-App-Build")
+        }
         let context: [String: Any] = personProperties.isEmpty
             ? [:]
             : ["personProperties": personProperties]
@@ -558,11 +625,15 @@ final class CmuxFeatureFlags {
 
     nonisolated private static func loadPostHogControlPlaneFlags(
         distinctID: String,
-        personProperties: [String: String]
+        personProperties: [String: String],
+        reason: RefreshReason,
+        bundle: Bundle = .main
     ) async -> [String: Bool]? {
         guard let request = postHogControlPlaneRequest(
             distinctID: distinctID,
-            personProperties: personProperties
+            personProperties: personProperties,
+            reason: reason,
+            bundle: bundle
         ) else { return nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
