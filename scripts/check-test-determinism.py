@@ -2758,6 +2758,7 @@ def _python_instance_binding_scope_bounds(
 def _python_call_is_shadowed(
     source: str,
     call_start: int,
+    binding_name: str,
     binding_indent: str,
     reassignment_pattern: re.Pattern[str],
     executable: bytes,
@@ -2787,6 +2788,16 @@ def _python_call_is_shadowed(
         scan_line_start = previous_start
     if function_start is None:
         return False
+
+    function_header_end = source.find("\n", function_start, call_start)
+    if function_header_end == -1:
+        function_header_end = call_start
+    function_header = source[function_start:function_header_end]
+    if re.search(
+        rf"\b(?:async\s+)?def\s+\w+\s*\([^)]*\b{re.escape(binding_name)}\b",
+        function_header,
+    ):
+        return True
 
     function_end = _python_binding_scope_end(
         source,
@@ -2839,7 +2850,7 @@ def _python_call_is_shadowed(
             if assignment_indent_match
             else ""
         )
-        if len(assignment_indent) >= len(call_indent):
+        if len(assignment_indent) > len(function_indent):
             return True
     return False
 
@@ -3202,6 +3213,7 @@ def _stored_fluent_client_verb_offsets(
                 and _python_call_is_shadowed(
                     source,
                     call.start(),
+                    binding.name,
                     binding.binding_indent,
                     reassignment_pattern,
                     executable,
@@ -3378,9 +3390,9 @@ def _is_callable_declaration(
         cursor += 1
     if line.startswith("=>", cursor):
         return True
-    if cursor < len(line) and line[cursor] == "{":
+    if path_suffix in _JAVASCRIPT_SUFFIXES and cursor < len(line) and line[cursor] == "{":
         return True
-    if cursor < len(line) and line[cursor] == ":":
+    if path_suffix in _JAVASCRIPT_SUFFIXES and cursor < len(line) and line[cursor] == ":":
         brace = line.find("{", cursor)
         semicolon = line.find(";", cursor)
         return brace != -1 and (semicolon == -1 or brace < semicolon)
