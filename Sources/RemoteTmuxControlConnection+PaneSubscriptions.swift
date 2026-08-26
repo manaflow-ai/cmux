@@ -2,12 +2,12 @@ import Foundation
 
 extension RemoteTmuxControlConnection {
     /// The fields appended to pane-rect replies and title subscriptions.
-    static let paneTitleMetadataFormat = "#{pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
+    nonisolated static let paneTitleMetadataFormat = "#{pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
         + "#{host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{host_short}"
 
     /// The complete pane-rect format, with the variable-width header followed
     /// by fixed-width pane-title metadata.
-    static let paneRectsFormat = "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"
+    nonisolated static let paneRectsFormat = "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"
         + " #{pane_active} #{pane-border-status} :#{T:pane-border-format}"
         + "\(RemoteTmuxPaneTitleMetadata.fieldSeparator)\(paneTitleMetadataFormat)"
 
@@ -23,7 +23,7 @@ extension RemoteTmuxControlConnection {
     }
 
     /// The exact `refresh-client -B` line for a pane's raw title metadata.
-    static func paneTitleSubscriptionCommand(paneId: Int) -> String {
+    nonisolated static func paneTitleSubscriptionCommand(paneId: Int) -> String {
         "refresh-client -B \"\(paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(paneTitleMetadataFormat)\""
     }
 

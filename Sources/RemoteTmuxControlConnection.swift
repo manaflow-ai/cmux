@@ -309,7 +309,7 @@ final class RemoteTmuxControlConnection {
     static let headerSubscriptionPrefix = "cmux_hdr_"
     /// Per-pane subscription for raw `pane_title`, independent of the user's
     /// `pane-border-format` (which may omit the title entirely).
-    static let paneTitleSubscriptionPrefix = "cmux_title_"
+    nonisolated static let paneTitleSubscriptionPrefix = "cmux_title_"
 
     /// Per-WINDOW subscription to `pane-border-status`, the one layout input tmux
     /// changes with no notification of its own.

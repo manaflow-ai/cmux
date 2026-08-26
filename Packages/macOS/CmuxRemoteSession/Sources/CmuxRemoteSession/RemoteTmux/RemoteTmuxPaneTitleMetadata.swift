@@ -1,23 +1,21 @@
 import Foundation
 
-/// Identifies one pane-rectangle snapshot so an older reply cannot overwrite a
-/// newer live pane-title subscription event.
-struct RemoteTmuxPaneTitleSnapshotKey: Hashable, Sendable {
-    let windowId: Int
-    let generation: Int
-}
-
-/// The raw tmux pane title and the host values used to recognize its default.
-struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
+/// The raw tmux pane title and host values used to recognize its default title.
+public struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
     /// A control character that tmux leaves untouched in format expansions.
-    static let fieldSeparator: Character = "\u{1f}"
+    public static let fieldSeparator: Character = "\u{1f}"
 
-    let title: String
-    let host: String
-    let hostShort: String
+    /// The raw title emitted by tmux for the pane.
+    public let title: String
+    /// The full host name emitted by tmux for the pane.
+    public let host: String
+    /// The short host name emitted by tmux for the pane.
+    public let hostShort: String
 
     /// Parses the title, full host, and short host emitted by a tmux format.
-    init?(wireValue: String) {
+    ///
+    /// - Parameter wireValue: The three fields separated by ``fieldSeparator``.
+    public init?(wireValue: String) {
         let fields = wireValue.split(
             separator: Self.fieldSeparator,
             maxSplits: 2,
@@ -32,14 +30,19 @@ struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
     }
 
     /// Creates metadata from already-separated tmux format values.
-    init(title: String, host: String, hostShort: String) {
+    ///
+    /// - Parameters:
+    ///   - title: The raw pane title.
+    ///   - host: The full host name used by tmux's default title.
+    ///   - hostShort: The short host name used by tmux's default title.
+    public init(title: String, host: String, hostShort: String) {
         self.title = title
         self.host = host
         self.hostShort = hostShort
     }
 
     /// Returns a non-default title, or `nil` when tmux supplied its host title.
-    var intentionalTitle: String? {
+    public var intentionalTitle: String? {
         let title = Self.normalized(title)
         guard !title.isEmpty else { return nil }
 

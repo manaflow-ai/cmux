@@ -404,8 +404,13 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if layout != newLayout { layout = newLayout }
         let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
-        let paneTitleMetadata = (connection?.paneTitleMetadataByPane ?? [:])
-            .filter { livePaneIds.contains($0.key) }
+        var paneTitleMetadata: [Int: RemoteTmuxPaneTitleMetadata] = [:]
+        paneTitleMetadata.reserveCapacity(livePaneIDsInOrder.count)
+        for paneId in livePaneIDsInOrder {
+            if let metadata = connection?.paneTitleMetadataByPane[paneId] {
+                paneTitleMetadata[paneId] = metadata
+            }
+        }
         if paneTitleMetadata != paneTitleMetadataByPane {
             paneTitleMetadataByPane = paneTitleMetadata
         }
