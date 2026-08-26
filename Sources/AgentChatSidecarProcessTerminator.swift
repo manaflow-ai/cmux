@@ -2,7 +2,7 @@ import Darwin
 
 /// Identity-checked, bounded termination shared by app-owned agent-chat
 /// recovery, timeout cleanup, and application shutdown.
-struct AgentChatSidecarProcessTerminator {
+nonisolated struct AgentChatSidecarProcessTerminator {
     private enum IdentityValidation {
         case matching
         case gone
@@ -174,6 +174,7 @@ struct AgentChatSidecarProcessTerminator {
     @discardableResult
     func terminateValidatedProcess(_ identity: AgentPIDProcessIdentity) -> Bool {
         guard identityProvider(identity.pid) == identity else { return false }
+        errno = 0
         let result = signalSender(identity.pid, SIGKILL)
         if result == 0 { return true }
         return errno == ESRCH && AgentPIDProcessIdentity.hasExitedWithoutReaping(pid: identity.pid)
@@ -210,6 +211,7 @@ struct AgentChatSidecarProcessTerminator {
         // checked above solely as identity anchors; they are never killed on
         // their own.  A failed kill remains failed cleanup so the caller keeps
         // ownership instead of launching a replacement.
+        errno = 0
         let result = signalSender(-processGroupID, signal)
         if result == 0 { return true }
         // The group can disappear between validation and kill.  Treat an

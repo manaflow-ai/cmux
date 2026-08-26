@@ -190,6 +190,18 @@ let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
+class AgentChatServerShuttingDownError extends Error {
+  constructor() {
+    super("agent-chat server is shutting down");
+    this.name = "AgentChatServerShuttingDownError";
+  }
+}
+
+const AGENT_CHAT_SHUTDOWN_RESPONSE = {
+  error: "service_unavailable",
+  code: "agent_chat_shutting_down",
+} as const;
+
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
 const optionCatalog = new Map<string, {
@@ -312,7 +324,7 @@ function createSession(
   title: string,
   startOptions: Record<string, OptionValue> = {},
 ): Session {
-  if (shuttingDown) throw new Error("agent-chat server is shutting down");
+  if (shuttingDown) throw new AgentChatServerShuttingDownError();
   const adapter = adapters.get(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
   const id = crypto.randomUUID().slice(0, 8);
@@ -1837,6 +1849,9 @@ function startServer() {
         const options = applyAutoApproveDefaults(provider, autoApprove, parseOptions(body.options));
         sess = createSession(provider, cwd, autoApprove, title, await sanitizeStartOptions(provider, cwd, options));
       } catch (err) {
+        if (err instanceof AgentChatServerShuttingDownError) {
+          return Response.json(AGENT_CHAT_SHUTDOWN_RESPONSE, { status: 503 });
+        }
         return Response.json({ error: String(err) }, { status: 400 });
       }
       refreshSession(sess);

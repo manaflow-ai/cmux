@@ -5,18 +5,24 @@ import os
 /// held while copying/clearing this small state; process signaling happens
 /// after the lock is released so a bounded wait cannot block action entry.
 nonisolated struct AgentChatActionInFlightGate {
-    private struct State {
+    /// The state is internal so the test target can reset fixtures through
+    /// `@testable import` without adding a production-only test hook.
+    struct State {
         var isRunning = false
+        var terminationInProgress = false
         var ownedServerSession: AgentChatOwnedServerSession?
         var ownedServerProcess: AgentChatSidecarProcessHandle?
         var sidecarStateFileStore = AgentChatSidecarStateFileStore.live()
     }
 
-    private nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
+    // Synchronous action entry and theme callbacks need one atomic transition;
+    // the test target accesses this lock directly through @testable import so
+    // production source does not grow a resetForTesting seam.
+    nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
 
     static func begin() -> Bool {
         lock.withLock { state in
-            guard !state.isRunning else { return false }
+            guard !state.isRunning, !state.terminationInProgress else { return false }
             state.isRunning = true
             return true
         }
@@ -46,6 +52,7 @@ nonisolated struct AgentChatActionInFlightGate {
 
     static func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
         let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
+            guard !state.terminationInProgress else { return nil }
             let previous = state.ownedServerProcess
             if previous?.launchId != session.launchId {
                 state.ownedServerProcess = nil
@@ -58,6 +65,7 @@ nonisolated struct AgentChatActionInFlightGate {
 
     static func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) {
         let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
+            guard !state.terminationInProgress else { return nil }
             let previous = state.ownedServerProcess
             if let session = state.ownedServerSession,
                session.launchId != process.launchId {
@@ -77,6 +85,7 @@ nonisolated struct AgentChatActionInFlightGate {
         process: AgentChatSidecarProcessHandle
     ) {
         let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
+            guard !state.terminationInProgress else { return nil }
             let previous = state.ownedServerProcess
             state.ownedServerSession = session
             state.ownedServerProcess = process
@@ -91,30 +100,17 @@ nonisolated struct AgentChatActionInFlightGate {
         _ = terminateOwnedServer(matching: candidate)
     }
 
-    /// Test fixtures that model a session without a live process handle must
-    /// be able to reset the process-global gate.  Production cleanup goes
-    /// through `terminateOwnedServer`; this hook is intentionally separate so
-    /// a fixture cannot accidentally turn an unknown PID into a kill target.
-    static func resetForTesting() {
-        lock.withLock { state in
-            state.ownedServerSession = nil
-            state.ownedServerProcess = nil
-            state.isRunning = false
-        }
+    private struct OwnedServerSnapshot: @unchecked Sendable {
+        let session: AgentChatOwnedServerSession?
+        let process: AgentChatSidecarProcessHandle?
     }
 
-    /// Takes ownership out of the gate before signaling.  A candidate (when
-    /// supplied) prevents a late theme/recovery callback from terminating a
-    /// newer launch that replaced the one it observed.
-    @discardableResult
-    static func terminateOwnedServer(
-        matching candidate: AgentChatOwnedServerSession? = nil,
-        matchingLaunchID launchID: String? = nil
-    ) -> Bool {
-        let snapshot = lock.withLock { state -> (
-            session: AgentChatOwnedServerSession?,
-            process: AgentChatSidecarProcessHandle?
-        )? in
+    private static func claimOwnedServer(
+        matching candidate: AgentChatOwnedServerSession?,
+        matchingLaunchID launchID: String?
+    ) -> OwnedServerSnapshot? {
+        lock.withLock { state in
+            guard !state.terminationInProgress else { return nil }
             if let candidate, state.ownedServerSession != candidate { return nil }
             if let candidate,
                let processLaunchId = state.ownedServerProcess?.launchId,
@@ -126,47 +122,71 @@ nonisolated struct AgentChatActionInFlightGate {
                state.ownedServerSession?.launchId != launchID {
                 return nil
             }
-            let snapshot = (state.ownedServerSession, state.ownedServerProcess)
-            state.ownedServerSession = nil
-            state.ownedServerProcess = nil
-            return snapshot
-        }
-        guard let snapshot,
-              snapshot.session != nil || snapshot.process != nil else {
-            return false
-        }
-        let didTerminate: Bool
-        if let process = snapshot.process {
-            didTerminate = process.terminate()
-            if !didTerminate {
-                // The process identity changed between the snapshot and the
-                // signal attempt. Restore the handle so a later action can
-                // retry instead of launching alongside an unknown process.
-                lock.withLock { state in
-                    guard state.ownedServerSession == nil,
-                          state.ownedServerProcess == nil else { return }
-                    state.ownedServerSession = snapshot.session
-                    state.ownedServerProcess = process
-                }
+            guard state.ownedServerSession != nil || state.ownedServerProcess != nil else {
+                return nil
             }
-        } else if let session = snapshot.session {
-            // Legacy in-memory sessions do not have a launch handle.  The
+            // Keep both snapshots in the gate while process termination runs.
+            // New Agent Chat actions observe this bit and cannot launch beside
+            // a sidecar whose SIGTERM/SIGKILL transaction is still pending.
+            state.terminationInProgress = true
+            return OwnedServerSnapshot(
+                session: state.ownedServerSession,
+                process: state.ownedServerProcess
+            )
+        }
+    }
+
+    private static func finishOwnedServerTermination(
+        _ snapshot: OwnedServerSnapshot,
+        didTerminate: Bool
+    ) {
+        lock.withLock { state in
+            guard state.terminationInProgress else { return }
+            state.terminationInProgress = false
+            guard didTerminate else {
+                // Fail closed: retaining the snapshot gives the next action a
+                // chance to retry identity-safe cleanup instead of launching
+                // beside an unknown process.
+                return
+            }
+            if let process = snapshot.process,
+               state.ownedServerProcess === process {
+                state.ownedServerProcess = nil
+            }
+            if let session = snapshot.session,
+               state.ownedServerSession == session {
+                state.ownedServerSession = nil
+            }
+        }
+    }
+
+    private static func terminateSnapshot(_ snapshot: OwnedServerSnapshot) -> Bool {
+        if let process = snapshot.process {
+            return process.terminate()
+        }
+        if let session = snapshot.session {
+            // Legacy in-memory sessions do not have a launch handle. The
             // fallback still requires the persisted kernel start token and
             // process-group identity; it never signals a bare PID.
-            didTerminate = AgentChatSidecarProcessTerminator().terminate(session: session)
-            if !didTerminate {
-                // Keep the session visible when its identity is missing or
-                // stale.  Forgetting it here would permit a replacement launch
-                // beside an unknown process.
-                lock.withLock { state in
-                    guard state.ownedServerSession == nil,
-                          state.ownedServerProcess == nil else { return }
-                    state.ownedServerSession = session
-                }
-            }
-        } else {
-            didTerminate = false
+            return AgentChatSidecarProcessTerminator().terminate(session: session)
         }
+        return false
+    }
+
+    /// Takes ownership out of the gate before signaling.  A candidate (when
+    /// supplied) prevents a late theme/recovery callback from terminating a
+    /// newer launch that replaced the one it observed.
+    @discardableResult
+    static func terminateOwnedServer(
+        matching candidate: AgentChatOwnedServerSession? = nil,
+        matchingLaunchID launchID: String? = nil
+    ) -> Bool {
+        guard let snapshot = claimOwnedServer(
+            matching: candidate,
+            matchingLaunchID: launchID
+        ) else { return false }
+        let didTerminate = terminateSnapshot(snapshot)
+        finishOwnedServerTermination(snapshot, didTerminate: didTerminate)
         return didTerminate
     }
 
@@ -174,13 +194,24 @@ nonisolated struct AgentChatActionInFlightGate {
     /// synchronous grace period.  Keep that wait off the UI actor; app quit
     /// uses the synchronous overload below because there is no async turn left
     /// to await.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     static func terminateOwnedServerAsync(
         matching candidate: AgentChatOwnedServerSession? = nil,
         matchingLaunchID launchID: String? = nil
     ) async -> Bool {
-        await Task.detached(priority: .utility) {
-            terminateOwnedServer(matching: candidate, matchingLaunchID: launchID)
+        guard let snapshot = claimOwnedServer(
+            matching: candidate,
+            matchingLaunchID: launchID
+        ) else { return false }
+        let didTerminate = await Task.detached(priority: .utility) {
+            terminateSnapshot(snapshot)
         }.value
+        finishOwnedServerTermination(snapshot, didTerminate: didTerminate)
+        return didTerminate
     }
 
     /// Used by app termination, where there is no async turn in which to wait

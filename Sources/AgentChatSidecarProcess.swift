@@ -6,7 +6,7 @@ import os
 /// The class is `@unchecked Sendable` because its mutable fields are guarded
 /// by the short synchronous lock below; the process itself is only touched by
 /// POSIX calls and the dispatch exit source.
-final class AgentChatSidecarProcessHandle: @unchecked Sendable {
+nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
     let launchId: String
     let rootIdentity: AgentPIDProcessIdentity
     let processGroupID: pid_t
@@ -129,25 +129,17 @@ final class AgentChatSidecarProcessHandle: @unchecked Sendable {
             identities: identities,
             processGroupID: processGroupID
         )
-        let rootExited = lock.withLock { state -> Bool in
+        lock.withLock { state in
             state.terminationStarted = false
             if didTerminate {
                 state.terminationCompleted = true
             }
-            return state.rootExited
         }
         if didTerminate {
             // The exit callback covers a root that transitions after the
             // bounded signal operation; this immediate attempt covers one
             // that exited before the callback was delivered.
             reapRootIfExited()
-            if rootExited { reapRootIfExited() }
-        } else {
-            // Keep ownership available for a later retry when the identity
-            // check failed because a process was mid-exit or its PID changed.
-            lock.withLock { state in
-                state.terminationStarted = false
-            }
         }
         return didTerminate
     }

@@ -1,8 +1,14 @@
 import Darwin
 import Foundation
+import os
+
+private nonisolated let agentChatSidecarProcessLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AgentChatSidecarProcess"
+)
 
 /// Launches an app-owned agent-chat command in a child-led process group.
-struct AgentChatSidecarProcessController {
+nonisolated struct AgentChatSidecarProcessController {
     func launch(
         command: String,
         launchId: String,
@@ -14,7 +20,7 @@ struct AgentChatSidecarProcessController {
         let environment = ProcessInfo.processInfo.environment
         guard let shellPath = environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !shellPath.isEmpty else {
-            NSLog("[AgentChat] SHELL is not set; cannot launch startCommand")
+            agentChatSidecarProcessLogger.error("SHELL is not set; cannot launch startCommand")
             return nil
         }
 
@@ -77,22 +83,22 @@ struct AgentChatSidecarProcessController {
             return nil
         }
         guard let identity = Self.captureSpawnedIdentity(processIdentifier) else {
-            // A successful spawn is suspended, so a rejected identity means
-            // it has already exited after the short retry window.  Reap only
-            // when the kernel confirms a zombie; never issue a cleanup signal
-            // from an unvalidated PID.
-            if AgentPIDProcessIdentity.hasExitedWithoutReaping(pid: processIdentifier) {
-                Self.reap(processIdentifier)
-            }
+            // The child is still suspended and unreaped.  That direct-child
+            // relationship is a stronger launch identity than a stored PID:
+            // the kernel cannot reuse this number until this parent reaps it.
+            // Revalidate that relationship and its child-led group before
+            // signaling; never kill a bare PID discovered from state.
+            _ = Self.terminateSuspendedSpawnedChild(processIdentifier)
             return nil
         }
         guard Darwin.getpgid(processIdentifier) == processIdentifier else {
             // The identity is valid but the child-led group invariant failed;
-            // terminate that exact process generation, never the bare PID.
-            let didTerminate = AgentChatSidecarProcessTerminator().terminateValidatedProcess(identity)
-            if didTerminate || AgentPIDProcessIdentity.hasExitedWithoutReaping(pid: processIdentifier) {
-                Self.reap(processIdentifier)
-            }
+            // terminate that exact direct-child generation, never a bare PID
+            // from a persisted state file.
+            _ = Self.terminateSuspendedSpawnedChild(
+                processIdentifier,
+                expectedIdentity: identity
+            )
             return nil
         }
 
@@ -106,37 +112,77 @@ struct AgentChatSidecarProcessController {
         guard AgentPIDProcessIdentity(pid: processIdentifier) == identity,
               Darwin.getpgid(processIdentifier) == processIdentifier,
               Darwin.kill(-processIdentifier, SIGCONT) == 0 else {
-            handle.terminate()
+            _ = handle.terminate()
+            _ = Self.terminateSuspendedSpawnedChild(
+                processIdentifier,
+                expectedIdentity: identity
+            )
             return nil
         }
         return handle
     }
 
-    private static func reap(_ processIdentifier: pid_t) {
+    /// Reaps a direct child without blocking the caller. The dispatch source
+    /// remains retained by its event handler until the kernel reports exit.
+    private static func reapWhenExited(_ processIdentifier: pid_t) {
         var status: Int32 = 0
-        while true {
-            let result = waitpid(processIdentifier, &status, 0)
-            if result == processIdentifier { return }
-            if result == -1 && errno == EINTR { continue }
+        let result = waitpid(processIdentifier, &status, WNOHANG)
+        if result == processIdentifier || (result == -1 && errno == ECHILD) {
             return
         }
+        guard result == 0 else { return }
+        let source = DispatchSource.makeProcessSource(
+            identifier: processIdentifier,
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler {
+            var status: Int32 = 0
+            _ = waitpid(processIdentifier, &status, WNOHANG)
+            source.cancel()
+        }
+        source.resume()
     }
 
     /// `posix_spawn` publishes the child before the process-table sysctl is
-    /// guaranteed to observe it on every macOS build.  Retry briefly while the
-    /// child is still suspended; a persistent absence is treated as an
-    /// identity failure and therefore fails closed.
+    /// guaranteed to observe it on every macOS build. A missing token is a
+    /// launch failure; the caller uses direct-child ownership to terminate the
+    /// suspended child instead of guessing from a persisted PID.
     private static func captureSpawnedIdentity(_ processIdentifier: pid_t) -> AgentPIDProcessIdentity? {
-        for attempt in 0..<8 {
-            if let identity = AgentPIDProcessIdentity(pid: processIdentifier) {
-                return identity
+        AgentPIDProcessIdentity(pid: processIdentifier)
+    }
+
+    /// Terminates a child that has not yet been resumed. `waitpid` proves that
+    /// the caller still owns the direct child, so the PID cannot have been
+    /// recycled; the process-group check then protects the negative signal.
+    /// This is the only setup-failure path allowed to fall back to the positive
+    /// PID when the group attribute itself was rejected by the kernel.
+    @discardableResult
+    private static func terminateSuspendedSpawnedChild(
+        _ processIdentifier: pid_t,
+        expectedIdentity: AgentPIDProcessIdentity? = nil
+    ) -> Bool {
+        var status: Int32 = 0
+        while true {
+            let waitResult = waitpid(processIdentifier, &status, WNOHANG)
+            if waitResult == processIdentifier || (waitResult == -1 && errno == ECHILD) {
+                return true
             }
-            if AgentPIDProcessIdentity.hasExitedWithoutReaping(pid: processIdentifier) {
-                return nil
+            if waitResult == -1 && errno == EINTR { continue }
+            guard waitResult == 0 else { return false }
+            if let expectedIdentity {
+                guard AgentPIDProcessIdentity(pid: processIdentifier) == expectedIdentity else {
+                    return false
+                }
             }
-            if attempt < 7 { usleep(1_000) }
+            let groupID = Darwin.getpgid(processIdentifier)
+            let target = groupID == processIdentifier ? -processIdentifier : processIdentifier
+            errno = 0
+            let signalResult = Darwin.kill(target, SIGKILL)
+            if signalResult != 0, errno != ESRCH { return false }
+            reapWhenExited(processIdentifier)
+            return true
         }
-        return nil
     }
 
     private static func withCStringArray<T>(
