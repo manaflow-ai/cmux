@@ -67,12 +67,12 @@ extension CMUXCLI {
             let genericName = canonicalProjectFilesAgentName(
                 normalizedProjectFilesEnvironmentValue(environment["CMUX_AGENT_NAME"])
             ) ?? launchName
-            if let existing = nativeIdentities.first {
-                guard existing.sessionID == genericSessionID,
-                      genericName == nil || genericName == existing.name else {
-                    throw ambiguousProjectFilesAgentIdentityError()
-                }
-            } else {
+            // `CMUX_AGENT_*` is inherited by nested processes and can still
+            // describe the parent agent. A provider-native identity is the
+            // authoritative child identity; never reject it because the
+            // inherited generic fallback differs. Use the generic pair only
+            // when no native provider identity was supplied.
+            if nativeIdentities.isEmpty {
                 nativeIdentities.append((
                     sessionID: genericSessionID,
                     name: genericName ?? "agent"
@@ -209,7 +209,8 @@ extension CMUXCLI {
         // materialized or competing with editor handoffs.
         guard cleanupTemporaryProjectFiles(
             in: temporaryDirectory,
-            reservingBytes: Int64(data.count)
+            reservingBytes: Int64(data.count),
+            reservingFileCount: 1
         ) else {
             throw CLIError(
                 message: String(
@@ -310,11 +311,15 @@ extension CMUXCLI {
     @discardableResult
     func cleanupTemporaryProjectFiles(
         in directory: URL,
-        reservingBytes: Int64 = 0
+        reservingBytes: Int64 = 0,
+        reservingFileCount: Int = 0
     ) -> Bool {
         let maximumFileCount = 256
         let maximumByteCount: Int64 = 256 * 1024 * 1024
         guard reservingBytes >= 0, reservingBytes <= maximumByteCount else {
+            return false
+        }
+        guard reservingFileCount >= 0, reservingFileCount <= maximumFileCount else {
             return false
         }
         // LaunchServices has no completion callback for the editor that owns
@@ -397,7 +402,9 @@ extension CMUXCLI {
             retainedBytes += entry.size
             retainedCount += 1
         }
-        let requestedCount = reservingBytes > 0 ? 1 : 0
+        // A zero-byte note/artifact still creates a leased temporary file, so
+        // reserve its slot independently of the byte reservation.
+        let requestedCount = reservingFileCount
         guard protectedCount <= maximumFileCount - requestedCount,
               retainedCount <= maximumFileCount - requestedCount - protectedCount,
               protectedBytes <= maximumByteCount,
