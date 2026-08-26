@@ -234,6 +234,31 @@ import Testing
         #expect(visiblePixelCount(in: image) > 0)
     }
 
+    /// A fallback tint applies only after the primary source is unavailable.
+    @Test func rendererAppliesFallbackTintOnlyToFallbackSource() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let appearance = try #require(NSAppearance(named: .aqua))
+        let fallbackImage = NSImage(size: NSSize(width: 16, height: 16))
+        fallbackImage.addRepresentation(solidBitmapRepresentation(color: .white, pixels: 16))
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .asset(name: "missing-icon", bundle: .main),
+                size: NSSize(width: 16, height: 16),
+                fallbackSource: .image(fallbackImage),
+                fallbackTintColor: .systemBlue
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("A fallback tint request should render the fallback image")
+            return
+        }
+        let center = try #require(centerPixelColor(in: image))
+        #expect(center.blueComponent > center.redComponent)
+    }
+
     /// Workspace-backed fallbacks resolve lazily in the renderer and retain
     /// Finder's concrete folder artwork without sharing a mutable NSImage.
     @Test func rendererUsesWorkspaceIconFallback() throws {

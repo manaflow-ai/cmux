@@ -135,6 +135,7 @@ struct SessionIndexView: View {
             }
             .buttonStyle(.borderless)
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
+            .accessibilityLabel(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
             .disabled(store.isLoading)
             .titlebarInteractiveControl()
         }
@@ -1992,6 +1993,7 @@ struct SectionPopoverView: View {
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "historyPane.search.clear", defaultValue: "Clear search"))
                 }
             }
             .padding(.horizontal, 8)

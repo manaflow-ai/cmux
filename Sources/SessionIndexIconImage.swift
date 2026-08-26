@@ -49,7 +49,8 @@ private struct SessionIndexAgentIconImage: View, Equatable {
                 fallbackSource: .systemSymbol(
                     name: "person.crop.circle.fill",
                     accessibilityDescription: nil
-                )
+                ),
+                fallbackTintColor: .secondaryLabelColor
             ))
             .frame(width: size, height: size)
         } else {

@@ -32,13 +32,20 @@ public final class CmuxResolvedIconRenderer {
         }
         var output: NSImage?
         var failure = CmuxResolvedIconRenderFailure.sourceUnavailable
-        var sources = [request.source]
+        var sources: [(source: CmuxResolvedIconSource, tintColor: NSColor?)] = [
+            (source: request.source, tintColor: request.tintColor)
+        ]
         if let fallbackSource = request.fallbackSource {
-            sources.append(fallbackSource)
+            sources.append(
+                (
+                    source: fallbackSource,
+                    tintColor: request.fallbackTintColor ?? request.tintColor
+                )
+            )
         }
         appearance.performAsCurrentDrawingAppearance {
-            for source in sources {
-                guard let sourceImage = resolvedSourceImage(for: source, request: request),
+            for candidate in sources {
+                guard let sourceImage = resolvedSourceImage(for: candidate.source, request: request),
                       let bitmap = bitmapRepresentation(size: imageSize) else {
                     continue
                 }
@@ -63,7 +70,7 @@ public final class CmuxResolvedIconRenderer {
                     hints: nil
                 )
 
-                if let tintColor = request.tintColor {
+                if let tintColor = candidate.tintColor {
                     tintColor.setFill()
                     NSRect(origin: .zero, size: imageSize).fill(using: .sourceAtop)
                 }

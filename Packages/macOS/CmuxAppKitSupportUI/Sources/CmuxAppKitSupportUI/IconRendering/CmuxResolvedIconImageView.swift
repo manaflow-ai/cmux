@@ -101,6 +101,7 @@ public final class CmuxResolvedIconImageView: NSView {
         private let width: CGFloat
         private let height: CGFloat
         private let tint: NSColor?
+        private let fallbackTint: NSColor?
         private let symbolWeight: CGFloat
         private let appearanceName: NSAppearance.Name
         private let appearanceIdentity: ObjectIdentifier
@@ -116,6 +117,7 @@ public final class CmuxResolvedIconImageView: NSView {
             self.width = request.size.width
             self.height = request.size.height
             self.tint = request.tintColor
+            self.fallbackTint = request.fallbackTintColor
             self.symbolWeight = request.symbolWeight.rawValue
             self.appearanceName = appearance.name
             self.appearanceIdentity = ObjectIdentifier(appearance)
@@ -133,7 +135,8 @@ public final class CmuxResolvedIconImageView: NSView {
                 symbolWeight == other.symbolWeight &&
                 appearanceName == other.appearanceName &&
                 appearanceIdentity == other.appearanceIdentity &&
-                Self.colorsEqual(tint, other.tint)
+                Self.colorsEqual(tint, other.tint) &&
+                Self.colorsEqual(fallbackTint, other.fallbackTint)
         }
 
         func shouldSkipBlankRetry(for other: RenderKey) -> Bool {
