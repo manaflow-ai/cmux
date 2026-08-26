@@ -167,10 +167,15 @@ struct WorkspaceLinksTests {
             configuration: config
         ))
 
-        #expect(state.beginTitleFetch(for: entry.id) != nil)
+        let failedRequest = try #require(state.beginTitleFetch(for: entry.id))
         #expect(state.beginTitleFetch(for: entry.id) == nil)
-        state.finishTitleFetch(for: entry.id, title: nil)
+        state.finishTitleFetch(
+            for: entry.id,
+            requestID: failedRequest.requestID,
+            title: nil
+        )
         #expect(state.beginTitleFetch(for: entry.id) == nil)
+        let failedGeneration = try #require(state.entry(for: entry.id)).titleFetchGeneration
 
         state.ingest(
             url: entry.url,
@@ -179,8 +184,10 @@ struct WorkspaceLinksTests {
             sourceSurfaceTitle: nil,
             configuration: config
         )
-        #expect(state.beginTitleFetch(for: entry.id) != nil)
-        state.cancelTitleFetch(for: entry.id)
+        let retriedEntry = try #require(state.entry(for: entry.id))
+        #expect(retriedEntry.titleFetchGeneration == failedGeneration + 1)
+        let retryRequest = try #require(state.beginTitleFetch(for: entry.id))
+        state.cancelTitleFetch(for: entry.id, requestID: retryRequest.requestID)
         #expect(state.beginTitleFetch(for: entry.id) != nil)
     }
 
@@ -198,12 +205,105 @@ struct WorkspaceLinksTests {
         #expect(state.beginTitleFetch(for: entry.id) == nil)
 
         state.applySettings(retentionLimit: 500, fetchTitlesEnabled: true)
-        #expect(state.beginTitleFetch(for: entry.id) != nil)
+        let firstRequest = try #require(state.beginTitleFetch(for: entry.id))
 
         state.applySettings(retentionLimit: 500, fetchTitlesEnabled: false)
         #expect(state.beginTitleFetch(for: entry.id) == nil)
         state.applySettings(retentionLimit: 500, fetchTitlesEnabled: true)
-        #expect(state.beginTitleFetch(for: entry.id) != nil)
+        let secondRequest = try #require(state.beginTitleFetch(for: entry.id))
+        #expect(secondRequest.requestID != firstRequest.requestID)
+    }
+
+    @MainActor
+    @Test
+    func repeatCapturePreservesInFlightTitleRequest() throws {
+        let state = WorkspaceLinksState(fetchTitlesEnabled: true)
+        let configuration = WorkspaceLinksIngestConfiguration(ignoreHosts: [])
+        let entry = try #require(state.ingest(
+            url: "https://example.com/in-flight",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: configuration
+        ))
+        let request = try #require(state.beginTitleFetch(for: entry.id))
+
+        state.ingest(
+            url: entry.url,
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: configuration
+        )
+
+        #expect(state.beginTitleFetch(for: entry.id) == nil)
+        state.finishTitleFetch(
+            for: entry.id,
+            requestID: request.requestID,
+            title: "Current title"
+        )
+        #expect(state.entry(for: entry.id)?.fetchedTitle == "Current title")
+    }
+
+    @MainActor
+    @Test
+    func staleTitleRequestCannotOverwriteReplacement() throws {
+        let state = WorkspaceLinksState(fetchTitlesEnabled: true)
+        let entry = try #require(state.ingest(
+            url: "https://example.com/stale-request",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: WorkspaceLinksIngestConfiguration(ignoreHosts: [])
+        ))
+        let staleRequest = try #require(state.beginTitleFetch(for: entry.id))
+
+        state.applySettings(retentionLimit: 500, fetchTitlesEnabled: false)
+        state.applySettings(retentionLimit: 500, fetchTitlesEnabled: true)
+        let currentRequest = try #require(state.beginTitleFetch(for: entry.id))
+
+        state.finishTitleFetch(
+            for: entry.id,
+            requestID: staleRequest.requestID,
+            title: "Stale title"
+        )
+        #expect(state.entry(for: entry.id)?.fetchedTitle == nil)
+        state.finishTitleFetch(
+            for: entry.id,
+            requestID: currentRequest.requestID,
+            title: "Current title"
+        )
+        #expect(state.entry(for: entry.id)?.fetchedTitle == "Current title")
+    }
+
+    @MainActor
+    @Test
+    func titleChangeLogPreservesCoalescedCompletions() throws {
+        let state = WorkspaceLinksState(fetchTitlesEnabled: true)
+        let configuration = WorkspaceLinksIngestConfiguration(ignoreHosts: [])
+        let first = try #require(state.ingest(
+            url: "https://example.com/first-title",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: configuration
+        ))
+        let second = try #require(state.ingest(
+            url: "https://example.com/second-title",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: configuration
+        ))
+        let firstRequest = try #require(state.beginTitleFetch(for: first.id))
+        let secondRequest = try #require(state.beginTitleFetch(for: second.id))
+
+        state.finishTitleFetch(for: first.id, requestID: firstRequest.requestID, title: "First")
+        state.finishTitleFetch(for: second.id, requestID: secondRequest.requestID, title: "Second")
+
+        let changes = try #require(state.titleChanges(after: 0))
+        #expect(changes.map(\.entryID) == [first.id, second.id])
+        #expect(changes.map(\.sequence) == [1, 2])
     }
 
     @MainActor

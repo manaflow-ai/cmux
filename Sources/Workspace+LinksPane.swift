@@ -85,7 +85,7 @@ extension Workspace {
     func restoreLinksState(from snapshot: SessionWorkspaceSnapshot) {
         linksState.restore(
             snapshot.restoredLinks,
-            retentionLimit: LinksCaptureSettings().snapshot().retentionLimit
+            retentionLimit: linksState.retentionLimit
         )
     }
 }

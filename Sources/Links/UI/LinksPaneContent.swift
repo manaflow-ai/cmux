@@ -11,10 +11,17 @@ struct LinksPaneContent: View {
     @State private var selectedHost: String?
     @State private var selectedSourcePanelId: UUID?
     @State private var selection: UUID?
+    @State private var projection = LinksPanelProjection.empty
+    @State private var appliedTitleChangeSequence: UInt64 = 0
     @FocusState private var listFocused: Bool
 
     var body: some View {
-        let projection = makeProjection()
+        let projectionRequest = LinksPanelProjectionRequest(
+            structuralRevision: linksState.structuralRevision,
+            substringFilter: substringFilter,
+            selectedHost: selectedHost,
+            selectedSourcePanelID: selectedSourcePanelId
+        )
         VStack(spacing: 0) {
             toolbar(projection: projection)
                 .padding(.horizontal, 12)
@@ -54,6 +61,14 @@ struct LinksPaneContent: View {
             }
         }
         .accessibilityIdentifier("LinksPane")
+        .task(id: projectionRequest) {
+            projection = makeProjection(for: projectionRequest)
+            appliedTitleChangeSequence = linksState.latestTitleChange?.sequence ?? 0
+        }
+        .onChange(of: linksState.latestTitleChange) { _, change in
+            guard let change else { return }
+            applyTitleChanges(through: change.sequence, projectionRequest: projectionRequest)
+        }
     }
 
     private func emptyText(allEntriesEmpty: Bool) -> String {
@@ -108,8 +123,8 @@ struct LinksPaneContent: View {
         return selectedTitle
     }
 
-    private func makeProjection() -> LinksPanelProjection {
-        let query = substringFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    private func makeProjection(for request: LinksPanelProjectionRequest) -> LinksPanelProjection {
+        let query = request.substringFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let entries = linksState.entries
         var hostSet: Set<String> = []
         var sourceIDs: Set<UUID> = []
@@ -117,6 +132,7 @@ struct LinksPaneContent: View {
         var filteredEntries: [WorkspaceCapturedLink] = []
         var dayBuckets: [LinksPanelDayBucket] = []
         var dayIndex: [Date: Int] = [:]
+        var locationsByEntryID: [UUID: LinksPanelEntryLocation] = [:]
         var selectedSourceTitle: String?
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
@@ -131,13 +147,16 @@ struct LinksPaneContent: View {
                 if sourceIDs.insert(sourceID).inserted {
                     sources.append(LinksPanelSourceOption(id: sourceID, title: title))
                 }
-                if sourceID == selectedSourcePanelId {
+                if sourceID == request.selectedSourcePanelID {
                     selectedSourceTitle = title
                 }
             }
 
-            if let selectedHost, entry.hostKey != selectedHost { continue }
-            if let selectedSourcePanelId, entry.sourcePanelId != selectedSourcePanelId { continue }
+            if let selectedHost = request.selectedHost, entry.hostKey != selectedHost { continue }
+            if let selectedSourcePanelID = request.selectedSourcePanelID,
+               entry.sourcePanelId != selectedSourcePanelID {
+                continue
+            }
             if !query.isEmpty,
                !entry.url.lowercased().contains(query),
                !(entry.hostKey?.lowercased().contains(query) ?? false),
@@ -145,17 +164,30 @@ struct LinksPaneContent: View {
                 continue
             }
 
+            let filteredIndex = filteredEntries.count
             filteredEntries.append(entry)
             let day = Calendar.current.startOfDay(for: entry.lastSeen)
             if let index = dayIndex[day] {
+                let entryIndex = dayBuckets[index].entries.count
                 dayBuckets[index].entries.append(entry)
+                locationsByEntryID[entry.id] = LinksPanelEntryLocation(
+                    filteredIndex: filteredIndex,
+                    bucketIndex: index,
+                    entryIndex: entryIndex
+                )
             } else {
-                dayIndex[day] = dayBuckets.count
+                let bucketIndex = dayBuckets.count
+                dayIndex[day] = bucketIndex
                 dayBuckets.append(LinksPanelDayBucket(
                     day: day,
                     title: dayTitle(day, formatter: formatter, now: now),
                     entries: [entry]
                 ))
+                locationsByEntryID[entry.id] = LinksPanelEntryLocation(
+                    filteredIndex: filteredIndex,
+                    bucketIndex: bucketIndex,
+                    entryIndex: 0
+                )
             }
         }
         return LinksPanelProjection(
@@ -164,8 +196,25 @@ struct LinksPaneContent: View {
             hosts: hostSet.sorted(),
             sources: sources,
             selectedSourceTitle: selectedSourceTitle,
-            dayBuckets: dayBuckets
+            dayBuckets: dayBuckets,
+            locationsByEntryID: locationsByEntryID
         )
+    }
+
+    private func applyTitleChanges(
+        through sequence: UInt64,
+        projectionRequest: LinksPanelProjectionRequest
+    ) {
+        guard let changes = linksState.titleChanges(after: appliedTitleChangeSequence) else {
+            projection = makeProjection(for: projectionRequest)
+            appliedTitleChangeSequence = sequence
+            return
+        }
+        for change in changes {
+            guard let entry = linksState.entry(for: change.entryID) else { continue }
+            projection.updateTitleSnapshot(entry)
+        }
+        appliedTitleChangeSequence = sequence
     }
 
     private var untitledSourceTitle: String {

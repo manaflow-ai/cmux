@@ -1527,7 +1527,9 @@
 		C0DE1016600000000000001B /* LinksPaneContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000001C /* LinksPaneContent.swift */; };
 		C0DE10166000000000000005 /* LinksPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000006 /* LinksPanel.swift */; };
 		C0DE10166000000000000021 /* LinksPanelDayBucket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000022 /* LinksPanelDayBucket.swift */; };
+		C0DE1016600000000000003F /* LinksPanelEntryLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000040 /* LinksPanelEntryLocation.swift */; };
 		C0DE1016600000000000001D /* LinksPanelProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000001E /* LinksPanelProjection.swift */; };
+		C0DE10166000000000000041 /* LinksPanelProjectionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000042 /* LinksPanelProjectionRequest.swift */; };
 		C0DE10166000000000000025 /* LinksPanelRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000026 /* LinksPanelRow.swift */; };
 		C0DE10166000000000000023 /* LinksPanelRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000024 /* LinksPanelRowActions.swift */; };
 		C0DE1016600000000000001F /* LinksPanelSourceOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000020 /* LinksPanelSourceOption.swift */; };
@@ -3095,8 +3097,11 @@
 		B63E1257BB174740A44F458C /* WorkspaceIsStaleAgentHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */; };
 		CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */; };
 		C0DE1016600000000000002D /* WorkspaceLinksIngestConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000002E /* WorkspaceLinksIngestConfiguration.swift */; };
+		C0DE10166000000000000043 /* WorkspaceLinksState+Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000044 /* WorkspaceLinksState+Settings.swift */; };
 		C0DE10166000000000000001 /* WorkspaceLinksState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000002 /* WorkspaceLinksState.swift */; };
 		C0DE10166000000000000011 /* WorkspaceLinksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000012 /* WorkspaceLinksTests.swift */; };
+		C0DE1016600000000000003B /* WorkspaceLinkTitleChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000003C /* WorkspaceLinkTitleChange.swift */; };
+		C0DE1016600000000000003D /* WorkspaceLinkTitleFetchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000003E /* WorkspaceLinkTitleFetchRequest.swift */; };
 		C0DE10166000000000000029 /* WorkspaceLinkTitleFetchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000002A /* WorkspaceLinkTitleFetchState.swift */; };
 		A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */; };
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
@@ -4691,7 +4696,9 @@
 		C0DE1016600000000000001C /* LinksPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPaneContent.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000006 /* LinksPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/LinksPanel.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000022 /* LinksPanelDayBucket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelDayBucket.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000040 /* LinksPanelEntryLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelEntryLocation.swift; sourceTree = "<group>"; };
 		C0DE1016600000000000001E /* LinksPanelProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelProjection.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000042 /* LinksPanelProjectionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelProjectionRequest.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000026 /* LinksPanelRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelRow.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000024 /* LinksPanelRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelRowActions.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000020 /* LinksPanelSourceOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelSourceOption.swift; sourceTree = "<group>"; };
@@ -6244,8 +6251,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceIsStaleAgentHookBindingTests.swift; sourceTree = "<group>"; };
 		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceLayoutMode.swift"; sourceTree = "<group>"; };
 		C0DE1016600000000000002E /* WorkspaceLinksIngestConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceLinksIngestConfiguration.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000044 /* WorkspaceLinksState+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Links/Model/WorkspaceLinksState+Settings.swift"; sourceTree = "<group>"; };
 		C0DE10166000000000000002 /* WorkspaceLinksState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLinksState.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000012 /* WorkspaceLinksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLinksTests.swift; sourceTree = "<group>"; };
+		C0DE1016600000000000003C /* WorkspaceLinkTitleChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceLinkTitleChange.swift; sourceTree = "<group>"; };
+		C0DE1016600000000000003E /* WorkspaceLinkTitleFetchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceLinkTitleFetchRequest.swift; sourceTree = "<group>"; };
 		C0DE1016600000000000002A /* WorkspaceLinkTitleFetchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceLinkTitleFetchState.swift; sourceTree = "<group>"; };
 		A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingArguments.swift; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
@@ -7594,14 +7604,19 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE1016600000000000000E /* LinkTitleFetcher.swift */,
 				C0DE1016600000000000001C /* LinksPaneContent.swift */,
 				C0DE1016600000000000001E /* LinksPanelProjection.swift */,
+				C0DE10166000000000000040 /* LinksPanelEntryLocation.swift */,
+				C0DE10166000000000000042 /* LinksPanelProjectionRequest.swift */,
 				C0DE10166000000000000020 /* LinksPanelSourceOption.swift */,
 				C0DE10166000000000000022 /* LinksPanelDayBucket.swift */,
 				C0DE10166000000000000024 /* LinksPanelRowActions.swift */,
 				C0DE10166000000000000026 /* LinksPanelRow.swift */,
 				C0DE10166000000000000028 /* WorkspaceCapturedLinkOrigin.swift */,
+				C0DE1016600000000000003C /* WorkspaceLinkTitleChange.swift */,
+				C0DE1016600000000000003E /* WorkspaceLinkTitleFetchRequest.swift */,
 				C0DE1016600000000000002A /* WorkspaceLinkTitleFetchState.swift */,
 				C0DE1016600000000000002C /* WorkspaceCapturedLink.swift */,
 				C0DE1016600000000000002E /* WorkspaceLinksIngestConfiguration.swift */,
+				C0DE10166000000000000044 /* WorkspaceLinksState+Settings.swift */,
 				C0DE10166000000000000030 /* TerminalCapturedLinkForwardRequest.swift */,
 				C0DE10166000000000000032 /* TerminalCapturedLinkForwarder.swift */,
 				C0DE10166000000000000034 /* SessionLinksPanelSnapshot.swift */,
@@ -11039,7 +11054,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE1016600000000000001B /* LinksPaneContent.swift in Sources */,
 				C0DE10166000000000000005 /* LinksPanel.swift in Sources */,
 				C0DE10166000000000000021 /* LinksPanelDayBucket.swift in Sources */,
+				C0DE1016600000000000003F /* LinksPanelEntryLocation.swift in Sources */,
 				C0DE1016600000000000001D /* LinksPanelProjection.swift in Sources */,
+				C0DE10166000000000000041 /* LinksPanelProjectionRequest.swift in Sources */,
 				C0DE10166000000000000025 /* LinksPanelRow.swift in Sources */,
 				C0DE10166000000000000023 /* LinksPanelRowActions.swift in Sources */,
 				C0DE1016600000000000001F /* LinksPanelSourceOption.swift in Sources */,
@@ -12166,7 +12183,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A17C0A110000000000000001 /* WorkspaceInitialCommandLoginShell.swift in Sources */,
 				CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */,
 				C0DE1016600000000000002D /* WorkspaceLinksIngestConfiguration.swift in Sources */,
+				C0DE10166000000000000043 /* WorkspaceLinksState+Settings.swift in Sources */,
 				C0DE10166000000000000001 /* WorkspaceLinksState.swift in Sources */,
+				C0DE1016600000000000003B /* WorkspaceLinkTitleChange.swift in Sources */,
+				C0DE1016600000000000003D /* WorkspaceLinkTitleFetchRequest.swift in Sources */,
 				C0DE10166000000000000029 /* WorkspaceLinkTitleFetchState.swift in Sources */,
 				E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,

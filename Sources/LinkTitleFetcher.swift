@@ -15,18 +15,29 @@ final class LinkTitleFetcher {
         linksState: WorkspaceLinksState
     ) async {
         guard let url = URL(string: entry.url),
-              let currentEntry = linksState.beginTitleFetch(for: entry.id) else {
+              let request = linksState.beginTitleFetch(for: entry.id) else {
             return
         }
 
         do {
             let title = try await pageMetadataFetcher.title(for: url)
             try Task.checkCancellation()
-            linksState.finishTitleFetch(for: currentEntry.id, title: title)
+            linksState.finishTitleFetch(
+                for: request.entry.id,
+                requestID: request.requestID,
+                title: title
+            )
         } catch is CancellationError {
-            linksState.cancelTitleFetch(for: currentEntry.id)
+            linksState.cancelTitleFetch(
+                for: request.entry.id,
+                requestID: request.requestID
+            )
         } catch {
-            linksState.finishTitleFetch(for: currentEntry.id, title: nil)
+            linksState.finishTitleFetch(
+                for: request.entry.id,
+                requestID: request.requestID,
+                title: nil
+            )
         }
     }
 }

@@ -21,6 +21,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
     private var logicalLineConsumedBytes = 0
     private var logicalLineOverflowed = false
     private var logicalLinePendingCarriageReturn = false
+    private var osc8URLsInLogicalLine: Set<String> = []
 
     /// Creates an empty terminal-emitted-link scanner.
     public init() {
@@ -194,6 +195,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
             return
         }
         captured.append(TerminalCapturedLink(url: url, source: .osc8))
+        osc8URLsInLogicalLine.insert(url)
     }
 
     private mutating func consumeLogicalLine(
@@ -311,6 +313,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
             return
         }
         for url in detectURLs(in: line) {
+            guard !osc8URLsInLogicalLine.contains(url) else { continue }
             captured.append(TerminalCapturedLink(url: url, source: .detected))
         }
     }
@@ -320,6 +323,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         logicalLineConsumedBytes = 0
         logicalLineOverflowed = false
         logicalLinePendingCarriageReturn = false
+        osc8URLsInLogicalLine.removeAll(keepingCapacity: true)
     }
 
     /// Detects plain http(s) and file URLs in one logical line.

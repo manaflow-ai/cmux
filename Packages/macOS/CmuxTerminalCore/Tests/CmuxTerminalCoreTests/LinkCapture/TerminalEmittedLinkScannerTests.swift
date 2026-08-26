@@ -126,6 +126,15 @@ end https://end.example/c
     }
 
     @Test
+    func osc8URLLabelIsNotCountedAgainAsDetectedText() {
+        var scanner = TerminalEmittedLinkScanner()
+        let url = "https://example.com/same-label"
+        let links = scanner.consume(bytes("\u{1B}]8;;\(url)\u{07}\(url)\u{1B}]8;;\u{07}\n"))
+
+        #expect(links == [TerminalCapturedLink(url: url, source: .osc8)])
+    }
+
+    @Test
     func requiresPlausibleHostForDetectedURLs() {
         let scanner = TerminalEmittedLinkScanner()
         #expect(scanner.detectURLs(in: "http://example/path").isEmpty)

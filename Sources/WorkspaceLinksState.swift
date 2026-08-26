@@ -6,8 +6,14 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceLinksState {
-    private var revision: UInt64 = 0
+    private static let maximumRecentTitleChanges = 256
+
+    private var persistenceRevisionValue: UInt64 = 0
+    private var titleChangeSequence: UInt64 = 0
+    private(set) var structuralRevision: UInt64 = 0
+    private(set) var latestTitleChange: WorkspaceLinkTitleChange?
     private(set) var fetchTitlesEnabled: Bool
+    private(set) var retentionLimit: Int
 
     @ObservationIgnored private var entriesByURL: [String: WorkspaceCapturedLink] = [:]
     @ObservationIgnored private var urlByID: [UUID: String] = [:]
@@ -15,19 +21,31 @@ final class WorkspaceLinksState {
     @ObservationIgnored private var nextURL: [String: String] = [:]
     @ObservationIgnored private var headURL: String?
     @ObservationIgnored private var tailURL: String?
+    @ObservationIgnored private var recentTitleChanges: [WorkspaceLinkTitleChange] = []
     @ObservationIgnored private let hostPolicy = CapturedLinkHostPolicy()
 
-    init(fetchTitlesEnabled: Bool = false) {
+    init(retentionLimit: Int = 500, fetchTitlesEnabled: Bool = false) {
+        self.retentionLimit = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(retentionLimit)
         self.fetchTitlesEnabled = fetchTitlesEnabled
     }
 
     var entries: [WorkspaceCapturedLink] {
-        _ = revision
+        _ = structuralRevision
         return orderedEntries()
     }
 
     var persistenceRevision: UInt64 {
-        revision
+        persistenceRevisionValue
+    }
+
+    func entry(for id: UUID) -> WorkspaceCapturedLink? {
+        urlByID[id].flatMap { entriesByURL[$0] }
+    }
+
+    func titleChanges(after sequence: UInt64) -> [WorkspaceLinkTitleChange]? {
+        guard let firstChange = recentTitleChanges.first else { return [] }
+        guard sequence >= firstChange.sequence - 1 else { return nil }
+        return recentTitleChanges.filter { $0.sequence > sequence }
     }
 
     @discardableResult
@@ -63,13 +81,14 @@ final class WorkspaceLinksState {
             entry.sourcePanelId = sourcePanelId ?? entry.sourcePanelId
             entry.sourceSurfaceTitle = sourceSurfaceTitle ?? entry.sourceSurfaceTitle
             entry.origin = origin
-            if entry.fetchedTitle == nil {
+            if entry.fetchedTitle == nil, entry.titleFetchState == .failed {
                 entry.titleFetchState = .idle
+                entry.titleFetchGeneration &+= 1
             }
             entriesByURL[trimmed] = entry
             moveToFront(trimmed)
             enforceRetention(configuration.retentionLimit)
-            markChanged()
+            markStructuralChange()
             return entry
         }
 
@@ -89,43 +108,40 @@ final class WorkspaceLinksState {
         urlByID[entry.id] = trimmed
         insertAtFront(trimmed)
         enforceRetention(configuration.retentionLimit)
-        markChanged()
+        markStructuralChange()
         return entry
     }
 
     func restore(_ restoredEntries: [WorkspaceCapturedLink], retentionLimit: Int) {
         let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(retentionLimit)
         clearStorage()
-        for entry in restoredEntries.sorted(by: { $0.lastSeen > $1.lastSeen }).prefix(cap) {
-            guard entriesByURL[entry.url] == nil else { continue }
+        for restoredEntry in restoredEntries.sorted(by: { $0.lastSeen > $1.lastSeen }).prefix(cap) {
+            guard entriesByURL[restoredEntry.url] == nil else { continue }
+            var entry = restoredEntry
+            entry.titleFetchState = .idle
+            entry.activeTitleFetchID = nil
             entriesByURL[entry.url] = entry
             urlByID[entry.id] = entry.url
             appendToTail(entry.url)
         }
-        markChanged()
+        markStructuralChange()
     }
 
     func remove(id: UUID) {
         guard let url = urlByID[id] else { return }
         removeURL(url)
-        markChanged()
+        markStructuralChange()
     }
 
     func clearAll() {
         clearStorage()
-        markChanged()
+        markStructuralChange()
     }
 
-    func setFetchedTitle(_ title: String, for id: UUID) {
-        guard let url = urlByID[id],
-              var entry = entriesByURL[url] else { return }
-        entry.fetchedTitle = title
-        entry.titleFetchState = .idle
-        entriesByURL[url] = entry
-        markChanged()
-    }
-
-    func beginTitleFetch(for id: UUID) -> WorkspaceCapturedLink? {
+    func beginTitleFetch(
+        for id: UUID,
+        requestID: UUID = UUID()
+    ) -> WorkspaceLinkTitleFetchRequest? {
         guard fetchTitlesEnabled,
               let url = urlByID[id],
               var entry = entriesByURL[url],
@@ -134,35 +150,44 @@ final class WorkspaceLinksState {
             return nil
         }
         entry.titleFetchState = .inFlight
+        entry.activeTitleFetchID = requestID
         entriesByURL[url] = entry
-        markChanged()
-        return entry
+        return WorkspaceLinkTitleFetchRequest(entry: entry, requestID: requestID)
     }
 
-    func finishTitleFetch(for id: UUID, title: String?) {
-        guard let url = urlByID[id], var entry = entriesByURL[url] else { return }
-        entry.fetchedTitle = title
-        entry.titleFetchState = title == nil ? .failed : .idle
-        entriesByURL[url] = entry
-        markChanged()
-    }
-
-    func cancelTitleFetch(for id: UUID) {
+    func finishTitleFetch(for id: UUID, requestID: UUID, title: String?) {
         guard let url = urlByID[id],
               var entry = entriesByURL[url],
-              entry.titleFetchState == .inFlight else {
+              entry.activeTitleFetchID == requestID else {
+            return
+        }
+        entry.fetchedTitle = title
+        entry.titleFetchState = title == nil ? .failed : .idle
+        entry.activeTitleFetchID = nil
+        entriesByURL[url] = entry
+        if title != nil {
+            markTitleChange(entryID: id)
+        }
+    }
+
+    func cancelTitleFetch(for id: UUID, requestID: UUID) {
+        guard let url = urlByID[id],
+              var entry = entriesByURL[url],
+              entry.titleFetchState == .inFlight,
+              entry.activeTitleFetchID == requestID else {
             return
         }
         entry.titleFetchState = .idle
+        entry.activeTitleFetchID = nil
         entriesByURL[url] = entry
-        markChanged()
     }
 
     func applyRetentionLimit(_ limit: Int) {
+        retentionLimit = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(limit)
         let previousCount = entriesByURL.count
-        enforceRetention(limit)
+        enforceRetention(retentionLimit)
         if entriesByURL.count != previousCount {
-            markChanged()
+            markStructuralChange()
         }
     }
 
@@ -264,14 +289,30 @@ final class WorkspaceLinksState {
         for url in inFlightURLs {
             guard var entry = entriesByURL[url] else { continue }
             entry.titleFetchState = .idle
+            entry.titleFetchGeneration &+= 1
+            entry.activeTitleFetchID = nil
             entriesByURL[url] = entry
-        }
-        if !inFlightURLs.isEmpty {
-            markChanged()
         }
     }
 
-    private func markChanged() {
-        revision &+= 1
+    private func markStructuralChange() {
+        persistenceRevisionValue &+= 1
+        structuralRevision &+= 1
+    }
+
+    private func markTitleChange(entryID: UUID) {
+        persistenceRevisionValue &+= 1
+        titleChangeSequence &+= 1
+        let change = WorkspaceLinkTitleChange(
+            sequence: titleChangeSequence,
+            entryID: entryID
+        )
+        recentTitleChanges.append(change)
+        if recentTitleChanges.count > Self.maximumRecentTitleChanges {
+            recentTitleChanges.removeFirst(
+                recentTitleChanges.count - Self.maximumRecentTitleChanges
+            )
+        }
+        latestTitleChange = change
     }
 }

@@ -41,7 +41,8 @@ struct LinksPanelRow: View {
         .onTapGesture(count: 2) { actions.openPreferred() }
         .task(id: LinksPanelTitleFetchTaskID(
             entryID: entry.id,
-            fetchTitlesEnabled: fetchTitlesEnabled
+            fetchTitlesEnabled: fetchTitlesEnabled,
+            generation: entry.titleFetchGeneration
         )) {
             guard fetchTitlesEnabled else { return }
             await actions.fetchTitle(entry)

@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 
 /// Confines the blocking system resolver call to a bounded background lane.
-struct BrowserPageMetadataDNSWorker: Sendable {
+struct BrowserPageMetadataDNSWorker: BrowserPageMetadataDNSWorking {
     private let addressPolicy: NetworkAddressPolicy
 
     init(addressPolicy: NetworkAddressPolicy) {

@@ -12,4 +12,6 @@ struct WorkspaceCapturedLink: Identifiable, Equatable, Hashable, Sendable {
     var origin: WorkspaceCapturedLinkOrigin
     var fetchedTitle: String?
     var titleFetchState: WorkspaceLinkTitleFetchState = .idle
+    var titleFetchGeneration: UInt64 = 0
+    var activeTitleFetchID: UUID?
 }
