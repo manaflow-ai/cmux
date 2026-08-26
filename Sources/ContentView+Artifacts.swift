@@ -60,7 +60,7 @@ extension ContentView {
                         url: document.url,
                         focus: true,
                         creationPolicy: .artifactPreview,
-                        omnibarVisible: false,
+                        chromeVisibility: .hidden,
                         bypassRemoteProxy: true
                     )
                 } catch {

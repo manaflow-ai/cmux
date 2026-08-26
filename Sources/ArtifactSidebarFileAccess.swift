@@ -517,7 +517,7 @@ struct ArtifactSidebarFileAccess {
         var rootStatus = stat()
         guard fstat(rootDescriptor, &rootStatus) == 0,
               (rootStatus.st_mode & S_IFMT) == S_IFDIR,
-              let openedRootPath = openedPath(for: rootDescriptor) else {
+              let openedRootPath = self.openedPath(for: rootDescriptor) else {
             return nil
         }
         let rootPath = openedRootPath.path
@@ -601,7 +601,7 @@ struct ArtifactSidebarFileAccess {
         var rootStatus = stat()
         guard fstat(rootDescriptor, &rootStatus) == 0,
               (rootStatus.st_mode & S_IFMT) == S_IFDIR,
-              let openedRootPath = openedPath(for: rootDescriptor) else {
+              let openedRootPath = self.openedPath(for: rootDescriptor) else {
             _ = Darwin.close(descriptor)
             return nil
         }
