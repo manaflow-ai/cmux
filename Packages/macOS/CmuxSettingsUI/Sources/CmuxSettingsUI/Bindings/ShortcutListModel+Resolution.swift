@@ -38,10 +38,10 @@ extension ShortcutListModel {
             bindingsConflict: { proposed, configuredAction, configured in
                 guard ShortcutWhenClause.bindingsCollide(
                     whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause,
-                    lhsHasPriority: action.hasPriorityShortcutRouting,
+                    lhsHasPriority: action.hasPriorityForShortcutConflict(with: configuredAction),
                     whenOverrideClauses[configuredAction.rawValue]
                         ?? configuredAction.defaultFocusWhenClause,
-                    rhsHasPriority: configuredAction.hasPriorityShortcutRouting
+                    rhsHasPriority: configuredAction.hasPriorityForShortcutConflict(with: action)
                 ) else {
                     return false
                 }

@@ -268,6 +268,14 @@ import Testing
             await jsonStore.value(for: catalog.shortcuts.bindings)[ShortcutAction.browserHardReload.rawValue]
                 == legacyShortcut
         )
+
+        await model.assign(stroke: legacyShortcut.first, to: .renameWorkspace)
+
+        #expect(model.conflictRejections[ShortcutAction.renameWorkspace.rawValue] == nil)
+        #expect(
+            await jsonStore.value(for: catalog.shortcuts.bindings)[ShortcutAction.renameWorkspace.rawValue]
+                == legacyShortcut
+        )
     }
 
     @Test func successfulEditRetiresSupersededLegacyOverride() async throws {

@@ -738,8 +738,13 @@ enum KeyboardShortcutSettings {
         /// Mirrors the one compatibility ordering that exists in the runtime
         /// dispatcher: hard reload is checked immediately before Rename Workspace.
         private func hasPriorityForShortcutConflict(with other: Action) -> Bool {
-            hasPriorityShortcutRouting
-                || (self == .browserHardReload && other == .renameWorkspace)
+            guard let sharedAction = CmuxSettings.ShortcutAction(rawValue: rawValue),
+                  let sharedOther = CmuxSettings.ShortcutAction(rawValue: other.rawValue) else {
+                // Every persisted app action currently has a shared counterpart;
+                // preserve the app-side priority behavior if that invariant changes.
+                return hasPriorityShortcutRouting
+            }
+            return sharedAction.hasPriorityForShortcutConflict(with: sharedOther)
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

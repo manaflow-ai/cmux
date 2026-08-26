@@ -196,9 +196,9 @@ final class ShortcutListModel {
         for other in ShortcutAction.allCases where other != action {
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,
-                lhsHasPriority: action.hasPriorityShortcutRouting,
+                lhsHasPriority: action.hasPriorityForShortcutConflict(with: other),
                 effectiveWhenClause(for: other),
-                rhsHasPriority: other.hasPriorityShortcutRouting
+                rhsHasPriority: other.hasPriorityForShortcutConflict(with: action)
             ) else { continue }
             let effective = effective(for: other)
             guard let effective, !effective.isUnbound else { continue }
