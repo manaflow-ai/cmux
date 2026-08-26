@@ -13,7 +13,8 @@
 //
 // Dialect constants (src/relay.ts):
 //   v2 hello negotiation, v3 exec verbs, v4 PTY, v5 process credentials,
-//   v6 workspace verbs + fs_watch (RELAY_PROTOCOL_WORKSPACE_VERSION).
+//   v6 workspace verbs + fs_watch, v7 PTY operational-error feature gate
+//   (RELAY_PROTOCOL_PTY_OPERATIONAL_ERRORS_VERSION).
 // Requires serde + serde_json (derive feature); no other crates.
 
 #![allow(clippy::all)]
@@ -1098,8 +1099,16 @@ pub enum RelayPtyErrorCode {
     TrustRefused,
     #[serde(rename = "session_limit")]
     SessionLimit,
+    #[serde(rename = "terminal_gone")]
+    TerminalGone,
     #[serde(rename = "failed")]
     Failed,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "trust_revoked")]
+    TrustRevoked,
+    #[serde(rename = "busy")]
+    Busy,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

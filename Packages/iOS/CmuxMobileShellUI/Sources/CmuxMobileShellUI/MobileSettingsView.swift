@@ -66,6 +66,22 @@ struct MobileSettingsView: View {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
 
+                // Directly under the account card so release notices stay
+                // discoverable after their one-time launch sheet is
+                // dismissed (HIG: keep skippable onboarding-style content
+                // findable in a settings area).
+                Section {
+                    NavigationLink {
+                        MobileWhatsNewListView()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
+                            systemImage: "megaphone"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsWhatsNewRow")
+                }
+
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
                 // checkmark on the current one — so every team is visible at a glance
@@ -279,6 +295,22 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
+
+                    Toggle(isOn: $displaySettings.forceRebuildKeyboardDock) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDock",
+                                defaultValue: "Rebuilt Keyboard Pinning"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDockCaption",
+                                defaultValue: "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
                 }
 
                 Section(L10n.string(
@@ -474,6 +506,9 @@ struct MobileSettingsView: View {
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    onEnablePush: {
+                        await pushCoordinator.enable(trigger: "onboarding_replay")
+                    },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,

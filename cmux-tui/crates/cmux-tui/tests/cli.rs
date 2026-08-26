@@ -654,6 +654,13 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let remote_help = lifecycle_cli(&["remote", "--help"]);
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
+    assert!(
+        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
+        "{remote_help}"
+    );
+    assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
+    assert!(remote_help.contains("cmux remote known-daemons [OPTIONS]"), "{remote_help}");
+    assert!(remote_help.contains("cmux remote stop [OPTIONS]"), "{remote_help}");
     assert!(remote_help.contains("cmux remote stop"), "{remote_help}");
     assert!(remote_help.contains("cmux remote connect"), "{remote_help}");
 
@@ -742,6 +749,28 @@ fn local_server_lifecycle_rejects_machine_before_socket_access() {
         assert_eq!(output.status.code(), Some(2));
         let error = String::from_utf8(output.stderr).unwrap();
         assert!(error.contains("--machine cannot target a local server"), "{error}");
+    }
+}
+
+#[test]
+fn local_server_lifecycle_rejects_invalid_derived_socket_sessions() {
+    for action in ["status", "stop", "reload-config"] {
+        let output = lifecycle_cli(&["--json", "--session", "../outside", "server", action]);
+
+        assert_eq!(output.status.code(), Some(2), "action={action}");
+        assert!(output.stdout.is_empty(), "action={action}");
+        let error: serde_json::Value =
+            serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
+                panic!(
+                    "action={action}: expected JSON error, got {error}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            });
+        assert_eq!(error["code"], "usage.invalid", "action={action}");
+        assert!(
+            error["message"].as_str().is_some_and(|message| message.contains("invalid")),
+            "action={action}: {error}"
+        );
     }
 }
 
@@ -3129,6 +3158,13 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
     let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
     let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    // Create all terminals before opening the long-lived raw control client.
+    // Terminal creation can rebalance the shared Kitty image budget; keeping
+    // this resource setup ahead of the sizing lease avoids a cross-resource
+    // wait in this fixture.
+    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
+    assert_success(&split);
+    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
     let raw_tree =
         raw_json(&server, serde_json::json!({"id":"created-tree","cmd":"list-workspaces"}));
     let sizing_surface =
@@ -3228,9 +3264,6 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         "ordinary public layout unexpectedly used viewport columns"
     );
 
-    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
-    assert_success(&split);
-    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
     let projected = json_cli(
         &server,
         &[

@@ -32,6 +32,22 @@ screen, err := client.ReadScreen(ctx, surface.Surface)
 `CMUX_MUX_SOCKET`, then `$XDG_RUNTIME_DIR`, `$TMPDIR`, or `/tmp`. It applies
 the server's short-path fallback when the preferred Unix socket path exceeds
 the platform limit. An explicit `Options.SocketPath` has highest precedence.
+An omitted session uses the legacy `main` session. An explicitly empty session
+is invalid and the path-only `defaultSocketPath("")` helper returns an
+isolated deterministic invalid-session path. Explicit
+invalid session text supplied to `ResolveSocketPath` is rejected before any
+dial, including `.`, `..`, separators, NUL, Unicode control characters,
+Unicode line separators, and malformed UTF-8. Spaces, Unicode, punctuation,
+and long legacy-safe names remain valid. The source-compatible
+`DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
+invalid-session directory, but it is not a connector route.
+Valid names that exceed the Unix socket limit use the same digest in
+`<runtime-base>/cmux-tui-hashed-<uid>` when it fits, with
+`/tmp/cmux-tui-hashed-<uid>` as the length-only fallback used by the server.
+An empty `Options.Session` with `SessionSet: false` is omitted and selects
+`main`. Set `SessionSet: true` for caller-supplied session text so an explicitly
+empty value is rejected before socket discovery. Existing non-empty session
+values remain explicit without the flag.
 
 Every command method accepts `context.Context`. The client serializes commands
 on one connection. Subscribe and attach streams own dedicated connections, so
