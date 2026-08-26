@@ -95,6 +95,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Peer transport v2 pairing bootstrap (DEBUG-only surface): same
+        // async mint shape as attach_ticket.create, so same worker policy.
+        "mobile.peer_transport.pair",
         // Provider discovery may read configuration or run `opencode models`;
         // it must never hold the main actor while waiting for process I/O.
         "mobile.task.models.list",
@@ -434,6 +437,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// callable from the main thread.
     static let diagnosticReadV1Commands: Set<String> = [
         "iroh_diag",
+        // Peer transport v2 dev verbs (DEBUG-only surfaces): same actor-owned
+        // await shape as iroh_diag, so same worker policy.
+        "ptx-status",
+        "ptx-ticket",
     ]
 
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2

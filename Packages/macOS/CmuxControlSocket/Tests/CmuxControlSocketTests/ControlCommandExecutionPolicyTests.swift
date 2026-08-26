@@ -34,6 +34,7 @@ struct ControlCommandExecutionPolicyTests {
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
+            "mobile.peer_transport.pair",
             "mobile.terminal.set_font", "mobile.task.models.list",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",
@@ -187,6 +188,8 @@ struct ControlCommandExecutionPolicyTests {
 
     @Test func diagnosticReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         #expect(ControlCommandExecutionPolicy(forV1Command: "iroh_diag") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forV1Command: "ptx-status") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forV1Command: "ptx-ticket") == .socketWorker(mainThreadCallable: false))
     }
 
     @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {
@@ -327,7 +330,9 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy.agentJournalV1Commands == agentJournal)
         let terminalRead: Set<String> = ["read_screen"]
         #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
-        let diagnosticRead: Set<String> = ["iroh_diag"]
+        let diagnosticRead: Set<String> = [
+            "iroh_diag", "ptx-status", "ptx-ticket",
+        ]
         #expect(ControlCommandExecutionPolicy.diagnosticReadV1Commands == diagnosticRead)
         let resolutionReads: Set<String> = [
             "list_windows", "current_window", "list_workspaces",

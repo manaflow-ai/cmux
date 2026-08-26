@@ -1307,6 +1307,14 @@ class TerminalController {
             // wait must never block the main thread.
             case "iroh_diag":
                 return (true, irohDiagText())
+            // Peer transport v2 dev verbs (DEBUG-only surfaces): the parallel
+            // v2 host's status snapshot and dial ticket, for the soak harness
+            // and pairing tooling. Same semaphore pattern as iroh_diag; NOT
+            // mainThreadCallable — the wait must never block the main thread.
+            case "ptx-status":
+                return (true, ptxStatusText())
+            case "ptx-ticket":
+                return (true, ptxTicketText())
             // The v1 resolution reads (tranche D): one v2MainSync snapshot
             // hop each, reply lines formatted here on this worker thread.
             // All mainThreadCallable (the hop collapses inline); the bodies
@@ -1548,6 +1556,15 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        #if DEBUG
+        case "mobile.peer_transport.pair":
+            // Socket parity with the phone RPC dispatcher, so tooling can
+            // preflight the peer-transport-v2 pairing bootstrap without a
+            // device.
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 15) {
+                await self.v2MobilePeerTransportPair(params: request.params)
+            }
+        #endif
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "system.ping":
@@ -11714,6 +11731,93 @@ class TerminalController {
         return export
     }
 
+    /// Serves the v1 `ptx-status` socket verb: one JSON object describing the
+    /// peer transport v2 host (enabled, endpoint_id, relay_url, sessions,
+    /// identity_persisted, signer_persisted).
+    private nonisolated func ptxStatusText() -> String {
+        #if DEBUG
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = ""
+        Task { @MainActor in
+            reply = await MobileHostPtxRuntime.shared.statusJSON()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return reply
+        #else
+        return "peer transport v2 is a DEBUG-only surface"
+        #endif
+    }
+
+    /// Serves the v1 `ptx-ticket` socket verb: `{"ticket": <encoded>}` so
+    /// the soak harness can mint a dial ticket without pairing.
+    private nonisolated func ptxTicketText() -> String {
+        #if DEBUG
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply = ""
+        Task { @MainActor in
+            let runtime = MobileHostPtxRuntime.shared
+            if let encoded = await runtime.ticketEncoded(),
+               let data = try? JSONSerialization.data(withJSONObject: ["ticket": encoded]) {
+                reply = String(decoding: data, as: UTF8.self)
+            } else {
+                reply = """
+                peer-transport-v2 host not running (state: \(runtime.state)); \
+                enable it via defaults key \(MobileHostPtxRuntime.enabledDefaultsKey)
+                """
+            }
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return reply
+        #else
+        return "peer transport v2 is a DEBUG-only surface"
+        #endif
+    }
+
+    #if DEBUG
+    /// Serves `mobile.peer_transport.pair`: the phone requests its peer
+    /// transport v2 ticket + grant over the ALREADY authenticated legacy
+    /// channel, replacing any paste flow. Transport admission is the
+    /// authority (see MobileHostService+TicketAuthorization); the minted
+    /// grant binds to the exact device identity carried in the request.
+    @MainActor
+    func v2MobilePeerTransportPair(params: [String: Any]) async -> V2CallResult {
+        guard
+            let deviceID = params["device_id"] as? String,
+            let keyB64 = params["device_public_key"] as? String,
+            let key = Data(base64Encoded: keyB64),
+            let appIdentity = params["app_identity"] as? String
+        else {
+            return .err(
+                code: "invalid_params",
+                message: "device_id, device_public_key (base64), app_identity required",
+                data: nil
+            )
+        }
+        let runtime = MobileHostPtxRuntime.shared
+        guard runtime.isEnabled,
+              let ticket = await runtime.ticketEncoded(),
+              let grant = await runtime.mintGrantEncoded(
+                  deviceID: deviceID,
+                  devicePublicKey: key,
+                  appIdentity: appIdentity
+              )
+        else {
+            return .err(
+                code: "unavailable",
+                message: "peer-transport-v2 host not running (state: \(runtime.state))",
+                data: nil
+            )
+        }
+        return .ok([
+            "schema_version": 1,
+            "ticket": ticket,
+            "grant": grant,
+        ])
+    }
+    #endif
+
     private nonisolated func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
@@ -14729,6 +14833,8 @@ class TerminalController {
                 "schema_version": 1,
                 "methods": MobileHostService.irohReleaseGateRPCMethods,
             ])
+        case "mobile.peer_transport.pair":
+            result = await v2MobilePeerTransportPair(params: request.params)
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
