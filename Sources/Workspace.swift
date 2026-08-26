@@ -1880,18 +1880,19 @@ extension Workspace {
                 }
                 return nil
             }
-            if deferredAgentResumeAdmission,
-               let restoredRemotePTYSessionID,
-               effectivePersistentSSHResumeCommand != nil {
-                // Keep a deferred persistent-SSH restore attached to its PTY
-                // after cancellation, but leave its agent-resume payload out
-                // of the first runtime command.
-                terminalPanel.surface.setStartupRestoreAdmissionFallbackCommand(
-                    remotePTYAttachStartupCommand(
-                        sessionID: restoredRemotePTYSessionID,
-                        remoteCommand: nil
+            if deferredAgentResumeAdmission {
+                if let restoredRemotePTYSessionID,
+                   effectivePersistentSSHResumeCommand != nil {
+                    // Keep a deferred persistent-SSH restore attached to its PTY
+                    // after cancellation, but leave its agent-resume payload out
+                    // of the first runtime command.
+                    terminalPanel.surface.setStartupRestoreAdmissionFallbackCommand(
+                        remotePTYAttachStartupCommand(
+                            sessionID: restoredRemotePTYSessionID,
+                            remoteCommand: nil
+                        )
                     )
-                )
+                }
             }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
