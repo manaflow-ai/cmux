@@ -2515,6 +2515,75 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(registered.restoreWorkingDirectorySelection == .unavailable)
     }
 
+    @Test func persistentSSHRegistrationHonorsCwdIgnoreWithReportedCwd() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "persistent-ignore-session"
+        let capturedDirectory = "/Users/alice/captured-project"
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            persistentPTYSessionID: "persistent-ignore-pty"
+        )
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-ignore",
+            name: "Acme Ignore",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            forkCommand: "acme-agent --session {{sessionId}} --fork",
+            cwd: .ignore
+        )
+        let launchCommand = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: registration.id,
+            executablePath: "/usr/local/bin/acme-agent",
+            arguments: ["/usr/local/bin/acme-agent", "--session", sessionID],
+            workingDirectory: capturedDirectory
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: registration.id,
+            command: "acme-agent --session \(sessionID)",
+            cwd: capturedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            autoResume: true
+        )
+        let matchingAgent = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: sessionID,
+            workingDirectory: capturedDirectory,
+            launchCommand: launchCommand,
+            registration: registration
+        )
+
+        let registered = binding.registeredForPersistentSSH(
+            context,
+            restorableAgent: matchingAgent
+        )
+
+        #expect(registered.restoreWorkingDirectorySelection == .exact(nil))
+    }
+
+    @Test func unavailableRestorePolicyDoesNotAdvertiseForkSupport() async {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "unavailable-fork-session",
+            workingDirectory: "/Users/alice/captured-project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude"],
+                workingDirectory: "/Users/alice/captured-project"
+            ),
+            restoreWorkingDirectorySelection: .unavailable
+        )
+
+        #expect(snapshot.forkCommand == nil)
+        #expect(AgentForkSupport.forkValidationIdentity(snapshot: snapshot) == nil)
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+    }
+
     @Test func exactRemoteRebuildSupportsRegistryOwnedKindWithoutSnapshot() throws {
         let sessionID = "snapshotless-grok-session"
         let trustedDirectory = "/srv/remote-grok"
