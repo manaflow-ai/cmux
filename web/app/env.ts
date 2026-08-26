@@ -220,8 +220,8 @@ export const env = createEnv({
       })
       .optional(),
     // Iroh trust broker. The Services API key deliberately has no TypeScript
-    // env entry: only the isolated Rust relay minter may hold it. These values
-    // are server-only and routes fail closed when an operation's key is absent.
+    // env entry. These values are server-only and routes fail closed when an
+    // operation's key is absent.
     CMUX_IROH_LAN_DISCOVERY_SECRET_B64: requireVercelNonPreviewValue(
       "CMUX_IROH_LAN_DISCOVERY_SECRET_B64",
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/),
@@ -280,8 +280,8 @@ export const env = createEnv({
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Shared secret for the relay fleet's per-connection access-control hook
     // (POST /api/relay/allow). Optional: when unset the route answers 503 and
-    // the fleet fails closed for new endpoint admissions. Same base64 shape as
-    // CMUX_IROH_MINT_HMAC_SECRET_B64.
+    // the fleet fails closed for new endpoint admissions. 32-byte random
+    // secret in standard base64.
     CMUX_RELAY_ALLOW_HMAC_SECRET_B64:
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
   },
