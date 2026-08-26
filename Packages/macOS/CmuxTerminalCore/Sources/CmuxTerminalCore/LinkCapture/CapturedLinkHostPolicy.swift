@@ -26,7 +26,7 @@ public struct CapturedLinkHostPolicy: Sendable {
               !host.isEmpty else {
             return nil
         }
-        let normalizedHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        let normalizedHost = addressPolicy.normalizedHost(host)
         guard !normalizedHost.isEmpty else { return nil }
         if normalizedHost.contains(":") {
             let bracketedHost = "[\(normalizedHost)]"
@@ -127,12 +127,14 @@ public struct CapturedLinkHostPolicy: Sendable {
         if trimmed.first == "[", let closing = trimmed.firstIndex(of: "]") {
             let host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
             guard !host.isEmpty else { return nil }
+            let normalizedHost = addressPolicy.normalizedHost(String(host))
+            guard !normalizedHost.isEmpty else { return nil }
             let rest = trimmed[trimmed.index(after: closing)...]
-            guard !rest.isEmpty else { return "[\(host)]" }
+            guard !rest.isEmpty else { return "[\(normalizedHost)]" }
             if rest.first == ":",
                rest.dropFirst().allSatisfy(\.isNumber),
                !rest.dropFirst().isEmpty {
-                return "[\(host)]\(rest)"
+                return "[\(normalizedHost)]\(rest)"
             }
             return nil
         }
@@ -143,11 +145,13 @@ public struct CapturedLinkHostPolicy: Sendable {
             if colonCount == 1,
                let colon = unbracketed.lastIndex(of: ":"),
                unbracketed[unbracketed.index(after: colon)...].allSatisfy(\.isNumber) {
-                return unbracketed
+                let host = addressPolicy.normalizedHost(String(unbracketed[..<colon]))
+                guard !host.isEmpty else { return nil }
+                return "\(host)\(unbracketed[colon...])"
             }
-            return "[\(unbracketed)]"
+            return "[\(addressPolicy.normalizedHost(unbracketed))]"
         }
-        return unbracketed
+        return addressPolicy.normalizedHost(unbracketed)
     }
 
     /// Returns the host portion of a normalized `host` or `host:port` key.

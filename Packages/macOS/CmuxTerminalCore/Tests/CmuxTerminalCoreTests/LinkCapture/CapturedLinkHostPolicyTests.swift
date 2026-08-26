@@ -31,6 +31,15 @@ struct CapturedLinkHostPolicyTests {
     }
 
     @Test
+    func trailingDNSDotUsesCanonicalIgnoreListSpelling() {
+        let key = policy.hostKey(for: "http://localhost.:31034/status")
+
+        #expect(key == "localhost:31034")
+        #expect(policy.matchesIgnoreList(hostPort: key, list: ["localhost:31034"]))
+        #expect(policy.matchesIgnoreList(hostPort: "api.example.com.", list: ["*.example.com"]))
+    }
+
+    @Test
     func ignoreListMatchesWildcardSuffix() {
         #expect(policy.matchesIgnoreList(
             hostPort: "api.example.com:443",
