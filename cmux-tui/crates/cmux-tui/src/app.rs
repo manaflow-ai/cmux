@@ -14813,15 +14813,22 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::GraphicsStatus(status)) => {
+                let messages = &localization::catalog().graphics;
                 // Kitty quota updates are advisory: the mux disables graphics
                 // for an unresponsive surface and the terminal remains usable.
                 // Keep the structured event available to logs and remote
                 // observers, but do not replace user-facing command status
                 // with a diagnostic the user cannot act on.
-                if matches!(&status, GraphicsStatus::KittyImageBudgetUpdateFailed { .. }) {
+                if let GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } =
+                    &status
+                {
+                    crate::client_log::log(
+                        "ERROR",
+                        "kitty-graphics",
+                        &messages.kitty_image_budget_update_failed(*retry_exhausted, summary),
+                    );
                     return Ok(RenderAction::None);
                 }
-                let messages = &localization::catalog().graphics;
                 self.status_message = Some(match status {
                     GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => {
                         messages.kitty_image_budget_worker_start_failed(&error)
