@@ -637,14 +637,22 @@ extension CmxIrohHostRuntime {
                     // The first publication of this lifecycle stays gated on
                     // a verified usable relay path; the authenticated
                     // reconcile above already applied admission policy,
-                    // binding adoption, and renewal scheduling. The ready
-                    // gate runs the publishing round once the relay works.
+                    // binding adoption, and renewal scheduling.
                     registrationRefreshFailureCount = 0
                     completedSuccessfully = true
                     scheduleRegistrationRenewal(
                         binding: registration.binding,
                         revision: revision
                     )
+                    // Re-arm the ready gate: this round may be the one the
+                    // gate handed its deferred publication to (consuming
+                    // itself), and readiness can return without any
+                    // network-change event (a relay reconnect iroh does not
+                    // re-announce). While the first publication is pending, a
+                    // relay-readiness owner must always exist; the renewal
+                    // deadline above is cadence-bound and can be nil for a
+                    // stale binding.
+                    scheduleInitialPublication(revision: revision)
                     return
                 }
             }

@@ -49,6 +49,11 @@ public actor CmxIrohEndpointServer {
         /// passed. `nil` while the attempt is still establishing.
         var remoteIdentity: CmxIrohPeerIdentity?
         var connection: (any CmxIrohConnection)?
+        /// Set when the admission deadline fired while the handshake was
+        /// still in flight. The slot stays occupied until the attempt
+        /// resolves; whichever of `registerEstablished`/`failEstablishment`
+        /// observes the resolution releases it.
+        var abandoned = false
     }
 
     /// The endpoint's accept queue ended while its generation is still
@@ -336,6 +341,13 @@ public actor CmxIrohEndpointServer {
         connection: any CmxIrohConnection
     ) async -> Bool {
         let remoteIdentity = await connection.remoteIdentity()
+        if let admission = pendingAdmissions[id], admission.abandoned {
+            // The admission deadline fired while this handshake was in
+            // flight; its resolution releases the slot it kept occupied.
+            pendingAdmissions[id] = nil
+            await connection.close(errorCode: 1, reason: "admission_timeout")
+            return false
+        }
         guard var admission = pendingAdmissions[id],
               admission.generation == currentGeneration,
               admission.connection == nil else {
@@ -406,7 +418,11 @@ public actor CmxIrohEndpointServer {
             return
         }
         admission.deadlineTask.cancel()
-        await admission.incoming.abandon()
+        // An abandoned attempt was already refused at its deadline; removing
+        // the entry above is what releases the slot its resolution freed.
+        if !admission.abandoned {
+            await admission.incoming.abandon()
+        }
     }
 
     private func markAdmitted(_ id: UUID, generation: UInt64) async -> Bool {
@@ -441,6 +457,13 @@ public actor CmxIrohEndpointServer {
                 .min { $0.value.sequence < $1.value.sequence }
             : nil
         if requiresReplacement, replaced == nil, activeForIdentity.isEmpty {
+            // Capacity filled between registerEstablished and this marker and
+            // the identity has nothing of its own to replace. The pending
+            // entry is already removed, so the server still owns the
+            // established connection here and must close it before disowning
+            // the admission; returning without closing would leave a live
+            // QUIC connection outside every capacity table.
+            await connection.close(errorCode: 1, reason: "connection_capacity")
             return false
         }
         if let replaced {
@@ -535,15 +558,23 @@ public actor CmxIrohEndpointServer {
     }
 
     private func timeOutAdmission(_ id: UUID) async {
-        guard let admission = pendingAdmissions.removeValue(forKey: id) else {
-            return
-        }
+        guard var admission = pendingAdmissions[id] else { return }
         admission.handlerTask.cancel()
         if let connection = admission.connection {
+            pendingAdmissions[id] = nil
             await connection.close(errorCode: 1, reason: "admission_timeout")
-        } else {
-            await admission.incoming.abandon()
+            return
         }
+        // The handshake is still in flight, and cancellation does not reach
+        // the native attempt: a consumed `Incoming` cannot be refused, and
+        // the bindings do not propagate task cancellation into the driver.
+        // Refuse the dialer fast, but keep the slot occupied until
+        // establish() itself resolves (the driver's own handshake/idle
+        // timeout bounds that), so a remote peer cannot mint more live
+        // handshake work than `maximumPendingAdmissions` permits.
+        admission.abandoned = true
+        pendingAdmissions[id] = admission
+        await admission.incoming.abandon()
     }
 
     private func cancelConnections(
