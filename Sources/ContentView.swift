@@ -3944,7 +3944,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             commandPaletteEditorField(
                 style: .multiline(
-                    accessibilityIdentifier: "CommandPaletteWorkspaceDescriptionEditor",
+                    accessibilityIdentifier: commandPaletteWorkspaceDescriptionEditorAccessibilityIdentifier,
                     accessibilityLabel: String(
                         localized: "command.editWorkspaceDescription.title",
                         defaultValue: "Edit Workspace Description…"
@@ -9611,7 +9611,7 @@ struct ContentView: View {
         case .renameConfirm:
             mode = "rename_confirm"
         case .workspaceDescriptionInput:
-            mode = "workspace_description_input"
+            mode = commandPaletteWorkspaceDescriptionInputMode
         }
 
         let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in

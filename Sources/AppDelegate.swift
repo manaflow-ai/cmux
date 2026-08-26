@@ -6678,6 +6678,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return isCommandPaletteResponder(textView)
     }
 
+    private func isCommandPaletteWorkspaceDescriptionEditorActive(in window: NSWindow) -> Bool {
+        guard let textView = window.firstResponder as? NSTextView,
+              textView.isEditable,
+              textView.window === window,
+              textView.accessibilityIdentifier() == commandPaletteWorkspaceDescriptionEditorAccessibilityIdentifier,
+              isInsideCommandPaletteOverlay(textView) else {
+            return false
+        }
+        return isCommandPaletteOverlayPresented(in: window)
+    }
+
     private func commandPaletteMarkedTextInput(in window: NSWindow) -> NSTextView? {
         if let textView = window.firstResponder as? NSTextView,
            isCommandPaletteResponder(textView),
@@ -14052,7 +14063,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
 
-        let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map { isCommandPaletteMultilineTextResponderActive(in: $0) } ?? false
+        let paletteSnapshot = commandPaletteShortcutWindow
+            .flatMap { mainWindowId(for: $0).map(commandPaletteSnapshot(windowId:)) }
+            ?? .empty
+        let paletteFirstResponderIsMultilineTextResponder = commandPaletteShortcutWindow.map {
+            isCommandPaletteMultilineTextResponderActive(in: $0)
+        } ?? false
+        let paletteFirstResponderOwnsWorkspaceDescriptionEditor =
+            (123...126).contains(event.keyCode)
+            && (commandPaletteShortcutWindow.map {
+                isCommandPaletteWorkspaceDescriptionEditorActive(in: $0)
+            } ?? false)
+        let paletteUsesInlineTextHandling = shouldUseCommandPaletteInlineTextHandling(
+            mode: paletteSnapshot.mode,
+            isInteractive: commandPaletteInteractiveInTargetWindow,
+            firstResponderIsMultilineTextResponder: paletteFirstResponderIsMultilineTextResponder
+        )
 
         let paletteSelectionDelta = contextAwareCommandPaletteSelectionDelta(for: event)
 
@@ -14080,7 +14106,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
             let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
-            let paletteSnapshot = mainWindowId(for: paletteWindow).map(commandPaletteSnapshot(windowId:)) ?? .empty
             let paletteUsesInlineReturnHandling = paletteUsesInlineTextHandling
             if isPlainEscape {
                 if paletteFieldEditorHasMarkedText {
@@ -14195,7 +14220,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let commandPaletteConsumesShortcut = shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
-            normalizedFlags: normalizedFlags, chars: chars, keyCode: event.keyCode
+            normalizedFlags: normalizedFlags,
+            chars: chars,
+            keyCode: event.keyCode,
+            allowsInlineTextNavigation: paletteFirstResponderOwnsWorkspaceDescriptionEditor,
+            inlineTextHasMarkedText: commandPaletteShortcutWindow.map {
+                shortcutResponderHasMarkedText($0.firstResponder)
+            } ?? false
         )
         let commandPaletteCanRouteUnarmedGlobalSearch = commandPaletteEffectiveInTargetWindow && commandPaletteConsumesShortcut
         let globalSearchUnarmedChordPrefixMatches = matchesUnarmedGlobalSearchChordPrefix(event, normalizedFlags: normalizedFlags)
@@ -18365,6 +18396,21 @@ extension AppDelegate {
 }
 
 private extension NSWindow {
+    static func cmuxCommandPaletteOwnsWorkspaceDescriptionEditor(
+        _ textView: NSTextView?,
+        in window: NSWindow
+    ) -> Bool {
+        guard let textView,
+              textView.isEditable,
+              textView.window === window,
+              textView.accessibilityIdentifier() == commandPaletteWorkspaceDescriptionEditorAccessibilityIdentifier,
+              let container = cmuxCommandPaletteOverlayAncestor(of: textView) else {
+            return false
+        }
+
+        return cmuxCommandPaletteOverlayIsPresented(container)
+    }
+
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
               textView.isFieldEditor,
@@ -18727,6 +18773,12 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
+        let firstResponderIsCommandPaletteWorkspaceDescriptionEditor =
+            (123...126).contains(event.keyCode)
+            && Self.cmuxCommandPaletteOwnsWorkspaceDescriptionEditor(
+                self.firstResponder as? NSTextView,
+                in: self
+            )
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
             in: self
@@ -18879,6 +18931,27 @@ private extension NSWindow {
                           "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
                   )
             else {
+                return false
+            }
+            return true
+        }
+
+        // The workspace-description editor is a multiline NSTextView mounted
+        // inside the command-palette overlay. Keep its arrows on the normal
+        // AppKit text-navigation path even when the responder is represented
+        // as a field editor during SwiftUI/AppKit focus handoff (#4916).
+        if shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsWorkspaceDescriptionEditor: firstResponderIsCommandPaletteWorkspaceDescriptionEditor,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(
+                      event,
+                      to: target,
+                      reason: "command palette workspace description arrow"
+                  ) else {
                 return false
             }
             return true

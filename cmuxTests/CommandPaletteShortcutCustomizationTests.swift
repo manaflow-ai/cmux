@@ -506,6 +506,63 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testWorkspaceDescriptionModeSuppressesPaletteSelectionDuringFocusHandoff() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withVisibleCommandPaletteOverlay(appDelegate: appDelegate) { window, overlayContainer in
+            let fieldEditor = CommandPaletteShortcutFieldEditor(
+                frame: NSRect(x: 0, y: 0, width: 240, height: 24)
+            )
+            fieldEditor.isFieldEditor = true
+            overlayContainer.addSubview(fieldEditor)
+            defer { fieldEditor.removeFromSuperview() }
+
+            appDelegate.setCommandPaletteSnapshot(
+                CommandPaletteDebugSnapshot(
+                    query: "",
+                    mode: commandPaletteWorkspaceDescriptionInputMode,
+                    results: []
+                ),
+                for: window
+            )
+            XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+
+            let moveExpectation = expectation(
+                description: "Workspace-description focus handoff must not move palette selection"
+            )
+            moveExpectation.isInverted = true
+            let moveToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteMoveSelection,
+                object: nil,
+                queue: nil
+            ) { _ in
+                moveExpectation.fulfill()
+            }
+            defer { NotificationCenter.default.removeObserver(moveToken) }
+
+            guard let downArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 125,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct workspace-description Down Arrow event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            wait(for: [moveExpectation], timeout: 0.2)
+        }
+    }
+
     func testWindowPerformKeyEquivalentDoesNotRouteHorizontalArrowsWhenPaletteOverlayIsTransparent() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

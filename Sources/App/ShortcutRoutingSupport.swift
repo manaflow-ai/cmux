@@ -4,6 +4,9 @@ import CmuxCommandPalette
 import Foundation
 import CmuxTerminal
 
+let commandPaletteWorkspaceDescriptionInputMode = "workspace_description_input"
+let commandPaletteWorkspaceDescriptionEditorAccessibilityIdentifier = "CommandPaletteWorkspaceDescriptionEditor"
+
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
@@ -283,6 +286,41 @@ func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
     )
 }
 
+/// Whether the command palette should keep keyboard navigation in its inline text editor.
+///
+/// The workspace-description mode snapshot is authoritative while SwiftUI is handing first
+/// responder ownership to the multiline editor. That mode fallback prevents the app-level
+/// shortcut monitor from moving the command list selection during the async focus handoff.
+func shouldUseCommandPaletteInlineTextHandling(
+    mode: String,
+    isInteractive: Bool,
+    firstResponderIsMultilineTextResponder: Bool
+) -> Bool {
+    guard isInteractive else { return false }
+    return firstResponderIsMultilineTextResponder
+        || mode == commandPaletteWorkspaceDescriptionInputMode
+}
+
+/// Whether an active workspace-description editor should receive an arrow through `keyDown`.
+///
+/// This is deliberately scoped to the marked editor instead of broadening field-editor
+/// forwarding. It shares the text-editor modifier policy with the existing standalone editor
+/// path, leaves Cmd+Option pane focus shortcuts alone, and lets marked text stay with the IME.
+func shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsWorkspaceDescriptionEditor: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsWorkspaceDescriptionEditor else { return false }
+    return shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+        keyCode: keyCode,
+        firstResponderIsEditableTextView: true,
+        firstResponderHasMarkedText: firstResponderHasMarkedText,
+        flags: flags
+    )
+}
+
 /// Ctrl-N / Ctrl-P navigate the mention-completion popover (and emacs-style line
 /// movement) inside the terminal textbox. Like plain arrows, the window's
 /// `performKeyEquivalent` claims these before they reach the textbox `keyDown`, so
@@ -344,7 +382,9 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     isCommandPaletteVisible: Bool,
     normalizedFlags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    allowsInlineTextNavigation: Bool = false,
+    inlineTextHasMarkedText: Bool = false
 ) -> Bool {
     guard isCommandPaletteVisible else { return false }
 
@@ -352,6 +392,22 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     // underlying terminal or browser content.
     if normalizedFlags.isEmpty, keyCode == 53 {
         return true
+    }
+
+    // Command-modified arrows are normally palette/app shortcuts. Once the
+    // workspace-description editor owns the inline text path, preserve the
+    // standard NSTextView boundary/selection variants so the event can reach
+    // the window-level first-responder forwarding hook. The caller must prove
+    // that the workspace-description editor is the actual first responder;
+    // mode snapshots alone only suppress palette selection during focus handoff.
+    if allowsInlineTextNavigation,
+       !inlineTextHasMarkedText,
+       shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+           keyCode: keyCode,
+           firstResponderIsWorkspaceDescriptionEditor: true,
+           flags: normalizedFlags
+       ) {
+        return false
     }
 
     guard normalizedFlags.contains(.command) else { return false }
@@ -396,7 +452,7 @@ func shouldSubmitCommandPaletteWithReturn(
         return true
     }
     if normalizedFlags == [.shift] {
-        return mode != "workspace_description_input"
+        return mode != commandPaletteWorkspaceDescriptionInputMode
     }
     return false
 }

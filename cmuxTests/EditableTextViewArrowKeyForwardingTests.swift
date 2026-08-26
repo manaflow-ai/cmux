@@ -214,7 +214,18 @@ struct EditableTextViewArrowKeyForwardingTests {
                 keyCode: 125,
                 allowsInlineTextNavigation: true
             ),
-            "Cmd+Option+Arrow remains a cmux pane shortcut"
+            "Cmd+Option+Arrow must remain on the existing command-palette/app shortcut path"
+        )
+        #expect(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "",
+                keyCode: 126,
+                allowsInlineTextNavigation: true,
+                inlineTextHasMarkedText: true
+            ),
+            "Marked-text composition must not bypass the palette shortcut monitor"
         )
     }
 }
