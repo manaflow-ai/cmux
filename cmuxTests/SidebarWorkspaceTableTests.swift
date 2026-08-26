@@ -47,6 +47,34 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func pendingNativeWorkspaceDragKeepsTableControllerAttachedBeforeWillBegin() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // AppKit asks for the writer before it invokes willBeginAt. A
+        // reconstruction in this interval must still retain the source pair.
+        #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 0) != nil)
+        controller.dismantleContainerView(container)
+
+        #expect(container.tableView.dataSource === controller)
+        #expect(container.tableView.delegate === controller)
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(container.tableView.dataSource == nil)
+        #expect(container.tableView.delegate == nil)
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)

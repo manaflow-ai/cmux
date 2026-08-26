@@ -123,7 +123,7 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         let registry = SidebarWorkspaceDragRegistry()
         let source = SidebarDragState(workspaceDragRegistry: registry)
         let workspaceId = UUID()
-        _ = source.beginDragging(tabId: workspaceId)
+        let session = source.beginDragging(tabId: workspaceId)
 
         source.dismissPresentation()
 
@@ -132,8 +132,10 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
 
         let rebuilt = SidebarDragState(workspaceDragRegistry: registry)
         #expect(rebuilt.mirrorDragging(tabId: workspaceId))
-        let sessionId = try #require(registry.currentSessionId)
-        registry.end(sessionId: sessionId)
+        registry.nativeDraggingSessionDidEnd(
+            sessionId: session.id,
+            capabilityValue: session.pasteboardValue
+        )
         #expect(rebuilt.draggedTabId == nil)
         #expect(source.draggedTabId == nil)
     }
