@@ -43,7 +43,7 @@ final class CmuxSettingsFileStore {
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let userDefaults: UserDefaults
-    private let languageSettingsStore: LanguageSettingsStore
+    private let languageSettingsStore: LanguageSettingsStore?
     private let passwordStore: SocketControlPasswordStore
     /// Whether an MDM configuration profile forces a `UserDefaults` key.
     /// The importer must never write a forced key: the write can not change
@@ -97,16 +97,10 @@ final class CmuxSettingsFileStore {
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
         self.userDefaults = userDefaults
-        self.languageSettingsStore = languageSettingsStore ?? LanguageSettingsStore(
-            defaults: userDefaults,
-            // UserDefaults does not expose a suite name. The standard store has
-            // the app bundle domain; an injected suite must use direct reads so
-            // language ownership stays inside that suite instead of consulting
-            // the app domain.
-            domainName: userDefaults === UserDefaults.standard
-                ? Bundle.main.bundleIdentifier
-                : nil
-        )
+        // Language override ownership is supplied by the composition root. A custom
+        // UserDefaults suite must provide a LanguageSettingsStore with its domain name;
+        // there is no safe way to infer a suite name from a UserDefaults instance.
+        self.languageSettingsStore = languageSettingsStore
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
@@ -1656,7 +1650,7 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = userDefaults.string(forKey: change.defaultsKey) ?? ""
-                    languageSettingsStore.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
+                    languageSettingsStore?.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
                 } else if change.defaultsKey == AppIconSettings.modeKey {
                     AppIconSettings.applyIcon(AppIconSettings.resolvedMode(defaults: userDefaults))
                 } else if change.defaultsKey == GlobalFontMagnification.percentKey {
