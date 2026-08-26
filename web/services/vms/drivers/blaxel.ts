@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 const gzipAsync = promisify(gzip);
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import {
   NotImplementedError,
@@ -93,13 +94,48 @@ while true; do
 done
 `;
 // Background provisioning for every machine: coding agents plus the dev essentials a person
-// expects on "their computer". The .bashrc seed only writes when absent so user edits stick.
-const CMUX_PROVISION_COMMAND = [
-  "{ command -v apk >/dev/null 2>&1 && apk add --no-cache curl tmux vim ripgrep jq openssh-client;",
-  "command -v npm >/dev/null 2>&1 && npm install -g @anthropic-ai/claude-code @openai/codex;",
-  "[ -f /root/.bashrc ] || printf '%s\\n' \"export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]# '\" \"alias ll='ls -la'\" > /root/.bashrc;",
-  "} >/tmp/cmux/provision.log 2>&1 || true",
-].join(" ");
+// expects on "their computer", at parity with the chatmux devbox base image. The recipe is
+// data, not driver code: services/vms/images/blaxel-provision.sh (shellcheck-able, one file
+// to diff when the devbox contract changes). It is uploaded at bootstrap and started as a
+// detached keepAlive process, so create/attach latency never waits on it and the sandbox
+// stays awake until provisioning finishes (the script exits, releasing the keepAlive).
+// timeout caps a wedged install so keepAlive cannot pin the sandbox awake forever.
+const PROVISION_SCRIPT_SANDBOX_PATH = "/usr/local/bin/cmux-provision";
+const PROVISION_PROCESS_NAME = "cmux-provision";
+const PROVISION_TIMEOUT_SECONDS = 1800;
+const PROVISION_COMMAND =
+  `timeout ${PROVISION_TIMEOUT_SECONDS} ${PROVISION_SCRIPT_SANDBOX_PATH} >>/tmp/cmux/provision.log 2>&1`;
+
+// Cached as an in-flight promise for the same reason as the daemon payload below. The
+// candidate paths cover `bun dev`/tests (cwd = web/) and a checkout-root cwd; on Vercel the
+// file rides along via outputFileTracingIncludes in next.config.ts.
+let cachedProvisionScript: Promise<string> | null = null;
+
+export function provisionScriptContent(): Promise<string> {
+  if (cachedProvisionScript) return cachedProvisionScript;
+  const load = (async () => {
+    const candidates = [
+      join(process.cwd(), "services/vms/images/blaxel-provision.sh"),
+      join(process.cwd(), "web/services/vms/images/blaxel-provision.sh"),
+    ];
+    for (const candidate of candidates) {
+      try {
+        return await readFile(candidate, "utf8");
+      } catch {
+        // try the next candidate
+      }
+    }
+    throw new ProviderError(
+      "blaxel",
+      `provision script not found; looked for services/vms/images/blaxel-provision.sh under ${process.cwd()}`,
+    );
+  })();
+  cachedProvisionScript = load.catch((err) => {
+    cachedProvisionScript = null;
+    throw err;
+  });
+  return cachedProvisionScript;
+}
 
 // The machine knows its own name: the prompt reads noble-wren:~#, not (none):~#. But a
 // renamed host must stay *resolvable*: TigerVNC's `vncserver` wrapper calls `hostname -f`
@@ -468,11 +504,7 @@ export class BlaxelProvider implements VMProvider {
         await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
         await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
       })(),
-      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-        name: "cmux-provision",
-        command: CMUX_PROVISION_COMMAND,
-        waitForCompletion: false,
-      }).catch(() => undefined),
+      timedStep("provision_start", () => this.startProvisionProcess(sandboxUrl)),
     ]);
   }
 
@@ -491,6 +523,32 @@ export class BlaxelProvider implements VMProvider {
       restartOnFailure: true,
       maxRestarts: 10,
     });
+  }
+
+  // Best-effort devbox provisioning (agents, devtools, shell dressing). A missing or
+  // unreadable script must never fail a create — the machine still works, it is just bare —
+  // so every step here swallows its own error after logging it once.
+  private async startProvisionProcess(sandboxUrl: string): Promise<void> {
+    const script = await provisionScriptContent().catch((err) => {
+      console.error("[blaxel] provision script unavailable; machine stays stock", err);
+      return null;
+    });
+    if (!script) return;
+    try {
+      await blaxelFetch(
+        "PUT",
+        `${sandboxUrl}/filesystem/${PROVISION_SCRIPT_SANDBOX_PATH}`,
+        { content: script, permissions: "0755" },
+      );
+      await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+        name: PROVISION_PROCESS_NAME,
+        command: PROVISION_COMMAND,
+        waitForCompletion: false,
+        keepAlive: true,
+      });
+    } catch (err) {
+      console.error("[blaxel] provision start failed; machine stays stock", err);
+    }
   }
 
   private async startWatcherProcess(sandboxUrl: string): Promise<void> {

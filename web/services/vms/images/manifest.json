@@ -153,12 +153,24 @@
       "version": "blaxel-bootstrap-20260820a",
       "imageId": "blaxel/xfce-vnc:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
-      "defaultForLocalDev": true,
+      "defaultForLocalDev": false,
       "cmuxdRemoteCommit": "bootstrap-on-create",
       "builtAt": "2026-08-20T04:30:00.000Z",
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
       "notes": "Stock Blaxel xfce + noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly); the driver injects cmuxd-remote at create time via the sandbox filesystem API (gzip+base64) and starts serve --ws as a keepAlive process, so no baked template is required. Validated WS PTY lease auth, shell round trip, healthz through a private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
+    },
+    {
+      "provider": "blaxel",
+      "version": "blaxel-devbox-20260826a",
+      "imageId": "blaxel/xfce-vnc:latest",
+      "envVar": "BLAXEL_SANDBOX_IMAGE",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "bootstrap-on-create",
+      "builtAt": "2026-08-26T00:00:00.000Z",
+      "builderScriptVersion": "provision-on-create",
+      "validationStatus": "passed",
+      "notes": "Same stock Blaxel images and cmuxd bootstrap as blaxel-bootstrap-20260820a, plus detached devbox provisioning at create (services/vms/images/blaxel-provision.sh): claude/codex/opencode/pi latest at boot, gh, jq, ripgrep, fd, fzf, tmux, sqlite3, node 22 where the image lacks node, uv, and the chatmux half-life prompt with ble.sh ghost text and seeded history. Agents resolve latest at provision time, so no pinned agentToolResolvedVersions. Docker Engine excluded: dockerd cannot run in Blaxel microVMs (no cgroup mounts; verified 2026-08-26). Validated live on blaxel/xfce-vnc:latest and blaxel/base-image:latest in us-pdx-1."
     }
   ]
 }
