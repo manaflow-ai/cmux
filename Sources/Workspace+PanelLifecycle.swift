@@ -154,6 +154,28 @@ extension Workspace {
         }
     }
 
+    /// Checks a workspace-scoped PID registration that intentionally has no
+    /// panel association. This is the companion to the panel-scoped query
+    /// above; lifecycle commands that omit `--panel` must still be able to
+    /// validate their exact process generation.
+    func hasLiveWorkspaceAgentProcess(
+        statusKey: String,
+        matching requiredGeneration: AgentPIDProcessIdentity? = nil
+    ) -> Bool {
+        agentPIDs.contains { key, pid in
+            guard agentPIDPanelIdsByKey[key] == nil,
+                  agentStatusKey(forAgentPIDKey: key) == statusKey,
+                  let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+                  recordedIdentity.pid == pid,
+                  requiredGeneration == nil
+                    || recordedIdentity == requiredGeneration else {
+                return false
+            }
+            return Self.agentPIDProcessIdentity(pid: pid)
+                == recordedIdentity
+        }
+    }
+
     private func hasAgentRuntime(
         forStatusKey statusKey: String,
         excluding excludedKey: String? = nil

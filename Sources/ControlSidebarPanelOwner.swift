@@ -133,23 +133,11 @@ enum ControlSidebarPanelOwner {
                 && (usesRemoteProcessNamespace
                     || hasMatchingLocalProcessIdentity))
                 || allowsOpaqueRemoteCustomPID else {
-            switch self {
-            case .workspace(let workspace):
-                if isBuiltIn {
-                    workspace.recordUnidentifiedAgentProcessExit(
-                        key: statusKey,
-                        panelId: panelId
-                    )
-                }
-            case .dock(let dock):
-                guard let panelId else { return .rejected }
-                if isBuiltIn {
-                    dock.recordUnidentifiedAgentProcessExit(
-                        key: statusKey,
-                        panelId: panelId
-                    )
-                }
-            }
+            // A rejected registration is only a failed observation. It does
+            // not prove that the agent exited; in particular, native Feed
+            // attention may already be visible while PID registration is still
+            // racing. Leave existing lifecycle/attention evidence untouched
+            // and let an explicit process-exit observation retire it.
             return .rejected
         }
         switch self {
@@ -265,12 +253,15 @@ enum ControlSidebarPanelOwner {
     ) -> Bool {
         switch self {
         case .workspace(let workspace):
-            guard let panelId = panelId ?? workspace.focusedPanelId else {
-                return false
+            if let panelId {
+                return workspace.hasLiveAgentProcess(
+                    statusKey: statusKey,
+                    panelId: panelId,
+                    matching: generation
+                )
             }
-            return workspace.hasLiveAgentProcess(
+            return workspace.hasLiveWorkspaceAgentProcess(
                 statusKey: statusKey,
-                panelId: panelId,
                 matching: generation
             )
         case .dock(let dock):

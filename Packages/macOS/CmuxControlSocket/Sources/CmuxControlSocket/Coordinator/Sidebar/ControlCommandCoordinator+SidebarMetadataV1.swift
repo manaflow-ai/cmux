@@ -97,6 +97,21 @@ extension ControlCommandCoordinator {
         } else {
             processGeneration = nil
         }
+        if pidValue != nil,
+           processGeneration == nil,
+           context?.controlSidebarRequiresAgentProcessGeneration(
+               key,
+               target: target,
+               panelID: panelResolution.panelId
+           ) == true {
+            // A PID-bearing built-in status must carry the same complete
+            // generation tuple required by the dedicated agent commands;
+            // otherwise the deferred app mutation will be rejected after we
+            // have already told the caller "OK".
+            let strings =
+                context?.controlSidebarAgentStrings() ?? .englishFallback
+            return strings.processGenerationRequired
+        }
         context?.controlSidebarScheduleStatusUpsert(
             target: target,
             key: key,
