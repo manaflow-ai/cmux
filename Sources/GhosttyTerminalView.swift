@@ -4709,9 +4709,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             guard let occludedWindow = notification.object as? NSWindow else { return }
-            self?.terminalSurface?.setRendererWindowVisible(
-                occludedWindow.occlusionState.contains(.visible)
-            )
+            // `queue: .main` guarantees the AppKit callback runs on the main
+            // executor, but Foundation's closure type is not actor-annotated.
+            MainActor.assumeIsolated {
+                self?.terminalSurface?.setRendererWindowVisible(
+                    occludedWindow.occlusionState.contains(.visible)
+                )
+            }
         }
         terminalSurface?.setRendererWindowVisible(
             window.occlusionState.contains(.visible)
