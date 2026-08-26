@@ -1,5 +1,6 @@
-// Source A for the "cmux Users" audience: every Stack Auth user with a
-// verified primary email, fetched from the Stack server REST API.
+// Source A for the "cmux Users" audience: Stack Auth users with a verified
+// primary email and (in production) explicit server-side newsletter consent,
+// fetched from the Stack server REST API.
 //
 // Pagination uses Stack's cursor protocol and fails loudly if the cursor
 // stops advancing, so a partial listing can never be mistaken for the full
@@ -60,6 +61,7 @@ export type StackSourceResult = {
   totalUsers: number;
   skippedMissingOrUnverifiedEmail: number;
   skippedNotOptedIn: number;
+  skippedMissingIdentity: number;
   revokedEmails: string[];
 };
 
@@ -76,6 +78,7 @@ export async function listStackContacts(options: {
   let totalUsers = 0;
   let skipped = 0;
   let skippedNotOptedIn = 0;
+  let skippedMissingIdentity = 0;
   const revokedEmails = new Set<string>();
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
@@ -138,12 +141,19 @@ export async function listStackContacts(options: {
           skippedNotOptedIn += 1;
           continue;
         }
+        if (!user.id?.trim()) {
+          // Without a stable account identity we cannot safely carry a future
+          // email change across Resend, so fail closed for this user.
+          skippedMissingIdentity += 1;
+          continue;
+        }
       }
       if (byEmail.has(email)) {
         continue;
       }
       byEmail.set(email, {
         email,
+        ...(user.id?.trim() ? { stackUserId: user.id.trim() } : {}),
         ...splitDisplayName(user.display_name),
         sources: ["stack"],
       });
@@ -168,6 +178,7 @@ export async function listStackContacts(options: {
     totalUsers,
     skippedMissingOrUnverifiedEmail: skipped,
     skippedNotOptedIn,
+    skippedMissingIdentity,
     revokedEmails: [...revokedEmails],
   };
 }

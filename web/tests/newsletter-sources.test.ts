@@ -38,6 +38,7 @@ describe("listStackContacts", () => {
           body: {
             items: [
               {
+                id: "user-ada",
                 primary_email: "Ada@Example.com",
                 primary_email_verified: true,
                 server_metadata: { cmuxNewsletterOptIn: true },
@@ -58,7 +59,8 @@ describe("listStackContacts", () => {
         body: {
           items: [
             {
-                primary_email: "grace@example.com",
+              id: "user-grace",
+              primary_email: "grace@example.com",
                 primary_email_verified: true,
                 server_metadata: { cmuxNewsletterOptIn: true },
               display_name: "Grace",
@@ -117,6 +119,7 @@ describe("listStackContacts", () => {
             primary_email_verified: true,
           },
           {
+            id: "user-opted-in",
             primary_email: "opted-in@example.com",
             primary_email_verified: true,
             server_metadata: { cmuxNewsletterOptIn: true },

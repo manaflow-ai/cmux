@@ -27,6 +27,7 @@ type FakeContact = {
   first_name?: string | null;
   last_name?: string | null;
   unsubscribed: boolean;
+  properties?: Record<string, unknown> | null;
   segmentIds: Set<string>;
 };
 
@@ -78,6 +79,7 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
       first_name: c.first_name ?? null,
       last_name: c.last_name ?? null,
       unsubscribed: c.unsubscribed,
+      properties: c.properties ?? null,
     });
 
     if (method === "GET" && pathname === "/segments") {
@@ -131,6 +133,7 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
         email: string;
         first_name?: string;
         last_name?: string;
+        properties?: Record<string, unknown>;
         unsubscribed?: boolean;
         topics?: unknown;
         segments?: { id: string }[];
@@ -150,6 +153,7 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
         first_name: body.first_name ?? null,
         last_name: body.last_name ?? null,
         unsubscribed: false,
+        properties: body.properties ?? null,
         segmentIds: new Set(segmentIds),
       };
       state.contacts.push(created);
@@ -195,6 +199,7 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
         const body = JSON.parse(init?.body ?? "{}") as {
           first_name?: string;
           last_name?: string;
+          email?: string;
           unsubscribed?: boolean;
           topics?: unknown;
         };
@@ -202,6 +207,7 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
         expect("topics" in body).toBe(false);
         if (body.first_name) found.first_name = body.first_name;
         if (body.last_name) found.last_name = body.last_name;
+        if (body.email) found.email = body.email;
         state.writes.push(`patch-contact:${found.email}`);
         return respond(200, { id: found.id });
       }
@@ -586,6 +592,45 @@ describe("syncSegment", () => {
     expect(writes).toEqual([]);
     expect(summary.created).toBe(0);
     expect(summary.addedToSegment).toBe(0);
+  });
+
+  test("migrates a Stack contact's email without resetting subscription state", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
+    fake.contacts.push({
+      id: "con_stack",
+      email: "old@example.com",
+      unsubscribed: false,
+      properties: { cmux_stack_user_id: "stack-1" },
+      segmentIds: new Set(["seg_users"]),
+    });
+
+    const summary = await syncSegment({
+      client: client(fake),
+      segmentName: USERS_SEGMENT_NAME,
+      topic: USERS_TOPIC,
+      desired: [
+        {
+          email: "new@example.com",
+          stackUserId: "stack-1",
+          sources: ["stack"],
+        },
+      ],
+      existingContacts: await listContactsOf(fake),
+      apply: true,
+    });
+
+    expect(summary.emailMigrated).toBe(1);
+    expect(summary.created).toBe(0);
+    expect(fake.writes).toContain("patch-contact:new@example.com");
+    expect(fake.contacts[0].email).toBe("new@example.com");
+    expect(fake.contacts[0].unsubscribed).toBe(false);
+    expect(fake.contacts[0].segmentIds.has("seg_users")).toBe(true);
   });
 });
 

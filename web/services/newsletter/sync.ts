@@ -19,7 +19,11 @@
 // preferences, so an explicit opt-out is permanent as far as this tooling is
 // concerned.
 
-import { type NewsletterContact, mergeContactSources } from "./contacts";
+import {
+  STACK_USER_ID_PROPERTY,
+  type NewsletterContact,
+  mergeContactSources,
+} from "./contacts";
 import { planSegmentSync } from "./reconcile";
 import {
   isDuplicateContactError,
@@ -61,6 +65,7 @@ export type SegmentSyncSummary = {
   created: number;
   addedToSegment: number;
   nameBackfilled: number;
+  emailMigrated: number;
   alreadyPresent: number;
   skippedUnsubscribed: number;
   revokedFromSegment: number;
@@ -85,6 +90,8 @@ export async function syncSegment(options: {
   // listing. Unknown/missing source data is never treated as a revocation.
   revokedEmails?: ReadonlySet<string>;
   pruneRevoked?: boolean;
+  // Contact identity migration is planned from the stable Stack id stored in
+  // Resend properties, preserving unsubscribe state across email changes.
 }): Promise<SegmentSyncSummary> {
   const {
     client,
@@ -150,6 +157,10 @@ export async function syncSegment(options: {
     existingContacts: existingContacts.map((contact) => ({
       id: contact.id,
       email: contact.email,
+      stackUserId:
+        typeof contact.properties?.[STACK_USER_ID_PROPERTY] === "string"
+          ? contact.properties[STACK_USER_ID_PROPERTY]
+          : undefined,
       firstName: contact.first_name ?? undefined,
       lastName: contact.last_name ?? undefined,
       unsubscribed: contact.unsubscribed,
@@ -168,12 +179,18 @@ export async function syncSegment(options: {
   const revokedToRemove = [...memberEmails].filter(
     (email) => revokedEmails.has(email) && !desiredEmails.has(email),
   );
-  const revokedFromSegment = options.pruneRevoked ? revokedToRemove.length : 0;
+  // Dry runs report the exact planned removals; apply mode performs them below.
+  const revokedFromSegment = revokedToRemove.length;
   let createdCount = plan.toCreate.length;
   let addedToSegmentCount = plan.toAddToSegment.length;
   let nameBackfilledCount = plan.toBackfillName.length;
+  let emailMigratedCount = plan.toUpdateEmail.length;
 
   if (apply && segment) {
+    createdCount = 0;
+    addedToSegmentCount = 0;
+    nameBackfilledCount = 0;
+    emailMigratedCount = 0;
     if (options.pruneRevoked) {
       const existingByEmail = new Map(
         existingContacts.map((contact) => [
@@ -184,13 +201,21 @@ export async function syncSegment(options: {
       for (const email of revokedToRemove) {
         const contact = existingByEmail.get(email);
         if (!contact || !memberEmails.has(email)) continue;
-        await client.removeContactFromSegment(contact.id, segment.id);
+        const latest = await client.getContactByEmail(email);
+        if (!latest) continue;
+        await client.removeContactFromSegment(latest.id, segment.id);
         memberEmails.delete(email);
       }
     }
-    createdCount = 0;
-    addedToSegmentCount = 0;
-    nameBackfilledCount = 0;
+    for (const update of plan.toUpdateEmail) {
+      const latest = await client.getContactById(update.contactId);
+      if (!latest || latest.unsubscribed) continue;
+      await client.updateContactEmail(latest.id, update.email);
+      if (memberEmails.delete(update.previousEmail)) {
+        memberEmails.add(update.email);
+      }
+      emailMigratedCount += 1;
+    }
     for (const create of plan.toCreate) {
       // Re-read immediately before creating. A contact can be unsubscribed or
       // created by another sync after the initial global listing.
@@ -205,7 +230,13 @@ export async function syncSegment(options: {
         continue;
       }
       try {
-        await client.createContact({ ...create, segmentIds: [segment.id] });
+        await client.createContact({
+          ...create,
+          ...(create.stackUserId
+            ? { properties: { [STACK_USER_ID_PROPERTY]: create.stackUserId } }
+            : {}),
+          segmentIds: [segment.id],
+        });
         memberEmails.add(create.email);
         createdCount += 1;
       } catch (error) {
@@ -221,6 +252,7 @@ export async function syncSegment(options: {
       }
     }
     for (const add of plan.toAddToSegment) {
+      if (memberEmails.has(add.email)) continue;
       const latest = await client.getContactByEmail(add.email);
       if (!latest || latest.unsubscribed) continue;
       await client.addContactToSegment(latest.id, segment.id);
@@ -260,6 +292,7 @@ export async function syncSegment(options: {
     created: createdCount,
     addedToSegment: addedToSegmentCount,
     nameBackfilled: nameBackfilledCount,
+    emailMigrated: emailMigratedCount,
     alreadyPresent: plan.alreadyPresent,
     skippedUnsubscribed: plan.skippedUnsubscribed,
     revokedFromSegment,

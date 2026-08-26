@@ -18,7 +18,9 @@
 //     Resend (or that a previous sync wrote) is never overwritten, which also
 //     makes re-running the sync a no-op.
 //   - Contacts present in Resend but absent from the sources are left alone.
-//     The sync only adds; it never removes contacts or segment memberships.
+//     The sync never removes them based on an incomplete source. Explicit
+//     server-authoritative consent/refund revocations are handled by the
+//     orchestration layer with a separate, exact removal plan.
 
 import type { NewsletterContact } from "./contacts";
 
@@ -26,6 +28,7 @@ import type { NewsletterContact } from "./contacts";
 export type ExistingContact = {
   id: string;
   email: string;
+  stackUserId?: string;
   firstName?: string;
   lastName?: string;
   unsubscribed: boolean;
@@ -34,6 +37,7 @@ export type ExistingContact = {
 // Create a new global contact, placed directly into the target segment.
 export type ContactCreate = {
   email: string;
+  stackUserId?: string;
   firstName?: string;
   lastName?: string;
 };
@@ -55,10 +59,18 @@ export type ContactNameBackfill = {
   lastName?: string;
 };
 
+export type ContactEmailUpdate = {
+  contactId: string;
+  previousEmail: string;
+  email: string;
+  stackUserId: string;
+};
+
 export type SegmentPlan = {
   toCreate: ContactCreate[];
   toAddToSegment: SegmentAdd[];
   toBackfillName: ContactNameBackfill[];
+  toUpdateEmail: ContactEmailUpdate[];
   alreadyPresent: number;
   skippedUnsubscribed: number;
 };
@@ -69,8 +81,19 @@ export function planSegmentSync(options: {
   segmentMemberEmails: ReadonlySet<string>;
 }): SegmentPlan {
   const existingByEmail = new Map<string, ExistingContact>();
+  const existingByStackUserId = new Map<string, ExistingContact>();
   for (const contact of options.existingContacts) {
-    existingByEmail.set(contact.email.trim().toLowerCase(), contact);
+    const email = contact.email.trim().toLowerCase();
+    existingByEmail.set(email, contact);
+    if (contact.stackUserId) {
+      if (existingByStackUserId.has(contact.stackUserId)) {
+        throw new Error(
+          "Multiple newsletter contacts carry the same Stack user identity; " +
+            "refusing to reconcile an ambiguous account.",
+        );
+      }
+      existingByStackUserId.set(contact.stackUserId, contact);
+    }
   }
   const memberEmails = new Set(
     [...options.segmentMemberEmails].map((email) =>
@@ -82,6 +105,7 @@ export function planSegmentSync(options: {
     toCreate: [],
     toAddToSegment: [],
     toBackfillName: [],
+    toUpdateEmail: [],
     alreadyPresent: 0,
     skippedUnsubscribed: 0,
   };
@@ -91,14 +115,37 @@ export function planSegmentSync(options: {
     // invariant at the keying site too so a future source cannot silently
     // break case-insensitive matching.
     const desiredEmail = contact.email.trim().toLowerCase();
-    const current = existingByEmail.get(desiredEmail);
+    const current =
+      (contact.stackUserId
+        ? existingByStackUserId.get(contact.stackUserId)
+        : undefined) ?? existingByEmail.get(desiredEmail);
+    const emailOwner = existingByEmail.get(desiredEmail);
+    if (current && emailOwner && emailOwner.id !== current.id) {
+      throw new Error(
+        "A desired newsletter email belongs to a different contact than its " +
+          "Stack identity; refusing an ambiguous migration.",
+      );
+    }
     if (!current) {
       plan.toCreate.push({
         email: desiredEmail,
+        ...(contact.stackUserId ? { stackUserId: contact.stackUserId } : {}),
         ...(contact.firstName ? { firstName: contact.firstName } : {}),
         ...(contact.lastName ? { lastName: contact.lastName } : {}),
       });
       continue;
+    }
+    if (
+      contact.stackUserId &&
+      current.stackUserId === contact.stackUserId &&
+      current.email.trim().toLowerCase() !== desiredEmail
+    ) {
+      plan.toUpdateEmail.push({
+        contactId: current.id,
+        previousEmail: current.email.trim().toLowerCase(),
+        email: desiredEmail,
+        stackUserId: contact.stackUserId,
+      });
     }
     if (current.unsubscribed) {
       plan.skippedUnsubscribed += 1;

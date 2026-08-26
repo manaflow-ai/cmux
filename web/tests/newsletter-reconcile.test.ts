@@ -20,9 +20,11 @@ function contact(
   email: string,
   firstName?: string,
   lastName?: string,
+  stackUserId?: string,
 ): NewsletterContact {
   return {
     email,
+    ...(stackUserId ? { stackUserId } : {}),
     ...(firstName ? { firstName } : {}),
     ...(lastName ? { lastName } : {}),
     sources: ["stack"],
@@ -180,6 +182,30 @@ describe("planSegmentSync", () => {
     expect(plan.toCreate).toHaveLength(0);
     expect(plan.toAddToSegment).toEqual([
       { contactId: "c_outside", email: "outside@example.com" },
+    ]);
+  });
+
+  test("matches a Stack identity across an email change and plans migration", () => {
+    const plan = planSegmentSync({
+      desired: [contact("new@example.com", "Ada", undefined, "stack-1")],
+      existingContacts: [
+        {
+          id: "c_old",
+          email: "old@example.com",
+          stackUserId: "stack-1",
+          unsubscribed: false,
+        },
+      ],
+      segmentMemberEmails: new Set(["old@example.com"]),
+    });
+    expect(plan.toCreate).toHaveLength(0);
+    expect(plan.toUpdateEmail).toEqual([
+      {
+        contactId: "c_old",
+        previousEmail: "old@example.com",
+        email: "new@example.com",
+        stackUserId: "stack-1",
+      },
     ]);
   });
 

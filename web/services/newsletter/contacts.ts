@@ -10,6 +10,9 @@
 // merge-tag default ({{{FIRST_NAME|there}}}) instead of storing a fake name.
 export type NewsletterContact = {
   email: string;
+  // Stable Stack identity used to preserve suppression when a user changes
+  // their primary email. Stripe-only contacts intentionally omit this.
+  stackUserId?: string;
   firstName?: string;
   lastName?: string;
   // Which sources claimed this contact; used for logging/diagnostics only.
@@ -17,6 +20,8 @@ export type NewsletterContact = {
 };
 
 export type NewsletterSource = "stack" | "stripe";
+
+export const STACK_USER_ID_PROPERTY = "cmux_stack_user_id";
 
 // Deliberately loose shape check: one local part, one @, a dot-bearing
 // domain. The sources (Stack, Stripe) have already validated deliverability;

@@ -37,6 +37,7 @@ export type ResendContact = {
   first_name?: string | null;
   last_name?: string | null;
   unsubscribed: boolean;
+  properties?: Record<string, unknown> | null;
 };
 
 export type FetchLike = (
@@ -486,6 +487,21 @@ export class ResendClient {
     }
   }
 
+  async getContactById(contactId: string): Promise<ResendContact | null> {
+    try {
+      return await this.request<ResendContact>(
+        "GET",
+        `/contacts/${encodeURIComponent(contactId)}`,
+        { redactedLabel: "/contacts/<id>" },
+      );
+    } catch (error) {
+      if (error instanceof ResendApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   // Create a global contact, optionally placing it into segments in the same
   // call. `unsubscribed` and topic subscriptions are intentionally not
   // accepted: new contacts default to subscribed with each topic's default
@@ -493,6 +509,7 @@ export class ResendClient {
   // reconcile.ts invariants).
   async createContact(contact: {
     email: string;
+    properties?: Record<string, unknown>;
     firstName?: string;
     lastName?: string;
     segmentIds?: string[];
@@ -501,6 +518,7 @@ export class ResendClient {
       redactedLabel: "/contacts (create)",
       body: {
         email: contact.email,
+        ...(contact.properties ? { properties: contact.properties } : {}),
         ...(contact.firstName ? { first_name: contact.firstName } : {}),
         ...(contact.lastName ? { last_name: contact.lastName } : {}),
         // The API expects segment assignments as objects carrying the id.
@@ -527,6 +545,17 @@ export class ResendClient {
           ...(name.firstName ? { first_name: name.firstName } : {}),
           ...(name.lastName ? { last_name: name.lastName } : {}),
         },
+      },
+    );
+  }
+
+  async updateContactEmail(contactId: string, email: string): Promise<void> {
+    await this.throttledWrite(
+      "PATCH",
+      `/contacts/${encodeURIComponent(contactId)}`,
+      {
+        redactedLabel: "/contacts/<id> (email migration)",
+        body: { email },
       },
     );
   }

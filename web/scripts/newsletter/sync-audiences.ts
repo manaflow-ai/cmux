@@ -90,6 +90,7 @@ if (args.audience === "users" || args.audience === "all") {
   sourceCounts.stackSkippedMissingOrUnverifiedEmail =
     stackResult.skippedMissingOrUnverifiedEmail;
   sourceCounts.stackSkippedNotOptedIn = stackResult.skippedNotOptedIn;
+  sourceCounts.stackSkippedMissingIdentity = stackResult.skippedMissingIdentity;
 
   usersDesired = buildUsersSegmentContacts(
     stackResult.contacts,
@@ -103,7 +104,12 @@ if (args.audience === "users" || args.audience === "all") {
       desired: usersDesired,
       existingContacts,
       apply: args.apply,
-      revokedEmails: new Set(stackResult.revokedEmails),
+      // The users segment is the union of Stack opt-ins and founder
+      // purchases, so either source can provide an explicit revocation.
+      revokedEmails: new Set([
+        ...stackResult.revokedEmails,
+        ...stripeResult.revokedEmails,
+      ]),
       pruneRevoked: args.apply,
     }),
   );
@@ -128,17 +134,37 @@ if (args.audience === "founders" || args.audience === "all") {
           contact,
         ]),
       );
+      const byStackUserId = new Map(
+        projected.flatMap((contact) => {
+          const id =
+            typeof contact.properties?.cmux_stack_user_id === "string"
+              ? contact.properties.cmux_stack_user_id
+              : null;
+          return id ? [[id, contact] as const] : [];
+        }),
+      );
       let planned = 0;
       for (const desired of usersDesired) {
-        const current = byEmail.get(desired.email);
+        const current =
+          (desired.stackUserId
+            ? byStackUserId.get(desired.stackUserId)
+            : undefined) ?? byEmail.get(desired.email);
         if (!current) {
-          projected.push({
+          const plannedContact = {
             id: `planned_${planned++}`,
             email: desired.email,
             first_name: desired.firstName ?? null,
             last_name: desired.lastName ?? null,
             unsubscribed: false,
-          });
+            ...(desired.stackUserId
+              ? { properties: { cmux_stack_user_id: desired.stackUserId } }
+              : {}),
+          };
+          projected.push(plannedContact);
+          byEmail.set(desired.email, plannedContact);
+          if (desired.stackUserId) {
+            byStackUserId.set(desired.stackUserId, plannedContact);
+          }
           continue;
         }
         if (current.unsubscribed) {
@@ -149,6 +175,11 @@ if (args.audience === "founders" || args.audience === "all") {
         }
         if (!current.last_name && desired.lastName) {
           current.last_name = desired.lastName;
+        }
+        if (current.email.trim().toLowerCase() !== desired.email) {
+          byEmail.delete(current.email.trim().toLowerCase());
+          current.email = desired.email;
+          byEmail.set(desired.email, current);
         }
       }
       contactsForFounders = projected;
@@ -195,6 +226,7 @@ if (args.json) {
         `createContact=${summary.created} ` +
         `addToSegment=${summary.addedToSegment} ` +
         `backfillName=${summary.nameBackfilled} ` +
+        `emailMigrated=${summary.emailMigrated} ` +
         `alreadyPresent=${summary.alreadyPresent} ` +
         `skippedUnsubscribed=${summary.skippedUnsubscribed} ` +
         `revokedFromSegment=${summary.revokedFromSegment} ` +
