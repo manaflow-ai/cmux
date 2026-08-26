@@ -3,6 +3,31 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+@MainActor
+@Test func overloadReplacementRequirementSurvivesSupersedingBarrier() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "live-terminal"
+    let stream = store.terminalOutputStream(surfaceID: surfaceID)
+    _ = stream.makeAsyncIterator()
+
+    let firstBarrier = store.beginTerminalReplayBarrierCarryingReplacedWork(
+        surfaceID: surfaceID,
+        forceReplacementReplay: true
+    )
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == firstBarrier)
+    #expect(store.terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID))
+
+    let supersedingBarrier = store.beginTerminalReplayBarrierCarryingReplacedWork(
+        surfaceID: surfaceID
+    )
+    #expect(supersedingBarrier != firstBarrier)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == supersedingBarrier)
+    #expect(
+        store.terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID),
+        "a superseding barrier must keep requiring an authoritative full replay"
+    )
+}
+
 @Test func terminalOutputQueueDeliversFirstChunkImmediately() {
     var queue = TerminalOutputDeliveryQueue()
     let first = TerminalOutputDelivery(bytes: Data("first".utf8), replaceable: false)
