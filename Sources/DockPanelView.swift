@@ -168,11 +168,13 @@ struct DockEmptyPaneView: View {
                         systemImage: "terminal.fill"
                     )
                 }
-                Button(action: onNewBrowser) {
-                    Label(
-                        String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
-                        systemImage: "globe"
-                    )
+                if BrowserAvailabilitySettings.isEnabled() {
+                    Button(action: onNewBrowser) {
+                        Label(
+                            String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
+                            systemImage: "globe"
+                        )
+                    }
                 }
             }
             .buttonStyle(.bordered)
