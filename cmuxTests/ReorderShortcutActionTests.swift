@@ -207,6 +207,26 @@ struct ReorderShortcutActionTests {
         }
     }
 
+    @Test func outerPaneMovementActionsArePublicUnboundAndPaletteAddressable() throws {
+        for movement in PaneOuterMovement.allCases {
+            let action = movement.shortcutAction
+            #expect(KeyboardShortcutSettings.publicShortcutActions.contains(action))
+            #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+            #expect(action.defaultShortcut.isUnbound)
+
+            let settingsAction = try #require(ShortcutAction(rawValue: action.rawValue))
+            #expect(settingsAction.defaultStroke == nil)
+            #expect(settingsAction.displayName == movement.title)
+            #expect(settingsAction.displayName == action.label)
+            #expect(settingsAction.group == .panes)
+            #expect(
+                ContentView.commandPaletteShortcutAction(
+                    forCommandID: movement.commandID
+                ) == action
+            )
+        }
+    }
+
     private func panelOrder(in workspace: Workspace, paneId: PaneID) -> [UUID] {
         workspace.bonsplitController.tabs(inPane: paneId).compactMap {
             workspace.panelIdFromSurfaceId($0.id)

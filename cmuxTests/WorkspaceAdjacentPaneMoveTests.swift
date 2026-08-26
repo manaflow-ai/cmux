@@ -533,6 +533,99 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect(workspace.paneId(forPanelId: leftPanelId) == rightPaneId)
     }
 
+    @Test(arguments: PaneOuterMovement.allCases)
+    func focusedPaneMovesToRequestedRootEdgeWithoutRecreatingPanels(
+        _ movement: PaneOuterMovement
+    ) throws {
+        let fixture = try OuterPaneFixture()
+        let expectation = outerSplitExpectation(for: movement)
+
+        #expect(fixture.workspace.moveFocusedPane(to: movement))
+
+        #expect(fixture.workspace.focusedPanelId == fixture.browser.id)
+        #expect(fixture.workspace.bonsplitController.focusedPaneId == fixture.targetPaneId)
+        #expect(
+            panelOrder(in: fixture.workspace, paneId: fixture.targetPaneId) ==
+                fixture.targetPanelIds
+        )
+        #expect(
+            (fixture.workspace.panels[fixture.targetTerminal.id] as? TerminalPanel) ===
+                fixture.targetTerminal
+        )
+        #expect(
+            (fixture.workspace.panels[fixture.browser.id] as? BrowserPanel) ===
+                fixture.browser
+        )
+        #expect(fixture.browser.webView === fixture.webView)
+
+        guard case .split(let root) = fixture.workspace.bonsplitController.treeSnapshot() else {
+            Issue.record("Expected a root split for \(movement)")
+            return
+        }
+        #expect(root.orientation == expectation.orientation)
+        #expect(abs(root.dividerPosition - 0.5) < 0.000_1)
+        #expect(
+            paneId(in: expectation.insertFirst ? root.first : root.second) ==
+                fixture.targetPaneId.id
+        )
+
+        let remainder = expectation.insertFirst ? root.second : root.first
+        guard case .split(let preservedRoot) = remainder else {
+            Issue.record("Expected the previous root to remain intact")
+            return
+        }
+        #expect(preservedRoot.id == fixture.originalRootId)
+        #expect(abs(preservedRoot.dividerPosition - 0.3) < 0.000_1)
+        #expect(
+            paneIds(in: remainder) == [
+                fixture.leftPaneId.id,
+                fixture.topRightPaneId.id,
+            ]
+        )
+    }
+
+    @Test func outerPaneMovementRejectsUnavailableLayoutsWithoutMutation() throws {
+        for unsupportedLayout in UnsupportedLayout.allCases {
+            let fixture = try OuterPaneFixture()
+            let treeBefore = fixture.workspace.bonsplitController.treeSnapshot()
+            unsupportedLayout.apply(to: fixture.workspace)
+
+            #expect(!fixture.workspace.moveFocusedPane(to: .right))
+            #expect(fixture.workspace.bonsplitController.treeSnapshot() == treeBefore)
+            #expect(fixture.workspace.focusedPanelId == fixture.browser.id)
+            #expect(fixture.workspace.bonsplitController.focusedPaneId == fixture.targetPaneId)
+        }
+    }
+
+    @Test func outerPaneMovementRoundTripsThroughSessionPersistence() throws {
+        let fixture = try OuterPaneFixture()
+        #expect(fixture.workspace.moveFocusedPane(to: .left))
+
+        let snapshot = fixture.workspace.sessionSnapshot(includeScrollback: false)
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(decoded)
+
+        #expect(restoredPanelIds.count == fixture.workspace.panels.count)
+        #expect(restored.focusedPanelId == restoredPanelIds[fixture.browser.id])
+        guard case .split(let root) = restored.bonsplitController.treeSnapshot() else {
+            Issue.record("Expected restored outer split")
+            return
+        }
+        #expect(root.orientation == "horizontal")
+        #expect(abs(root.dividerPosition - 0.5) < 0.000_1)
+        #expect(
+            paneIds(in: root.first).count == 1
+        )
+        guard case .split(let restoredRemainder) = root.second else {
+            Issue.record("Expected restored nested remainder")
+            return
+        }
+        #expect(abs(restoredRemainder.dividerPosition - 0.3) < 0.000_1)
+        #expect(paneIds(in: root.second).count == 2)
+    }
+
     private enum UnsupportedLayout: CaseIterable {
         case canvas
         case remoteTmuxMirror
@@ -545,6 +638,65 @@ struct WorkspaceAdjacentPaneMoveTests {
             case .remoteTmuxMirror:
                 workspace.isRemoteTmuxMirror = true
             }
+        }
+    }
+
+    private struct OuterPaneFixture {
+        let workspace: Workspace
+        let leftPaneId: PaneID
+        let topRightPaneId: PaneID
+        let targetPaneId: PaneID
+        let targetTerminal: TerminalPanel
+        let browser: BrowserPanel
+        let webView: AnyObject
+        let targetPanelIds: [UUID]
+        let originalRootId: String
+
+        @MainActor
+        init() throws {
+            let workspace = Workspace()
+            let leftPanelId = try #require(workspace.focusedPanelId)
+            let leftPaneId = try #require(workspace.paneId(forPanelId: leftPanelId))
+            let topRightTerminal = try #require(
+                workspace.newTerminalSplit(
+                    from: leftPanelId,
+                    orientation: .horizontal,
+                    focus: false,
+                    initialDividerPosition: 0.3
+                )
+            )
+            let topRightPaneId = try #require(
+                workspace.paneId(forPanelId: topRightTerminal.id)
+            )
+            let targetTerminal = try #require(
+                workspace.newTerminalSplit(
+                    from: topRightTerminal.id,
+                    orientation: .vertical,
+                    focus: false,
+                    initialDividerPosition: 0.7
+                )
+            )
+            let targetPaneId = try #require(
+                workspace.paneId(forPanelId: targetTerminal.id)
+            )
+            let browser = try #require(
+                workspace.newBrowserSurface(
+                    inPane: targetPaneId,
+                    focus: true,
+                    creationPolicy: .restoration
+                )
+            )
+            let originalRoot = try #require(workspace.bonsplitController.treeSnapshot().split)
+
+            self.workspace = workspace
+            self.leftPaneId = leftPaneId
+            self.topRightPaneId = topRightPaneId
+            self.targetPaneId = targetPaneId
+            self.targetTerminal = targetTerminal
+            self.browser = browser
+            self.webView = browser.webView
+            self.targetPanelIds = [targetTerminal.id, browser.id]
+            self.originalRootId = originalRoot.id
         }
     }
 
@@ -596,5 +748,32 @@ struct WorkspaceAdjacentPaneMoveTests {
     private func paneId(in node: ExternalTreeNode) -> UUID? {
         guard case .pane(let pane) = node else { return nil }
         return UUID(uuidString: pane.id)
+    }
+
+    private func paneIds(in node: ExternalTreeNode) -> [UUID] {
+        switch node {
+        case .pane(let pane):
+            UUID(uuidString: pane.id).map { [$0] } ?? []
+        case .split(let split):
+            paneIds(in: split.first) + paneIds(in: split.second)
+        }
+    }
+
+    private func outerSplitExpectation(
+        for movement: PaneOuterMovement
+    ) -> (orientation: String, insertFirst: Bool) {
+        switch movement {
+        case .left: ("horizontal", true)
+        case .right: ("horizontal", false)
+        case .above: ("vertical", true)
+        case .below: ("vertical", false)
+        }
+    }
+}
+
+private extension ExternalTreeNode {
+    var split: ExternalSplitNode? {
+        guard case .split(let split) = self else { return nil }
+        return split
     }
 }
