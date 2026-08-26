@@ -114,7 +114,11 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
             // Same leading unread gutter as workspace rows (indicator hidden
             // when read) so headers and top-level rows keep their columns
             // aligned.
-            WorkspaceUnreadDot(unread: unread, leftShift: value.unreadIndicatorLeftShift)
+            WorkspaceUnreadDot(
+                unread: unread,
+                leftShift: value.unreadIndicatorLeftShift,
+                diameter: value.unreadBadgeDiameter
+            )
             chevron
             anchorTarget
                 // The indicator itself is accessibility-hidden; VoiceOver hears

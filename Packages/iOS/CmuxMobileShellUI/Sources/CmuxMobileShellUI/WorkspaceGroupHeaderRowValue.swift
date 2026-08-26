@@ -12,4 +12,5 @@ struct WorkspaceGroupHeaderRowValue: Equatable {
     let canDeleteWorkspaceGroup: Bool
     let canToggleCollapsed: Bool
     let unreadIndicatorLeftShift: Double
+    let unreadBadgeDiameter: Double
 }

@@ -17,6 +17,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let wrapWorkspaceTitles: Bool
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
+    let unreadBadgeDiameter: Double
     let connectionStatus: MobileMacConnectionStatus
     /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool

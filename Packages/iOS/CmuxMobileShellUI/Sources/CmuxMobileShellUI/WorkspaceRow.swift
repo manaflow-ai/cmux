@@ -27,6 +27,7 @@ struct WorkspaceRow: View {
     /// with short previews keep the same height as their neighbors.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var unreadBadgeDiameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -35,7 +36,11 @@ struct WorkspaceRow: View {
             // (hidden when read) so read and unread rows line up. Center
             // alignment keeps it centered in the actual row height as
             // descriptions and previews wrap.
-            WorkspaceUnreadDot(unread: workspace.unreadState, leftShift: unreadIndicatorLeftShift)
+            WorkspaceUnreadDot(
+                unread: workspace.unreadState,
+                leftShift: unreadIndicatorLeftShift,
+                diameter: unreadBadgeDiameter
+            )
 
             Spacer()
                 .frame(width: unreadDotRailLayoutGap)
@@ -133,11 +138,10 @@ struct WorkspaceRow: View {
     }
 
     private var unreadDotRailLayoutGap: CGFloat {
-        // Indicators are leading-aligned in the gutter, so the widest one (the
-        // count badge) ends at badgeDiameter. Reserving for it keeps the
-        // visual gap promise for badge rows and one uniform rail column for
-        // every row, badge or dot.
-        let indicatorTrailing = WorkspaceUnreadDot.badgeDiameter
+        // Indicators are leading-aligned in the gutter, so the badge ends at
+        // its diameter. Reserving for it keeps the visual gap promise for
+        // badge rows and one uniform rail column for every row.
+        let indicatorTrailing = CGFloat(unreadBadgeDiameter)
             - CGFloat(unreadIndicatorLeftShift)
         return max(
             0,

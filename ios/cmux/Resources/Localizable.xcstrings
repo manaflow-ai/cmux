@@ -8192,6 +8192,125 @@
         }
       }
     },
+    "mobile.settings.unreadIndicatorLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread Indicator Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読インジケーターラボ"
+          }
+        }
+      }
+    },
+    "mobile.settings.unreadIndicatorLab.circleSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Circle Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "円のサイズ"
+          }
+        }
+      }
+    },
+    "mobile.settings.unreadIndicatorLab.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher Left Shift moves the badge closer to the screen edge. Both values persist on this device and apply live to the workspace list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左シフトを大きくするとバッジが画面の端に近づきます。どちらの値もこのデバイスに保存され、ワークスペース一覧に即時反映されます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.unreadIndicatorLab.leftShift": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left Shift"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左シフト"
+          }
+        }
+      }
+    },
+    "mobile.settings.unreadIndicatorLab.pointsFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.1f pt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.1f pt"
+          }
+        }
+      }
+    },
+    "mobile.settings.unreadIndicatorLab.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "mobile.settings.unreadIndicatorLab.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Defaults"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        }
+      }
+    },
     "mobile.settings.unreadIndicatorLeftness": {
       "extractionState": "manual",
       "localizations": {

@@ -20,23 +20,36 @@ struct WorkspaceUnreadDot: View {
     /// or nothing. All overflow goes toward the rail, which `WorkspaceRow`'s
     /// layout math reserves via `badgeDiameter`.
     static let gutterWidth: CGFloat = 10
-    /// Diameter of the count badge, matching the Mac sidebar badge's 16pt
-    /// side. Fixed like the Mac's: multi-digit counts scale their text down
-    /// rather than widening the circle, so columns never shift.
+    /// Default diameter of the count badge, matching the Mac sidebar badge's
+    /// 16pt side. Fixed like the Mac's: multi-digit counts scale their text
+    /// down rather than widening the circle, so columns never shift. The
+    /// Unread Indicator lab can override it per-launch through the debug
+    /// `diameter` value.
     static let badgeDiameter: CGFloat = 16
 
     let unread: MobileWorkspaceUnreadState
     var leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var diameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
 
-    init(unread: MobileWorkspaceUnreadState, leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift) {
+    init(
+        unread: MobileWorkspaceUnreadState,
+        leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+        diameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
+    ) {
         self.unread = unread
         self.leftShift = leftShift
+        self.diameter = diameter
     }
 
-    init(isUnread: Bool, leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift) {
+    init(
+        isUnread: Bool,
+        leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+        diameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
+    ) {
         self.init(
             unread: MobileWorkspaceUnreadState(isUnread: isUnread, count: nil),
-            leftShift: leftShift
+            leftShift: leftShift,
+            diameter: diameter
         )
     }
 
@@ -49,24 +62,25 @@ struct WorkspaceUnreadDot: View {
     }
 
     var body: some View {
+        let side = CGFloat(diameter)
         ZStack {
             if let badgeCount {
                 Circle()
                     .fill(Color.accentColor)
-                    .frame(width: Self.badgeDiameter, height: Self.badgeDiameter)
+                    .frame(width: side, height: side)
                 Text("\(badgeCount)")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: side * 0.625, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                    .frame(width: Self.badgeDiameter - 3)
+                    .frame(width: side - 3)
             }
         }
         // A fixed badge-sized box whose leading edge pins the margin; any
         // future indicator variant must center in it so every row shares one
         // indicator center.
-        .frame(width: Self.badgeDiameter, height: Self.badgeDiameter)
+        .frame(width: side, height: side)
         .frame(width: Self.gutterWidth, alignment: .leading)
         .offset(x: -CGFloat(leftShift))
         // The indicator is decorative here; rows fold the unread state into

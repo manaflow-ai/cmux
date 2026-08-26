@@ -991,7 +991,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     onOpenChanges: onOpenChanges,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
                     previewLineLimit: configuration.previewLineLimit,
-                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
+                    unreadBadgeDiameter: configuration.unreadBadgeDiameter
                 )
                 .accessibilityElement(
                     children: onOpenChanges == nil ? .combine : .contain
@@ -1053,7 +1054,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                         canDeleteWorkspaceGroup: capabilities.supportsGroupActions
                             && configuration.deleteWorkspaceGroup != nil,
                         canToggleCollapsed: configuration.toggleGroupCollapsed != nil,
-                        unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
+                        unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
+                        unreadBadgeDiameter: configuration.unreadBadgeDiameter
                     ),
                     actions: WorkspaceGroupHeaderRowActions(
                         selectWorkspace: configuration.selectWorkspace,
@@ -1238,6 +1240,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previous.wrapWorkspaceTitles != next.wrapWorkspaceTitles
                 || previous.previewLineLimit != next.previewLineLimit
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
+                || previous.unreadBadgeDiameter != next.unreadBadgeDiameter
                 || previousConnectionStatus != nextConnectionStatus
                 || workspaceActionAvailabilityChanged(previous: previous, next: next)
         case .groupHeader(let id):
@@ -1255,6 +1258,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     != nextAnchorID.map { next.workspacesByID[$0]?.actionCapabilities }
                 || wasAnchorSelected != isAnchorSelected
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
+                || previous.unreadBadgeDiameter != next.unreadBadgeDiameter
                 || nativeActionAvailabilityChanged(previous: previous, next: next)
                 || groupActionAvailabilityChanged(previous: previous, next: next)
         case .groupFooter(let id):

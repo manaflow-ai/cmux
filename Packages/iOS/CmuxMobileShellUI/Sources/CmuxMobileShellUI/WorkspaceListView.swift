@@ -37,6 +37,7 @@ struct WorkspaceListView: View {
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var unreadBadgeDiameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
@@ -1000,7 +1001,8 @@ struct WorkspaceListView: View {
                         canDeleteWorkspaceGroup: anchorCapabilities.supportsGroupActions
                             && deleteWorkspaceGroup != nil,
                         canToggleCollapsed: toggleGroupCollapsed != nil,
-                        unreadIndicatorLeftShift: unreadIndicatorLeftShift
+                        unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+                        unreadBadgeDiameter: unreadBadgeDiameter
                     ),
                     actions: WorkspaceGroupHeaderRowActions(
                         selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
@@ -1052,6 +1054,7 @@ struct WorkspaceListView: View {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            unreadBadgeDiameter: unreadBadgeDiameter,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             requestCustomization: capabilities.supportsWorkspaceActions
