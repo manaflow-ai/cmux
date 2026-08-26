@@ -262,6 +262,7 @@ describe("listFounderContacts", () => {
     id,
     status: "complete",
     payment_status: "paid",
+    amount_total: 1000,
     metadata: { founders_edition: "true" },
     customer_details: { email, name: "Fred Founder" },
     ...overrides,
@@ -298,6 +299,7 @@ describe("listFounderContacts", () => {
             founderSession("cs_5", null),
             founderSession("cs_6", "freebie@example.com", {
               payment_status: "no_payment_required",
+              amount_total: 0,
             }),
           ],
           has_more: false,
@@ -337,5 +339,25 @@ describe("listFounderContacts", () => {
     await expect(
       listFounderContacts({ stripeSecretKey: "sk_bad", fetchImpl }),
     ).rejects.toThrow(/403/);
+  });
+
+  test("does not treat a non-zero no-payment session as settled", async () => {
+    const { fetchImpl } = fetchScript(() => ({
+      body: {
+        data: [
+          founderSession("cs_deferred", "deferred@example.com", {
+            payment_status: "no_payment_required",
+            amount_total: 1000,
+          }),
+        ],
+        has_more: false,
+      },
+    }));
+    const result = await listFounderContacts({
+      stripeSecretKey: "sk_test",
+      fetchImpl,
+    });
+    expect(result.contacts).toEqual([]);
+    expect(result.founderSessions).toBe(0);
   });
 });

@@ -85,7 +85,10 @@ function signedRequest(body: string): Request {
 
 function checkoutCompletedEvent(
   metadata: Record<string, string>,
-  overrides: { payment_status?: string | null } = {},
+  overrides: {
+    payment_status?: string | null;
+    amount_total?: number | null;
+  } = {},
 ): string {
   return JSON.stringify({
     id: "evt_1",
@@ -95,6 +98,7 @@ function checkoutCompletedEvent(
         id: "cs_test_123",
         metadata,
         payment_status: overrides.payment_status ?? "paid",
+        amount_total: overrides.amount_total ?? 1000,
         customer_details: {
           email: "customer@example.com",
           name: "Ada Lovelace",
@@ -122,7 +126,7 @@ describe("founders welcome segment upsert", () => {
       signedRequest(
         checkoutCompletedEvent(
           { founders_edition: "true" },
-          { payment_status: "no_payment_required" },
+          { payment_status: "no_payment_required", amount_total: 0 },
         ),
       ),
     );
@@ -145,6 +149,19 @@ describe("founders welcome segment upsert", () => {
     // permanent segment membership waits for a settled payment.
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(upsertFounderIntoSegments).not.toHaveBeenCalled();
+  });
+
+  test("does not upsert a non-zero no-payment session", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent(
+          { founders_edition: "true" },
+          { payment_status: "no_payment_required", amount_total: 1000 },
+        ),
+      ),
+    );
+    expect(response.status).toBe(200);
     expect(upsertFounderIntoSegments).not.toHaveBeenCalled();
   });
 

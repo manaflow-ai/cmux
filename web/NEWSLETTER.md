@@ -54,7 +54,9 @@ vercel env pull .env.newsletter --environment production && set -a && source .en
 
 Required: `RESEND_API_KEY`, `NEXT_PUBLIC_STACK_PROJECT_ID`,
 `STACK_SECRET_SERVER_KEY`, `STRIPE_SECRET_KEY`. Optional:
-`CMUX_NEWSLETTER_FROM_EMAIL` (defaults to `Austin Wang <austin@manaflow.ai>`).
+`CMUX_NEWSLETTER_FROM_EMAIL` (defaults to `Austin Wang <austin@manaflow.ai>`)
+and `CMUX_NEWSLETTER_PRIVACY_DISCLOSURE_CONFIRMED=true` (required before the
+purchase webhook may write marketing audience membership).
 
 **Key permission**: segment/contact/topic/broadcast management needs a
 Resend API key with **Full access**. A "Sending access" restricted key

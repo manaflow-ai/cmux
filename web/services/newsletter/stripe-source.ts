@@ -30,6 +30,7 @@ type StripeCheckoutSession = {
   id: string;
   status?: string | null;
   payment_status?: string | null;
+  amount_total?: number | null;
   metadata?: Record<string, string> | null;
   customer_details?: {
     email?: string | null;
@@ -48,6 +49,14 @@ export type StripeSourceResult = {
   founderSessions: number;
   skippedMissingEmail: number;
 };
+
+function isSettledFounderSession(session: StripeCheckoutSession): boolean {
+  if (session.payment_status === "paid") return true;
+  // Stripe also emits no_payment_required for genuinely zero-total sessions,
+  // but the status alone is not proof that money is settled (it can represent
+  // deferred/setup flows). Require the explicit zero-total invariant.
+  return session.payment_status === "no_payment_required" && session.amount_total === 0;
+}
 
 export async function listFounderContacts(options: {
   stripeSecretKey: string;
@@ -105,12 +114,7 @@ export async function listFounderContacts(options: {
       if (session.status !== "complete") {
         continue;
       }
-      // A complete session is normally "paid"; "no_payment_required" covers a
-      // 100%-off promotion, which is still a real founder.
-      if (
-        session.payment_status !== "paid" &&
-        session.payment_status !== "no_payment_required"
-      ) {
+      if (!isSettledFounderSession(session)) {
         continue;
       }
       founderSessions += 1;

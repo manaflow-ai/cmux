@@ -132,20 +132,27 @@ export async function upsertFounderIntoSegments(options: {
   // Backfill missing names, but re-read immediately before the PATCH. A
   // contact can unsubscribe while this request is in flight; in that case no
   // write is attempted and the caller receives an explicit skip outcome.
-  const backfill: { firstName?: string; lastName?: string } = {};
-  if (!existing.first_name && name.firstName) backfill.firstName = name.firstName;
-  if (!existing.last_name && name.lastName) backfill.lastName = name.lastName;
   let nameBackfilled = false;
-  if (backfill.firstName || backfill.lastName) {
+  if (
+    (!existing.first_name && name.firstName) ||
+    (!existing.last_name && name.lastName)
+  ) {
     const latest = await options.client.getContactByEmail(email);
     if (!latest) return resultsFor(segmentNames, "skipped_missing_contact");
     if (latest.unsubscribed) {
       return resultsFor(segmentNames, "skipped_unsubscribed");
     }
     existing = latest;
+    // Compute the PATCH from the fresh read, not from the stale snapshot that
+    // triggered the re-read, so a concurrent name edit can never be replaced.
+    const backfill: { firstName?: string; lastName?: string } = {};
+    if (!latest.first_name && name.firstName) backfill.firstName = name.firstName;
+    if (!latest.last_name && name.lastName) backfill.lastName = name.lastName;
     try {
-      await options.client.updateContactName(existing.id, backfill);
-      nameBackfilled = true;
+      if (backfill.firstName || backfill.lastName) {
+        await options.client.updateContactName(existing.id, backfill);
+        nameBackfilled = true;
+      }
     } catch {
       // Keep attempting segment membership; the next reconciliation can retry
       // the name backfill. Per-segment results still report failed adds below.

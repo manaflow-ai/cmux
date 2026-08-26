@@ -35,6 +35,7 @@ type FoundersConfig = {
   resendApiKey: string;
   webhookSecret: string;
   fromEmail: string;
+  newsletterPrivacyDisclosureConfirmed: boolean;
 };
 
 function resolveConfig(): FoundersConfig | null {
@@ -47,6 +48,8 @@ function resolveConfig(): FoundersConfig | null {
     resendApiKey,
     webhookSecret,
     fromEmail: env.CMUX_FOUNDERS_FROM_EMAIL ?? DEFAULT_FROM_EMAIL,
+    newsletterPrivacyDisclosureConfirmed:
+      env.CMUX_NEWSLETTER_PRIVACY_DISCLOSURE_CONFIRMED === "true",
   };
 }
 
@@ -152,6 +155,12 @@ export async function POST(request: Request) {
         ) {
           return NextResponse.json({ ok: true, skipped: "async_payment" });
         }
+        if (!config.newsletterPrivacyDisclosureConfirmed) {
+          return NextResponse.json({
+            ok: true,
+            skipped: "privacy_disclosure",
+          });
+        }
         const upsert = await scheduleNewsletterUpsert(() =>
           upsertFounderBestEffort(span, config, {
             email: asyncEmail,
@@ -238,7 +247,11 @@ export async function POST(request: Request) {
       // delayed payment methods that may still fail, and the additive sync
       // would never remove a buyer whose payment later fell through.
       const paymentSettled = isPaymentSettled(session);
-      if (trigger === "founders_edition" && paymentSettled) {
+      if (
+        trigger === "founders_edition" &&
+        paymentSettled &&
+        config.newsletterPrivacyDisclosureConfirmed
+      ) {
         await scheduleNewsletterUpsert(() =>
           upsertFounderBestEffort(span, config, {
             email: customerEmail,
@@ -324,11 +337,10 @@ async function scheduleNewsletterUpsert(
 
 function isPaymentSettled(session: {
   payment_status?: string | null;
+  amount_total?: number | null;
 } | null | undefined): boolean {
-  return (
-    session?.payment_status === "paid" ||
-    session?.payment_status === "no_payment_required"
-  );
+  if (session?.payment_status === "paid") return true;
+  return session?.payment_status === "no_payment_required" && session.amount_total === 0;
 }
 
 function newsletterErrorCategory(error: unknown): string {
@@ -364,6 +376,7 @@ type StripeEvent = {
       id?: string;
       metadata?: Record<string, string> | null;
       payment_status?: string | null;
+      amount_total?: number | null;
       customer_details?: {
         email?: string | null;
         name?: string | null;
