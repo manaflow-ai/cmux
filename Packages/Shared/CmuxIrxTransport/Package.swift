@@ -21,7 +21,7 @@ let package = Package(
         .package(path: "../CmuxIrohTransport"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
-            exact: "1.0.2-cmux.8"
+            exact: "1.0.2-cmux.7"
         ),
     ],
     targets: [

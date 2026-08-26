@@ -159,6 +159,7 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             iroh: iroh,
+            irx: irxEnabled ? irx : nil,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
@@ -202,7 +203,11 @@ struct cmuxApp: App {
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
+                if let irx = Self.root.irx {
+                    await irx.didBecomeActive()
+                } else {
+                    await Self.root.iroh.prepareForConnection()
+                }
             }
         )
     }

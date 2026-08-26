@@ -37,9 +37,12 @@ Rebuilt from scratch (package `Packages/Shared/CmuxIrxTransport`, prefix
   reconnect ownership, keepalive, supersession, event journaling.
 
 Consumed unchanged (stable, not flaky, and battle-tested):
-- iroh-ffi fork binary (bumped repo-wide `1.0.2-cmux.7` -> `1.0.2-cmux.8`, the
-  artifact rebuilt from fork sources; same Swift API, same pinned iroh rev
-  4152d81 with make-before-break relay credential handoff).
+- iroh-ffi fork binary `1.0.2-cmux.7`, the CI-built main-line artifact
+  (pinned iroh fork rev 4152d81, which ships make-before-break relay
+  credential handoff). Note: the `cmux.8` tag is unusable as a pin because its
+  release asset was re-uploaded after the manifest checksum was baked; the
+  upstream-binary consumption trap it fixed applied only to the cmux-lite
+  branch manifest, never to this main line.
 - Web backend: `/api/devices/iroh/{challenge,register}`, `GET /api/devices/iroh`
   (discover), `/api/devices/iroh/pair-grants`, `/api/relay/token`. No server
   changes; steady state needs only a valid relay token.
