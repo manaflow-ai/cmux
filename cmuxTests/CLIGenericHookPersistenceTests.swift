@@ -1116,6 +1116,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(approval.status, 0, approval.stderr)
         XCTAssertEqual(approval.stdout, #"{"permission":"ask"}"# + "\n")
 
+        let persistedApprovalJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent("cursor-hook-sessions.json"))
+            ) as? [String: Any]
+        )
+        let persistedSession = try XCTUnwrap(
+            (persistedApprovalJSON["sessions"] as? [String: Any])?[sessionId] as? [String: Any]
+        )
+        let persistedApprovals = try XCTUnwrap(
+            persistedSession["pendingCursorShellApprovals"] as? [[String: Any]]
+        )
+        XCTAssertEqual(persistedApprovals.first?["commandLength"] as? Int, approvalCommand.utf8.count)
+        XCTAssertNil(persistedApprovals.first?["command"])
+
         let approvalCommands = Array(state.snapshot().dropFirst(approvalCommandStart))
         XCTAssertEqual(
             approvalCommands.filter {
