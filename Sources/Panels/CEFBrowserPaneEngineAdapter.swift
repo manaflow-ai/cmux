@@ -430,6 +430,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             publishSnapshot(state: .running(nil))
         case .closed:
             isReady = false
+            hasStarted = false
             startupTask?.cancel()
             startupTask = nil
             documentScriptRemovalTask?.cancel()
@@ -438,6 +439,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             colorSchemeTask = nil
             remoteDebuggingEndpoint = nil
             hostView.detach()
+            browser = nil
+            devTools = nil
+            eventTask = nil
             let waiters = readyContinuations.values
             readyContinuations.removeAll()
             for waiter in waiters {

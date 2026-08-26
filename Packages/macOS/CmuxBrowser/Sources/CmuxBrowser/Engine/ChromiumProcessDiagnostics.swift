@@ -59,7 +59,10 @@ struct ChromiumProcessDiagnostics: Sendable {
                         pair.continuation.finish()
                     }
                 )
-                return shouldContinue && !state.published
+                // Readiness is a one-shot publication, but the descriptor must
+                // remain drained until Chromium exits so later diagnostics
+                // cannot fill stderr and block the child process.
+                return shouldContinue
             }
         } catch {
             throw error

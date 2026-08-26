@@ -267,7 +267,7 @@ public actor ChromiumBrowserSession {
             // and transfer cost directly bounds interactive frame rate. JPEG
             // at this quality is visually indistinguishable for page content
             // and roughly an order of magnitude smaller/faster than PNG.
-            _ = try? await cdp.send(method: "Page.startScreencast", parameters: .object([
+            _ = try await cdp.send(method: "Page.startScreencast", parameters: .object([
                 "format": .string("jpeg"),
                 "quality": .number(75),
                 "maxWidth": .number(4096),

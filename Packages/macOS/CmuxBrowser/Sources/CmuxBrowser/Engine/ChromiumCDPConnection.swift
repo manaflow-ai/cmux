@@ -50,19 +50,23 @@ actor ChromiumCDPConnection {
     private var activeCommandIDs: Set<Int> = []
     private var cancelledCommandIDs: Set<Int> = []
     private var sendTasks: [Int: Task<Void, Never>] = [:]
+    private var timeoutTasks: [Int: Task<Void, Never>] = [:]
     private var eventQueue: [CDPEvent] = []
     private var eventWaiter: CheckedContinuation<CDPEvent?, Never>?
     private var eventResyncQueued = false
     private var frameContinuations: [UUID: FrameContinuation] = [:]
     private var activeTargetSessionID: String?
     private var isClosed = false
+    private let commandTimeout: Duration
 
-    init(endpoint: URL, session: URLSession) throws {
+    init(endpoint: URL, session: URLSession, commandTimeout: Duration = .seconds(15)) throws {
         transport = try ChromiumCDPWebSocketTransport(endpoint: endpoint, session: session)
+        self.commandTimeout = commandTimeout
     }
 
-    init(transport: any ChromiumCDPTransport) {
+    init(transport: any ChromiumCDPTransport, commandTimeout: Duration = .seconds(15)) {
         self.transport = transport
+        self.commandTimeout = commandTimeout
     }
 
     func connect() async throws {
@@ -209,6 +213,15 @@ actor ChromiumCDPConnection {
                     }
                 }
                 sendTasks[id] = sendTask
+                let timeout = commandTimeout
+                timeoutTasks[id] = Task { [weak self, timeout] in
+                    do {
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+                    await self?.commandTimedOut(id: id)
+                }
             }
         }, onCancel: { [weak self] in
             Task { await self?.cancelPending(id: id) }
@@ -227,6 +240,8 @@ actor ChromiumCDPConnection {
             eventWaiter = nil
             for task in sendTasks.values { task.cancel() }
             sendTasks.removeAll()
+            for task in timeoutTasks.values { task.cancel() }
+            timeoutTasks.removeAll()
             let waiters = pending
             pending.removeAll()
             activeCommandIDs.removeAll()
@@ -326,6 +341,11 @@ actor ChromiumCDPConnection {
         frameContinuations.removeValue(forKey: id)
     }
 
+    private func commandTimedOut(id: Int) {
+        guard activeCommandIDs.contains(id) else { return }
+        failPending(id: id, error: ChromiumBrowserDiagnostic.commandTimedOut)
+    }
+
     /// Handles one screencast envelope. Returns `false` when the payload is
     /// not actually a well-formed frame, in which case the caller falls back
     /// to the generic decoder.
@@ -360,6 +380,7 @@ actor ChromiumCDPConnection {
 
     private func cancelPending(id: Int) {
         guard activeCommandIDs.contains(id) else { return }
+        timeoutTasks.removeValue(forKey: id)?.cancel()
         sendTasks[id]?.cancel()
         sendTasks.removeValue(forKey: id)
         guard let continuation = pending.removeValue(forKey: id) else {
@@ -371,11 +392,13 @@ actor ChromiumCDPConnection {
     }
 
     private func sendFailed(id: Int, error: any Error) {
+        timeoutTasks.removeValue(forKey: id)?.cancel()
         sendTasks.removeValue(forKey: id)
         failPending(id: id, error: error)
     }
 
     private func failPending(id: Int, error: any Error) {
+        timeoutTasks.removeValue(forKey: id)?.cancel()
         cancelledCommandIDs.remove(id)
         sendTasks[id]?.cancel()
         sendTasks.removeValue(forKey: id)
@@ -393,6 +416,8 @@ actor ChromiumCDPConnection {
         activeCommandIDs.removeAll()
         for task in sendTasks.values { task.cancel() }
         sendTasks.removeAll()
+        for task in timeoutTasks.values { task.cancel() }
+        timeoutTasks.removeAll()
         cancelledCommandIDs.removeAll()
         for waiter in waiters.values {
             waiter.resume(throwing: error)
@@ -446,6 +471,7 @@ actor ChromiumCDPConnection {
         let value = try JSONDecoder().decode(CDPValue.self, from: data)
         guard case .object(let object) = value else { throw CDPError.malformedMessage }
         if let rawID = object["id"]?.doubleValue, let id = Int(exactly: rawID) {
+            timeoutTasks.removeValue(forKey: id)?.cancel()
             sendTasks[id]?.cancel()
             sendTasks.removeValue(forKey: id)
             activeCommandIDs.remove(id)

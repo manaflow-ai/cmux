@@ -4,6 +4,7 @@ import Foundation
 /// Null-delimited CDP transport over Chromium's private inherited descriptors.
 actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     private static let maximumMessageBytes = 100 * 1024 * 1024
+    private static let writeDeadline: Duration = .seconds(15)
 
     private struct PendingWrite {
         let data: Data
@@ -16,6 +17,7 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     private let responseReadSource: ChromiumPipeReadSource
     private var pendingWrites: [PendingWrite] = []
     private var activeWrite: PendingWrite?
+    private var activeWriteTimeoutTask: Task<Void, Never>?
     private var isClosed = false
     private var commandDescriptorIsClosed = false
 
@@ -62,6 +64,7 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     }
 
     deinit {
+        activeWriteTimeoutTask?.cancel()
         responseReadSource.cancel()
         if !commandDescriptorIsClosed {
             Darwin.close(commandDescriptor)
@@ -88,6 +91,8 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        activeWriteTimeoutTask?.cancel()
+        activeWriteTimeoutTask = nil
         responseReadSource.cancel()
         let queued = pendingWrites
         pendingWrites.removeAll()
@@ -107,6 +112,14 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
         }
         let write = pendingWrites.removeFirst()
         activeWrite = write
+        activeWriteTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.writeDeadline)
+            } catch {
+                return
+            }
+            await self?.activeWriteTimedOut()
+        }
         let descriptor = commandDescriptor
         Task.detached { [self] in
             let result = Result {
@@ -119,6 +132,8 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     private func writeFinished(_ result: Result<Void, any Error>) {
         guard let write = activeWrite else { return }
         activeWrite = nil
+        activeWriteTimeoutTask?.cancel()
+        activeWriteTimeoutTask = nil
         write.continuation.resume(with: result)
         if case .failure = result {
             isClosed = true
@@ -131,6 +146,23 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
             }
         }
         beginNextWriteIfNeeded()
+    }
+
+    private func activeWriteTimedOut() {
+        guard let write = activeWrite else { return }
+        activeWrite = nil
+        activeWriteTimeoutTask = nil
+        isClosed = true
+        write.continuation.resume(throwing: ChromiumBrowserDiagnostic.commandTimedOut)
+        let queued = pendingWrites
+        pendingWrites.removeAll()
+        for pendingWrite in queued {
+            pendingWrite.continuation.resume(
+                throwing: CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
+            )
+        }
+        closeCommandDescriptorIfIdle()
+        messageContinuation.finish()
     }
 
     private func closeCommandDescriptorIfIdle() {

@@ -431,12 +431,26 @@ final class BrowserProfileStore: ObservableObject {
 
     func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
         let result = repository.deleteProfile(id: id)
+        if result != nil {
+            ChromiumBrowserSession.removeOwnedProfileData(
+                for: id,
+                environment: .cmuxLive
+            )
+            CEFRuntimeBootstrap.removeProfileData(for: id)
+        }
         mirrorPublishedState()
         return result
     }
 
     func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
         let result = await repository.clearProfileData(id: id)
+        if result != nil {
+            ChromiumBrowserSession.removeOwnedProfileData(
+                for: id,
+                environment: .cmuxLive
+            )
+            CEFRuntimeBootstrap.removeProfileData(for: id)
+        }
         mirrorPublishedState()
         return result
     }

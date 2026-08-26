@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import CmuxBrowser
 
 extension TerminalController {
     nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
@@ -190,12 +191,43 @@ extension TerminalController {
 
     nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
+            let unsupportedSelectors = ["value", "url", "expires", "secure"]
+                .filter { params[$0] != nil }
+            guard unsupportedSelectors.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: ChromiumBrowserDiagnostic.invalidCookiePayload.message,
+                    data: ["unsupported": unsupportedSelectors]
+                )
+            }
             let name = v2String(params, "name")
             let domain = v2String(params, "domain")
             let path = v2String(params, "path")
-            let clearAll = params["all"] == nil && name == nil && domain == nil && path == nil
-                ? true
-                : v2Bool(params, "all") == true
+            let hasScope = name != nil || domain != nil || path != nil
+            let hasAllParameter = params["all"] != nil
+            guard !hasAllParameter || v2Bool(params, "all") != nil else {
+                return .err(
+                    code: "invalid_params",
+                    message: ChromiumBrowserDiagnostic.invalidCookiePayload.message,
+                    data: nil
+                )
+            }
+            let all = v2Bool(params, "all") == true
+            guard !(all && hasScope) else {
+                return .err(
+                    code: "invalid_params",
+                    message: ChromiumBrowserDiagnostic.invalidCookiePayload.message,
+                    data: nil
+                )
+            }
+            guard !(hasAllParameter && !all && !hasScope) else {
+                return .err(
+                    code: "invalid_params",
+                    message: ChromiumBrowserDiagnostic.invalidCookiePayload.message,
+                    data: nil
+                )
+            }
+            let clearAll = all || (!hasAllParameter && !hasScope)
             if v2MainSync({ ctx.browserPanel.isChromiumBacked }) {
                 switch v2ClearChromiumCookies(
                     browserPanel: ctx.browserPanel,

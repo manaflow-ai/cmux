@@ -45,7 +45,7 @@ struct ChromiumLoopbackPortAllocator: Sendable {
         }
         guard bindResult == 0 else {
             let code = errno
-            if let preferredPort, code == EADDRINUSE {
+            if let preferredPort, code == EADDRINUSE || code == EACCES || code == EPERM {
                 throw CDPError.portUnavailable(preferredPort)
             }
             throw CDPError.disconnected(Self.posixErrorDescription(code))

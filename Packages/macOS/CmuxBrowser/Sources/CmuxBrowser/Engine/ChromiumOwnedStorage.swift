@@ -48,6 +48,19 @@ struct ChromiumOwnedStorage: Sendable {
         for profileID: UUID,
         storageID: UUID? = nil
     ) throws -> URL {
+        let directory = try profileDirectoryURL(for: profileID, storageID: storageID)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// Resolves a profile directory without creating its leaf directory.
+    ///
+    /// Cleanup callers use this form so clearing an unknown profile never
+    /// creates a new profile tree merely to remove it.
+    func profileDirectoryURL(
+        for profileID: UUID,
+        storageID: UUID? = nil
+    ) throws -> URL {
         var directory = try applicationDirectory()
             .appendingPathComponent("ChromiumProfiles", isDirectory: true)
             .appendingPathComponent(profileID.uuidString.lowercased(), isDirectory: true)
@@ -56,7 +69,6 @@ struct ChromiumOwnedStorage: Sendable {
                 .appendingPathComponent("Panes", isDirectory: true)
                 .appendingPathComponent(storageID.uuidString.lowercased(), isDirectory: true)
         }
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
 

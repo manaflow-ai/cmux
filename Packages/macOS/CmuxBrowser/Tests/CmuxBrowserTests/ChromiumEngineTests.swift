@@ -321,6 +321,33 @@ struct ChromiumEngineTests {
             firstPane.deletingLastPathComponent().deletingLastPathComponent())
     }
 
+    @Test("Profile cleanup removes every pane-owned Chromium directory")
+    func profileDataCleanup() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-chromium-profile-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let profileID = UUID()
+        let storage = ChromiumOwnedStorage(
+            fileManager: fileManager,
+            applicationSupportURLProvider: { root },
+            bundleIdentifierProvider: { "com.example.cmux" }
+        )
+        let paneDirectory = try storage.profileDirectory(for: profileID, storageID: UUID())
+        let environment = ChromiumBrowserRuntimeEnvironment(
+            fileManager: fileManager,
+            runtimeDownloadSession: URLSession(configuration: .ephemeral),
+            loopbackCDPSession: URLSession(configuration: .ephemeral),
+            applicationSupportURLProvider: { root },
+            bundleIdentifierProvider: { "com.example.cmux" },
+            executableOverrideProvider: { nil },
+            startupDeadline: {}
+        )
+
+        ChromiumBrowserSession.removeOwnedProfileData(for: profileID, environment: environment)
+        #expect(!fileManager.fileExists(atPath: paneDirectory.path))
+    }
+
     @Test("Runtime lookup selects only the pinned version and architecture")
     func runtimeLookupIsArtifactSpecific() throws {
         let root = FileManager.default.temporaryDirectory

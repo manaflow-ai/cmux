@@ -22,6 +22,21 @@ struct ChromiumStartupTests {
         #expect(closeCount == 1)
     }
 
+    @Test("A stalled CDP command fails at the connection deadline")
+    func stalledCommandDeadline() async throws {
+        let transport = RecordingCDPTransport()
+        let connection = ChromiumCDPConnection(
+            transport: transport,
+            commandTimeout: .milliseconds(10)
+        )
+        try await connection.connect()
+
+        await #expect(throws: ChromiumBrowserDiagnostic.commandTimedOut) {
+            _ = try await connection.send(method: "Runtime.evaluate")
+        }
+        await connection.shutdown()
+    }
+
     @Test("A launched child has a deterministic CDP handshake deadline")
     func startupHandshakeDeadline() async throws {
         let fileManager = FileManager.default

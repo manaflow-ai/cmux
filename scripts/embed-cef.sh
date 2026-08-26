@@ -18,14 +18,23 @@ trap 'rm -f "$CEF_ERROR_LOG"' EXIT
 if [[ "${CMUX_CEF_ALLOW_DOWNLOAD:-0}" != "1" ]]; then
   CEF_SOURCE_ARGS+=(--check)
 fi
-if ! FRAMEWORK_SOURCE="$(CMUX_CEF_ARCH="${ARCHS%% *}" "$SRCROOT/scripts/ensure-cef.sh" "${CEF_SOURCE_ARGS[@]}" 2>"$CEF_ERROR_LOG")"; then
-  if [[ "${CMUX_CEF_ALLOW_DOWNLOAD:-0}" != "1" ]]; then
-    echo "embed-cef: framework is not cached; skipping optional CEF embed (set CMUX_CEF_ALLOW_DOWNLOAD=1 to fetch it)"
-    exit 0
-  fi
-  cat "$CEF_ERROR_LOG" >&2
-  exit 1
+read -r -a CEF_ARCHES <<< "${ARCHS:-$(uname -m)}"
+if [[ "${#CEF_ARCHES[@]}" -eq 0 ]]; then
+  CEF_ARCHES=("$(uname -m)")
 fi
+CEF_SOURCES=()
+for CEF_ARCH in "${CEF_ARCHES[@]}"; do
+  if ! FRAMEWORK_SOURCE="$(CMUX_CEF_ARCH="$CEF_ARCH" "$SRCROOT/scripts/ensure-cef.sh" "${CEF_SOURCE_ARGS[@]}" 2>"$CEF_ERROR_LOG")"; then
+    if [[ "${CMUX_CEF_ALLOW_DOWNLOAD:-0}" != "1" ]]; then
+      echo "embed-cef: framework for $CEF_ARCH is not cached; skipping optional CEF embed (set CMUX_CEF_ALLOW_DOWNLOAD=1 to fetch it)"
+      exit 0
+    fi
+    cat "$CEF_ERROR_LOG" >&2
+    exit 1
+  fi
+  CEF_SOURCES+=("$FRAMEWORK_SOURCE")
+done
+FRAMEWORK_SOURCE="${CEF_SOURCES[0]}"
 
 APP_FRAMEWORKS="$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Frameworks"
 mkdir -p "$APP_FRAMEWORKS"
@@ -43,25 +52,64 @@ DEST="$APP_FRAMEWORKS/Chromium Embedded Framework.framework"
 # The marker lives outside the bundle: loose files under Frameworks/ fail
 # the app's code signing.
 MARKER="$HELPER_CACHE_DIR/.cef-source"
-if [[ ! -d "$DEST" || "$(cat "$MARKER" 2>/dev/null)" != "$FRAMEWORK_SOURCE" \
+EXPECTED_MARKER="$(printf '%s\n' "${CEF_SOURCES[@]}")"
+if [[ ! -d "$DEST" || "$(cat "$MARKER" 2>/dev/null)" != "$EXPECTED_MARKER" \
       || ! -e "$DEST/Versions/Current/Resources/Info.plist" ]]; then
   rm -rf "$DEST" "$APP_FRAMEWORKS/ChromiumEmbedded"
   ditto "$FRAMEWORK_SOURCE" "$DEST"
-  printf '%s' "$FRAMEWORK_SOURCE" > "$MARKER"
+  printf '%s' "$EXPECTED_MARKER" > "$MARKER"
+
+  # CEF ships separate framework archives per architecture. A universal app
+  # must merge every Mach-O inside the versioned framework, not just the main
+  # dylib; the GPU/SwiftShader libraries are loaded by child processes too.
+  if [[ "${#CEF_SOURCES[@]}" -gt 1 ]]; then
+    FRAMEWORK_VERSION="$DEST/Versions/Current"
+    while IFS= read -r relative_binary; do
+      [[ -n "$relative_binary" ]] || continue
+      INPUTS=()
+      for source in "${CEF_SOURCES[@]}"; do
+        INPUTS+=("$source/Versions/Current/$relative_binary")
+      done
+      for input in "${INPUTS[@]}"; do
+        [[ -f "$input" ]] || {
+          echo "embed-cef: missing universal framework binary $input" >&2
+          exit 1
+        }
+      done
+      output="$FRAMEWORK_VERSION/$relative_binary"
+      temporary="$output.universal"
+      lipo -create "${INPUTS[@]}" -output "$temporary"
+      mv -f "$temporary" "$output"
+    done < <(
+      printf '%s\n' "Chromium Embedded Framework"
+      find "$FRAMEWORK_VERSION/Libraries" -maxdepth 1 -type f -name '*.dylib' \
+        -exec sh -c 'printf "Libraries/%s\\n" "$(basename "$1")"' _ {} \;
+      )
+  fi
 fi
 
 # Compile the helper binary once per toolchain/source change.
 HELPER_SOURCE="$SRCROOT/Packages/macOS/CmuxCEF/Helper/helper_main.c"
 HELPER_INCLUDES="$SRCROOT/Packages/macOS/CmuxCEF/Sources/CmuxCEFShim/cef"
-# The phase shell can run under Rosetta; pin the helper to the build arch.
-HELPER_ARCH="${ARCHS%% *}"
-HELPER_ARCH="${HELPER_ARCH:-$(uname -m)}"
-HELPER_BINARY="$HELPER_CACHE_DIR/cmux-cef-helper-$HELPER_ARCH"
-if [[ ! -x "$HELPER_BINARY" || "$HELPER_SOURCE" -nt "$HELPER_BINARY" ]]; then
-  xcrun clang -O2 -mmacosx-version-min=14.0 -arch "$HELPER_ARCH" \
-    -I"$HELPER_INCLUDES" \
-    -Wl,-undefined,dynamic_lookup \
-    -o "$HELPER_BINARY" "$HELPER_SOURCE"
+HELPER_INPUTS=()
+for HELPER_ARCH in "${CEF_ARCHES[@]}"; do
+  HELPER_INPUT="$HELPER_CACHE_DIR/cmux-cef-helper-$HELPER_ARCH"
+  if [[ ! -x "$HELPER_INPUT" || "$HELPER_SOURCE" -nt "$HELPER_INPUT" ]]; then
+    xcrun clang -O2 -mmacosx-version-min=14.0 -arch "$HELPER_ARCH" \
+      -I"$HELPER_INCLUDES" \
+      -Wl,-undefined,dynamic_lookup \
+      -o "$HELPER_INPUT" "$HELPER_SOURCE"
+  fi
+  HELPER_INPUTS+=("$HELPER_INPUT")
+done
+if [[ "${#HELPER_INPUTS[@]}" -eq 1 ]]; then
+  HELPER_BINARY="${HELPER_INPUTS[0]}"
+else
+  HELPER_BINARY="$HELPER_CACHE_DIR/cmux-cef-helper-universal"
+  if [[ ! -x "$HELPER_BINARY" || "$HELPER_SOURCE" -nt "$HELPER_BINARY" ]]; then
+    lipo -create "${HELPER_INPUTS[@]}" -output "$HELPER_BINARY.tmp"
+    mv -f "$HELPER_BINARY.tmp" "$HELPER_BINARY"
+  fi
 fi
 
 SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"

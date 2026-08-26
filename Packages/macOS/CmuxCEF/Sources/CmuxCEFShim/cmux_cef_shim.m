@@ -9,6 +9,7 @@
 
 #include <dlfcn.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -336,6 +337,18 @@ static void append_switch(struct _cef_command_line_t *command_line,
   cef_string_clear(&name);
 }
 
+static void append_switch_with_value(struct _cef_command_line_t *command_line,
+                                     const char *switch_name,
+                                     const char *value_string) {
+  cef_string_t name = {};
+  cef_string_t value = {};
+  set_cef_string(&name, switch_name);
+  set_cef_string(&value, value_string);
+  command_line->append_switch_with_value(command_line, &name, &value);
+  cef_string_clear(&name);
+  cef_string_clear(&value);
+}
+
 static void CEF_CALLBACK app_on_before_command_line_processing(
     cef_app_t *self, const cef_string_t *process_type,
     struct _cef_command_line_t *command_line) {
@@ -346,17 +359,18 @@ static void CEF_CALLBACK app_on_before_command_line_processing(
 #if DEBUG
   append_switch(command_line, "use-mock-keychain");
 #endif
-  if (!g_extension_paths || !g_extension_paths[0]) return;
-  cef_string_t name = {};
-  cef_string_t value = {};
-  set_cef_string(&value, g_extension_paths);
-  set_cef_string(&name, "load-extension");
-  command_line->append_switch_with_value(command_line, &name, &value);
-  cef_string_clear(&name);
-  set_cef_string(&name, "disable-extensions-except");
-  command_line->append_switch_with_value(command_line, &name, &value);
-  cef_string_clear(&name);
-  cef_string_clear(&value);
+  if (g_extension_paths && g_extension_paths[0]) {
+    append_switch_with_value(command_line, "load-extension", g_extension_paths);
+    append_switch_with_value(command_line, "disable-extensions-except", g_extension_paths);
+  }
+  if (g_remote_debugging_port > 0) {
+    char origins[256];
+    snprintf(
+        origins, sizeof(origins),
+        "http://127.0.0.1:%d,http://localhost:%d,devtools://devtools",
+        g_remote_debugging_port, g_remote_debugging_port);
+    append_switch_with_value(command_line, "remote-allow-origins", origins);
+  }
 }
 
 static void CEF_CALLBACK on_schedule_message_pump_work(
@@ -506,8 +520,11 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options) {
   g_app.get_browser_process_handler = app_get_browser_process_handler;
   g_app.on_before_command_line_processing = app_on_before_command_line_processing;
 
+  // Publish the requested port before CEF invokes the command-line callback;
+  // the callback must allow-list the exact loopback origins for this listener.
+  g_remote_debugging_port = options->remote_debugging_port;
   g_initialized = cef_initialize(&main_args, &settings, &g_app, NULL) ? 1 : 0;
-  g_remote_debugging_port = g_initialized ? options->remote_debugging_port : 0;
+  if (!g_initialized) g_remote_debugging_port = 0;
   return g_initialized;
 }
 

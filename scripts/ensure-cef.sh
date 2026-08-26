@@ -13,7 +13,7 @@ CEF_VERSION="151.3.17+gf059e67+chromium-151.0.7922.138"
 # Xcode script phases can run under Rosetta, where `uname -m` lies about the
 # build architecture. The build passes ARCHS; interactive callers fall back
 # to the host architecture.
-CEF_ARCH="${CMUX_CEF_ARCH:-${ARCHS%% *}}"
+CEF_ARCH="${CMUX_CEF_ARCH:-${ARCHS:-}}"
 CEF_ARCH="${CEF_ARCH:-$(uname -m)}"
 
 case "$CEF_ARCH" in

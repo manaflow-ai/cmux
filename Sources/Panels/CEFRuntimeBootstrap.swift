@@ -70,6 +70,15 @@ enum CEFRuntimeBootstrap {
         )
     }
 
+    /// Removes the isolated CEF request-context cache for a non-default profile.
+    ///
+    /// The built-in profile intentionally uses CEF's shared global context and
+    /// therefore has no profile-specific directory to delete.
+    static func removeProfileData(for profileID: UUID) {
+        guard profileID != BrowserProfileRepository.builtInDefaultProfileID else { return }
+        try? FileManager.default.removeItem(atPath: profileCachePath(for: profileID))
+    }
+
     /// Initializes CEF on first use.
     ///
     /// - Returns: `true` when the runtime is available for browser creation.
