@@ -456,8 +456,9 @@ public struct TerminalEmittedLinkScanner: Sendable {
         if candidate.lowercased().hasPrefix("file://") {
             return candidate.count > "file://".count
         }
-        guard let hostKey = CapturedLinkHostPolicy.hostKey(for: candidate) else { return false }
-        let host = CapturedLinkHostPolicy.hostPart(of: hostKey)
+        let hostPolicy = CapturedLinkHostPolicy()
+        guard let hostKey = hostPolicy.hostKey(for: candidate) else { return false }
+        let host = hostPolicy.hostPart(of: hostKey)
         return host == "localhost" ||
             host.contains(".") ||
             host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil ||

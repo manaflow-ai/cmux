@@ -10,6 +10,7 @@ final class LinksPanel: Panel, ObservableObject {
 
     private(set) weak var workspace: Workspace?
     let workspaceId: UUID
+    let titleFetcher: LinkTitleFetcher
 
     var displayTitle: String {
         String(localized: "linksPane.title", defaultValue: "Links")
@@ -19,10 +20,11 @@ final class LinksPanel: Panel, ObservableObject {
 
     @Published private(set) var focusFlashToken: Int = 0
 
-    init(workspace: Workspace) {
+    init(workspace: Workspace, titleFetcher: LinkTitleFetcher) {
         self.id = UUID()
         self.workspace = workspace
         self.workspaceId = workspace.id
+        self.titleFetcher = titleFetcher
     }
 
     func focus() {}

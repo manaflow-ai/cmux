@@ -1,6 +1,6 @@
-import Combine
 import CmuxTerminalCore
 import Foundation
+import Observation
 
 enum WorkspaceCapturedLinkOrigin: String, Codable, Hashable, Sendable {
     case osc8
@@ -14,6 +14,12 @@ enum WorkspaceCapturedLinkOrigin: String, Codable, Hashable, Sendable {
     }
 }
 
+enum WorkspaceLinkTitleFetchState: Hashable, Sendable {
+    case idle
+    case inFlight
+    case failed
+}
+
 struct WorkspaceCapturedLink: Identifiable, Equatable, Hashable, Sendable {
     var id: UUID
     var url: String
@@ -25,6 +31,7 @@ struct WorkspaceCapturedLink: Identifiable, Equatable, Hashable, Sendable {
     var sourceSurfaceTitle: String?
     var origin: WorkspaceCapturedLinkOrigin
     var fetchedTitle: String?
+    var titleFetchState: WorkspaceLinkTitleFetchState = .idle
 }
 
 struct WorkspaceLinksIngestConfiguration: Equatable, Sendable {
@@ -47,28 +54,23 @@ struct WorkspaceLinksIngestConfiguration: Equatable, Sendable {
     }
 }
 
-/// The workspace-owned URL capture state. A separate `ObservableObject`, like
-/// `WorkspaceTodoState`, so link churn publishes through its own object instead
-/// of invalidating unrelated `Workspace` observers.
+/// The workspace-owned URL capture state, isolated from unrelated workspace churn.
 @MainActor
-final class WorkspaceLinksState: ObservableObject {
-    @Published private var revision: UInt64 = 0
+@Observable
+final class WorkspaceLinksState {
+    private var revision: UInt64 = 0
 
-    private var entriesByURL: [String: WorkspaceCapturedLink] = [:]
-    private var urlByID: [UUID: String] = [:]
-    private var previousURL: [String: String] = [:]
-    private var nextURL: [String: String] = [:]
-    private var headURL: String?
-    private var tailURL: String?
-    private var cachedEntries: [WorkspaceCapturedLink] = []
-    private var cacheIsValid = true
+    @ObservationIgnored private var entriesByURL: [String: WorkspaceCapturedLink] = [:]
+    @ObservationIgnored private var urlByID: [UUID: String] = [:]
+    @ObservationIgnored private var previousURL: [String: String] = [:]
+    @ObservationIgnored private var nextURL: [String: String] = [:]
+    @ObservationIgnored private var headURL: String?
+    @ObservationIgnored private var tailURL: String?
+    @ObservationIgnored private let hostPolicy = CapturedLinkHostPolicy()
 
     var entries: [WorkspaceCapturedLink] {
-        if !cacheIsValid {
-            cachedEntries = orderedEntries()
-            cacheIsValid = true
-        }
-        return cachedEntries
+        _ = revision
+        return orderedEntries()
     }
 
     @discardableResult
@@ -90,8 +92,8 @@ final class WorkspaceLinksState: ObservableObject {
             return nil
         }
 
-        let hostKey = CapturedLinkHostPolicy.hostKey(for: trimmed)
-        if CapturedLinkHostPolicy.matchesIgnoreList(
+        let hostKey = hostPolicy.hostKey(for: trimmed)
+        if hostPolicy.matchesIgnoreList(
             hostPort: hostKey,
             list: configuration.ignoreHosts
         ) {
@@ -104,6 +106,9 @@ final class WorkspaceLinksState: ObservableObject {
             entry.sourcePanelId = sourcePanelId ?? entry.sourcePanelId
             entry.sourceSurfaceTitle = sourceSurfaceTitle ?? entry.sourceSurfaceTitle
             entry.origin = origin
+            if entry.fetchedTitle == nil {
+                entry.titleFetchState = .idle
+            }
             entriesByURL[trimmed] = entry
             moveToFront(trimmed)
             enforceRetention(configuration.retentionLimit)
@@ -158,8 +163,49 @@ final class WorkspaceLinksState: ObservableObject {
         guard let url = urlByID[id],
               var entry = entriesByURL[url] else { return }
         entry.fetchedTitle = title
+        entry.titleFetchState = .idle
         entriesByURL[url] = entry
         markChanged()
+    }
+
+    func beginTitleFetch(for id: UUID) -> WorkspaceCapturedLink? {
+        guard let url = urlByID[id],
+              var entry = entriesByURL[url],
+              entry.fetchedTitle == nil,
+              entry.titleFetchState == .idle else {
+            return nil
+        }
+        entry.titleFetchState = .inFlight
+        entriesByURL[url] = entry
+        markChanged()
+        return entry
+    }
+
+    func finishTitleFetch(for id: UUID, title: String?) {
+        guard let url = urlByID[id], var entry = entriesByURL[url] else { return }
+        entry.fetchedTitle = title
+        entry.titleFetchState = title == nil ? .failed : .idle
+        entriesByURL[url] = entry
+        markChanged()
+    }
+
+    func cancelTitleFetch(for id: UUID) {
+        guard let url = urlByID[id],
+              var entry = entriesByURL[url],
+              entry.titleFetchState == .inFlight else {
+            return
+        }
+        entry.titleFetchState = .idle
+        entriesByURL[url] = entry
+        markChanged()
+    }
+
+    func applyRetentionLimit(_ limit: Int) {
+        let previousCount = entriesByURL.count
+        enforceRetention(limit)
+        if entriesByURL.count != previousCount {
+            markChanged()
+        }
     }
 
     private func enforceRetention(_ limit: Int) {
@@ -245,13 +291,6 @@ final class WorkspaceLinksState: ObservableObject {
     }
 
     private func markChanged() {
-        cacheIsValid = false
         revision &+= 1
-    }
-}
-
-enum WorkspaceLinksDayGrouping {
-    static func dayKey(for date: Date, calendar: Calendar = .current) -> Date {
-        calendar.startOfDay(for: date)
     }
 }

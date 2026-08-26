@@ -1521,6 +1521,8 @@
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
+		C0DE10166000000000000015 /* LinkCaptureSettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000016 /* LinkCaptureSettingsSnapshot.swift */; };
+		C0DE10166000000000000017 /* LinksCaptureSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000018 /* LinksCaptureSettings.swift */; };
 		C0DE10166000000000000005 /* LinksPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000006 /* LinksPanel.swift */; };
 		C0DE10166000000000000007 /* LinksPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000008 /* LinksPanelView.swift */; };
 		C0DE1016600000000000000D /* LinkTitleFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000000E /* LinkTitleFetcher.swift */; };
@@ -2550,6 +2552,7 @@
 		D86840000000000000000015 /* TabManager+DockSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000016 /* TabManager+DockSessionRestore.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
+		C0DE10166000000000000013 /* TabManager+LinksSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000014 /* TabManager+LinksSettings.swift */; };
 		737100000000000000000001 /* TabManager+NonInteractiveClose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737100000000000000000002 /* TabManager+NonInteractiveClose.swift */; };
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
 		9164B0019164B0019164B001 /* TabManager+NumberedWorkspaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9164B0029164B0029164B002 /* TabManager+NumberedWorkspaceSelection.swift */; };
@@ -2717,6 +2720,7 @@
 		B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */; };
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
 		C0DE10166000000000000009 /* TerminalLinkCaptureIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000000A /* TerminalLinkCaptureIngress.swift */; };
+		C0DE10166000000000000019 /* TerminalLinkCaptureSettingsGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000001A /* TerminalLinkCaptureSettingsGate.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
 		859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */; };
 		859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */; };
@@ -4665,6 +4669,8 @@
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastTerminalChildExitRecoveryTests.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
+		C0DE10166000000000000016 /* LinkCaptureSettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/LinkCaptureSettingsSnapshot.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000018 /* LinksCaptureSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/LinksCaptureSettings.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000006 /* LinksPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/LinksPanel.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000008 /* LinksPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/LinksPanelView.swift; sourceTree = "<group>"; };
 		C0DE1016600000000000000E /* LinkTitleFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkTitleFetcher.swift; sourceTree = "<group>"; };
@@ -5680,6 +5686,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D86840000000000000000016 /* TabManager+DockSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DockSessionRestore.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
+		C0DE10166000000000000014 /* TabManager+LinksSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+LinksSettings.swift"; sourceTree = "<group>"; };
 		737100000000000000000002 /* TabManager+NonInteractiveClose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NonInteractiveClose.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
 		9164B0029164B0029164B002 /* TabManager+NumberedWorkspaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NumberedWorkspaceSelection.swift"; sourceTree = "<group>"; };
@@ -5846,7 +5853,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationService.swift; sourceTree = "<group>"; };
 		B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+Cleanup.swift"; sourceTree = "<group>"; };
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
-		C0DE1016600000000000000A /* TerminalLinkCaptureIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkCaptureIngress.swift; sourceTree = "<group>"; };
+		C0DE1016600000000000000A /* TerminalLinkCaptureIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/TerminalLinkCaptureIngress.swift; sourceTree = "<group>"; };
+		C0DE1016600000000000001A /* TerminalLinkCaptureSettingsGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/TerminalLinkCaptureSettingsGate.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
 		859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinator.swift; sourceTree = "<group>"; };
 		859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -7332,6 +7340,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */,
 				E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */,
 				E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */,
+				C0DE10166000000000000014 /* TabManager+LinksSettings.swift */,
 				804100000000000000000002 /* TabManager+AdjacentWorkspaceReordering.swift */,
 				E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */,
 				CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */,
@@ -7545,7 +7554,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				0A110711000000000000001B /* PromptTurnNotificationHandler.swift */,
 				0A110711000000000000001D /* TerminalOutputTeeCallback.swift */,
 				0A110711000000000000001F /* TerminalOutputTeeContext.swift */,
+				C0DE10166000000000000016 /* LinkCaptureSettingsSnapshot.swift */,
+				C0DE10166000000000000018 /* LinksCaptureSettings.swift */,
 				C0DE1016600000000000000A /* TerminalLinkCaptureIngress.swift */,
+				C0DE1016600000000000001A /* TerminalLinkCaptureSettingsGate.swift */,
 				C0DE1016600000000000000E /* LinkTitleFetcher.swift */,
 				0A1107110000000000000021 /* VaultAgentProcessScanner+Ollama.swift */,
 				0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */,
@@ -10973,6 +10985,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				8561C0128561C0128561C012 /* KeyboardShortcutSettingsObserver.swift in Sources */,
+				C0DE10166000000000000015 /* LinkCaptureSettingsSnapshot.swift in Sources */,
+				C0DE10166000000000000017 /* LinksCaptureSettings.swift in Sources */,
 				C0DE10166000000000000005 /* LinksPanel.swift in Sources */,
 				C0DE10166000000000000007 /* LinksPanelView.swift in Sources */,
 				C0DE1016600000000000000D /* LinkTitleFetcher.swift in Sources */,
@@ -11683,6 +11697,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D86840000000000000000015 /* TabManager+DockSessionRestore.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
+				C0DE10166000000000000013 /* TabManager+LinksSettings.swift in Sources */,
 				737100000000000000000001 /* TabManager+NonInteractiveClose.swift in Sources */,
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
 				9164B0019164B0019164B001 /* TabManager+NumberedWorkspaceSelection.swift in Sources */,
@@ -11826,6 +11841,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */,
 				B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */,
 				C0DE10166000000000000009 /* TerminalLinkCaptureIngress.swift in Sources */,
+				C0DE10166000000000000019 /* TerminalLinkCaptureSettingsGate.swift in Sources */,
 				859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */,
 				859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */,
 				859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */,

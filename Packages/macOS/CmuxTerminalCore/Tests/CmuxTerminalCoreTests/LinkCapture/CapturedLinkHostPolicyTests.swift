@@ -4,25 +4,27 @@ import Testing
 
 @Suite
 struct CapturedLinkHostPolicyTests {
+    private let policy = CapturedLinkHostPolicy()
+
     @Test
     func hostKeyNormalizesHostAndPort() {
-        #expect(CapturedLinkHostPolicy.hostKey(for: "https://Example.COM/path") == "example.com")
-        #expect(CapturedLinkHostPolicy.hostKey(for: "http://Example.COM:8080/path") == "example.com:8080")
-        #expect(CapturedLinkHostPolicy.hostKey(for: "http://[::1]:8080/path") == "[::1]:8080")
-        #expect(CapturedLinkHostPolicy.hostKey(for: "file:///tmp/a") == nil)
+        #expect(policy.hostKey(for: "https://Example.COM/path") == "example.com")
+        #expect(policy.hostKey(for: "http://Example.COM:8080/path") == "example.com:8080")
+        #expect(policy.hostKey(for: "http://[::1]:8080/path") == "[::1]:8080")
+        #expect(policy.hostKey(for: "file:///tmp/a") == nil)
     }
 
     @Test
     func ignoreListMatchesHostAnyPortAndExactPort() {
-        #expect(CapturedLinkHostPolicy.matchesIgnoreList(
+        #expect(policy.matchesIgnoreList(
             hostPort: "localhost:31034",
             list: ["localhost"]
         ))
-        #expect(CapturedLinkHostPolicy.matchesIgnoreList(
+        #expect(policy.matchesIgnoreList(
             hostPort: "localhost:31034",
             list: ["localhost:31034"]
         ))
-        #expect(!CapturedLinkHostPolicy.matchesIgnoreList(
+        #expect(!policy.matchesIgnoreList(
             hostPort: "localhost:31035",
             list: ["localhost:31034"]
         ))
@@ -30,15 +32,15 @@ struct CapturedLinkHostPolicyTests {
 
     @Test
     func ignoreListMatchesWildcardSuffix() {
-        #expect(CapturedLinkHostPolicy.matchesIgnoreList(
+        #expect(policy.matchesIgnoreList(
             hostPort: "api.example.com:443",
             list: ["*.example.com"]
         ))
-        #expect(CapturedLinkHostPolicy.matchesIgnoreList(
+        #expect(policy.matchesIgnoreList(
             hostPort: "example.com",
             list: ["*.example.com"]
         ))
-        #expect(!CapturedLinkHostPolicy.matchesIgnoreList(
+        #expect(!policy.matchesIgnoreList(
             hostPort: "notexample.com",
             list: ["*.example.com"]
         ))
@@ -46,11 +48,11 @@ struct CapturedLinkHostPolicyTests {
 
     @Test
     func hostPartHandlesIPv6Keys() {
-        let key = CapturedLinkHostPolicy.hostKey(for: "http://[::1]:8080/")
+        let key = policy.hostKey(for: "http://[::1]:8080/")
         #expect(key == "[::1]:8080")
-        #expect(CapturedLinkHostPolicy.hostPart(of: key ?? "") == "::1")
-        #expect(CapturedLinkHostPolicy.hostPart(of: "[::1]:8080") == "::1")
-        #expect(CapturedLinkHostPolicy.matchesIgnoreList(hostPort: key, list: ["::1"]))
+        #expect(policy.hostPart(of: key ?? "") == "::1")
+        #expect(policy.hostPart(of: "[::1]:8080") == "::1")
+        #expect(policy.matchesIgnoreList(hostPort: key, list: ["::1"]))
     }
 
     @Test(arguments: [
@@ -75,7 +77,7 @@ struct CapturedLinkHostPolicyTests {
         "fe80::1",
     ])
     func classifiesPrivateAndLocalHosts(host: String) {
-        #expect(CapturedLinkHostPolicy.isPrivateOrLocalHost(host))
+        #expect(policy.isPrivateOrLocalHost(host))
     }
 
     @Test(arguments: [
@@ -86,7 +88,7 @@ struct CapturedLinkHostPolicyTests {
         "2001:4860:4860::8888",
     ])
     func allowsPublicHosts(host: String) {
-        #expect(!CapturedLinkHostPolicy.isPrivateOrLocalHost(host))
+        #expect(!policy.isPrivateOrLocalHost(host))
     }
 
     @Test(arguments: [
@@ -102,7 +104,7 @@ struct CapturedLinkHostPolicyTests {
         [100, 127, 255, 255],
     ])
     func classifiesPrivateIPv4AddressOctets(octets: [UInt8]) {
-        #expect(CapturedLinkHostPolicy.isPrivateOrLocalIPv4Address(octets))
+        #expect(policy.isPrivateOrLocalIPv4Address(octets))
     }
 
     @Test(arguments: [
@@ -112,7 +114,7 @@ struct CapturedLinkHostPolicyTests {
         [172, 32, 0, 1],
     ])
     func allowsPublicIPv4AddressOctets(octets: [UInt8]) {
-        #expect(!CapturedLinkHostPolicy.isPrivateOrLocalIPv4Address(octets))
+        #expect(!policy.isPrivateOrLocalIPv4Address(octets))
     }
 
     @Test(arguments: [
@@ -124,7 +126,7 @@ struct CapturedLinkHostPolicyTests {
         ipv6("::ffff:192.168.1.1"),
     ])
     func classifiesPrivateIPv6AddressBytes(bytes: [UInt8]) {
-        #expect(CapturedLinkHostPolicy.isPrivateOrLocalIPv6Address(bytes))
+        #expect(policy.isPrivateOrLocalIPv6Address(bytes))
     }
 
     @Test(arguments: [
@@ -132,7 +134,7 @@ struct CapturedLinkHostPolicyTests {
         ipv6("::ffff:8.8.8.8"),
     ])
     func allowsPublicIPv6AddressBytes(bytes: [UInt8]) {
-        #expect(!CapturedLinkHostPolicy.isPrivateOrLocalIPv6Address(bytes))
+        #expect(!policy.isPrivateOrLocalIPv6Address(bytes))
     }
 
     private static func ipv6(_ string: String) -> [UInt8] {

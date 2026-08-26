@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxBrowser
 import CmuxWorkspaces
 import Foundation
 
@@ -13,7 +14,12 @@ extension Workspace {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let linksPanel = LinksPanel(workspace: self)
+        let linksPanel = LinksPanel(
+            workspace: self,
+            titleFetcher: LinkTitleFetcher(
+                pageMetadataFetcher: BrowserPageMetadataService()
+            )
+        )
         panels[linksPanel.id] = linksPanel
         panelTitles[linksPanel.id] = linksPanel.displayTitle
 
@@ -79,7 +85,7 @@ extension Workspace {
     func restoreLinksState(from snapshot: SessionWorkspaceSnapshot) {
         linksState.restore(
             snapshot.restoredLinks,
-            retentionLimit: LinksCaptureSettings.snapshot().retentionLimit
+            retentionLimit: LinksCaptureSettings().snapshot().retentionLimit
         )
     }
 }

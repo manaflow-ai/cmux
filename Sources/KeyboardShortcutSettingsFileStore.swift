@@ -1671,10 +1671,6 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
                     rendererRealizationDidChange = true
                 }
-                if change.defaultsKey.hasPrefix("links.") {
-                    linksSettingsDidChange = true
-                }
-
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = userDefaults.string(forKey: change.defaultsKey) ?? ""
                     languageSettingsStore?.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)

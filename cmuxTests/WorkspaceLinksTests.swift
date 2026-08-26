@@ -96,7 +96,7 @@ struct WorkspaceLinksTests {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let date = Date(timeIntervalSince1970: 86_400 + 123)
-        #expect(WorkspaceLinksDayGrouping.dayKey(for: date, calendar: calendar) == Date(timeIntervalSince1970: 86_400))
+        #expect(calendar.startOfDay(for: date) == Date(timeIntervalSince1970: 86_400))
     }
 
     @Test
@@ -132,24 +132,55 @@ struct WorkspaceLinksTests {
         #expect(decoded.restoredLinks.isEmpty)
     }
 
+    @MainActor
     @Test
-    func titleFetcherRefusesPrivateHostsWithoutNetwork() {
-        #expect(!LinkTitleFetcher.mayFetchTitle(url: "https://localhost/a", hostKey: "localhost"))
-        #expect(!LinkTitleFetcher.mayFetchTitle(url: "https://10.0.0.1/a", hostKey: "10.0.0.1"))
-        #expect(!LinkTitleFetcher.mayFetchTitle(url: "file:///tmp/a", hostKey: nil))
-        #expect(!LinkTitleFetcher.mayFetchTitle(url: "https://[::1]:8080/a", hostKey: "[::1]:8080"))
-        #expect(LinkTitleFetcher.mayFetchTitle(url: "https://example.com/a", hostKey: "example.com"))
+    func loweringRetentionTrimsExistingEntriesWithoutNewOutput() {
+        let state = WorkspaceLinksState()
+        let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [], retentionLimit: 100)
+        for index in 0..<20 {
+            state.ingest(
+                url: "https://example.com/\(index)",
+                origin: .detected,
+                sourcePanelId: nil,
+                sourceSurfaceTitle: nil,
+                configuration: config
+            )
+        }
+
+        state.applyRetentionLimit(10)
+
+        #expect(state.entries.count == 10)
+        #expect(state.entries.first?.url == "https://example.com/19")
+        #expect(state.entries.last?.url == "https://example.com/10")
     }
 
+    @MainActor
     @Test
-    func titleFetcherResolutionGateClassifiesIPLiteralHostsWithoutDNS() async throws {
-        #expect(!(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("127.0.0.1")))
-        #expect(!(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("::1")))
-        #expect(!(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("100.64.0.1")))
-        #expect(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("8.8.8.8"))
-        #expect(await LinkTitleFetcher.hostResolvesOnlyToPublicAddresses("2606:4700::1111"))
-        #expect(!(await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://127.0.0.1/a")))))
-        #expect(!(await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://[::1]:8080/a")))))
-        #expect(await LinkTitleFetcher.allowsRedirect(to: try #require(URL(string: "https://8.8.8.8/a"))))
+    func titleFetchFailureStateStaysBoundToRetainedEntry() throws {
+        let state = WorkspaceLinksState()
+        let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [])
+        let entry = try #require(state.ingest(
+            url: "https://example.com/title",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: config
+        ))
+
+        #expect(state.beginTitleFetch(for: entry.id) != nil)
+        #expect(state.beginTitleFetch(for: entry.id) == nil)
+        state.finishTitleFetch(for: entry.id, title: nil)
+        #expect(state.beginTitleFetch(for: entry.id) == nil)
+
+        state.ingest(
+            url: entry.url,
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: config
+        )
+        #expect(state.beginTitleFetch(for: entry.id) != nil)
+        state.cancelTitleFetch(for: entry.id)
+        #expect(state.beginTitleFetch(for: entry.id) != nil)
     }
 }

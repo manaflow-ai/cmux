@@ -686,7 +686,6 @@ class TabManager: ObservableObject {
                 workspaceCurrentDirectoryDidChange(workspaceId: workspaceId)
             }
         })
-
         startAgentPIDSweepTimer()
         observers.append(NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -694,10 +693,12 @@ class TabManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
-                self?.sidebarMetadataSettingsDidChange()
-                self?.focusHistoryScopeSettingsDidChange()
-                self?.refreshTabCloseButtonVisibility()
-                self?.refreshWindowTitle()
+                guard let self else { return }
+                sidebarMetadataSettingsDidChange()
+                focusHistoryScopeSettingsDidChange()
+                refreshTabCloseButtonVisibility()
+                refreshWindowTitle()
+                applyLinksRetentionLimit(settings.value(for: settingsCatalog.links.retentionLimit))
             }
         })
 #if DEBUG

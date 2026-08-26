@@ -86,6 +86,17 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
+    private let linkCaptureSettingsGate: TerminalLinkCaptureSettingsGate
+    private let linkCaptureIngress: TerminalLinkCaptureIngress
+
+    @MainActor
+    init() {
+        self.linkCaptureSettingsGate = TerminalLinkCaptureSettingsGate()
+        self.linkCaptureIngress = TerminalLinkCaptureIngress { workspaceID in
+            AppDelegate.shared?.workspaceFor(tabId: workspaceID)
+        }
+    }
+
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
@@ -110,11 +121,13 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
-        TerminalLinkCaptureGate.refreshFromUserDefaults()
+        linkCaptureSettingsGate.refresh()
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            linkCaptureSettingsGate: linkCaptureSettingsGate,
+            linkCaptureIngress: linkCaptureIngress
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,

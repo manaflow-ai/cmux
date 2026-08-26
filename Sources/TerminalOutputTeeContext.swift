@@ -55,8 +55,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     let workspaceID: UUID
     let surfaceID: UUID
+    let linkCaptureSettingsGate: TerminalLinkCaptureSettingsGate
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
+    private let linkCaptureIngress: TerminalLinkCaptureIngress
     private var detectors: [DetectorBinding]
     private var linkScanner = TerminalEmittedLinkScanner()
     private var linkScannerNeedsReset = false
@@ -66,10 +68,14 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     init(
         workspaceID: UUID,
         surfaceID: UUID,
-        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
+        agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
+        linkCaptureSettingsGate: TerminalLinkCaptureSettingsGate,
+        linkCaptureIngress: TerminalLinkCaptureIngress
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.linkCaptureSettingsGate = linkCaptureSettingsGate
+        self.linkCaptureIngress = linkCaptureIngress
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -101,20 +107,18 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
     }
 
-    func consumeLinks(
-        _ bytes: UnsafeBufferPointer<UInt8>,
-        settings: LinkCaptureSettingsSnapshot
-    ) {
-        guard settings.enabled else {
-            noteLinkCaptureDisabled()
-            return
-        }
+    func consumeLinks(_ bytes: UnsafeBufferPointer<UInt8>) {
         if linkScannerNeedsReset {
             linkScanner.reset()
             linkScannerNeedsReset = false
         }
         let captured = linkScanner.consume(bytes)
         guard !captured.isEmpty else { return }
+        let settings = linkCaptureSettingsGate.currentSnapshot()
+        guard settings.enabled else {
+            noteLinkCaptureDisabled()
+            return
+        }
         enqueueLinks(captured, settings: settings)
     }
 
@@ -233,6 +237,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         let workspaceID = workspaceID
         let surfaceID = surfaceID
         let linkForwardQueue = linkForwardQueue
+        let linkCaptureIngress = linkCaptureIngress
         Task {
             while true {
                 let next: QueuedCapturedLink? = linkForwardQueue.withLock { state in
@@ -248,7 +253,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                     return state.pending.removeFirst()
                 }
                 guard let next else { return }
-                await TerminalLinkCaptureIngress.shared.ingest(
+                await linkCaptureIngress.ingest(
                     [next.link],
                     workspaceID: workspaceID,
                     sourcePanelId: surfaceID,

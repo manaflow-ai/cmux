@@ -10,8 +10,8 @@ let cmuxTerminalOutputTeeCallback: @convention(c) (
     bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
         let buffer = UnsafeBufferPointer(start: rebound, count: count)
         MobileTerminalByteTee.shared.append(surfaceID: context.surfaceID, bytes: buffer)
-        if TerminalLinkCaptureGate.isEnabled() {
-            context.consumeLinks(buffer, settings: TerminalLinkCaptureGate.currentSnapshot())
+        if context.linkCaptureSettingsGate.isEnabled() {
+            context.consumeLinks(buffer)
         } else {
             context.noteLinkCaptureDisabled()
         }

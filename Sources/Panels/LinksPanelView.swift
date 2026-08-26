@@ -14,6 +14,7 @@ struct LinksPanelView: View {
                 LinksPaneContent(
                     workspace: workspace,
                     linksState: workspace.linksState,
+                    titleFetcher: panel.titleFetcher,
                     isFocused: isFocused
                 )
             } else {
@@ -32,8 +33,9 @@ struct LinksPanelView: View {
 }
 
 private struct LinksPaneContent: View {
-    @ObservedObject var workspace: Workspace
-    @ObservedObject var linksState: WorkspaceLinksState
+    let workspace: Workspace
+    let linksState: WorkspaceLinksState
+    let titleFetcher: LinkTitleFetcher
     let isFocused: Bool
 
     @State private var substringFilter = ""
@@ -120,8 +122,8 @@ private struct LinksPaneContent: View {
 
             Spacer(minLength: 8)
             Text(countText(projection.filteredEntries.count))
-            .font(.system(size: 12).monospacedDigit())
-            .foregroundColor(.secondary)
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundColor(.secondary)
         }
     }
 
@@ -174,7 +176,7 @@ private struct LinksPaneContent: View {
             }
 
             filteredEntries.append(entry)
-            let day = WorkspaceLinksDayGrouping.dayKey(for: entry.lastSeen)
+            let day = Calendar.current.startOfDay(for: entry.lastSeen)
             if let index = dayIndex[day] {
                 dayBuckets[index].entries.append(entry)
             } else {
@@ -223,7 +225,7 @@ private struct LinksPaneContent: View {
             remove: { linksState.remove(id: entry.id) },
             clearAll: { linksState.clearAll() },
             fetchTitle: { entry in
-                await LinkTitleFetcher.shared.fetchTitleIfNeeded(for: entry, workspace: workspace)
+                await titleFetcher.fetchTitleIfNeeded(for: entry, linksState: linksState)
             }
         )
     }
