@@ -33565,16 +33565,20 @@ export default CMUXSessionRestore;
                         fallbackLineCount: autoNamingFallbackLineCount
                     )
                     : nil
-                if shouldSpawnDetachedAgentAutoName(
-                    probe: autoNameProbe,
-                    session: autoNamingSession,
-                    currentProgress: autoNamingProgress
-                ), let spawnToken = try? store.claimAutoNamingSpawn(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    now: Date()
-                ), let spawnToken {
+                let spawnToken: String? = {
+                    guard shouldSpawnDetachedAgentAutoName(
+                        probe: autoNameProbe,
+                        session: autoNamingSession,
+                        currentProgress: autoNamingProgress
+                    ) else { return nil }
+                    return try? store.claimAutoNamingSpawn(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        now: Date()
+                    )
+                }()
+                if let spawnToken {
                     spawnDetachedAgentAutoName(
                         def: def,
                         sessionId: sessionId,
