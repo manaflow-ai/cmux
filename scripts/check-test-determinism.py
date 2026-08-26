@@ -2331,7 +2331,14 @@ def _launcher_target_ranges(
                         line,
                         verb_start,
                     )
-                    return [(statement_start, bounds[1])]
+                    nested_ranges = _nested_network_source_target_ranges(
+                        line,
+                        bounds,
+                        verb_start,
+                        ".sh",
+                    )
+                    if nested_ranges:
+                        return [(statement_start, nested_ranges[-1][1])]
     else:
         for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
             if launcher.start() >= verb_start:
@@ -2588,6 +2595,43 @@ def _javascript_call_is_shadowed(
             parameters,
         ):
             return True
+
+    arrow_pattern = re.compile(
+        rf"(?:\(\s*(?P<parameters>[^()]*)\s*\)|(?P<parameter>[A-Za-z_$][A-Za-z0-9_$]*))\s*=>"
+    )
+    for arrow in arrow_pattern.finditer(source, 0, call_start):
+        parameters = arrow.group("parameters")
+        parameter = arrow.group("parameter")
+        if parameters is not None:
+            has_binding = bool(
+                re.search(
+                    rf"(?:^|,)\s*{re.escape(binding.name)}\b",
+                    parameters,
+                )
+            )
+        else:
+            has_binding = parameter == binding.name
+        if not has_binding:
+            continue
+        body_start = arrow.end()
+        while body_start < len(source) and source[body_start].isspace():
+            body_start += 1
+        if body_start < len(source) and source[body_start] == "{":
+            body_chain = _javascript_brace_chain_at(
+                source,
+                body_start + 1,
+                executable,
+            )
+            if body_chain and body_chain[-1] in call_chain:
+                return True
+        else:
+            body_end = len(source)
+            for separator in (";", "\n"):
+                candidate = source.find(separator, body_start)
+                if candidate != -1:
+                    body_end = min(body_end, candidate)
+            if body_start <= call_start < body_end:
+                return True
     return False
 
 
@@ -3348,12 +3392,24 @@ def _is_xhr_open_call(
     match: re.Match[str],
 ) -> bool:
     """Return whether a receiver is known or initialized as XMLHttpRequest."""
+    prefix = line[: match.start()].rstrip()
     receiver_match = re.search(
         r"(?P<receiver>[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*)\s*$",
-        line[: match.start()],
+        prefix,
     )
     if receiver_match is None:
-        return False
+        receiver_match = re.search(
+            r"\(\s*(?P<receiver>[A-Za-z_$][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*)\s*\)$",
+            prefix,
+        )
+    if receiver_match is None:
+        return bool(
+            re.search(
+                r"(?:\(\s*)?new\s+XMLHttpRequest\s*\(\s*\)\s*\)?$",
+                prefix,
+                re.IGNORECASE,
+            )
+        )
     receiver = re.sub(r"\s*\.\s*", ".", receiver_match.group("receiver"))
     receiver_pattern = r"\s*\.\s*".join(
         re.escape(component)
@@ -3362,7 +3418,7 @@ def _is_xhr_open_call(
     return bool(
         re.search(
             rf"(?:\b(?:const|let|var)\s+)?{receiver_pattern}\s*=\s*new\s+XMLHttpRequest\s*\(",
-            line[: match.start()],
+            prefix,
             re.IGNORECASE,
         )
     )
