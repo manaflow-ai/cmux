@@ -407,6 +407,11 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "appIconImagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional local image path for the Dock and app switcher icon. Invalid or unsupported images fall back to appIcon."
+        },
         "windowTitleTemplate": {
           "type": "string",
           "default": "",

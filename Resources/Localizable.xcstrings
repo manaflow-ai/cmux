@@ -154076,6 +154076,108 @@
         }
       }
     },
+    "settings.app.appIcon.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom App Icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムアプリアイコン"
+          }
+        }
+      }
+    },
+    "settings.app.appIcon.custom.choose.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択..."
+          }
+        }
+      }
+    },
+    "settings.app.appIcon.custom.clear.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去"
+          }
+        }
+      }
+    },
+    "settings.app.appIcon.custom.file.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No file selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが選択されていません"
+          }
+        }
+      }
+    },
+    "settings.app.appIcon.custom.panelTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose App Icon Image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリアイコン画像を選択"
+          }
+        }
+      }
+    },
+    "settings.app.appIcon.custom.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a local image for the Dock and app switcher. Invalid files fall back to the selected built-in mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockとアプリスイッチャーにローカル画像を使用します。無効なファイルは選択した標準モードに戻ります。"
+          }
+        }
+      }
+    },
     "settings.app.appearance": {
       "extractionState": "manual",
       "localizations": {
@@ -189488,7 +189590,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.appIcon dock icon application icon app switcher alternate icon"
+            "value": "app.appIcon app.appIconImagePath dock icon application icon app switcher alternate icon custom image file"
           }
         },
         "es": {
@@ -189512,7 +189614,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "app.appIcon dock icon application icon app switcher alternate icon アプリアイコン ドック アイコン アプリ切り替え 代替アイコン"
+            "value": "app.appIcon app.appIconImagePath dock icon application icon app switcher alternate icon custom image file アプリアイコン ドック アイコン アプリ切り替え 代替アイコン カスタム画像 ファイル"
           }
         },
         "ko": {

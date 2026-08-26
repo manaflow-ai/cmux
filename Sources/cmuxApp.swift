@@ -5304,6 +5304,7 @@ enum AppIconLaunchState {
 
 enum AppIconSettings {
     static let modeKey = "appIconMode"
+    static let imagePathKey = "appIconImagePath"
     static let defaultMode: AppIconMode = .automatic
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
     private static var liveEnvironmentProvider: () -> Environment = { .live() }
@@ -5323,6 +5324,7 @@ enum AppIconSettings {
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
+        let imageForPath: (String) -> NSImage? = { _ in nil }
         let setApplicationIconImage: (NSImage) -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
@@ -5336,6 +5338,9 @@ enum AppIconSettings {
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
+                },
+                imageForPath: { path in
+                    AppIconImageResolver.image(for: path)
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
@@ -5367,7 +5372,37 @@ enum AppIconSettings {
         return mode
     }
 
-    static func applyIcon(_ mode: AppIconMode, environment: Environment? = nil) {
+    static func resolvedImagePath(defaults: UserDefaults = .standard) -> String? {
+        let path = (defaults.string(forKey: imagePathKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
+    /// Applies the one effective app-icon selection. A valid custom image
+    /// wins over the built-in mode; an invalid image is logged by the
+    /// resolver and falls back to the selected Automatic / Light / Dark mode.
+    static func applyCurrentIcon(
+        defaults: UserDefaults = .standard,
+        environment: Environment? = nil
+    ) {
+        let environment = environment ?? liveEnvironmentProvider()
+        guard environment.isApplicationFinishedLaunching() else { return }
+
+        if let path = resolvedImagePath(defaults: defaults),
+           let icon = environment.imageForPath(path) {
+            environment.stopAppearanceObservation()
+            environment.setApplicationIconImage(icon)
+            environment.notifyDockTilePlugin()
+            return
+        }
+
+        applyIcon(resolvedMode(defaults: defaults), environment: environment)
+    }
+
+    static func applyIcon(
+        _ mode: AppIconMode,
+        environment: Environment? = nil
+    ) {
         let environment = environment ?? liveEnvironmentProvider()
         // Tahoe can crash or wedge when app icon work runs during App.init(),
         // so leave settings replay to update defaults only and let AppDelegate

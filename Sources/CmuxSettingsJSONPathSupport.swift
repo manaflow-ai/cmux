@@ -404,6 +404,7 @@ extension CmuxSettingsFileStore {
         "app.language",
         "app.appearance",
         "app.appIcon",
+        "app.appIconImagePath",
         "app.windowTitleTemplate",
         "app.menuBarOnly",
         "app.newWorkspacePlacement",

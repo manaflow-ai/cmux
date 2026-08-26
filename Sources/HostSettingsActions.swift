@@ -28,15 +28,16 @@ final class HostSettingsActions: SettingsHostActions {
     /// in-app button's SwiftUI scene or this host-presented window).
     private let configWindowIdentifier = "cmux.configEditor"
 
-    /// Observes the `appIconMode` defaults key the settings package writes
-    /// so the host can re-apply the dock/app-switcher icon when the user
-    /// changes the App Icon picker. The package only persists the value;
-    /// applying `NSApplication.shared.applicationIconImage` is host work.
+    /// Observes the built-in mode and optional custom image defaults the
+    /// settings package writes so the host can re-apply the Dock/app-switcher
+    /// icon. The package only persists values; applying AppKit state is host
+    /// work.
     ///
     /// Uses the closure-based `NSKeyValueObservation` token API, the
     /// sanctioned seam for bridging a Foundation type that exposes change
     /// only via KVO (`UserDefaults`). The token is invalidated in `deinit`.
     private var appIconModeObservation: NSKeyValueObservation?
+    private var appIconImagePathObservation: NSKeyValueObservation?
 
     /// Retains the AppKit window hosting ``ConfigSettingsView`` so repeated
     /// "Open Config" presses reuse the same dedicated terminal-config
@@ -51,12 +52,13 @@ final class HostSettingsActions: SettingsHostActions {
 
     deinit {
         appIconModeObservation?.invalidate()
+        appIconImagePathObservation?.invalidate()
     }
 
     private func startObservingAppIconMode() {
         // Apply once on construction so a value persisted before this
         // instance existed (e.g. from the config file) is reflected.
-        AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+        AppIconSettings.applyCurrentIcon()
 
         appIconModeObservation = UserDefaults.standard.observe(
             \.appIconMode,
@@ -65,7 +67,15 @@ final class HostSettingsActions: SettingsHostActions {
             // KVO delivers on the thread that mutated the key; @AppStorage
             // writes happen on the main actor, so hop to it to apply.
             Task { @MainActor in
-                AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                AppIconSettings.applyCurrentIcon()
+            }
+        }
+        appIconImagePathObservation = UserDefaults.standard.observe(
+            \.appIconImagePath,
+            options: [.new]
+        ) { _, _ in
+            Task { @MainActor in
+                AppIconSettings.applyCurrentIcon()
             }
         }
     }
@@ -622,5 +632,10 @@ private extension UserDefaults {
     /// to ``AppIconSettings/modeKey`` (`"appIconMode"`).
     @objc dynamic var appIconMode: String? {
         string(forKey: "appIconMode")
+    }
+
+    /// KVO-observable accessor for the optional custom app-icon path.
+    @objc dynamic var appIconImagePath: String? {
+        string(forKey: "appIconImagePath")
     }
 }

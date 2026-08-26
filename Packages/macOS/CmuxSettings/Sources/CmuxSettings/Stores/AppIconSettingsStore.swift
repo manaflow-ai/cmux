@@ -1,7 +1,7 @@
 import Foundation
 
-/// Repository for the persisted app-icon mode, stored in `UserDefaults`
-/// under the catalog's `app.appIcon` key.
+/// Repository for the persisted app-icon selection, stored in `UserDefaults`
+/// under the catalog's `app.appIcon` and `app.appIconImagePath` keys.
 ///
 /// Only persistence lives here. Applying the icon to the running app
 /// (NSApplication, appearance observation, dock tile plugin) is an app-shell
@@ -25,5 +25,13 @@ public struct AppIconSettingsStore: Sendable {
     /// ``AppIconMode/automatic``.
     public var resolvedMode: AppIconMode {
         keys.appIcon.value(in: defaults)
+    }
+
+    /// The optional custom image path. Empty and whitespace-only values are
+    /// treated as unset so callers can fall back to the built-in mode.
+    public var resolvedImagePath: String? {
+        let path = keys.appIconImagePath.value(in: defaults)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
     }
 }

@@ -17057,8 +17057,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func ensureApplicationIcon() {
-        let mode = AppIconSettings.resolvedMode()
-        AppIconSettings.applyIcon(mode)
+        AppIconSettings.applyCurrentIcon()
     }
 
     private func scheduleLaunchServicesBundleRegistration(

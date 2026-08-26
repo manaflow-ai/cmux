@@ -32,7 +32,7 @@ import XCTest
 ///   - Theme (app.appearance / appearanceMode): repaints the terminal
 ///     and chrome via the Metal-backed surface; appearance is not a
 ///     queryable accessibility attribute.
-///   - App Icon (app.appIcon / appIconMode): swaps the Dock/app icon
+///   - App Icon (app.appIcon / app.appIconImagePath): swaps the Dock/app icon
 ///     image; Dock tile imagery is not an XCUITest accessibility element.
 ///   - New Workspace Placement (app.newWorkspacePlacement): only
 ///     observable after creating ≥2 workspaces and inspecting sidebar
@@ -99,6 +99,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     private static let touchedKeys = [
         "workspacePresentationMode",          // Minimal Mode (default .standard)
         "workspaceInheritWorkingDirectory",   // Inherit CWD (default true)
+        "appIconImagePath",                   // Custom app icon path (default empty)
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
         "commandPalette.switcherSearchAllSurfaces", // Palette all surfaces (default false)

@@ -455,6 +455,23 @@ final class CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[AppIconSettings.modeKey] = .string(mode.rawValue)
+        } else if section.keys.contains("appIcon") {
+            logInvalid("app.appIcon", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(section["appIconImagePath"]) {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                snapshot.managedUserDefaults[AppIconSettings.imagePathKey] = .string("")
+            } else if let normalized = CmuxValidatedImageAsset.normalizedPath(
+                trimmed,
+                relativeToConfig: sourcePath
+            ) {
+                snapshot.managedUserDefaults[AppIconSettings.imagePathKey] = .string(normalized)
+            } else {
+                logInvalid("app.appIconImagePath", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("appIconImagePath") {
+            logInvalid("app.appIconImagePath", sourcePath: sourcePath)
         }
         if let value = jsonBool(section["menuBarOnly"]) {
             snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
@@ -1638,8 +1655,9 @@ final class CmuxSettingsFileStore {
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
                     LanguageSettingsStore(defaults: .standard).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
-                } else if change.defaultsKey == AppIconSettings.modeKey {
-                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                } else if change.defaultsKey == AppIconSettings.modeKey ||
+                    change.defaultsKey == AppIconSettings.imagePathKey {
+                    AppIconSettings.applyCurrentIcon()
                 } else if change.defaultsKey == GlobalFontMagnification.percentKey {
                     notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
                 }

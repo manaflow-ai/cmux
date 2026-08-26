@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -150,5 +151,112 @@ struct AppIconAppearanceObserverTests {
 
         checkEqual(harness.imageRequests, ["AppIconLight", "AppIconDark"])
         checkEqual(harness.appliedIconCount, 2)
+    }
+
+    @Test
+    func testCustomImagePathValidationResolvesRelativeImageAndRejectsUnsafeSVG() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-app-icon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let configURL = directory.appendingPathComponent("cmux.json")
+        let imageURL = directory.appendingPathComponent("icon.png")
+        let pngData = try #require(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        try pngData.write(to: imageURL)
+
+        let prepared = CmuxValidatedImageAsset.prepare(
+            "icon.png",
+            relativeToConfig: configURL.path,
+            globalConfigPath: configURL.path
+        )
+        guard case .success(let asset) = prepared else {
+            Issue.record("A valid relative PNG should pass custom app-icon validation: \(prepared)")
+            return
+        }
+        #expect(asset.resolvedPath == imageURL.standardizedFileURL.path)
+        #expect(AppIconImageResolver.image(for: imageURL.path) != nil)
+
+        let validSVGURL = directory.appendingPathComponent("valid.svg")
+        try "<svg xmlns=\"http://www.w3.org/2000/svg\"><text>Hello</text></svg>"
+            .write(to: validSVGURL, atomically: true, encoding: .utf8)
+        let validSVG = CmuxValidatedImageAsset.prepare(
+            validSVGURL.path,
+            relativeToConfig: configURL.path,
+            globalConfigPath: configURL.path
+        )
+        guard case .success = validSVG else {
+            Issue.record("A valid SVG with text content should pass custom app-icon validation: \(validSVG)")
+            return
+        }
+
+        let unsafeSVGURL = directory.appendingPathComponent("unsafe.svg")
+        try "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"
+            .write(to: unsafeSVGURL, atomically: true, encoding: .utf8)
+        let unsafe = CmuxValidatedImageAsset.prepare(
+            unsafeSVGURL.path,
+            relativeToConfig: configURL.path,
+            globalConfigPath: configURL.path
+        )
+        #expect(unsafe == .failure(.unsafeSVG))
+    }
+
+    @Test
+    func testCustomImagePathValidationRejectsOversizedFiles() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-app-icon-large-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let imageURL = directory.appendingPathComponent("large.png")
+        try Data(repeating: 0, count: CmuxValidatedImageAsset.maxImageBytes + 1).write(to: imageURL)
+        let result = CmuxValidatedImageAsset.prepare(
+            imageURL.path,
+            relativeToConfig: nil,
+            globalConfigPath: AppIconImageResolver.defaultConfigPath
+        )
+        #expect(result == .failure(.tooLarge))
+    }
+
+    @Test
+    @MainActor
+    func testCustomImageSelectionOverridesBuiltInMode() throws {
+        let suiteName = "AppIconAppearanceObserverTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("/tmp/custom-icon.png", forKey: AppIconSettings.imagePathKey)
+        defaults.set(AppIconMode.dark.rawValue, forKey: AppIconSettings.modeKey)
+
+        let expectedIcon = NSImage(size: NSSize(width: 16, height: 16))
+        var receivedIcon: NSImage?
+        var requestedPath: String?
+        var stopCount = 0
+        var fallbackModeRequests = 0
+        var notificationCount = 0
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            imageForMode: { _ in
+                fallbackModeRequests += 1
+                return nil
+            },
+            imageForPath: { path in
+                requestedPath = path
+                return expectedIcon
+            },
+            setApplicationIconImage: { receivedIcon = $0 },
+            startAppearanceObservation: {},
+            stopAppearanceObservation: { stopCount += 1 },
+            notifyDockTilePlugin: { notificationCount += 1 }
+        )
+
+        AppIconSettings.applyCurrentIcon(defaults: defaults, environment: environment)
+
+        #expect(requestedPath == "/tmp/custom-icon.png")
+        #expect(receivedIcon === expectedIcon)
+        #expect(stopCount == 1)
+        #expect(fallbackModeRequests == 0)
+        #expect(notificationCount == 1)
     }
 }

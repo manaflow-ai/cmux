@@ -346,6 +346,15 @@ struct AppIconSettingsStoreTests {
         let store = AppIconSettingsStore(defaults: defaults)
         #expect(store.resolvedMode == .dark)
     }
+
+    @Test func readsOptionalCustomImagePath() {
+        let defaults = makeScratchDefaults()
+        let store = AppIconSettingsStore(defaults: defaults)
+        #expect(store.resolvedImagePath == nil)
+
+        defaults.set("  /tmp/icon.png  ", forKey: "appIconImagePath")
+        #expect(store.resolvedImagePath == "/tmp/icon.png")
+    }
 }
 
 @Suite("LanguageSettingsStore")

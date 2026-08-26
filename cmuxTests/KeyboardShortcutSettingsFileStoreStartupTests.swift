@@ -212,6 +212,44 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
+    func testSettingsFileStoreNormalizesCustomAppIconPathRelativeToConfig() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(
+            keys: [
+                AppIconSettings.imagePathKey,
+                settingsFileBackupsDefaultsKey,
+                importedManagedDefaultsKey,
+            ]
+        ) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let imageURL = directoryURL.appendingPathComponent("icon.png")
+            try Data([0, 1, 2, 3]).write(to: imageURL)
+            let settingsURL = directoryURL.appendingPathComponent("cmux.json")
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appIconImagePath": "icon.png"
+                  }
+                }
+                """,
+                to: settingsURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(
+                defaults.string(forKey: AppIconSettings.imagePathKey),
+                imageURL.standardizedFileURL.path
+            )
+        }
+    }
+
     func testManagedAppearanceReplayUpdatesDefaultWithoutLiveAppearanceApplication() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey

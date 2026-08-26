@@ -3,6 +3,7 @@ import CoreServices
 
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 private let cmuxAppIconModeKey = "appIconMode"
+private let cmuxAppIconImagePathKey = "appIconImagePath"
 
 private enum DockTileAppIconMode: String {
     case automatic
@@ -105,6 +106,18 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     private func updateDockTile(_ dockTile: NSDockTile) {
         Self.assertMainQueue()
 
+        let customImagePath = appDefaults?.string(forKey: cmuxAppIconImagePathKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasCustomImagePath = !(customImagePath?.isEmpty ?? true)
+        if let customImagePath,
+           !customImagePath.isEmpty,
+           let icon = AppIconImageResolver.image(for: customImagePath) {
+            // A user image belongs only to this Dock tile. Never write it
+            // into the signed bundle (which would invalidate its code seal).
+            dockTile.showIcon(icon)
+            return
+        }
+
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
         let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
@@ -112,9 +125,14 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             return
         }
 
+        // If a custom path is configured but currently invalid, show the
+        // selected built-in icon as a safe fallback without persisting it to
+        // the signed bundle. The running app makes the same fallback choice.
+        let persistBundleIcon = shouldPersistBundleIcon && !hasCustomImagePath
+
         guard let imageName = mode.imageName(isDarkAppearance: isDarkAppearance),
               let icon = appBundle?.image(forResource: imageName) else {
-            if shouldPersistBundleIcon {
+            if persistBundleIcon {
                 NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
                 NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
                 _ = LSRegisterURL(appBundleURL as CFURL, true)
@@ -123,7 +141,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             return
         }
 
-        if shouldPersistBundleIcon {
+        if persistBundleIcon {
             NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
             NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
             _ = LSRegisterURL(appBundleURL as CFURL, true)
