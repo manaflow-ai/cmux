@@ -7,7 +7,7 @@ extension AgentLaunchSanitizer {
             "--workdir",
             "--add-dir",
             "--agent",
-            "--resume", "-c",
+            "--resume",
             "--prompt", "-p",
             "--max-turns",
             "--max-price",
@@ -16,13 +16,14 @@ extension AgentLaunchSanitizer {
             "--worktree",
         ],
         optionalValueOptions: [
-            "--resume", "-c",
+            "--resume",
             "--prompt", "-p",
             "--worktree",
         ],
         booleanOptions: [
             "--auto-approve", "--yolo",
             "--trust",
+            "--continue", "-c",
             "--setup", "--check-upgrade",
             "-v", "--version",
             "-h", "--help",
@@ -33,7 +34,7 @@ extension AgentLaunchSanitizer {
         ],
         nonRestorableCommands: [],
         droppedOptions: [
-            "--resume", "-c",
+            "--resume", "-c", "--continue",
             "--prompt", "-p",
             "--max-turns", "--max-price", "--max-tokens",
             "--output",
