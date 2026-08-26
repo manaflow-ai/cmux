@@ -475,20 +475,6 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Persists an authoritative transcript path supplied by a hook worker.
-    func recordAutoNamingTranscriptPath(sessionId: String, path: String) throws {
-        let normalized = normalizeSessionId(sessionId)
-        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, !trimmedPath.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized],
-                  record.transcriptPath != trimmedPath else { return }
-            record.transcriptPath = trimmedPath
-            record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[normalized] = record
-        }
-    }
-
     /// Atomically reserves the detached-worker spawn for one session.
     @discardableResult
     func claimAutoNamingSpawn(
@@ -1151,23 +1137,6 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Advances hook-message progress without retaining conversation content.
-    func recordAutoNamingMessageProgress(sessionId: String, observedCount: Int) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
-            let count = max(0, observedCount)
-            guard count > 0 || record.autoNameRecentMessages != nil else { return }
-            record.autoNameRecentMessages = nil
-            if count > 0 {
-                record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + count
-            }
-            record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[normalized] = record
-        }
-    }
-
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
@@ -1189,6 +1158,7 @@ final class ClaudeHookSessionStore {
         workspaceId: String,
         surfaceId: String,
         transcriptLineCount: Int,
+        transcriptPath: String? = nil,
         now: Date,
         engine: AutoNamingEngine,
         allowNewTitleGeneration: Bool,
@@ -1233,6 +1203,9 @@ final class ClaudeHookSessionStore {
                 }
                 record.autoNameSpawnLeaseAt = nil
                 record.autoNameSpawnLeaseToken = nil
+            }
+            if let transcriptPath = normalizeOptional(transcriptPath) {
+                record.transcriptPath = transcriptPath
             }
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
@@ -35249,9 +35222,7 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: workspaceId,
-                            sessionId: sessionId,
-                            sessionStore: store
+                            workspaceId: workspaceId
                         ),
                         rejectTerminalTurn: def.name == "codex"
                     )) ?? (staleTerminalTurn: false, nested: false)
@@ -35631,9 +35602,7 @@ export default CMUXSessionRestore;
                         for: def,
                         parsedInput: input,
                         client: client,
-                        workspaceId: workspaceId,
-                        sessionId: sessionId,
-                        sessionStore: store
+                        workspaceId: workspaceId
                     )
                 )) ?? false
             } else {
@@ -36319,9 +36288,7 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: workspaceId,
-                            sessionId: sessionId,
-                            sessionStore: store
+                            workspaceId: workspaceId
                         )
                     )
                 } else {
@@ -36524,9 +36491,7 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: mapped.workspaceId,
-                            sessionId: sessionId,
-                            sessionStore: store
+                            workspaceId: mapped.workspaceId
                         )
                     )
                 }

@@ -44,11 +44,12 @@ extension CMUXCLI {
             return
         }
 
-        let transcriptSnapshot: (lines: [String], lineCount: Int)? = {
+        let transcriptSnapshot: (path: String, lines: [String], lineCount: Int)? = {
             guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
                   let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
                   !lines.isEmpty else { return nil }
             return (
+                transcriptPath,
                 lines,
                 textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
             )
@@ -74,6 +75,7 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             lines: lines,
             lineCount: transcriptSnapshot.lineCount,
+            transcriptPath: transcriptSnapshot.path,
             sessionStore: sessionStore,
             client: client,
             allowSummarization: !workspaceUserOwned,
@@ -279,12 +281,6 @@ extension CMUXCLI {
         // identity must come from this hook invocation or its persisted
         // cmux-owned session binding, never a newest-file/mtime scan.
         let transcriptPath = suppliedTranscriptPath ?? normalizedHookValue(currentSession?.transcriptPath)
-        if let suppliedTranscriptPath {
-            try? sessionStore.recordAutoNamingTranscriptPath(
-                sessionId: sessionId,
-                path: suppliedTranscriptPath
-            )
-        }
         guard let transcriptPath,
               let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
               !lines.isEmpty else {
@@ -296,6 +292,7 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             lines: lines,
             lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
+            transcriptPath: transcriptPath,
             sessionStore: sessionStore,
             client: client,
             allowSummarization: !workspaceUserOwned,

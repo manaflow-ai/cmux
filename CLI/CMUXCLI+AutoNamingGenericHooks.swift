@@ -115,8 +115,6 @@ extension CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         client: SocketClient,
         workspaceId: String,
-        sessionId: String,
-        sessionStore: ClaudeHookSessionStore,
         engine: AutoNamingEngine = AutoNamingEngine()
     ) -> [AutoNamingTranscriptMessage] {
         guard usesHookMessageCacheForAutoNaming(def),
@@ -126,21 +124,11 @@ extension CMUXCLI {
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
             params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
+        ), probe["enabled"] as? Bool == true,
+           probe["workspace_user_owned"] as? Bool != true else {
             return []
         }
-        let messages = engine.extractHookMessages(fromPayloadObjects: [object])
-        if probe["workspace_user_owned"] as? Bool == true {
-            // Manual workspace ownership opts out of retaining conversation
-            // excerpts. Keep only monotonic progress so an independently
-            // auto-owned panel can still detect compaction/reconciliation.
-            try? sessionStore.recordAutoNamingMessageProgress(
-                sessionId: sessionId,
-                observedCount: messages.count
-            )
-            return []
-        }
-        return messages
+        return engine.extractHookMessages(fromPayloadObjects: [object])
     }
 
     /// Detached naming pass for non-Codex generic agents.
@@ -202,7 +190,7 @@ extension CMUXCLI {
                 return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
             case .hookMessageCache:
                 guard let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId),
-                      workspaceUserOwned || !snapshot.messages.isEmpty else {
+                      !snapshot.messages.isEmpty else {
                     return nil
                 }
                 return (
@@ -277,6 +265,7 @@ extension CMUXCLI {
         surfaceId: String,
         lines: [String],
         lineCount: Int,
+        transcriptPath: String? = nil,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         allowSummarization: Bool,
@@ -293,6 +282,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             lineCount: lineCount,
+            transcriptPath: transcriptPath,
             sessionStore: sessionStore,
             client: client,
             allowSummarization: allowSummarization,
@@ -418,6 +408,7 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         lineCount: Int,
+        transcriptPath: String? = nil,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         allowSummarization: Bool,
@@ -434,6 +425,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             transcriptLineCount: lineCount,
+            transcriptPath: transcriptPath,
             now: Date(),
             engine: engine,
             allowNewTitleGeneration: allowSummarization,
