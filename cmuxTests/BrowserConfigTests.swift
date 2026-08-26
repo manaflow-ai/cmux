@@ -5628,6 +5628,15 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
                 targetFrameIsMain: true
             )
         )
+        let customAppURL = try XCTUnwrap(URL(string: "slack://open?token=secret"))
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                customAppURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            ),
+            "Configured browser rules must not bypass the existing custom-scheme confirmation prompt."
+        )
     }
 
     func testConfiguredExternalOpenUsesOneInjectedActionPath() throws {
