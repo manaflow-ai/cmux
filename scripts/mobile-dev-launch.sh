@@ -212,7 +212,7 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 ATTACH_READY_TIMEOUT_SECONDS="$(cmux_attach_resolve_readiness_timeout)"
 if [[ ! "$ATTACH_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_ATTACH_READY_TIMEOUT_SECONDS must be a positive integer" >&2
+  echo "error: attach readiness timeout must be a positive integer" >&2
   exit 2
 fi
 credential_args=(--profile "$AUTH_PROFILE")

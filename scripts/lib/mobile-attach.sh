@@ -431,7 +431,9 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 # verifier's 45-second cold-start budget, while retaining an explicit override
 # for environments that need a different bound.
 cmux_attach_resolve_readiness_timeout() {
-  printf '%s' "${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-45}"
+  # Preserve an explicitly empty override so the caller's validation rejects it
+  # instead of silently treating it as the default.
+  printf '%s' "${CMUX_ATTACH_READY_TIMEOUT_SECONDS-45}"
 }
 
 # Terminate one exact tagged Mac bundle through LaunchServices. The helper uses
