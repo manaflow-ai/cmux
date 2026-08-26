@@ -15,7 +15,8 @@ extension AppDelegate {
     func canMoveSurfaceToNewWorkspace(panelId: UUID) -> Bool {
         guard let source = locateSurface(surfaceId: panelId),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
-              sourceWorkspace.panels[panelId] != nil else {
+              let panel = sourceWorkspace.panels[panelId],
+              panel.panelType.allowsCrossContainerTransfer else {
             return false
         }
         return sourceWorkspace.panels.count > 1
@@ -29,7 +30,8 @@ extension AppDelegate {
     func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
         guard let located = locateBonsplitSurface(tabId: tabId),
               let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              sourceWorkspace.panels[located.panelId] != nil,
+              let panel = sourceWorkspace.panels[located.panelId],
+              panel.panelType.allowsCrossContainerTransfer,
               let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
               destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
             return false
@@ -38,7 +40,11 @@ extension AppDelegate {
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
-        guard let source = locateSurface(surfaceId: panelId) else { return [] }
+        guard let source = locateSurface(surfaceId: panelId),
+              let workspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
+              workspace.panels[panelId]?.panelType.allowsCrossContainerTransfer == true else {
+            return []
+        }
         return workspaceMoveTargets(
             excludingWorkspaceId: source.workspaceId,
             referenceWindowId: source.windowId
@@ -47,10 +53,7 @@ extension AppDelegate {
 
     func workspaceMoveTargets(forBonsplitTab tabId: UUID) -> [WorkspaceMoveTarget] {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return [] }
-        return workspaceMoveTargets(
-            excludingWorkspaceId: located.workspaceId,
-            referenceWindowId: located.windowId
-        )
+        return workspaceMoveTargets(forSurface: located.panelId)
     }
 
     @discardableResult
@@ -88,6 +91,7 @@ extension AppDelegate {
         guard let source = locateSurface(surfaceId: panelId),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
               let sourcePanel = sourceWorkspace.panels[panelId],
+              sourcePanel.panelType.allowsCrossContainerTransfer,
               sourceWorkspace.panels.count > 1 else {
             return nil
         }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LinksPanelRow: View {
     let entry: WorkspaceCapturedLink
+    let fetchTitlesEnabled: Bool
     let actions: LinksPanelRowActions
 
     var body: some View {
@@ -38,7 +39,11 @@ struct LinksPanelRow: View {
         .padding(.vertical, 3)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { actions.openPreferred() }
-        .task(id: entry.id) {
+        .task(id: LinksPanelTitleFetchTaskID(
+            entryID: entry.id,
+            fetchTitlesEnabled: fetchTitlesEnabled
+        )) {
+            guard fetchTitlesEnabled else { return }
             await actions.fetchTitle(entry)
         }
         .contextMenu {

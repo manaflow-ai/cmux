@@ -4,7 +4,7 @@ import Foundation
 /// Delivers captured links to the MainActor-owned workspace model.
 @MainActor
 final class TerminalLinkCaptureIngress {
-    typealias WorkspaceResolver = @MainActor (UUID) -> Workspace?
+    typealias WorkspaceResolver = @MainActor (_ preferredWorkspaceID: UUID, _ panelID: UUID?) -> Workspace?
 
     private let workspaceResolver: WorkspaceResolver
 
@@ -20,7 +20,7 @@ final class TerminalLinkCaptureIngress {
     ) {
         guard settings.enabled,
               !links.isEmpty,
-              let workspace = workspaceResolver(workspaceID) else {
+              let workspace = workspaceResolver(workspaceID, sourcePanelId) else {
             return
         }
         let sourceTitle = sourcePanelId.flatMap { workspace.panelTitles[$0] }

@@ -7,6 +7,7 @@ import Observation
 @Observable
 final class WorkspaceLinksState {
     private var revision: UInt64 = 0
+    private(set) var fetchTitlesEnabled: Bool
 
     @ObservationIgnored private var entriesByURL: [String: WorkspaceCapturedLink] = [:]
     @ObservationIgnored private var urlByID: [UUID: String] = [:]
@@ -16,9 +17,17 @@ final class WorkspaceLinksState {
     @ObservationIgnored private var tailURL: String?
     @ObservationIgnored private let hostPolicy = CapturedLinkHostPolicy()
 
+    init(fetchTitlesEnabled: Bool = false) {
+        self.fetchTitlesEnabled = fetchTitlesEnabled
+    }
+
     var entries: [WorkspaceCapturedLink] {
         _ = revision
         return orderedEntries()
+    }
+
+    var persistenceRevision: UInt64 {
+        revision
     }
 
     @discardableResult
@@ -117,7 +126,8 @@ final class WorkspaceLinksState {
     }
 
     func beginTitleFetch(for id: UUID) -> WorkspaceCapturedLink? {
-        guard let url = urlByID[id],
+        guard fetchTitlesEnabled,
+              let url = urlByID[id],
               var entry = entriesByURL[url],
               entry.fetchedTitle == nil,
               entry.titleFetchState == .idle else {
@@ -153,6 +163,15 @@ final class WorkspaceLinksState {
         enforceRetention(limit)
         if entriesByURL.count != previousCount {
             markChanged()
+        }
+    }
+
+    func applySettings(retentionLimit: Int, fetchTitlesEnabled: Bool) {
+        applyRetentionLimit(retentionLimit)
+        guard self.fetchTitlesEnabled != fetchTitlesEnabled else { return }
+        self.fetchTitlesEnabled = fetchTitlesEnabled
+        if !fetchTitlesEnabled {
+            resetInFlightTitleFetches()
         }
     }
 
@@ -236,6 +255,20 @@ final class WorkspaceLinksState {
         nextURL.removeAll(keepingCapacity: true)
         headURL = nil
         tailURL = nil
+    }
+
+    private func resetInFlightTitleFetches() {
+        let inFlightURLs = entriesByURL.compactMap { url, entry in
+            entry.titleFetchState == .inFlight ? url : nil
+        }
+        for url in inFlightURLs {
+            guard var entry = entriesByURL[url] else { continue }
+            entry.titleFetchState = .idle
+            entriesByURL[url] = entry
+        }
+        if !inFlightURLs.isEmpty {
+            markChanged()
+        }
     }
 
     private func markChanged() {

@@ -698,7 +698,10 @@ class TabManager: ObservableObject {
                 focusHistoryScopeSettingsDidChange()
                 refreshTabCloseButtonVisibility()
                 refreshWindowTitle()
-                applyLinksRetentionLimit(settings.value(for: settingsCatalog.links.retentionLimit))
+                applyLinksSettings(
+                    retentionLimit: settings.value(for: settingsCatalog.links.retentionLimit),
+                    fetchTitlesEnabled: settings.value(for: settingsCatalog.links.fetchTitles)
+                )
             }
         })
 #if DEBUG

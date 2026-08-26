@@ -9,7 +9,7 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
     private let resolver: any BrowserPageMetadataResolving
     private let transport: any BrowserPageMetadataTransporting
     private let titleExtractor: BrowserHTMLTitleExtractor
-    private let requestTimeout: Duration
+    private let operationTimeout: Duration
     private let sleep: Sleep
     private let maximumBodyBytes: Int
     private let maximumRedirects: Int
@@ -21,7 +21,7 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
         self.resolver = BrowserPageMetadataDNSResolver(addressPolicy: addressPolicy)
         self.transport = BrowserPageMetadataTransport()
         self.titleExtractor = BrowserHTMLTitleExtractor()
-        self.requestTimeout = .seconds(5)
+        self.operationTimeout = .seconds(5)
         self.sleep = { duration in
             try await ContinuousClock().sleep(for: duration)
         }
@@ -33,7 +33,7 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
         addressPolicy: NetworkAddressPolicy = NetworkAddressPolicy(),
         resolver: any BrowserPageMetadataResolving,
         transport: any BrowserPageMetadataTransporting,
-        requestTimeout: Duration = .seconds(5),
+        operationTimeout: Duration = .seconds(5),
         maximumBodyBytes: Int = 65_536,
         maximumRedirects: Int = 3,
         sleep: @escaping Sleep = { duration in
@@ -44,7 +44,7 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
         self.resolver = resolver
         self.transport = transport
         self.titleExtractor = BrowserHTMLTitleExtractor()
-        self.requestTimeout = requestTimeout
+        self.operationTimeout = operationTimeout
         self.sleep = sleep
         self.maximumBodyBytes = maximumBodyBytes
         self.maximumRedirects = maximumRedirects
@@ -56,6 +56,24 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
     /// - Returns: A bounded, trimmed HTML title or `nil` when validation or fetching fails.
     /// - Throws: `CancellationError` when the caller cancels the operation.
     public func title(for url: URL) async throws -> String? {
+        let sleep = sleep
+        let operationTimeout = operationTimeout
+        return try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask {
+                try await self.fetchTitleFollowingRedirects(for: url)
+            }
+            group.addTask {
+                try await sleep(operationTimeout)
+                return nil
+            }
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            try Task.checkCancellation()
+            return first
+        }
+    }
+
+    private func fetchTitleFollowingRedirects(for url: URL) async throws -> String? {
         var currentURL = url
         for redirectCount in 0...maximumRedirects {
             try Task.checkCancellation()
@@ -65,7 +83,9 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
             ) else {
                 return nil
             }
-            let addresses = await resolver.addresses(for: request.host)
+            let resolvedAddresses = await resolver.addresses(for: request.host)
+            try Task.checkCancellation()
+            let addresses = Array(resolvedAddresses.prefix(4))
             guard !addresses.isEmpty,
                   addresses.allSatisfy(allows) else {
                 return nil
@@ -74,10 +94,12 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
             var response: BrowserPageMetadataHTTPResponse?
             for address in addresses {
                 try Task.checkCancellation()
-                response = try await response(
+                response = await transport.response(
                     for: request,
-                    address: address
+                    address: address,
+                    maximumBodyBytes: maximumBodyBytes
                 )
+                try Task.checkCancellation()
                 if response != nil { break }
             }
             guard let response else { return nil }
@@ -98,32 +120,6 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
             return String(title.prefix(2_048))
         }
         return nil
-    }
-
-    private func response(
-        for request: BrowserPageMetadataRequest,
-        address: BrowserPageMetadataResolvedAddress
-    ) async throws -> BrowserPageMetadataHTTPResponse? {
-        let transport = transport
-        let maximumBodyBytes = maximumBodyBytes
-        let sleep = sleep
-        let requestTimeout = requestTimeout
-        return try await withThrowingTaskGroup(of: BrowserPageMetadataHTTPResponse?.self) { group in
-            group.addTask {
-                await transport.response(
-                    for: request,
-                    address: address,
-                    maximumBodyBytes: maximumBodyBytes
-                )
-            }
-            group.addTask {
-                try await sleep(requestTimeout)
-                return nil
-            }
-            let first = try await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
     }
 
     private func allows(_ address: BrowserPageMetadataResolvedAddress) -> Bool {

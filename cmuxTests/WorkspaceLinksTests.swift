@@ -157,7 +157,7 @@ struct WorkspaceLinksTests {
     @MainActor
     @Test
     func titleFetchFailureStateStaysBoundToRetainedEntry() throws {
-        let state = WorkspaceLinksState()
+        let state = WorkspaceLinksState(fetchTitlesEnabled: true)
         let config = WorkspaceLinksIngestConfiguration(ignoreHosts: [])
         let entry = try #require(state.ingest(
             url: "https://example.com/title",
@@ -182,5 +182,88 @@ struct WorkspaceLinksTests {
         #expect(state.beginTitleFetch(for: entry.id) != nil)
         state.cancelTitleFetch(for: entry.id)
         #expect(state.beginTitleFetch(for: entry.id) != nil)
+    }
+
+    @MainActor
+    @Test
+    func liveTitleSettingEnablesExistingEntriesAndCancelsInFlightState() throws {
+        let state = WorkspaceLinksState(fetchTitlesEnabled: false)
+        let entry = try #require(state.ingest(
+            url: "https://example.com/live-setting",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: WorkspaceLinksIngestConfiguration(ignoreHosts: [])
+        ))
+        #expect(state.beginTitleFetch(for: entry.id) == nil)
+
+        state.applySettings(retentionLimit: 500, fetchTitlesEnabled: true)
+        #expect(state.beginTitleFetch(for: entry.id) != nil)
+
+        state.applySettings(retentionLimit: 500, fetchTitlesEnabled: false)
+        #expect(state.beginTitleFetch(for: entry.id) == nil)
+        state.applySettings(retentionLimit: 500, fetchTitlesEnabled: true)
+        #expect(state.beginTitleFetch(for: entry.id) != nil)
+    }
+
+    @MainActor
+    @Test
+    func persistenceRevisionChangesOnlyWhenLinkStateMutates() {
+        let state = WorkspaceLinksState()
+        let initialRevision = state.persistenceRevision
+        _ = state.entries
+        #expect(state.persistenceRevision == initialRevision)
+
+        state.ingest(
+            url: "https://example.com/revision",
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: WorkspaceLinksIngestConfiguration(ignoreHosts: [])
+        )
+        #expect(state.persistenceRevision != initialRevision)
+        let ingestedRevision = state.persistenceRevision
+        _ = state.entries
+        #expect(state.persistenceRevision == ingestedRevision)
+    }
+
+    @MainActor
+    @Test
+    func linksPanelCannotDetachFromItsWorkspaceOwner() throws {
+        let workspace = Workspace()
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newWorkspaceLinksSurface(inPane: paneID))
+
+        #expect(!PanelType.links.allowsCrossContainerTransfer)
+        #expect(workspace.detachSurface(panelId: panel.id) == nil)
+        #expect(workspace.panels[panel.id] === panel)
+    }
+
+    @MainActor
+    @Test
+    func ingressUsesCurrentSurfaceOwnerAfterWorkspaceMove() {
+        let originalWorkspace = Workspace()
+        let currentWorkspace = Workspace()
+        let surfaceID = UUID()
+        let ingress = TerminalLinkCaptureIngress { preferredWorkspaceID, panelID in
+            #expect(preferredWorkspaceID == originalWorkspace.id)
+            return panelID == surfaceID ? currentWorkspace : originalWorkspace
+        }
+
+        ingress.ingest(
+            [TerminalCapturedLink(url: "https://example.com/moved", source: .detected)],
+            workspaceID: originalWorkspace.id,
+            sourcePanelId: surfaceID,
+            settings: LinkCaptureSettingsSnapshot(
+                enabled: true,
+                includeFilePaths: false,
+                ignoreHosts: [],
+                retentionLimit: 500,
+                fetchTitles: false
+            )
+        )
+
+        #expect(originalWorkspace.linksState.entries.isEmpty)
+        #expect(currentWorkspace.linksState.entries.map(\.url) == ["https://example.com/moved"])
     }
 }

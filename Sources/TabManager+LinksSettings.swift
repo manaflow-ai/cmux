@@ -1,10 +1,13 @@
 import Foundation
 
 extension TabManager {
-    /// Applies the live retention cap to every workspace owned by this manager.
-    func applyLinksRetentionLimit(_ limit: Int) {
+    /// Applies live Links settings to every workspace owned by this manager.
+    func applyLinksSettings(retentionLimit: Int, fetchTitlesEnabled: Bool) {
         for workspace in tabs {
-            workspace.linksState.applyRetentionLimit(limit)
+            workspace.linksState.applySettings(
+                retentionLimit: retentionLimit,
+                fetchTitlesEnabled: fetchTitlesEnabled
+            )
         }
     }
 }

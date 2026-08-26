@@ -1,54 +1,55 @@
 import CmuxFoundation
-import Darwin
 import Foundation
 
-/// Resolves a host once so the approved numeric results can be pinned by the transport.
-struct BrowserPageMetadataDNSResolver: BrowserPageMetadataResolving, Sendable {
-    private let addressPolicy: NetworkAddressPolicy
+/// Bounds blocking system DNS work while allowing canceled fetches to return promptly.
+actor BrowserPageMetadataDNSResolver: BrowserPageMetadataResolving {
+    private let worker: BrowserPageMetadataDNSWorker
+    private let maximumConcurrentQueries: Int
+    private var runningQueryCount = 0
+    private var queries: [UUID: BrowserPageMetadataDNSQuery] = [:]
 
-    init(addressPolicy: NetworkAddressPolicy = NetworkAddressPolicy()) {
-        self.addressPolicy = addressPolicy
+    init(
+        addressPolicy: NetworkAddressPolicy = NetworkAddressPolicy(),
+        maximumConcurrentQueries: Int = 4
+    ) {
+        self.worker = BrowserPageMetadataDNSWorker(addressPolicy: addressPolicy)
+        self.maximumConcurrentQueries = max(1, maximumConcurrentQueries)
     }
 
-    @concurrent
     func addresses(for host: String) async -> [BrowserPageMetadataResolvedAddress] {
-        let normalizedHost = addressPolicy.normalizedHost(host)
-        guard addressPolicy.allowsPublicInternetHost(normalizedHost) else { return [] }
+        guard runningQueryCount < maximumConcurrentQueries else { return [] }
+        let queryID = UUID()
+        let worker = worker
+        runningQueryCount += 1
 
-        var hints = addrinfo()
-        hints.ai_family = AF_UNSPEC
-        hints.ai_socktype = SOCK_STREAM
-        hints.ai_protocol = IPPROTO_TCP
-        var result: UnsafeMutablePointer<addrinfo>?
-        guard Darwin.getaddrinfo(normalizedHost, nil, &hints, &result) == 0,
-              let first = result else {
-            return []
-        }
-        defer { Darwin.freeaddrinfo(first) }
-
-        var addresses: [BrowserPageMetadataResolvedAddress] = []
-        var cursor: UnsafeMutablePointer<addrinfo>? = first
-        while let current = cursor {
-            defer { cursor = current.pointee.ai_next }
-            guard let socketAddress = current.pointee.ai_addr else { continue }
-            switch current.pointee.ai_family {
-            case AF_INET:
-                let bytes = socketAddress.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-                    Array(withUnsafeBytes(of: $0.pointee.sin_addr.s_addr) { $0 })
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                queries[queryID] = BrowserPageMetadataDNSQuery(continuation: continuation)
+                worker.resolve(host: host) { [weak self] addresses in
+                    Task { await self?.completeQuery(queryID, addresses: addresses) }
                 }
-                guard addressPolicy.allowsPublicIPv4Address(bytes) else { return [] }
-                addresses.append(BrowserPageMetadataResolvedAddress(family: .ipv4, bytes: bytes))
-            case AF_INET6:
-                let bytes = socketAddress.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) {
-                    Array(withUnsafeBytes(of: $0.pointee.sin6_addr) { $0 })
+                if Task.isCancelled {
+                    cancelQuery(queryID)
                 }
-                guard addressPolicy.allowsPublicIPv6Address(bytes) else { return [] }
-                addresses.append(BrowserPageMetadataResolvedAddress(family: .ipv6, bytes: bytes))
-            default:
-                return []
             }
+        } onCancel: { [weak self] in
+            Task { await self?.cancelQuery(queryID) }
         }
-        var seen: Set<BrowserPageMetadataResolvedAddress> = []
-        return addresses.filter { seen.insert($0).inserted }
+    }
+
+    private func cancelQuery(_ queryID: UUID) {
+        guard var query = queries[queryID], let continuation = query.continuation else { return }
+        query.continuation = nil
+        queries[queryID] = query
+        continuation.resume(returning: [])
+    }
+
+    private func completeQuery(
+        _ queryID: UUID,
+        addresses: [BrowserPageMetadataResolvedAddress]
+    ) {
+        guard let query = queries.removeValue(forKey: queryID) else { return }
+        runningQueryCount = max(0, runningQueryCount - 1)
+        query.continuation?.resume(returning: addresses)
     }
 }

@@ -32,6 +32,7 @@ struct LinksPaneContent: View {
                             ForEach(group.entries) { entry in
                                 LinksPanelRow(
                                     entry: entry,
+                                    fetchTitlesEnabled: linksState.fetchTitlesEnabled,
                                     actions: rowActions(for: entry)
                                 )
                                 .tag(entry.id)

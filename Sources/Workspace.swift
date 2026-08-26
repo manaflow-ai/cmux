@@ -3090,7 +3090,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
-    let linksState = WorkspaceLinksState()
+    let linksState: WorkspaceLinksState
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
@@ -3859,6 +3859,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
+        self.linksState = WorkspaceLinksState(
+            fetchTitlesEnabled: settings.value(for: SettingCatalog().links.fetchTitles)
+        )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -10793,6 +10796,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard let sourcePanel = panels[panelId] else { return nil }
         surfaceTransferringPanelIds.insert(panelId)
         defer { surfaceTransferringPanelIds.remove(panelId) }
+        guard sourcePanel.panelType.allowsCrossContainerTransfer else { return nil }
         if let terminalPanel = sourcePanel as? TerminalPanel {
             terminalFontSizeChangeCoordinator?
                 .terminalWillLeaveWorkspace(

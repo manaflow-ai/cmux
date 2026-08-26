@@ -14,8 +14,7 @@ final class LinkTitleFetcher {
         for entry: WorkspaceCapturedLink,
         linksState: WorkspaceLinksState
     ) async {
-        guard LinksCaptureSettings().snapshot().fetchTitles,
-              let url = URL(string: entry.url),
+        guard let url = URL(string: entry.url),
               let currentEntry = linksState.beginTitleFetch(for: entry.id) else {
             return
         }

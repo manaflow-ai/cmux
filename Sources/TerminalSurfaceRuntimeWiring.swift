@@ -92,8 +92,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     @MainActor
     init() {
         self.linkCaptureSettingsGate = TerminalLinkCaptureSettingsGate()
-        self.linkCaptureIngress = TerminalLinkCaptureIngress { workspaceID in
-            AppDelegate.shared?.workspaceFor(tabId: workspaceID)
+        self.linkCaptureIngress = TerminalLinkCaptureIngress { workspaceID, panelID in
+            guard let appDelegate = AppDelegate.shared else { return nil }
+            if let panelID,
+               let currentOwner = appDelegate.workspaceContainingPanel(
+                panelId: panelID,
+                preferredWorkspaceId: workspaceID
+               ) {
+                return currentOwner.workspace
+            }
+            return appDelegate.workspaceFor(tabId: workspaceID)
         }
     }
 

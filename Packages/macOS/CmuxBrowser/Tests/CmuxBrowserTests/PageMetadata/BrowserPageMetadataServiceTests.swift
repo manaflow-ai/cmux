@@ -84,4 +84,43 @@ struct BrowserPageMetadataServiceTests {
         #expect(await transport.recordedAddresses() == [firstAddress, redirectedAddress])
     }
 
+    @Test("The overall deadline cancels DNS resolution")
+    func deadlineIncludesDNSResolution() async throws {
+        let resolver = CancellationObservingPageMetadataResolver()
+        let transport = RecordingPageMetadataTransport(responses: [])
+        let service = BrowserPageMetadataService(
+            resolver: resolver,
+            transport: transport,
+            operationTimeout: .seconds(5),
+            sleep: { _ in }
+        )
+
+        let title = try await service.title(
+            for: #require(URL(string: "https://slow.example/title"))
+        )
+
+        #expect(title == nil)
+        #expect(await resolver.didObserveCancellation())
+        #expect(await transport.recordedAddresses().isEmpty)
+    }
+
+    @Test("At most four validated addresses are attempted")
+    func addressAttemptsAreBounded() async throws {
+        let addresses = (1...6).map {
+            BrowserPageMetadataResolvedAddress(family: .ipv4, bytes: [8, 8, 8, UInt8($0)])
+        }
+        let transport = RecordingPageMetadataTransport(responses: [])
+        let service = BrowserPageMetadataService(
+            resolver: StubPageMetadataResolver(addressesByHost: ["many.example": addresses]),
+            transport: transport
+        )
+
+        let title = try await service.title(
+            for: #require(URL(string: "https://many.example/title"))
+        )
+
+        #expect(title == nil)
+        #expect(await transport.recordedAddresses() == Array(addresses.prefix(4)))
+    }
+
 }

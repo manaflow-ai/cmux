@@ -271,7 +271,11 @@ extension AppDelegate {
     private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
         switch source {
         case .workspace(_, let workspace, let panelId, _):
-            if workspace.panels[panelId]?.panelType == .simulator {
+            guard let panelType = workspace.panels[panelId]?.panelType,
+                  panelType.allowsCrossContainerTransfer else {
+                return false
+            }
+            if panelType == .simulator {
                 // Simulator control and persistence route through Workspace. Until
                 // Dock has an equivalent owner, keep the live panel with that owner.
                 return false
@@ -282,7 +286,8 @@ extension AppDelegate {
             // would leave the Dock panel detached from its remote owner.
             return false
         case .dock(let dock, let panelId):
-            return dock.panels[panelId]?.panelType != .simulator
+            guard let panelType = dock.panels[panelId]?.panelType else { return false }
+            return panelType.allowsCrossContainerTransfer && panelType != .simulator
         }
     }
 

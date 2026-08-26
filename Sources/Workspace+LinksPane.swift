@@ -79,7 +79,7 @@ extension Workspace {
     }
 
     func combineLinksStateIntoSessionAutosaveFingerprint(into hasher: inout Hasher) {
-        hasher.combine(linksState.entries)
+        hasher.combine(linksState.persistenceRevision)
     }
 
     func restoreLinksState(from snapshot: SessionWorkspaceSnapshot) {
