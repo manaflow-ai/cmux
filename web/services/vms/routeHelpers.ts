@@ -92,7 +92,25 @@ export async function withAuthedVmApiRoute(
         recordSpanError(span, err);
         console.error(failureLog, err);
         const workflowError = vmWorkflowErrorResponse(err);
-        if (workflowError) return finalize(workflowError);
+        if (workflowError) {
+          if (workflowError.status >= 500) {
+            // A modeled workflow failure that still surfaces as a 5xx
+            // (provider outage, database outage) must reach Sentry too, with
+            // its tag so alerts can group by failure mode.
+            reportError(err, {
+              subsystem: "vm-cloud",
+              boundary: "withAuthedVmApiRoute",
+              route,
+              method: request.method,
+              operation: vmOperationFromAttributes(attributes),
+              path: requestPathname(request),
+              userId: authedUserId,
+              errorTag: vmErrorTag(err),
+              httpStatus: workflowError.status,
+            });
+          }
+          return finalize(workflowError);
+        }
         if (!isVmWorkflowError(err)) {
           // An unmodeled failure (a bug or an unexpected dependency error)
           // is about to be flattened into a generic 5xx. Capture it with
@@ -125,6 +143,12 @@ export async function withAuthedVmApiRoute(
 function vmOperationFromAttributes(attributes: MaybeAttributes): string | null {
   const operation = attributes["cmux.vm.operation"];
   return typeof operation === "string" ? operation : null;
+}
+
+function vmErrorTag(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const tag = (err as { _tag?: unknown })._tag;
+  return typeof tag === "string" ? tag : null;
 }
 
 function requestPathname(request: Request): string | null {
@@ -396,6 +420,15 @@ export function vmCreateWorkflowErrorResponse(
     });
   }
   if (isVmCreateFailedError(err)) {
+    // This 500 is returned from inside the handler, so the boundary's 5xx
+    // capture never sees it; report it here instead.
+    reportError(err, {
+      subsystem: "vm-cloud",
+      boundary: "vmCreateWorkflowErrorResponse",
+      errorTag: "VmCreateFailedError",
+      failureCode: err.code,
+      httpStatus: 500,
+    });
     return vmErrorResponse({
       error: copy.failed.error ?? "vm_create_failed",
       status: 500,
