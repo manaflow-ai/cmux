@@ -14,8 +14,12 @@ struct ClaudeHookSessionStoreFile: Codable {
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
-    /// Bounded lookup index for Cursor approvals, keyed by workspace/surface.
+    /// Bounded lookup index for Cursor approvals, keyed by stable surface id.
     var pendingCursorApprovalSessionsBySurface: [String: [String]] = [:]
+    /// Exact pending-session count for each stable surface identity. The ID
+    /// list is capped, so this count preserves sibling detection when the cap
+    /// is exceeded.
+    var pendingCursorApprovalSessionCountsBySurface: [String: Int] = [:]
     var pendingCursorApprovalIndexInitialized: Bool = false
 
     enum CodingKeys: String, CodingKey {
@@ -26,6 +30,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case activeSessionsBySurface
         case agentHookFailureReportTimestamps
         case pendingCursorApprovalSessionsBySurface
+        case pendingCursorApprovalSessionCountsBySurface
         case pendingCursorApprovalIndexInitialized
     }
 
@@ -55,6 +60,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: [String]].self,
             forKey: .pendingCursorApprovalSessionsBySurface
         ) ?? [:]
+        pendingCursorApprovalSessionCountsBySurface = try container.decodeIfPresent(
+            [String: Int].self,
+            forKey: .pendingCursorApprovalSessionCountsBySurface
+        ) ?? [:]
         pendingCursorApprovalIndexInitialized = try container.decodeIfPresent(
             Bool.self,
             forKey: .pendingCursorApprovalIndexInitialized
@@ -81,6 +90,12 @@ struct ClaudeHookSessionStoreFile: Codable {
             try container.encode(
                 pendingCursorApprovalSessionsBySurface,
                 forKey: .pendingCursorApprovalSessionsBySurface
+            )
+        }
+        if !pendingCursorApprovalSessionCountsBySurface.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSessionCountsBySurface,
+                forKey: .pendingCursorApprovalSessionCountsBySurface
             )
         }
         if pendingCursorApprovalIndexInitialized {

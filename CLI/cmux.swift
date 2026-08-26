@@ -462,6 +462,7 @@ final class ClaudeHookSessionStore {
             }
             var pending = record.pendingCursorShellApprovals ?? []
             let now = Date().timeIntervalSince1970
+            let hadUnexpiredPending = hasUnexpiredCursorShellApproval(record, now: now)
             let pendingCountBeforePrune = pending.count
             var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
                 now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
@@ -523,7 +524,8 @@ final class ClaudeHookSessionStore {
                     &state,
                     sessionId: normalizedSession,
                     workspaceId: record.workspaceId,
-                    surfaceId: record.surfaceId
+                    surfaceId: record.surfaceId,
+                    countDelta: hadUnexpiredPending || pending.isEmpty ? 0 : 1
                 )
                 return (
                     accepted: true,
@@ -538,6 +540,15 @@ final class ClaudeHookSessionStore {
                     record.pendingCursorShellApprovals = pending.isEmpty ? nil : pending
                     record.updatedAt = now
                     state.sessions[normalizedSession] = record
+                    if pending.isEmpty, hadExpiredApprovals {
+                        removeCursorPendingIndex(
+                            &state,
+                            sessionId: normalizedSession,
+                            workspaceId: record.workspaceId,
+                            surfaceId: record.surfaceId,
+                            countDelta: -1
+                        )
+                    }
                 }
                 return (
                     accepted: false,
@@ -560,7 +571,8 @@ final class ClaudeHookSessionStore {
                 &state,
                 sessionId: normalizedSession,
                 workspaceId: record.workspaceId,
-                surfaceId: record.surfaceId
+                surfaceId: record.surfaceId,
+                countDelta: hadUnexpiredPending ? 0 : 1
             )
             return (
                 accepted: true,
@@ -669,7 +681,8 @@ final class ClaudeHookSessionStore {
                             &state,
                             sessionId: normalizedSession,
                             workspaceId: record.workspaceId,
-                            surfaceId: record.surfaceId
+                            surfaceId: record.surfaceId,
+                            countDelta: pending.isEmpty ? -1 : 0
                         )
                     } else {
                         addCursorPendingIndex(
@@ -723,12 +736,14 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             record.pendingCursorShellApprovals = hasRemaining ? pending : nil
-            if previousWorkspaceId != record.workspaceId || previousSurfaceId != record.surfaceId {
+            let surfaceMoved = previousSurfaceId != record.surfaceId
+            if surfaceMoved {
                 removeCursorPendingIndex(
                     &state,
                     sessionId: normalizedSession,
                     workspaceId: previousWorkspaceId,
-                    surfaceId: previousSurfaceId
+                    surfaceId: previousSurfaceId,
+                    countDelta: -1
                 )
             }
             if hasRemaining {
@@ -736,14 +751,16 @@ final class ClaudeHookSessionStore {
                     &state,
                     sessionId: normalizedSession,
                     workspaceId: record.workspaceId,
-                    surfaceId: record.surfaceId
+                    surfaceId: record.surfaceId,
+                    countDelta: surfaceMoved ? 1 : 0
                 )
-            } else {
+            } else if !surfaceMoved {
                 removeCursorPendingIndex(
                     &state,
                     sessionId: normalizedSession,
                     workspaceId: record.workspaceId,
-                    surfaceId: record.surfaceId
+                    surfaceId: record.surfaceId,
+                    countDelta: -1
                 )
             }
             if hasRemaining {
@@ -806,7 +823,8 @@ final class ClaudeHookSessionStore {
                 &state,
                 sessionId: normalizedSession,
                 workspaceId: record.workspaceId,
-                surfaceId: record.surfaceId
+                surfaceId: record.surfaceId,
+                countDelta: -1
             )
             record.lastSubtitle = nil
             record.lastBody = nil
@@ -838,7 +856,17 @@ final class ClaudeHookSessionStore {
                 }
                 return excluded.map { candidate != $0 } ?? true
             }
-            return indexedMatch
+            if indexedMatch { return true }
+            let totalCount = state.pendingCursorApprovalSessionCountsBySurface[key]
+                ?? indexed.count
+            // When the capped id list overflowed, the exact count is the
+            // bounded summary that preserves sibling detection. A count above
+            // one proves that another session remains, even if the excluded
+            // session is one of the omitted ids.
+            if totalCount > indexed.count, totalCount > 1 {
+                return true
+            }
+            return false
         }
     }
 
@@ -861,7 +889,8 @@ final class ClaudeHookSessionStore {
         _ state: inout ClaudeHookSessionStoreFile,
         sessionId: String,
         workspaceId _: String,
-        surfaceId: String
+        surfaceId: String,
+        countDelta: Int = 0
     ) {
         let key = cursorPendingSurfaceKey(surfaceId: surfaceId)
         var sessions = state.pendingCursorApprovalSessionsBySurface[key] ?? []
@@ -872,6 +901,13 @@ final class ClaudeHookSessionStore {
             }
             state.pendingCursorApprovalSessionsBySurface[key] = sessions
         }
+        if countDelta != 0 {
+            let currentCount = state.pendingCursorApprovalSessionCountsBySurface[key]
+                ?? max(0, sessions.count - (countDelta > 0 ? 1 : 0))
+            state.pendingCursorApprovalSessionCountsBySurface[key] = max(0, currentCount + countDelta)
+        } else if state.pendingCursorApprovalSessionCountsBySurface[key] == nil {
+            state.pendingCursorApprovalSessionCountsBySurface[key] = sessions.count
+        }
         state.pendingCursorApprovalIndexInitialized = true
     }
 
@@ -879,15 +915,20 @@ final class ClaudeHookSessionStore {
         _ state: inout ClaudeHookSessionStoreFile,
         sessionId: String,
         workspaceId _: String,
-        surfaceId: String
+        surfaceId: String,
+        countDelta: Int = 0
     ) {
         let key = cursorPendingSurfaceKey(surfaceId: surfaceId)
-        guard var sessions = state.pendingCursorApprovalSessionsBySurface[key] else { return }
+        var sessions = state.pendingCursorApprovalSessionsBySurface[key] ?? []
         sessions.removeAll { $0 == sessionId }
-        if sessions.isEmpty {
+        let currentCount = state.pendingCursorApprovalSessionCountsBySurface[key] ?? sessions.count
+        let nextCount = max(0, currentCount + countDelta)
+        if nextCount == 0 {
             state.pendingCursorApprovalSessionsBySurface.removeValue(forKey: key)
+            state.pendingCursorApprovalSessionCountsBySurface.removeValue(forKey: key)
         } else {
             state.pendingCursorApprovalSessionsBySurface[key] = sessions
+            state.pendingCursorApprovalSessionCountsBySurface[key] = nextCount
         }
         state.pendingCursorApprovalIndexInitialized = true
     }
@@ -896,15 +937,18 @@ final class ClaudeHookSessionStore {
         _ state: inout ClaudeHookSessionStoreFile,
         sessionId: String,
         previousSurfaceId: String?,
+        previousHadPending: Bool,
         record: ClaudeHookSessionRecord,
         now: TimeInterval
     ) {
-        if let previousSurfaceId, previousSurfaceId != record.surfaceId {
+        let surfaceMoved = previousSurfaceId != record.surfaceId
+        if let previousSurfaceId, surfaceMoved {
             removeCursorPendingIndex(
                 &state,
                 sessionId: sessionId,
                 workspaceId: "",
-                surfaceId: previousSurfaceId
+                surfaceId: previousSurfaceId,
+                countDelta: -1
             )
         }
         if hasUnexpiredCursorShellApproval(record, now: now) {
@@ -912,14 +956,16 @@ final class ClaudeHookSessionStore {
                 &state,
                 sessionId: sessionId,
                 workspaceId: "",
-                surfaceId: record.surfaceId
+                surfaceId: record.surfaceId,
+                countDelta: surfaceMoved || !previousHadPending ? 1 : 0
             )
-        } else {
+        } else if previousHadPending {
             removeCursorPendingIndex(
                 &state,
                 sessionId: sessionId,
                 workspaceId: "",
-                surfaceId: record.surfaceId
+                surfaceId: record.surfaceId,
+                countDelta: -1
             )
         }
     }
@@ -1368,6 +1414,9 @@ final class ClaudeHookSessionStore {
         return try withLockedState(deadline: deadline) { state in
             let now = Date().timeIntervalSince1970
             let previousSurfaceId = state.sessions[normalized]?.surfaceId
+            let previousHadPending = state.sessions[normalized].map {
+                hasUnexpiredCursorShellApproval($0, now: now)
+            } ?? false
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
@@ -1426,6 +1475,7 @@ final class ClaudeHookSessionStore {
                 &state,
                 sessionId: normalized,
                 previousSurfaceId: previousSurfaceId,
+                previousHadPending: previousHadPending,
                 record: record,
                 now: now
             )
@@ -2377,7 +2427,11 @@ final class ClaudeHookSessionStore {
         let hasLegacyCursorPendingIndex = state.pendingCursorApprovalSessionsBySurface.keys.contains {
             $0.contains("|")
         }
-        if !state.pendingCursorApprovalIndexInitialized || hasLegacyCursorPendingIndex {
+        let hasUninitializedCursorPendingCounts = !state.pendingCursorApprovalSessionsBySurface.isEmpty
+            && state.pendingCursorApprovalSessionCountsBySurface.isEmpty
+        if !state.pendingCursorApprovalIndexInitialized
+            || hasLegacyCursorPendingIndex
+            || hasUninitializedCursorPendingCounts {
             reconcileCursorPendingIndex(&state)
             state.pendingCursorApprovalIndexInitialized = true
         }
@@ -2497,9 +2551,11 @@ final class ClaudeHookSessionStore {
     private func reconcileCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
         let now = Date().timeIntervalSince1970
         var index: [String: [String]] = [:]
+        var counts: [String: Int] = [:]
         for (sessionId, record) in state.sessions {
             guard hasUnexpiredCursorShellApproval(record, now: now) else { continue }
             let key = cursorPendingSurfaceKey(surfaceId: record.surfaceId)
+            counts[key, default: 0] += 1
             var sessions = index[key] ?? []
             sessions.append(sessionId)
             if sessions.count > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
@@ -2508,11 +2564,13 @@ final class ClaudeHookSessionStore {
             index[key] = sessions
         }
         state.pendingCursorApprovalSessionsBySurface = index
+        state.pendingCursorApprovalSessionCountsBySurface = counts
     }
 
     private func pruneCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
         let now = Date().timeIntervalSince1970
         var next: [String: [String]] = [:]
+        var nextCounts = state.pendingCursorApprovalSessionCountsBySurface
         for (key, sessions) in state.pendingCursorApprovalSessionsBySurface {
             let valid = sessions.filter { sessionId in
                 guard let record = state.sessions[sessionId],
@@ -2521,11 +2579,22 @@ final class ClaudeHookSessionStore {
                 }
                 return cursorPendingSurfaceKey(surfaceId: record.surfaceId) == key
             }
+            let currentCount = nextCounts[key] ?? sessions.count
+            let removedKnownCount = max(0, sessions.count - valid.count)
+            let remainingCount = max(0, currentCount - removedKnownCount)
+            if remainingCount > 0 {
+                nextCounts[key] = remainingCount
+            } else {
+                nextCounts.removeValue(forKey: key)
+            }
             if !valid.isEmpty {
                 next[key] = Array(valid.suffix(Self.maxPendingCursorApprovalIndexEntriesPerSurface))
             }
         }
         state.pendingCursorApprovalSessionsBySurface = next
+        state.pendingCursorApprovalSessionCountsBySurface = nextCounts.filter { key, count in
+            count > 0 && (next[key] != nil || count > Self.maxPendingCursorApprovalIndexEntriesPerSurface)
+        }
     }
 
     private func compactRecoveredState(_ state: inout ClaudeHookSessionStoreFile) {
@@ -32972,6 +33041,11 @@ export default CMUXSessionRestore;
             let home = normalizedHookValue(env["HOME"]) ?? NSHomeDirectory()
             let configDirectory = NSString(
                 string: normalizedHookValue(env["CURSOR_CONFIG_DIR"])
+                    ?? normalizedHookValue(env["XDG_CONFIG_HOME"]).map {
+                        URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true)
+                            .appendingPathComponent("cursor", isDirectory: true)
+                            .path
+                    }
                     ?? URL(fileURLWithPath: home, isDirectory: true)
                         .appendingPathComponent(".cursor", isDirectory: true)
                         .path
