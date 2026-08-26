@@ -11983,7 +11983,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
-        let actions = SidebarWorkspaceTableActions(
+        var actions = SidebarWorkspaceTableActions(
             attachScrollView: { scrollView in
                 dragAutoScrollController.attach(scrollView: scrollView)
             },
@@ -12115,17 +12115,18 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             setBonsplitDropIndicator: { indicator in
                 dragState.setDropIndicator(indicator)
-            },
-            workspaceGroupAnchorIdsForDrag: {
-                let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))
-                return Dictionary(
-                    uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
-                        guard liveWorkspaceIds.contains(group.anchorWorkspaceId) else { return nil }
-                        return (group.id, group.anchorWorkspaceId)
-                    }
-                )
             }
         )
+        actions.workspaceGroupAnchorIdsForDrag = { [weak tabManager] in
+            guard let tabManager else { return [:] }
+            let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))
+            return Dictionary(
+                uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
+                    guard liveWorkspaceIds.contains(group.anchorWorkspaceId) else { return nil }
+                    return (group.id, group.anchorWorkspaceId)
+                }
+            )
+        }
         return actions
     }
 

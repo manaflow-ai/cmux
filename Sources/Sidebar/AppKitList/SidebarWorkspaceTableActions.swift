@@ -52,5 +52,5 @@ struct SidebarWorkspaceTableActions {
     /// Returns the live group-to-anchor map captured at the beginning of a
     /// native drag. The table controller caches it for the whole drag so a
     /// multi-row drag does not rescan all groups for every item.
-    let workspaceGroupAnchorIdsForDrag: () -> [UUID: UUID] = { [:] }
+    var workspaceGroupAnchorIdsForDrag: () -> [UUID: UUID] = { [:] }
 }
