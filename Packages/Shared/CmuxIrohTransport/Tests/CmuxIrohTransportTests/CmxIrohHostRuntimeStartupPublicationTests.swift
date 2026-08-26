@@ -345,6 +345,89 @@ extension CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    /// A cache-first activation whose live reconcile adopts a server-side
+    /// replacement binding while the home relay is still unusable must move
+    /// the ready gate onto the adopted identity: the stale gate armed with
+    /// the superseded cached binding is drained so it can never activate the
+    /// replacement relay coordinator with the old binding, nothing publishes
+    /// before the relay is usable, and afterwards exactly the adopted
+    /// binding publishes, once.
+    @Test("adoption while the relay is unready re-arms the gate on the adopted binding")
+    func adoptionWhileRelayUnreadyReArmsGateOnAdoptedBinding() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let cachedPolicy = try cachedFixture.policy()
+        let now = cachedFixture.now
+        let replacementBinding = try HostRuntimeFixture.binding(
+            endpointID: fixture.endpointID.endpointID,
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        let replacementDiscovery = try HostRuntimeFixture.discovery(
+            binding: replacementBinding,
+            relays: HostRuntimeFixture.relayURLs
+        )
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: replacementBinding,
+            discovery: replacementDiscovery
+        )
+        let bindings = HostRuntimeBindingRecorder()
+        let routes = HostRuntimeRouteRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            }
+        )
+
+        try await runtime.start()
+
+        // Cache-first start on the persisted binding: the cached route
+        // identity is refreshed, nothing publishes while the relay warms up.
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await routes.values() == [
+            .init(binding: cachedPolicy.binding, pathHints: []),
+        ])
+        #expect(await bindings.count() == 0)
+
+        // The live reconcile adopts the server-side replacement binding. The
+        // relay is still unusable, so the adopted binding must stay
+        // unpublished.
+        #expect(await broker.waitForRegistrationCount(1, timeout: .seconds(5)))
+        var adopted = false
+        for _ in 0 ..< 50_000 {
+            if await runtime.snapshot().bindingID == replacementBinding.bindingID {
+                adopted = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(adopted)
+        #expect(await bindings.count() == 0)
+
+        // The relay credential installs for the adopted binding, then the
+        // home relay comes online. Publication must follow, exactly once,
+        // with the adopted identity.
+        for _ in 0 ..< 20_000 {
+            if await !endpoint.observedRelayUpdates().isEmpty { break }
+            await Task.yield()
+        }
+        await endpoint.emit(.online)
+        #expect(await bindings.waitForCount(1, timeout: .seconds(5)))
+        #expect(!(await bindings.waitForCount(2, timeout: .milliseconds(300))))
+        let published = await routes.values()
+        #expect(published.first?.binding.bindingID == cachedPolicy.binding.bindingID)
+        #expect(published.last?.binding.bindingID == replacementBinding.bindingID)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
     /// Cached authority must be verified against the live broker even when
     /// the home relay never becomes usable: a server-side rejection fails
     /// the runtime closed instead of hiding behind the relay outage.

@@ -708,6 +708,43 @@ extension CmxIrohHostRuntime {
         guard let connectivityEngine else {
             throw CmxIrohHostRuntimeError.inactive
         }
+        // The startup ready gate retains the superseded cached binding and
+        // relay bootstrap it was armed with. Cancel and drain it before
+        // rebinding so it can never activate the replacement coordinator with
+        // the stale identity or install a stale relay credential; the deferred
+        // first publication is re-armed onto the adopted binding below.
+        if let staleReadyGate = initialPublicationTask {
+            staleReadyGate.cancel()
+            initialPublicationTask = nil
+            await staleReadyGate.value
+            try requireCurrent(revision)
+        }
+        try await rebindRelayCoordinator(
+            policy: policy,
+            engine: connectivityEngine,
+            revision: revision
+        )
+        if initialPublicationPending {
+            // The drained gate owned the relay-readiness wait for the deferred
+            // first publication. Re-arm it bound to the adopted identity so
+            // the endpoint still publishes once the relay becomes usable.
+            scheduleInitialPublication(
+                binding: policy.binding,
+                endpointID: policy.binding.endpointID,
+                bootstrap: policy.relayBootstrap,
+                revision: revision
+            )
+        }
+    }
+
+    /// Deactivates the coordinator pinned to the replaced binding and, for a
+    /// managed relay profile, activates a replacement pinned to the adopted
+    /// binding.
+    private func rebindRelayCoordinator(
+        policy: ResolvedPolicy,
+        engine: CmxConnectivityEngine,
+        revision: UInt64
+    ) async throws {
         guard let coordinator = relayCoordinator else { return }
         relayActivationTask?.cancel()
         relayActivationTask = nil
@@ -721,7 +758,7 @@ extension CmxIrohHostRuntime {
               profile.source == .managed,
               !profile.allowedRelayURLs.isEmpty else { return }
         let replacement = CmxIrohRelayCredentialCoordinator(
-            supervisor: connectivityEngine,
+            supervisor: engine,
             broker: broker,
             managedRelayURLs: managedRelayURLs,
             selectedRelayURLs: profile.allowedRelayURLs,
