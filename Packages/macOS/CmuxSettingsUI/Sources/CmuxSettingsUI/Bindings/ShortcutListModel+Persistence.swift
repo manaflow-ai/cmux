@@ -8,7 +8,8 @@ extension ShortcutListModel {
     private struct RebasedChordSnapshot {
         struct Entry {
             let actionID: String
-            let original: StoredShortcut?
+            let original: StoredShortcut
+            let wasPersisted: Bool
         }
 
         let entries: [Entry]
@@ -205,7 +206,11 @@ extension ShortcutListModel {
                 guard shortcut != current[actionID], let original = current[actionID] else {
                     return nil
                 }
-                return RebasedChordSnapshot.Entry(actionID: actionID, original: original)
+                return RebasedChordSnapshot.Entry(
+                    actionID: actionID,
+                    original: original,
+                    wasPersisted: persisted.bindings[actionID] != nil
+                )
             }
         let rebasedSnapshot = RebasedChordSnapshot(
             entries: originalEntries,
@@ -307,8 +312,8 @@ extension ShortcutListModel {
                 id: "\(catalog.shortcuts.bindings.id).\(actionID)",
                 defaultValue: .unbound
             )
-            if let original = entry.original {
-                try? await jsonStore.set(original, for: key)
+            if entry.wasPersisted {
+                try? await jsonStore.set(entry.original, for: key)
             } else {
                 try? await jsonStore.reset(key)
             }
