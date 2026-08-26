@@ -80,6 +80,18 @@ public struct BrokerCredentialClient: Sendable {
         }
     }
 
+    /// Account authentication for the environment-based entry point. Both
+    /// modes delegate to the same broker flow the legacy `Config` and
+    /// `SessionConfig` initializers drive.
+    public enum Auth: Sendable {
+        /// Dev harnesses: mint a fresh Stack session from a password pair.
+        case password(email: String, password: String)
+        /// Production shape: the app's already signed-in Stack session
+        /// supplies the CURRENT pair per mint; nil fails closed
+        /// (`BrokerError.notSignedIn`), never minting as a guessed account.
+        case session(tokens: @Sendable () async throws -> SessionTokens?)
+    }
+
     public struct Credential: Sendable {
         public let relayUrl: String
         public let token: String
@@ -87,7 +99,16 @@ public struct BrokerCredentialClient: Sendable {
     }
 
     public enum BrokerError: Error, CustomStringConvertible {
-        case http(String, Int, String)
+        /// An HTTP step failed. Carries only redaction-safe fields: the
+        /// step name, status code, request URL path (never the query), and
+        /// the short stable error code the broker returns as JSON
+        /// `{"error": <code>}` (web/services/iroh/routeHandler.ts) when one
+        /// parses. Raw response bodies can echo access/refresh tokens, so
+        /// they are never stored, logged, or rendered.
+        case http(step: String, status: Int, path: String, code: String?)
+        /// A request URL could not be built from the configured base URL.
+        /// Carries the offending URL up to (never including) any query.
+        case malformedURL(step: String, url: String)
         case shape(String)
         /// Session mode only: the token provider reported no signed-in
         /// session. Fail closed — never mint as a guessed account.
@@ -95,8 +116,11 @@ public struct BrokerCredentialClient: Sendable {
 
         public var description: String {
             switch self {
-            case .http(let step, let code, let body):
-                return "\(step) failed: HTTP \(code) \(body.prefix(200))"
+            case .http(let step, let status, let path, let code):
+                let suffix = code.map { " error=\($0)" } ?? ""
+                return "\(step) failed: HTTP \(status) path=\(path)\(suffix)"
+            case .malformedURL(let step, let url):
+                return "\(step) failed: malformed request URL \(url)"
             case .shape(let what):
                 return "unexpected response shape: \(what)"
             case .notSignedIn:
@@ -126,6 +150,10 @@ public struct BrokerCredentialClient: Sendable {
     private let transport: Transport
 
     /// Password mode (dev harnesses and env-injected dogfood launches).
+    ///
+    /// Prefer `init(environment:identity:auth:)` with
+    /// `NextTransportEnvironment` + `.password`; this initializer is
+    /// retained for source compatibility with existing call sites.
     public init(config: Config, identity: PeerIdentity) {
         self.init(config: config, identity: identity, transport: Self.liveTransport)
     }
@@ -146,6 +174,10 @@ public struct BrokerCredentialClient: Sendable {
     /// Session mode: mint through an existing signed-in Stack session.
     /// `tokens` returns the CURRENT pair (re-read per mint), or nil when
     /// definitively signed out.
+    ///
+    /// Prefer `init(environment:identity:auth:)` with
+    /// `NextTransportEnvironment` + `.session`; this initializer is
+    /// retained for source compatibility with existing call sites.
     public init(
         sessionConfig: SessionConfig,
         tokens: @escaping @Sendable () async throws -> SessionTokens?,
@@ -170,6 +202,71 @@ public struct BrokerCredentialClient: Sendable {
         authentication = .session(tokens)
         self.identity = identity
         self.transport = transport
+    }
+
+    /// Environment-based entry point: one `NextTransportEnvironment`
+    /// supplies every broker/Stack coordinate, and `Auth` picks the
+    /// authentication mode. Registration coordinates default from the
+    /// identity (`deviceId`/`appInstanceId` = `identity.deviceID`) and the
+    /// build platform, so most call sites pass only the first three
+    /// arguments plus their `tag`.
+    public init(
+        environment: NextTransportEnvironment,
+        identity: PeerIdentity,
+        auth: Auth,
+        deviceId: String? = nil,
+        appInstanceId: String? = nil,
+        tag: String? = nil,
+        platform: String? = nil
+    ) {
+        self.init(
+            environment: environment, identity: identity, auth: auth,
+            deviceId: deviceId, appInstanceId: appInstanceId, tag: tag,
+            platform: platform, transport: Self.liveTransport)
+    }
+
+    init(
+        environment: NextTransportEnvironment,
+        identity: PeerIdentity,
+        auth: Auth,
+        deviceId: String? = nil,
+        appInstanceId: String? = nil,
+        tag: String? = nil,
+        platform: String? = nil,
+        transport: @escaping Transport
+    ) {
+        let deviceId = deviceId ?? identity.deviceID
+        let appInstanceId = appInstanceId ?? identity.deviceID
+        let tag = tag ?? "next-transport"
+        let platform = platform ?? Self.buildPlatform
+        switch auth {
+        case .password(let email, let password):
+            self.init(
+                config: Config(
+                    baseUrl: environment.brokerBaseURL.absoluteString,
+                    stackBase: environment.stackAuthBaseURL.absoluteString,
+                    stackProjectId: environment.stackProjectID,
+                    stackPck: environment.stackPublishableClientKey,
+                    email: email, password: password,
+                    deviceId: deviceId, appInstanceId: appInstanceId,
+                    tag: tag, platform: platform),
+                identity: identity, transport: transport)
+        case .session(let tokens):
+            self.init(
+                sessionConfig: SessionConfig(
+                    baseUrl: environment.brokerBaseURL.absoluteString,
+                    deviceId: deviceId, appInstanceId: appInstanceId,
+                    tag: tag, platform: platform),
+                tokens: tokens, identity: identity, transport: transport)
+        }
+    }
+
+    private static var buildPlatform: String {
+        #if os(iOS)
+        return "ios"
+        #else
+        return "mac"
+        #endif
     }
 
     private static let liveTransport: Transport = { request in
@@ -263,8 +360,7 @@ public struct BrokerCredentialClient: Sendable {
                     "signature": .string(signature),
                 ], step: "broker register")
         } catch let error as BrokerError {
-            guard case .http(_, _, let body) = error,
-                body.contains("endpoint_already_bound")
+            guard case .http(_, _, _, let code) = error, code == Self.alreadyBoundCode
             else { throw error }
             if TransportDebugLog.enabled {
                 TransportDebugLog.broker.notice(
@@ -275,17 +371,34 @@ public struct BrokerCredentialClient: Sendable {
             }
         }
 
-        // 6. Short-token issuance (register may bootstrap one directly).
+        // 6. Short-token issuance. /register bootstraps a token on FIRST
+        // registration only (web/services/iroh/trustBroker.ts): its
+        // relay grant carries status "issued" with token/expires_at/
+        // relay_fleet, while "unavailable" (server-side mint failed) and
+        // "not_requested" (refresh) carry no token. An already-bound
+        // register (caught above, `registered` deliberately left empty)
+        // holds no grant either. Only a usable issued grant skips the
+        // explicit /api/relay/token mint below.
+        let grant = registered["relay"]?.objectValue
+        let grantStatus = grant?["status"]?.stringValue
         var credentials: [Credential] = []
-        if registered["relay"]?.objectValue?["status"]?.stringValue == "issued",
-            let token = registered["relay"]?.objectValue?["token"]?.stringValue
-        {
-            let relays = registered["relay"]?.objectValue?["relay_fleet"]?.arrayValue?
-                .compactMap(\.stringValue) ?? []
-            credentials = relays.map {
-                Credential(relayUrl: $0, token: token, expiresAt: nil)
-            }
-        } else {
+        if grantStatus == "issued", let token = grant?["token"]?.stringValue {
+            let serverExpiry = (grant?["expires_at"]?.stringValue)
+                .flatMap(Self.epochSeconds(iso8601:))
+            credentials = (grant?["relay_fleet"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+                .map { Self.credential(relayUrl: $0, token: token, serverExpiresAt: serverExpiry) }
+        }
+        if TransportDebugLog.enabled {
+            let outcome = credentials.isEmpty
+                ? "needs-mint reason=\(grantStatus ?? (registered.isEmpty ? "empty-register-response" : "no-relay-grant"))"
+                : "bootstrapped relays=\(credentials.count)"
+            TransportDebugLog.broker.notice(
+                """
+                broker register outcome=\(outcome, privacy: .public) \
+                device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public)
+                """)
+        }
+        if credentials.isEmpty {
             let minted = try await post(
                 "\(baseUrl)/api/relay/token", headers: authed,
                 body: ["endpointId": .string(endpointId)], step: "relay token")
@@ -295,14 +408,16 @@ public struct BrokerCredentialClient: Sendable {
                         let url = object["relayUrl"]?.stringValue,
                         let token = object["token"]?.stringValue
                     else { return nil }
-                    return Credential(
+                    return Self.credential(
                         relayUrl: url, token: token,
-                        expiresAt: object["expiresAt"]?.intValue)
+                        serverExpiresAt: object["expiresAt"]?.intValue)
                 }
             } else if let token = minted["token"]?.stringValue {
                 let relays = minted["relays"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 credentials = relays.map {
-                    Credential(relayUrl: $0, token: token, expiresAt: minted["expiresAt"]?.intValue)
+                    Self.credential(
+                        relayUrl: $0, token: token,
+                        serverExpiresAt: minted["expiresAt"]?.intValue)
                 }
             }
         }
@@ -389,7 +504,18 @@ public struct BrokerCredentialClient: Sendable {
     private func post(
         _ url: String, headers: [String: String], body: [String: JSONValue], step: String
     ) async throws -> [String: JSONValue] {
-        var request = URLRequest(url: URL(string: url)!)
+        // Only absolute http(s) URLs may carry the auth headers; anything
+        // else (a mangled base URL, a scheme-less fragment) is a typed
+        // error instead of a force-unwrap crash.
+        guard let requestUrl = URL(string: url),
+            let scheme = requestUrl.scheme?.lowercased(),
+            scheme == "http" || scheme == "https",
+            requestUrl.host != nil
+        else {
+            throw BrokerError.malformedURL(
+                step: step, url: String(url.prefix(while: { $0 != "?" })))
+        }
+        var request = URLRequest(url: requestUrl)
         request.httpMethod = "POST"
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
@@ -398,16 +524,19 @@ public struct BrokerCredentialClient: Sendable {
         let (data, response) = try await transport(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
+            let code = Self.serverErrorCode(in: data)
             if TransportDebugLog.enabled {
                 TransportDebugLog.broker.error(
                     """
                     broker step FAILED step=\(step, privacy: .public) \
                     status=\(status, privacy: .public) \
-                    device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public) \
-                    bodyPrefix=\(String((String(data: data, encoding: .utf8) ?? "").prefix(120)), privacy: .public)
+                    path=\(requestUrl.path, privacy: .public) \
+                    error=\(code ?? "unparsed", privacy: .public) \
+                    device=\(TransportDebugLog.prefix(self.deviceId), privacy: .public)
                     """)
             }
-            throw BrokerError.http(step, status, String(data: data, encoding: .utf8) ?? "")
+            throw BrokerError.http(
+                step: step, status: status, path: requestUrl.path, code: code)
         }
         if TransportDebugLog.enabled {
             TransportDebugLog.broker.notice(
@@ -418,6 +547,62 @@ public struct BrokerCredentialClient: Sendable {
                 """)
         }
         return (try? JSONDecoder().decode(JSONValue.self, from: data))?.objectValue ?? [:]
+    }
+
+    static let alreadyBoundCode = "endpoint_already_bound"
+
+    /// The short stable error code from a broker error body. The broker
+    /// always answers `{"error": <code>}` (web/services/iroh/
+    /// routeHandler.ts); the code is still server-controlled text, so
+    /// anything long or outside the code alphabet is dropped rather than
+    /// propagated into errors and logs.
+    static func serverErrorCode(in data: Data) -> String? {
+        if let object = (try? JSONDecoder().decode(JSONValue.self, from: data))?.objectValue,
+            let code = object["error"]?.stringValue, Self.isSafeErrorCode(code)
+        {
+            return code
+        }
+        // Last-resort fallback for a non-JSON body (a proxy error page, a
+        // legacy broker): the one code the mint flow must still recognize
+        // is endpoint_already_bound, so scan for exactly that token.
+        if let text = String(data: data, encoding: .utf8),
+            text.contains(Self.alreadyBoundCode)
+        {
+            return Self.alreadyBoundCode
+        }
+        return nil
+    }
+
+    private static func isSafeErrorCode(_ code: String) -> Bool {
+        guard !code.isEmpty, code.count <= 64 else { return false }
+        return code.allSatisfy {
+            $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == ".")
+        }
+    }
+
+    /// Builds a credential whose `expiresAt` is ALWAYS populated when
+    /// knowable: the server-provided expiry first, else the token's own JWT
+    /// `exp` claim, so `RelayCredentialSchedule` gets a real deadline
+    /// instead of the blind fallback cadence whenever one exists.
+    private static func credential(
+        relayUrl: String, token: String, serverExpiresAt: Int64?
+    ) -> Credential {
+        Credential(
+            relayUrl: relayUrl, token: token,
+            expiresAt: serverExpiresAt ?? IrohSubstrate.tokenExpiry(token))
+    }
+
+    /// Epoch seconds from the broker's ISO-8601 timestamps
+    /// (`Date.toISOString()` emits fractional seconds; tolerate both).
+    static func epochSeconds(iso8601 value: String) -> Int64? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: value) {
+            return Int64(date.timeIntervalSince1970)
+        }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: value).map { Int64($0.timeIntervalSince1970) }
     }
 
     private func base64url(_ data: Data) -> String {
