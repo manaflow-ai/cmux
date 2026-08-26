@@ -4579,10 +4579,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: window,
             queue: .main
         ) { [weak self] notification in
-            guard let occludedWindow = notification.object as? NSWindow else { return }
-            self?.terminalSurface?.setRendererWindowVisible(
-                occludedWindow.occlusionState.contains(.visible)
-            )
+            // AppKit delivers this observer on the main queue, which is the
+            // owning isolation domain for the hosted surface. Keep the update
+            // synchronous so occlusion state cannot lag a window transition.
+            MainActor.assumeIsolated {
+                guard let occludedWindow = notification.object as? NSWindow else { return }
+                self?.terminalSurface?.setRendererWindowVisible(
+                    occludedWindow.occlusionState.contains(.visible)
+                )
+            }
         }
         terminalSurface?.setRendererWindowVisible(
             window.occlusionState.contains(.visible)
