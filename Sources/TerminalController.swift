@@ -7235,38 +7235,41 @@ class TerminalController {
             }
             if let url,
                respectExternalOpenRules,
-               preferredProfileID == nil,
-               externalNavigationHandler.shouldOpenExternally(url) {
-                guard NSWorkspace.shared.open(url) else {
+               preferredProfileID == nil {
+                switch externalNavigationHandler.openConfiguredExternallyResult(url) {
+                case .notConfigured:
+                    break
+                case .failed:
                     result = .err(
                         code: "external_open_failed",
                         message: "Failed to open URL externally",
                         data: ["url": url.absoluteString]
                     )
                     return
+                case .opened:
+                    let windowId = v2BrowserWindowID(
+                        for: container.host,
+                        tabManager: tabManager
+                    )
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": container.ownerID.uuidString,
+                        "workspace_ref": v2Ref(
+                            kind: .workspace,
+                            uuid: container.ownerID
+                        ),
+                        "pane_id": v2OrNull(nil),
+                        "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                        "surface_id": v2OrNull(nil),
+                        "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                        "created_split": false,
+                        "placement_strategy": "external",
+                        "opened_externally": true,
+                        "url": url.absoluteString
+                    ])
+                    return
                 }
-                let windowId = v2BrowserWindowID(
-                    for: container.host,
-                    tabManager: tabManager
-                )
-                result = .ok([
-                    "window_id": v2OrNull(windowId?.uuidString),
-                    "window_ref": v2Ref(kind: .window, uuid: windowId),
-                    "workspace_id": container.ownerID.uuidString,
-                    "workspace_ref": v2Ref(
-                        kind: .workspace,
-                        uuid: container.ownerID
-                    ),
-                    "pane_id": v2OrNull(nil),
-                    "pane_ref": v2Ref(kind: .pane, uuid: nil),
-                    "surface_id": v2OrNull(nil),
-                    "surface_ref": v2Ref(kind: .surface, uuid: nil),
-                    "created_split": false,
-                    "placement_strategy": "external",
-                    "opened_externally": true,
-                    "url": url.absoluteString
-                ])
-                return
             }
             v2MaybeFocusWindow(for: tabManager)
             switch container {

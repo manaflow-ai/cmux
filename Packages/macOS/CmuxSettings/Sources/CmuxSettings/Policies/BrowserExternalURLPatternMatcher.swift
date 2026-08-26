@@ -12,6 +12,7 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
     private let maximumPatternLength = 4096
     /// The total rule text retained by one policy snapshot.
     private let maximumTotalPatternLength = 65_536
+    private let regexSafety = BrowserExternalURLRegexSafety()
 
     /// The normalized rules represented by this matcher.
     private(set) var patterns: [String] = []
@@ -64,7 +65,7 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
     }
 
     private func compile(_ pattern: String) -> BrowserExternalURLCompiledPattern {
-        guard pattern.count <= maximumPatternLength else {
+        guard pattern.prefix(maximumPatternLength + 1).count <= maximumPatternLength else {
             return BrowserExternalURLCompiledPattern(unmatchable: ())
         }
 
@@ -91,7 +92,7 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
     }
 
     private func makeRegex(_ expression: String) -> NSRegularExpression? {
-        guard !expression.isEmpty else { return nil }
+        guard regexSafety.accepts(expression) else { return nil }
         return try? NSRegularExpression(
             pattern: expression,
             options: [.caseInsensitive]

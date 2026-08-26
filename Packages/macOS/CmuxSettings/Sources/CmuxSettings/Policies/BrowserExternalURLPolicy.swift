@@ -8,6 +8,8 @@ import Foundation
 /// entry point evaluates the same effective rules. A policy snapshot retains
 /// at most 256 rules and 65,536 characters of rule text; individual rules over
 /// 4,096 characters are retained for display but fail closed during matching.
+/// Regex evaluation is also limited to supported, bounded expressions and URL
+/// text no longer than 16,384 characters.
 public struct BrowserExternalURLPolicy: Equatable, Sendable {
     /// The legacy `UserDefaults` key used by the browser settings catalog.
     public static let userDefaultsKey = "browserExternalOpenPatterns"
