@@ -48,6 +48,15 @@ extension MobileHostService {
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.
             return nil
+        case "mobile.chat.artifact.stat", "mobile.chat.artifact.fetch",
+             "mobile.chat.artifact.thumbnail", "mobile.chat.artifact.list",
+             "mobile.chat.artifact.save", "mobile.chat.artifact.gallery":
+            // Chat artifact requests are authorized by the session-scoped
+            // transcript/index handlers. Their session_id is not a live
+            // workspace selector, so an attach ticket cannot safely narrow
+            // these requests here; the same-account Stack gate remains the
+            // authority, just as it does for the other chat data-plane reads.
+            return nil
         case "mobile.sync.fetch":
             // Cursor-based read of the same Mac-scoped list state as
             // `mobile.workspace.list`; carries no workspace/terminal selection.

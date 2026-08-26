@@ -461,6 +461,42 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func chatArtifactRequestsUseSessionAuthorizationForBothTicketScopes() throws {
+        let methods = [
+            "mobile.chat.artifact.stat",
+            "mobile.chat.artifact.fetch",
+            "mobile.chat.artifact.thumbnail",
+            "mobile.chat.artifact.list",
+            "mobile.chat.artifact.save",
+            "mobile.chat.artifact.gallery",
+        ]
+        for workspaceID in ["workspace", ""] {
+            let ticket = try scopedAttachTicket(workspaceID: workspaceID)
+            for method in methods {
+                var params: [String: Any] = ["session_id": "session"]
+                if method != "mobile.chat.artifact.gallery" {
+                    params["path"] = "/tmp/artifact"
+                }
+                let request = MobileHostRPCRequest(
+                    id: method,
+                    method: method,
+                    params: params,
+                    auth: MobileHostRPCAuth(
+                        attachToken: ticket.authToken,
+                        stackAccessToken: nil
+                    )
+                )
+                #expect(
+                    MobileHostService.ticketAuthorizationError(
+                        ticket: ticket,
+                        request: request
+                    ) == nil,
+                    "\(method) should use session authorization for workspaceID=\(workspaceID)"
+                )
+            }
+        }
+    }
+
     private func scopedAttachTicket(workspaceID: String) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",
