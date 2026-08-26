@@ -92,7 +92,9 @@ public final class CEFBrowser {
             let browser = unmanagedBrowser(context)
             guard let rawURL,
                   let url = URL(string: String(cString: rawURL)) else { return 1 }
-            return browser.shouldBlockNavigation?(url) == true ? 1 : 0
+            return MainActor.assumeIsolated {
+                browser.shouldBlockNavigation?(url) == true ? 1 : 0
+            }
         }
         callbacks.on_title_changed = { context, title in
             let browser = unmanagedBrowser(context)
