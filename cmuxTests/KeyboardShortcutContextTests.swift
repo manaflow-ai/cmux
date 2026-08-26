@@ -187,6 +187,23 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 configuredShortcut: legacyRenameWorkspace
             )
         )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.browserHardReload.conflicts(
+                with: legacyRenameWorkspace,
+                proposedAction: .renameWorkspace,
+                configuredShortcut: browserHardReload
+            )
+        )
+        // The compatibility exception is pair-specific. A different
+        // application-scoped action must still be rejected for the hard-reload
+        // chord because the runtime route does not preempt it here.
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.toggleSidebar.conflicts(
+                with: legacyRenameWorkspace,
+                proposedAction: .browserHardReload,
+                configuredShortcut: legacyRenameWorkspace
+            )
+        )
     }
 
     func testShowNotificationsStaysGenerallyAvailableForCustomBrowserBindings() {

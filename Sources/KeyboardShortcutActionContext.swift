@@ -210,8 +210,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToMachines,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard,
-             .commandPaletteNext, .commandPalettePrevious,
-             .browserHardReload:
+             .commandPaletteNext, .commandPalettePrevious:
             return true
         default:
             return false

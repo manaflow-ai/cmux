@@ -714,12 +714,16 @@ enum KeyboardShortcutSettings {
             // both AND router priority cannot decide the overlap. A `shortcuts.when` override
             // (or the built-in context default) can make them non-overlapping (issue #5189),
             // and a pre-routed action wins its context outright, so factory Select Surface
-            // ⌃1…9 coexists with the sidebar's ⌃1…5 by priority.
+            // ⌃1…9 coexists with the sidebar's ⌃1…5 by priority. The legacy Rename Workspace
+            // / browser hard-reload overlap is the one compatibility pair with the same
+            // priority treatment; unrelated application shortcuts remain conflicts.
+            let lhsHasPriority = hasPriorityForShortcutConflict(with: proposedAction)
+            let rhsHasPriority = proposedAction.hasPriorityForShortcutConflict(with: self)
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
-                lhsHasPriority: hasPriorityShortcutRouting,
+                lhsHasPriority: lhsHasPriority,
                 KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction),
-                rhsHasPriority: proposedAction.hasPriorityShortcutRouting
+                rhsHasPriority: rhsHasPriority
             ) else {
                 return false
             }
@@ -729,6 +733,13 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        /// Mirrors the one compatibility ordering that exists in the runtime
+        /// dispatcher: hard reload is checked immediately before Rename Workspace.
+        private func hasPriorityForShortcutConflict(with other: Action) -> Bool {
+            hasPriorityShortcutRouting
+                || (self == .browserHardReload && other == .renameWorkspace)
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {
