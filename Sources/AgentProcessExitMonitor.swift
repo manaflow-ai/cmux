@@ -16,14 +16,12 @@ final class AgentProcessExitMonitor {
     }
 
     deinit {
-        // This app-owned monitor is created and released on the main actor.
-        // `isolated deinit` cannot be compiled by Xcode 16.4, which cmux uses
-        // for Intel macOS 14 verification, so assert that owner invariant while
-        // keeping teardown synchronous on every supported toolchain.
-        MainActor.assumeIsolated {
-            for observation in observationsByKey.values {
-                observation.source.cancel()
-            }
+        // Deinitialization is a final exclusive lifetime boundary and may run
+        // off the main actor. Cancel sources directly instead of asserting an
+        // actor precondition; DispatchSource cancellation is idempotent and
+        // the weak event handlers cannot reach a deallocated monitor.
+        for observation in observationsByKey.values {
+            observation.source.cancel()
         }
     }
 

@@ -1033,20 +1033,13 @@ export default function (amp: PluginAPI) {
             ) {
               state.nativeAttentionRetryCount += 1;
             } else {
+              // Keep an acknowledged (or uncertain) episode owned after the
+              // immediate retry budget is exhausted. Clearing it here would
+              // strand the app-side attention token with no identity left for
+              // a later native boundary or turn retirement to conclude. The
+              // retry counter resets so the next authoritative state change
+              // can make another bounded, idempotent attempt.
               state.nativeAttentionRetryCount = 0;
-              if (!attemptedVisibility) {
-                if (
-                  state.nativeAttentionConfirmedEpisode === attemptedEpisode
-                ) {
-                  state.nativeAttentionConfirmedEpisode = null;
-                }
-                if (
-                  state.nativeAttentionUnconfirmedBeginEpisode
-                    === attemptedEpisode
-                ) {
-                  state.nativeAttentionUnconfirmedBeginEpisode = null;
-                }
-              }
               refreshNativeAttentionStatusOwnership(state);
               publishAggregateStatus();
               return;

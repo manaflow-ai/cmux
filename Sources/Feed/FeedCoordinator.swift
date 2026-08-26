@@ -18,8 +18,6 @@ private enum FeedEventAcceptance: Sendable {
 private enum FeedAgentProcessEvidence: Sendable {
     /// A complete generation tuple carried by the owning runtime or relay.
     case exact(AgentPIDProcessIdentity)
-    /// A numeric PID that is meaningful only in this Mac's process namespace.
-    case localPID(Int)
 }
 
 /// App-level coordinator that owns the shared `WorkstreamStore` and
@@ -688,7 +686,11 @@ extension FeedCoordinator {
         guard let surfaced = surfaceAgentAttention(
             source: event.source,
             resolved: resolved,
-            processEvidence: event.ppid.map(FeedAgentProcessEvidence.localPID)
+            // WorkstreamEvent carries only a numeric hook claim. It may be a
+            // shell/runner parent, so it is not sufficient evidence for an
+            // exact process-exit attention monitor. Native observers supply a
+            // verified generation through their dedicated path below.
+            processEvidence: nil
         ) else {
             return nil
         }
@@ -775,12 +777,11 @@ extension FeedCoordinator {
         guard resolved.surfaceId == nil || panelId != nil else { return nil }
         let statusKey = Self.attentionStatusKey(forSource: event.source)
         let usesRemoteProcessNamespace = owner.usesRemoteAgentProcessNamespace(panelId: panelId)
-        let processGeneration: AgentPIDProcessIdentity? = {
-            guard let ppid = event.ppid,
-                  ppid > 0,
-                  !usesRemoteProcessNamespace else { return nil }
-            return Self.localProcessGeneration(pid: ppid)
-        }()
+        // Blocking Feed events carry only a numeric `_ppid` claim, which may
+        // identify a shell or runner rather than the agent. Without a complete
+        // corroborated generation, do not install an exit monitor; the Feed
+        // reply/timeout path remains the authoritative conclusion boundary.
+        let processGeneration: AgentPIDProcessIdentity? = nil
         let token: AgentFeedAttentionToken
         if let panelId {
             guard let panelToken = owner.beginAgentFeedAttention(
@@ -1326,10 +1327,6 @@ extension FeedCoordinator {
         let processGeneration: AgentPIDProcessIdentity? = switch processEvidence {
         case .exact(let generation):
             generation
-        case .localPID(let pid):
-            usesRemoteProcessNamespace
-                ? nil
-                : Self.localProcessGeneration(pid: pid)
         case nil:
             nil
         }
@@ -1428,13 +1425,6 @@ extension FeedCoordinator {
             usesRemoteProcessNamespace: usesRemoteProcessNamespace,
             processGeneration: processGeneration
         )
-    }
-
-    private static func localProcessGeneration(
-        pid: Int
-    ) -> AgentPIDProcessIdentity? {
-        guard pid > 0, pid <= Int(Int32.max) else { return nil }
-        return AgentPIDProcessIdentity(pid: pid_t(pid))
     }
 
     private static func blockingAttentionProcessMonitorKey(
