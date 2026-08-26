@@ -6,6 +6,14 @@ import Foundation
 @MainActor
 final class AgentProcessExitMonitor {
     private var observationsByKey: [String: AgentProcessExitObservation] = [:]
+    private let livenessProbe: (AgentPIDProcessIdentity) -> AgentTurnProcessLiveness
+
+    init(
+        livenessProbe: @escaping (AgentPIDProcessIdentity) -> AgentTurnProcessLiveness =
+            AgentProcessExitMonitor.defaultLivenessProbe
+    ) {
+        self.livenessProbe = livenessProbe
+    }
 
     deinit {
         // This app-owned monitor is created and released on the main actor.
@@ -47,7 +55,7 @@ final class AgentProcessExitMonitor {
             }
         }
         source.resume()
-        if !Self.generationIsStillLive(generation) {
+        if !generationIsStillLive(generation) {
             deliverExit(key: key, generation: generation)
         }
     }
@@ -77,13 +85,22 @@ final class AgentProcessExitMonitor {
         observation.onExit(key, generation)
     }
 
-    private static func generationIsStillLive(
+    private func generationIsStillLive(
         _ generation: AgentPIDProcessIdentity
     ) -> Bool {
+        // Only exact live evidence keeps a watcher. Unknown identity is
+        // retired conservatively so an unreadable, already-gone PID cannot
+        // strand lifecycle state indefinitely.
+        livenessProbe(generation) == .live
+    }
+
+    private nonisolated static func defaultLivenessProbe(
+        _ generation: AgentPIDProcessIdentity
+    ) -> AgentTurnProcessLiveness {
         AgentTurnProcessLiveness.observe(
             pid: Int(generation.pid),
             expectedStartSeconds: generation.startSeconds,
             expectedStartMicroseconds: generation.startMicroseconds
-        ) != .exited
+        )
     }
 }

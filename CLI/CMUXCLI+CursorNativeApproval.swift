@@ -20,6 +20,8 @@ extension CMUXCLI {
         guard let socketPath = normalizedHookValue(socketPath),
               let workspaceId = normalizedHookValue(workspaceId),
               UUID(uuidString: workspaceId) != nil,
+              let surfaceId = normalizedHookValue(surfaceId),
+              UUID(uuidString: surfaceId) != nil,
               let sessionId = Self.nativeAttentionOpaqueIdentifier(sessionId),
               let processIdentity = AgentPIDProcessIdentity(
                   agentTurnPID: agentPID
@@ -74,10 +76,7 @@ extension CMUXCLI {
             "--observation-epoch", String(observationEpoch),
         ]
         arguments += observerLease.commandArguments
-        if let surfaceId = normalizedHookValue(surfaceId),
-           UUID(uuidString: surfaceId) != nil {
-            arguments += ["--surface-id", surfaceId]
-        }
+        arguments += ["--surface-id", surfaceId]
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
         process.arguments = arguments

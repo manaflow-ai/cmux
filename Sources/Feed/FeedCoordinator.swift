@@ -1195,11 +1195,22 @@ extension FeedCoordinator {
         // A global Dock is keyed by its window id rather than a workspace/tab
         // id. Resolve a live Dock before asking the tab manager so native
         // approval observers can surface attention for Dock-owned panels too.
-        let dockOwner = resolved.surfaceId.flatMap { surfaceId in
-            DockSplitStore.liveStores.first { $0.containsPanel(surfaceId) }
-        } ?? AppDelegate.shared?.existingWindowDock(
-            forWindowId: resolved.workspaceId
-        )
+        let dockOwner: DockSplitStore? = {
+            if let surfaceId = resolved.surfaceId {
+                if let windowDock = AppDelegate.shared?.existingWindowDock(
+                    forWindowId: resolved.workspaceId
+                ), windowDock.containsPanel(surfaceId) {
+                    return windowDock
+                }
+                return DockSplitStore.liveStores.first {
+                    $0.workspaceId == resolved.workspaceId
+                        && $0.containsPanel(surfaceId)
+                }
+            }
+            return AppDelegate.shared?.existingWindowDock(
+                forWindowId: resolved.workspaceId
+            )
+        }()
         let tabManager: TabManager?
         let tab: Workspace?
         if dockOwner == nil {

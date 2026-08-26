@@ -126,11 +126,29 @@ extension TerminalController {
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> ControlSidebarPanelOwner? {
+        let addressedTab = controlSidebarResolveMutationTab(target)
+        // A workspace-targeted panel may still be present in a stale Dock
+        // during a transfer. Prefer the explicitly addressed workspace when
+        // it owns the panel before considering any global Dock copy.
         if let panelID,
-           let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(panelID) }) {
+           let tab = addressedTab,
+           tab.panels.keys.contains(panelID) {
+            return .workspace(tab)
+        }
+        if let panelID,
+           let dock = DockSplitStore.liveStores.first(where: {
+               guard $0.containsPanel(panelID) else { return false }
+               if let addressedTab {
+                   return $0.workspaceId == addressedTab.id
+               }
+               if case .workspace(let workspaceID) = target {
+                   return $0.workspaceId == workspaceID
+               }
+               return true
+           }) {
             return .dock(dock)
         }
-        var tab = controlSidebarResolveMutationTab(target)
+        var tab = addressedTab
         if let panelID, case .workspace = target,
            tab?.panels.keys.contains(panelID) != true,
            let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID) {
