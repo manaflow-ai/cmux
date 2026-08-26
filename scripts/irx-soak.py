@@ -95,11 +95,16 @@ def screenshot(label):
 def type_input(text):
     if args.no_input:
         return False
-    cmd = ["idb", "ui", "text", "--udid", args.udid, text]
-    if args.idb_companion:
-        cmd = ["idb", "ui", "text", "--companion", args.idb_companion, text]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    return result.returncode == 0
+    typed = subprocess.run(
+        ["idb", "ui", "text", "--udid", args.udid, text],
+        capture_output=True, text=True, timeout=30)
+    if typed.returncode != 0:
+        return False
+    # HID 40 = Return: submits the terminal composer.
+    subprocess.run(
+        ["idb", "ui", "key", "--udid", args.udid, "40"],
+        capture_output=True, text=True, timeout=30)
+    return True
 
 
 CLIENT_FATAL = {
@@ -196,7 +201,7 @@ while time.time() < deadline:
 
     # Engagement: type a command every third sample (~30s cadence).
     if sample % 3 == 1:
-        if type_input("date\n"):
+        if type_input("date"):
             observations["inputs_typed"] += 1
     # Visual liveness every sixth sample (~60s).
     if sample % 6 == 0:
