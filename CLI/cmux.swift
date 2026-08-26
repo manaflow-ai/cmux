@@ -7502,7 +7502,7 @@ struct CMUXCLI {
                         "surface_id": resolvedSurfaceID,
                     ])
                     printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
-                case let .surface(_, _, _, _):
+                case .surface(_, _, _, _):
                     throw CLIError(message: String(
                         localized: "cli.error.clearNotificationsSurfaceRequiresTarget",
                         defaultValue: "notify --clear --surface requires a workspace or window context"
@@ -7555,6 +7555,11 @@ struct CMUXCLI {
                     idFormat: idFormat,
                     fallbackText: v2NotificationSummary(payload, idFormat: idFormat)
                 )
+            case .surface(_, _, _, true):
+                // A targeted resolution always carries both concrete IDs. Keep
+                // this defensive branch exhaustive if that invariant is ever
+                // violated instead of sending an incomplete target to the socket.
+                throw CLIError(message: "notify target could not be resolved")
             case let .workspace(workspaceID):
                 var params: [String: Any] = [
                     "title": title,
