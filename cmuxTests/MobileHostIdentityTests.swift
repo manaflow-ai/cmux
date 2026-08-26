@@ -121,26 +121,6 @@ struct MobileHostIdentityTests {
         )
     }
 
-    @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {
-        let cases: [([String: String], String)] = [
-            ([:], "com.cmuxterm.app"),
-            ([:], "com.cmuxterm.app.nightly"),
-            ([:], "com.cmuxterm.app.staging"),
-            ([:], "com.cmuxterm.app.debug.future-one"),
-            (["CMUX_TAG": "future-two"], "com.cmuxterm.app.debug.future-two"),
-        ]
-
-        for (environment, bundleIdentifier) in cases {
-            #expect(MobileHostIrohRuntime.currentTag(
-                environment: environment,
-                bundleIdentifier: bundleIdentifier
-            ) == MobileHostIdentity.instanceTag(
-                environment: environment,
-                bundleIdentifier: bundleIdentifier
-            ))
-        }
-    }
-
     @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
         let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
         setenv("CMUX_TAG", "future-one", 1)
@@ -512,39 +492,8 @@ struct MobileHostIdentityTests {
         #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID.lowercased())
     }
 
-    @Test func testMobileHostRouteDisclosureSeparatesAuthenticatedAndPublicHints() throws {
+    @Test func testMobileHostRouteDisclosureSeparatesAuthenticatedAndPublicRoutes() throws {
         let now = Date()
-        let privateAddress = "100.64.1.2:49152"
-        let endpointID = String(repeating: "a", count: 64)
-        let iroh = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(
-                    endpointID: endpointID
-                ),
-                pathHints: [
-                    try CmxIrohPathHint(
-                        kind: .directAddress,
-                        value: privateAddress,
-                        source: .tailscale,
-                        privacyScope: .privateNetwork,
-                        observedAt: now,
-                        expiresAt: now.addingTimeInterval(300),
-                        networkProfile: CmxIrohNetworkProfileKey(
-                            source: .tailscale,
-                            profileID: String(repeating: "a", count: 64)
-                        )
-                    ),
-                    try CmxIrohPathHint(
-                        kind: .relayURL,
-                        value: "https://relay.example.test/",
-                        source: .native,
-                        privacyScope: .publicInternet
-                    ),
-                ]
-            )
-        )
         let tailscale = try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
@@ -558,29 +507,23 @@ struct MobileHostIdentityTests {
         )
 
         let authenticatedPayload = MobileHostService.identityStatusPayload(
-            routes: [iroh, tailscale, websocket],
+            routes: [tailscale, websocket],
             now: now
         )
         let authenticated = try #require(authenticatedPayload["routes"] as? [[String: Any]])
-        #expect(authenticated.count == 3)
+        #expect(authenticated.count == 2)
         let authenticatedEndpoint = try #require(
             authenticated.first?["endpoint"] as? [String: Any]
         )
-        let authenticatedHints = try #require(
-            authenticatedEndpoint["path_hints"] as? [[String: Any]]
-        )
-        #expect(authenticatedHints.count == 2)
-        #expect(authenticatedHints.contains { $0["value"] as? String == privateAddress })
-        #expect(authenticatedHints.contains { $0["network_profile"] != nil })
+        #expect(authenticatedEndpoint["host"] as? String == "100.64.1.2")
 
         let publicPayload = MobileHostService.publicStatusPayload(
-            routes: [iroh, tailscale, websocket],
+            routes: [tailscale, websocket],
             now: now
         )
         let publicRoutes = try #require(publicPayload["routes"] as? [[String: Any]])
         #expect(publicRoutes.isEmpty)
-        #expect(!String(describing: publicPayload).contains(endpointID))
-        #expect(!String(describing: publicRoutes).contains(privateAddress))
+        #expect(!String(describing: publicPayload).contains("100.64.1.2"))
         #expect(!String(describing: publicRoutes).contains(websocketURL))
     }
 }

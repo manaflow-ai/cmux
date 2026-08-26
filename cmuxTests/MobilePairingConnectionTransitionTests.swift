@@ -15,15 +15,14 @@ struct MobilePairingConnectionTransitionTests {
         MobilePairingModel.Ready(
             attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
             tailscaleLines: ["100.64.0.1:7777"],
-            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777),
-            reachableViaIroh: true
+            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
         )
     }
 
     /// Routes matching ``makeReady()``, so a transition that recomputes the
     /// diagnostics from them reproduces the same `Ready` value.
     private func matchingRoutes() throws -> [CmxAttachRoute] {
-        [try irohRoute(), try tailscaleRoute()]
+        [try tailscaleRoute()]
     }
 
     @Test("A phone attaching above the baseline flips a displayed ticket to connected")
@@ -96,40 +95,36 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .connected(from: .ready(ready)))
     }
 
-    @Test("An Iroh-only attach flips the no-Tailscale waiting state to connected")
+    @Test("An attach flips the no-Tailscale waiting state to connected")
     func needsReachableTransportFlipsToConnectedOnAttach() throws {
         let next = MobilePairingModel.statusTransition(
-            from: .needsReachableTransport(reachableViaIroh: true),
-            routes: [try irohRoute()],
+            from: .needsReachableTransport,
+            routes: [],
             activeConnectionCount: 1,
             baselineConnectionCount: 0
         )
-        #expect(next == .connected(
-            from: .needsReachableTransport(reachableViaIroh: true)
-        ))
+        #expect(next == .connected(from: .needsReachableTransport))
     }
 
     @Test("Connected without a Tailscale route falls back to the no-route waiting state")
     func connectedFallsBackToNeedsReachableTransportWhenConnectionsDrop() throws {
         let next = MobilePairingModel.statusTransition(
-            from: .connected(
-                from: .needsReachableTransport(reachableViaIroh: true)
-            ),
-            routes: [try irohRoute()],
+            from: .connected(from: .needsReachableTransport),
+            routes: [],
             activeConnectionCount: 0,
             baselineConnectionCount: 0
         )
-        #expect(next == .needsReachableTransport(reachableViaIroh: true))
+        #expect(next == .needsReachableTransport)
     }
 
     @Test("Ready diagnostics follow route changes while the code stays fixed")
     func readyDiagnosticsFollowRouteChanges() throws {
         let ready = makeReady()
-        // Iroh deregisters while the window is open: the diagnostics update,
-        // the displayed code does not.
+        // A route disappears while the window is open: the diagnostics
+        // update, the displayed code does not.
         let next = MobilePairingModel.statusTransition(
             from: .ready(ready),
-            routes: [try tailscaleRoute()],
+            routes: [try tailscaleRoute(host: "100.64.0.2")],
             activeConnectionCount: 0,
             baselineConnectionCount: 0
         )
@@ -138,19 +133,7 @@ struct MobilePairingConnectionTransitionTests {
             return
         }
         #expect(updated.attachURL == ready.attachURL)
-        #expect(updated.reachableViaIroh == false)
-        #expect(updated.tailscaleLines == ready.tailscaleLines)
-    }
-
-    @Test("The no-route waiting state tracks Iroh registration")
-    func needsReachableTransportTracksIrohRegistration() throws {
-        let next = MobilePairingModel.statusTransition(
-            from: .needsReachableTransport(reachableViaIroh: false),
-            routes: [try irohRoute()],
-            activeConnectionCount: 0,
-            baselineConnectionCount: 0
-        )
-        #expect(next == .needsReachableTransport(reachableViaIroh: true))
+        #expect(updated.tailscaleLines == ["100.64.0.2:7777"])
     }
 
     @Test("Preparing is unaffected by connection-count changes")
@@ -175,30 +158,13 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .signedOut)
     }
 
-    @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
-    func tailscaleRouteWinsWhenIrohIsAvailable() throws {
-        let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
-            try irohRoute(),
-            try tailscaleRoute()
-        ]))
-
-        #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
-    }
-
-    @Test("Tailscale remains usable when Iroh is unavailable")
+    @Test("A Tailscale route produces a Mac pairing QR plan")
     func tailscaleOnlyPlanRetainsReleasedClientSupport() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
             try tailscaleRoute()
         ]))
 
         #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
-    }
-
-    @Test("Iroh alone does not produce a Mac pairing QR")
-    func irohOnlyPlanIsUnavailable() throws {
-        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
-            try irohRoute()
-        ]) == nil)
     }
 
     @Test("Loopback alone never produces a physical-device QR")
@@ -211,22 +177,11 @@ struct MobilePairingConnectionTransitionTests {
         #expect(MobilePairingModel.PairingRoutePlan.make(routes: [loopback]) == nil)
     }
 
-    private func irohRoute() throws -> CmxAttachRoute {
-        try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
-                pathHints: []
-            )
-        )
-    }
-
-    private func tailscaleRoute() throws -> CmxAttachRoute {
+    private func tailscaleRoute(host: String = "100.64.0.1") throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.0.1", port: 7777)
+            endpoint: .hostPort(host: host, port: 7777)
         )
     }
 }

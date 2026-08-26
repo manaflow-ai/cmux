@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxIrohTransport
 import CmuxMobileRPC
 import Foundation
 @preconcurrency import Network
@@ -123,70 +122,6 @@ extension MobileHostAuthorizationTests {
         #expect(remaining == [secondID])
         #expect(await secondTransport.observedCloseCount() == 1)
         #expect(registry.count == 0)
-    }
-
-    @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
-        let service = MobileHostService.shared
-        service.debugResetMobileLifecycleStateForTesting()
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
-
-        let first = ScriptedMobileHostByteTransport()
-        let second = ScriptedMobileHostByteTransport()
-        let authorization = try irohAdmissionContext()
-        let firstTask = Task {
-            await MobileHostService.acceptTransport(
-                first,
-                authorization: authorization,
-                isCurrent: { true }
-            )
-        }
-        await waitForMobileHostConnectionCount(1)
-        try await first.enqueue(Self.mobileHostStatusFrame(id: "first"))
-        _ = await first.waitForSentBufferCount(1)
-
-        let secondTask = Task {
-            await MobileHostService.acceptTransport(
-                second,
-                authorization: authorization,
-                isCurrent: { true }
-            )
-        }
-        await waitForMobileHostConnectionCount(2)
-        try await first.enqueue(Self.mobileHostStatusFrame(id: "first-delayed"))
-        _ = await first.waitForSentBufferCount(2)
-        #expect(registry.count == 2)
-        #expect(await second.observedCloseCount() == 0)
-
-        try await second.enqueue(Self.mobileHostStatusFrame(id: "second-status"))
-        _ = await second.waitForSentBufferCount(1)
-        #expect(registry.count == 2)
-        #expect(await first.observedCloseCount() == 0)
-
-        try await second.enqueue(Self.mobileHostWorkspaceListFrame(id: "second-workspaces"))
-        _ = await second.waitForSentBufferCount(2)
-        #expect(registry.count == 2)
-        #expect(await first.observedCloseCount() == 0)
-
-        try await second.enqueue(Self.mobileHostTerminalSubscribeFrame(id: "second-events"))
-        _ = await second.waitForSentBufferCount(3)
-        await waitForMobileHostConnectionCount(1)
-        await first.waitForCloseCount(1)
-
-        #expect(registry.count == 1)
-        #expect(await first.observedCloseCount() == 1)
-        #expect(await second.observedCloseCount() == 0)
-
-        await first.finishReceiving()
-        await second.finishReceiving()
-        await firstTask.value
-        await secondTask.value
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test cleanup")
-        }
-        service.debugResetMobileLifecycleStateForTesting()
     }
 
     @Test func testMobileHostPublishesUsableSessionOnlyAfterWorkspaceAndEventReadiness() async throws {
@@ -383,24 +318,6 @@ extension MobileHostAuthorizationTests {
         )
     }
 
-    @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
-        let stream = BlockingMobileHostIrohSendStream()
-        let writer = MobileHostIrohServerEventWriter(
-            openStream: { stream },
-            clock: ImmediateMobileHostIrohClock(),
-            sendTimeout: 3
-        )
-
-        do {
-            try await writer.send(Data("framed-event".utf8))
-            Issue.record("Expected independent event backpressure to time out")
-        } catch {}
-
-        let resetCodes = await stream.observedResetCodes()
-        #expect(!resetCodes.isEmpty)
-        #expect(resetCodes.allSatisfy { $0 == 1 })
-        await writer.close()
-    }
     @Test func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
