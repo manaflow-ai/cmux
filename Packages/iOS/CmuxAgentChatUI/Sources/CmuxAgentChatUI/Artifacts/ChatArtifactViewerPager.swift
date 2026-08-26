@@ -21,6 +21,8 @@ struct ChatArtifactViewerPager: View {
     @State private var zoomedPath: String?
     @State private var isSavingToArtifacts = false
     @State private var artifactSaveTask: Task<Void, Never>?
+    @State private var artifactSaveOperationTask: Task<ChatArtifactSaveResult, any Error>?
+    @State private var artifactSaveCleanupTask: Task<Void, Never>?
     private let artifactSaveClock: any Clock<Duration>
     private let artifactSaveTimeout: Duration
 
@@ -270,22 +272,19 @@ struct ChatArtifactViewerPager: View {
     }
 
     private func saveToArtifacts(path: String) {
-        guard !isSavingToArtifacts else { return }
+        guard !isSavingToArtifacts, artifactSaveCleanupTask == nil else { return }
         isSavingToArtifacts = true
         let loader = loader
         let clock = artifactSaveClock
         let timeout = artifactSaveTimeout
-        artifactSaveTask = Task {
-            defer {
-                if !Task.isCancelled {
-                    isSavingToArtifacts = false
-                    artifactSaveTask = nil
-                }
-            }
+        let operationTask = Task {
+            try await loader.save(path: path)
+        }
+        artifactSaveOperationTask = operationTask
+        artifactSaveTask = Task { @MainActor in
             do {
                 let result = try await Self.saveArtifact(
-                    path: path,
-                    loader: loader,
+                    operationTask: operationTask,
                     clock: clock,
                     timeout: timeout
                 )
@@ -301,10 +300,27 @@ struct ChatArtifactViewerPager: View {
                     ),
                     systemImage: "shippingbox"
                 ))
+                artifactSaveOperationTask = nil
+                artifactSaveTask = nil
+                isSavingToArtifacts = false
             } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
+                operationTask.cancel()
+                artifactSaveOperationTask = nil
+                artifactSaveTask = nil
+                isSavingToArtifacts = false
+            } catch ChatArtifactSaveTimeout.expired {
+                // The UI deadline is independent from the host operation. Keep
+                // the latter owned until it settles so a retry cannot overlap
+                // a potentially still-mutating save request.
+                operationTask.cancel()
+                artifactSaveOperationTask = nil
+                artifactSaveTask = nil
+                isSavingToArtifacts = false
+                artifactSaveCleanupTask = Task { @MainActor in
+                    _ = try? await operationTask.value
+                    guard !Task.isCancelled else { return }
+                    artifactSaveCleanupTask = nil
+                }
                 toasts.present(.failure(
                     String(
                         localized: "chat.artifact.save_to_artifacts_failed",
@@ -313,20 +329,38 @@ struct ChatArtifactViewerPager: View {
                     ),
                     systemImage: "shippingbox"
                 ))
+            } catch {
+                guard !Task.isCancelled else {
+                    operationTask.cancel()
+                    artifactSaveOperationTask = nil
+                    artifactSaveTask = nil
+                    isSavingToArtifacts = false
+                    return
+                }
+                toasts.present(.failure(
+                    String(
+                        localized: "chat.artifact.save_to_artifacts_failed",
+                        defaultValue: "Couldn’t save this file to cmux Artifacts.",
+                        bundle: .module
+                    ),
+                    systemImage: "shippingbox"
+                ))
+                artifactSaveOperationTask = nil
+                artifactSaveTask = nil
+                isSavingToArtifacts = false
             }
         }
     }
 
     private static func saveArtifact(
-        path: String,
-        loader: ChatArtifactLoader,
+        operationTask: Task<ChatArtifactSaveResult, any Error>,
         clock: any Clock<Duration>,
         timeout: Duration
     ) async throws -> ChatArtifactSaveResult {
         let (stream, continuation) = AsyncThrowingStream<ChatArtifactSaveResult, any Error>.makeStream()
-        let operationTask = Task {
+        let observationTask = Task {
             do {
-                continuation.yield(try await loader.save(path: path))
+                continuation.yield(try await operationTask.value)
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
@@ -341,7 +375,7 @@ struct ChatArtifactViewerPager: View {
             continuation.finish(throwing: ChatArtifactSaveTimeout.expired)
         }
         continuation.onTermination = { _ in
-            operationTask.cancel()
+            observationTask.cancel()
             timeoutTask.cancel()
         }
         return try await withTaskCancellationHandler {
@@ -357,6 +391,10 @@ struct ChatArtifactViewerPager: View {
     private func cancelOwnedTasks() {
         artifactSaveTask?.cancel()
         artifactSaveTask = nil
+        artifactSaveOperationTask?.cancel()
+        artifactSaveOperationTask = nil
+        artifactSaveCleanupTask?.cancel()
+        artifactSaveCleanupTask = nil
         isSavingToArtifacts = false
     }
 

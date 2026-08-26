@@ -192,25 +192,28 @@ struct TranscriptToolCompletion: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(400)
             .lowercased()
-        let firstLine = prefix.split(whereSeparator: \.isNewline).first ?? ""
-        return firstLine.hasPrefix("script failed")
-            || firstLine.hasPrefix("tool failed")
-            || firstLine.hasPrefix("apply_patch verification failed")
-            || firstLine.hasPrefix("error:")
-            || firstLine.hasPrefix("permission denied")
-            || firstLine.hasPrefix("access denied")
-            || firstLine.hasPrefix("operation not permitted")
-            || firstLine == "failed"
-            || firstLine.hasPrefix("failed:")
-            || firstLine.hasPrefix("failed to ")
-            || firstLine == "failure"
-            || firstLine.hasPrefix("failure:")
-            || firstLine == "unable"
-            || firstLine.hasPrefix("unable to ")
-            || firstLine == "exception"
-            || firstLine.hasPrefix("exception:")
-            || firstLine == "no matches"
-            || firstLine.hasPrefix("no matches ")
+        let lines = prefix.split(whereSeparator: \.isNewline)
+        return lines.contains { line in
+            line.hasPrefix("script failed")
+                || line.hasPrefix("tool failed")
+                || line.hasPrefix("apply_patch verification failed")
+                || line.hasPrefix("error:")
+                || line.hasPrefix("permission denied")
+                || line.hasPrefix("access denied")
+                || line.hasPrefix("operation not permitted")
+                || line == "failed"
+                || line.hasPrefix("failed:")
+                || line.hasPrefix("failed to ")
+                || line.hasPrefix("patch failed")
+                || line == "failure"
+                || line.hasPrefix("failure:")
+                || line == "unable"
+                || line.hasPrefix("unable to ")
+                || line == "exception"
+                || line.hasPrefix("exception:")
+                || line == "no matches"
+                || line.hasPrefix("no matches ")
+        }
     }
 
     private var reportsFailureWithoutExitStatus: Bool {

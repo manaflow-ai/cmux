@@ -202,6 +202,27 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.status == .succeeded)
     }
 
+    @Test("Failure markers on later output lines still fail closed")
+    func multilineFailureMarker() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_failed", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_failed",
+                content: "Output:\nError: permission denied",
+                isError: nil
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .failed)
+    }
+
     @Test("Edit tool maps to a fileEdit with line counts and a -/+ diff")
     func editTool() {
         let line = assistantLine(blocks: [
