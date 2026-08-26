@@ -1,6 +1,20 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
+
+/// Returns whether a rasterized icon contains a visible alpha pixel.
+@MainActor
+private func containsVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
+    for y in 0..<bitmap.pixelsHigh {
+        for x in 0..<bitmap.pixelsWide {
+            if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.01 {
+                return true
+            }
+        }
+    }
+    return false
+}
 
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
@@ -299,22 +313,6 @@ enum RenderableSystemSymbol {
         return bitmap
     }
 
-    /// Reports whether a bitmap contains any visible symbol pixels.
-    ///
-    /// This is intentionally shared by materialization and tests so a blank
-    /// first draw cannot become a reusable cached image.
-    @MainActor
-    static func containsVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
-        for y in 0..<bitmap.pixelsHigh {
-            for x in 0..<bitmap.pixelsWide {
-                if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.01 {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
     static func symbolImageSize(_ naturalSize: NSSize, fallbackDimension: CGFloat) -> NSSize {
         let fallbackDimension = clampedRasterPointSize(fallbackDimension)
         guard naturalSize.width.isFinite,
@@ -326,7 +324,7 @@ enum RenderableSystemSymbol {
         return naturalSize
     }
 
-    private static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
+    fileprivate static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
         guard let weight else { return .regular }
         if weight == .ultraLight { return .ultraLight }
         if weight == .thin { return .thin }
@@ -401,20 +399,22 @@ struct CmuxSystemSymbolImage: View {
             Image(nsImage: image)
                 .renderingMode(.template)
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+        } else if RenderableSystemSymbol.isRenderable(systemName) {
+            // A transient blank materialization gets the same AppKit lifecycle
+            // owner and forced-appearance retry instead of a lazy SwiftUI provider.
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                source: .systemSymbol(
+                    name: systemName,
+                    accessibilityDescription: nil
+                ),
+                size: NSSize(width: rasterSize, height: rasterSize),
+                symbolWeight: RenderableSystemSymbol.nsFontWeight(for: weight)
+            ))
+            .frame(width: rasterSize, height: rasterSize, alignment: alignment)
         } else {
-            // Keep a lazy SwiftUI provider as a one-pass fallback when the
-            // concrete AppKit draw was transiently blank. The materialized
-            // cache remains untouched, so a later body/lifecycle pass can
-            // retry instead of reusing a blank bitmap.
-            if RenderableSystemSymbol.isRenderable(systemName) {
-                Image(systemName: systemName)
-                    .font(.system(size: rasterSize, weight: weight ?? .regular))
-                    .frame(width: rasterSize, height: rasterSize, alignment: alignment)
-            } else {
-                Color.clear
-                    .frame(width: rasterSize, height: rasterSize, alignment: alignment)
-                    .accessibilityHidden(true)
-            }
+            Color.clear
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+                .accessibilityHidden(true)
         }
     }
 }

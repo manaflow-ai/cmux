@@ -210,6 +210,30 @@ import Testing
         #expect(visiblePixelCount(in: image) > 0)
     }
 
+    /// A missing asset falls back to a concrete SF Symbol instead of clearing the icon.
+    @Test func rendererUsesSystemSymbolFallbackAfterMissingAsset() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let appearance = try #require(NSAppearance(named: .aqua))
+
+        let result = renderer.render(
+            for: CmuxResolvedIconRequest(
+                source: .asset(name: "missing-icon", bundle: .main),
+                size: NSSize(width: 16, height: 16),
+                fallbackSource: .systemSymbol(
+                    name: "person.crop.circle.fill",
+                    accessibilityDescription: nil
+                )
+            ),
+            appearance: appearance
+        )
+
+        guard case .success(let image) = result else {
+            Issue.record("A missing asset should recover with the system-symbol fallback")
+            return
+        }
+        #expect(visiblePixelCount(in: image) > 0)
+    }
+
     /// Workspace-backed fallbacks resolve lazily in the renderer and retain
     /// Finder's concrete folder artwork without sharing a mutable NSImage.
     @Test func rendererUsesWorkspaceIconFallback() throws {

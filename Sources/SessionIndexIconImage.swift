@@ -45,7 +45,11 @@ private struct SessionIndexAgentIconImage: View, Equatable {
         if let assetName = agent.assetName {
             CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
                 source: .asset(name: assetName, bundle: .main),
-                size: NSSize(width: size, height: size)
+                size: NSSize(width: size, height: size),
+                fallbackSource: .systemSymbol(
+                    name: "person.crop.circle.fill",
+                    accessibilityDescription: nil
+                )
             ))
             .frame(width: size, height: size)
         } else {

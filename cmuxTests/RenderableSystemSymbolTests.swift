@@ -113,14 +113,14 @@ struct RenderableSystemSymbolTests {
         #expect(image.representations.allSatisfy { $0 is NSBitmapImageRep })
         #expect(image.representations
             .compactMap { $0 as? NSBitmapImageRep }
-            .allSatisfy { RenderableSystemSymbol.containsVisiblePixels(in: $0) })
+            .allSatisfy { PixelFootprint(bitmap: $0) != nil })
         #expect(image.tiffRepresentation != nil)
     }
 
     /// Blank materializations are rejected instead of becoming reusable cache entries.
     @Test @MainActor func transparentBitmapIsNotConsideredRenderable() throws {
         let bitmap = try #require(Self.bitmap(pixels: 8))
-        #expect(RenderableSystemSymbol.containsVisiblePixels(in: bitmap) == false)
+        #expect(PixelFootprint(bitmap: bitmap) == nil)
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
@@ -128,7 +128,7 @@ struct RenderableSystemSymbolTests {
         NSRect(origin: .zero, size: bitmap.size).fill()
         NSGraphicsContext.restoreGraphicsState()
 
-        #expect(RenderableSystemSymbol.containsVisiblePixels(in: bitmap))
+        #expect(PixelFootprint(bitmap: bitmap) != nil)
     }
 
     @MainActor
