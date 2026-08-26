@@ -63,6 +63,20 @@ final class SharedLiveAgentIndex {
     // wrappers so an ownership timeout never starts an unbounded second scan.
     private var indexLoaderTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>?
     private var indexLoaderTaskGeneration: UUID?
+    // A timed-out synchronous loader cannot be force-cancelled safely from
+    // Swift. Retain at most one retired task while allowing one replacement;
+    // this gives the cache a recovery path without permitting unbounded
+    // overlapping process/filesystem scans.
+    private var retiredIndexLoaderTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>?
+    private var retiredIndexLoaderTaskGeneration: UUID?
+    /// A timed-out loader gets one replacement attempt. Until the retired
+    /// loader returns, subsequent callers coalesce onto that same bounded set
+    /// instead of starting an unbounded stream of replacement scans.
+    private var retiredIndexLoaderReplacementStarted = false
+    private var indexLoaderCompletionTasks: [UUID: Task<Void, Never>] = [:]
+    private var indexLoaderWaiters: [UUID: CheckedContinuation<SharedLiveAgentIndexLoader.LoadResult?, Never>] = [:]
+    private var indexLoaderWaiterGenerations: [UUID: UUID] = [:]
+    private var indexLoaderWaiterTimers: [UUID: DispatchSourceTimer] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshTaskGeneration: UUID?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
@@ -283,6 +297,10 @@ final class SharedLiveAgentIndex {
 
     deinit {
         indexLoaderTask?.cancel()
+        retiredIndexLoaderTask?.cancel()
+        for task in indexLoaderCompletionTasks.values {
+            task.cancel()
+        }
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
         deferredReloadTimer?.cancel()
@@ -313,6 +331,12 @@ final class SharedLiveAgentIndex {
         }
         for continuation in ownershipRefreshWaiters.values {
             continuation.resume(returning: false)
+        }
+        for timer in indexLoaderWaiterTimers.values {
+            timer.cancel()
+        }
+        for continuation in indexLoaderWaiters.values {
+            continuation.resume(returning: nil)
         }
     }
 
@@ -672,7 +696,10 @@ final class SharedLiveAgentIndex {
             guard self.forkAvailabilityRefreshTaskGeneration == generation else { return }
             self.forkAvailabilityRefreshTask = nil
             self.forkAvailabilityRefreshTaskGeneration = nil
-            self.noteOwnershipRefreshCompleted(kind: .fork, success: !Task.isCancelled)
+            self.noteOwnershipRefreshCompleted(
+                kind: .fork,
+                success: reloadResult.didReload && !Task.isCancelled
+            )
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
             if self.changePending {
@@ -689,11 +716,14 @@ final class SharedLiveAgentIndex {
         refreshTaskGeneration = generation
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.reload(forcePublish: true)
+            let reloadResult = await self.reload(forcePublish: true)
             guard self.refreshTaskGeneration == generation else { return }
             self.refreshTask = nil
             self.refreshTaskGeneration = nil
-            self.noteOwnershipRefreshCompleted(kind: .full, success: !Task.isCancelled)
+            self.noteOwnershipRefreshCompleted(
+                kind: .full,
+                success: reloadResult.didComplete && !Task.isCancelled
+            )
             self.restartForkAvailabilityRefreshIfPending()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
@@ -765,6 +795,129 @@ final class SharedLiveAgentIndex {
         for waiterID in waiterIDs {
             finishOwnershipRefreshWaiter(waiterID, result: success)
         }
+    }
+
+    private func startIndexLoaderIfNeeded() -> (
+        task: Task<SharedLiveAgentIndexLoader.LoadResult, Never>,
+        generation: UUID
+    ) {
+        if let task = indexLoaderTask,
+           let generation = indexLoaderTaskGeneration {
+            return (task, generation)
+        }
+
+        if retiredIndexLoaderTaskReplacementIsExhausted,
+           let task = retiredIndexLoaderTask,
+           let generation = retiredIndexLoaderTaskGeneration {
+            return (task, generation)
+        }
+
+        let indexLoader = self.indexLoader
+        let generation = UUID()
+        let task = Task.detached(priority: .utility) {
+            indexLoader()
+        }
+        indexLoaderTask = task
+        indexLoaderTaskGeneration = generation
+        if retiredIndexLoaderTask != nil {
+            retiredIndexLoaderReplacementStarted = true
+        }
+        indexLoaderCompletionTasks[generation] = Task { @MainActor [weak self] in
+            let result = await task.value
+            self?.finishIndexLoader(generation: generation, result: result)
+        }
+        return (task, generation)
+    }
+
+    private func awaitIndexLoaderResult(
+        _ task: Task<SharedLiveAgentIndexLoader.LoadResult, Never>,
+        generation: UUID,
+        timeoutNanoseconds: UInt64
+    ) async -> SharedLiveAgentIndexLoader.LoadResult? {
+        guard !Task.isCancelled else { return nil }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                indexLoaderWaiters[waiterID] = continuation
+                indexLoaderWaiterGenerations[waiterID] = generation
+                let timer = DispatchSource.makeTimerSource(queue: watchQueue)
+                timer.schedule(
+                    deadline: .now() + .nanoseconds(Int(timeoutNanoseconds))
+                )
+                timer.setEventHandler { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.finishIndexLoaderWaiter(waiterID, result: nil)
+                    }
+                }
+                indexLoaderWaiterTimers[waiterID] = timer
+                timer.resume()
+                if Task.isCancelled {
+                    finishIndexLoaderWaiter(waiterID, result: nil)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishIndexLoaderWaiter(waiterID, result: nil)
+            }
+        }
+    }
+
+    private func finishIndexLoaderWaiter(
+        _ waiterID: UUID,
+        result: SharedLiveAgentIndexLoader.LoadResult?
+    ) {
+        guard let continuation = indexLoaderWaiters.removeValue(forKey: waiterID) else {
+            return
+        }
+        indexLoaderWaiterGenerations.removeValue(forKey: waiterID)
+        indexLoaderWaiterTimers.removeValue(forKey: waiterID)?.cancel()
+        continuation.resume(returning: result)
+    }
+
+    private func finishIndexLoader(
+        generation: UUID,
+        result: SharedLiveAgentIndexLoader.LoadResult
+    ) {
+        let waiterIDs = indexLoaderWaiterGenerations.compactMap { waiterID, waiterGeneration in
+            waiterGeneration == generation ? waiterID : nil
+        }
+        for waiterID in waiterIDs {
+            finishIndexLoaderWaiter(waiterID, result: result)
+        }
+        if indexLoaderTaskGeneration == generation {
+            indexLoaderTask = nil
+            indexLoaderTaskGeneration = nil
+        }
+        if retiredIndexLoaderTaskGeneration == generation {
+            retiredIndexLoaderTask = nil
+            retiredIndexLoaderTaskGeneration = nil
+            retiredIndexLoaderReplacementStarted = false
+        }
+        indexLoaderCompletionTasks.removeValue(forKey: generation)
+    }
+
+    private func retireTimedOutIndexLoader(generation: UUID) {
+        guard indexLoaderTaskGeneration == generation,
+              let task = indexLoaderTask else {
+            return
+        }
+        // Keep one retired loader alive while allowing one replacement. If a
+        // second loader also times out, leave it as the active single-flight
+        // task; subsequent callers fail closed rather than creating a third.
+        guard retiredIndexLoaderTask == nil else { return }
+        retiredIndexLoaderTask = task
+        retiredIndexLoaderTaskGeneration = generation
+        retiredIndexLoaderReplacementStarted = false
+        indexLoaderTask = nil
+        indexLoaderTaskGeneration = nil
+    }
+
+    private var retiredIndexLoaderTaskReplacementIsExhausted: Bool {
+        retiredIndexLoaderTask != nil && retiredIndexLoaderReplacementStarted
     }
 
     private var ownershipRefreshWaiterMinimumGenerations: [UUID: Int] = [:]
@@ -1042,7 +1195,10 @@ final class SharedLiveAgentIndex {
             guard self.forkAvailabilityRefreshTaskGeneration == generation else { return }
             self.forkAvailabilityRefreshTask = nil
             self.forkAvailabilityRefreshTaskGeneration = nil
-            self.noteOwnershipRefreshCompleted(kind: .fork, success: !Task.isCancelled)
+            self.noteOwnershipRefreshCompleted(
+                kind: .fork,
+                success: reloadResult.didReload && !Task.isCancelled
+            )
             self.restartForkAvailabilityRefreshIfPending()
             self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
             if self.changePending {
@@ -1279,42 +1435,38 @@ final class SharedLiveAgentIndex {
             changePending = true
             return (false, [:])
         }
-        let panelIdsByWorkspaceId = await reload(
+        let reloadResult = await reload(
             forcePublish: index == nil,
             pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
         )
-        return (true, panelIdsByWorkspaceId)
+        return (
+            reloadResult.didComplete,
+            reloadResult.panelIdsByWorkspaceId
+        )
     }
 
     private func reload(
         forcePublish: Bool,
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
-    ) async -> [UUID: Set<UUID>] {
-        let loaderGeneration: UUID
-        let loadTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>
-        if let existingTask = indexLoaderTask,
-           let existingGeneration = indexLoaderTaskGeneration {
-            loaderGeneration = existingGeneration
-            loadTask = existingTask
-        } else {
-            let indexLoader = self.indexLoader
-            let generation = UUID()
-            loaderGeneration = generation
-            let task = Task.detached(priority: .utility) {
-                indexLoader()
-            }
-            indexLoaderTaskGeneration = generation
-            indexLoaderTask = task
-            loadTask = task
-        }
-        let result = await loadTask.value
-        if indexLoaderTaskGeneration == loaderGeneration {
-            indexLoaderTask = nil
-            indexLoaderTaskGeneration = nil
+    ) async -> (
+        didComplete: Bool,
+        panelIdsByWorkspaceId: [UUID: Set<UUID>]
+    ) {
+        let loader = startIndexLoaderIfNeeded()
+        guard let result = await awaitIndexLoaderResult(
+            loader.task,
+            generation: loader.generation,
+            timeoutNanoseconds: Self.ownershipRefreshTimeoutNanoseconds
+        ) else {
+            retireTimedOutIndexLoader(generation: loader.generation)
+            removeOrMarkCancelledForkValidationRequests(
+                pendingRequestIDsToRemoveOnCancellation
+            )
+            return (false, [:])
         }
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
-            return [:]
+            return (false, [:])
         }
         let loadedAt = dateProvider()
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
@@ -1335,9 +1487,11 @@ final class SharedLiveAgentIndex {
             self.processScopeFingerprint = result.processScopeFingerprint
             self.validatedForkPanels = result.forkValidatedPanels
         }
-        return await applyPendingForkValidations(
-            pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
+        let panelIdsByWorkspaceId = await applyPendingForkValidations(
+            pendingRequestIDsToRemoveOnCancellation:
+                pendingRequestIDsToRemoveOnCancellation
         )
+        return (true, panelIdsByWorkspaceId)
     }
 
     private func applyReloadedIndex(

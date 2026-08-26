@@ -3835,27 +3835,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
-    /// Key-down events that cancelled deferred restore while the input-demand
-    /// runtime was still being created. Replay them once Ghostty is ready so
-    /// the user's opt-out keystroke is never lost.
-    private var pendingExplicitKeyDownEvents: [NSEvent] = []
-    /// Surface identity that owns ``pendingExplicitKeyDownEvents``. Portal
-    /// reuse can attach a different terminal before the original runtime is
-    /// ready; never replay the old terminal's input into that replacement.
+    /// Deferred native input actions retain their authored order until the
+    /// runtime surface is ready. Keeping paste and key actions in one queue
+    /// prevents a later key from overtaking an earlier cold paste.
+    private enum PendingInputReplayAction {
+        case keyDown(NSEvent)
+        case keyUp(NSEvent)
+        case paste(UUID)
+    }
+    private var pendingInputReplayActions: [PendingInputReplayAction] = []
+    /// Surface identity that owns deferred key actions. Portal reuse can
+    /// attach a different terminal before the original runtime is ready; never
+    /// replay the old terminal's input into that replacement.
     private var pendingExplicitKeyDownSurfaceID: UUID?
     private weak var pendingExplicitKeyDownSurface: TerminalSurface?
     private var pendingExplicitKeyDownKeyCodes: [UInt16: Int] = [:]
-    private var pendingExplicitKeyUpEvents: [UInt16: [NSEvent]] = [:]
-    private var pendingExplicitKeyUpEventCount = 0
     private weak var pendingPasteSurface: TerminalSurface?
-    private var pendingPastePayloads: [TerminalImageTransferPreparedContent] = []
+    private var pendingPasteSurfaceID: UUID?
     private var pendingPastePayloadBytes = 0
-    private var pendingPastePreparationTasks: [UUID: Task<TerminalImageTransferPreparedContent, Never>] = [:]
-    private var pendingPastePreparationOrder: [UUID] = []
+    private var pendingPastePayloadBytesByID: [UUID: Int] = [:]
+    private struct PendingPastePreparationResult: Sendable {
+        let payload: TerminalImageTransferPreparedContent
+        let payloadBytes: Int
+    }
+    private var pendingPastePreparationTasks: [
+        UUID: Task<PendingPastePreparationResult, Never>
+    ] = [:]
     private var pendingPastePreparedPayloadsByID: [UUID: TerminalImageTransferPreparedContent] = [:]
     private static let maximumPendingExplicitKeyDownEvents = 32
     private static let maximumPendingPasteActions = 32
+    private static let maximumPendingInputReplayActions =
+        maximumPendingExplicitKeyDownEvents + maximumPendingPasteActions
     private static let maximumPendingPastePayloadBytes = 4 * 1_048_576
+    private var replayingPendingInput = false
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
@@ -4169,67 +4181,50 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
-        guard pendingExplicitKeyDownEvents.count < Self.maximumPendingExplicitKeyDownEvents else {
+        guard let owningSurface = terminalSurface else { return }
+        let pendingKeyDownCount = pendingInputReplayActions.reduce(into: 0) {
+            count, action in
+            if case .keyDown = action { count += 1 }
+        }
+        guard pendingKeyDownCount < Self.maximumPendingExplicitKeyDownEvents,
+              pendingInputReplayActions.count < Self.maximumPendingInputReplayActions else {
             return
         }
-        let surfaceID = terminalSurface?.id
-        if pendingExplicitKeyDownEvents.isEmpty {
-            pendingExplicitKeyDownSurfaceID = surfaceID
-            pendingExplicitKeyDownSurface = terminalSurface
-        } else if pendingExplicitKeyDownSurface !== terminalSurface {
+        let hasPendingKeyActions = pendingInputReplayActions.contains { action in
+            switch action {
+            case .keyDown, .keyUp:
+                return true
+            case .paste:
+                return false
+            }
+        }
+        if !hasPendingKeyActions {
+            pendingExplicitKeyDownSurfaceID = owningSurface.id
+            pendingExplicitKeyDownSurface = owningSurface
+        } else if pendingExplicitKeyDownSurface !== owningSurface {
             discardPendingExplicitKeyDownEvents()
             return
         }
-        pendingExplicitKeyDownEvents.append(event)
+        pendingInputReplayActions.append(.keyDown(event))
         pendingExplicitKeyDownKeyCodes[event.keyCode, default: 0] += 1
     }
 
     fileprivate func replayPendingExplicitKeyDownEventsIfReady() {
-        guard surface != nil, !pendingExplicitKeyDownEvents.isEmpty else { return }
-        guard let pendingSurfaceID = pendingExplicitKeyDownSurfaceID,
-              let pendingSurface = pendingExplicitKeyDownSurface,
-              pendingSurfaceID == terminalSurface?.id,
-              pendingSurface === terminalSurface else {
-            discardPendingExplicitKeyDownEvents()
-            return
-        }
-        let pendingEvents = pendingExplicitKeyDownEvents
-        pendingExplicitKeyDownEvents.removeAll(keepingCapacity: false)
-        pendingExplicitKeyDownSurfaceID = nil
-        for event in pendingEvents {
-            guard terminalSurface?.id == pendingSurfaceID,
-                  terminalSurface === pendingSurface else {
-                discardPendingExplicitKeyDownEvents()
-                return
-            }
-            let remainingKeyDowns = (pendingExplicitKeyDownKeyCodes[event.keyCode] ?? 1) - 1
-            if remainingKeyDowns > 0 {
-                pendingExplicitKeyDownKeyCodes[event.keyCode] = remainingKeyDowns
-            } else {
-                pendingExplicitKeyDownKeyCodes.removeValue(forKey: event.keyCode)
-            }
-            keyDown(with: event)
-            if remainingKeyDowns <= 0,
-               let queuedKeyUps = pendingExplicitKeyUpEvents.removeValue(forKey: event.keyCode) {
-                pendingExplicitKeyUpEventCount -= queuedKeyUps.count
-                for queuedKeyUp in queuedKeyUps {
-                    keyUp(with: queuedKeyUp)
-                }
-            }
-        }
-        pendingExplicitKeyDownSurface = nil
-        pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
-        pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
-        pendingExplicitKeyUpEventCount = 0
+        replayPendingInputIfReady()
     }
 
     fileprivate func discardPendingExplicitKeyDownEvents() {
-        pendingExplicitKeyDownEvents.removeAll(keepingCapacity: false)
+        pendingInputReplayActions.removeAll { action in
+            switch action {
+            case .keyDown, .keyUp:
+                return true
+            case .paste:
+                return false
+            }
+        }
         pendingExplicitKeyDownSurfaceID = nil
         pendingExplicitKeyDownSurface = nil
         pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
-        pendingExplicitKeyUpEvents.removeAll(keepingCapacity: false)
-        pendingExplicitKeyUpEventCount = 0
     }
 
     @discardableResult
@@ -4237,8 +4232,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if pendingPasteSurface !== surface {
             discardPendingPasteAfterSurfaceReady()
         }
-        guard pendingPastePayloads.count + pendingPastePreparationOrder.count
-                < Self.maximumPendingPasteActions,
+        let pendingPasteActionCount = pendingInputReplayActions.reduce(into: 0) {
+            count, action in
+            if case .paste = action { count += 1 }
+        }
+        guard pendingPasteActionCount < Self.maximumPendingPasteActions,
+              pendingInputReplayActions.count < Self.maximumPendingInputReplayActions,
               let pasteboard = GhosttyApp.terminalPasteboard.pasteboard(
                   for: GHOSTTY_CLIPBOARD_STANDARD
               ),
@@ -4246,6 +4245,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         pendingPasteSurface = surface
+        pendingPasteSurfaceID = surface.id
 
         // Capture the pasteboard generation while the user gesture is being
         // handled, then let the killable preparation worker materialize it off
@@ -4256,25 +4256,33 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             changeCount: pasteboard.changeCount
         )
         let preparationID = UUID()
-        pendingPastePreparationOrder.append(preparationID)
+        pendingInputReplayActions.append(.paste(preparationID))
+        let pasteboardService = GhosttyApp.terminalPasteboard
         let preparationTask = Task.detached(priority: .utility) {
-            await preparationService.prepare(
+            let payload = await preparationService.prepare(
                 request: request,
                 mode: .paste
+            )
+            return PendingPastePreparationResult(
+                payload: payload,
+                payloadBytes: GhosttyNSView.pendingPastePayloadByteCount(
+                    payload,
+                    using: pasteboardService
+                )
             )
         }
         pendingPastePreparationTasks[preparationID] = preparationTask
         let surfaceID = surface.id
         Task { @MainActor [weak self] in
-            let payload = await preparationTask.value
+            let result = await preparationTask.value
             if let self {
                 self.completePendingPastePreparation(
                     preparationID: preparationID,
                     surfaceID: surfaceID,
-                    payload: payload
+                    result: result
                 )
             } else {
-                payload.cleanupTransferredTemporaryFiles(
+                result.payload.cleanupTransferredTemporaryFiles(
                     using: GhosttyApp.terminalPasteboard
                 )
             }
@@ -4287,37 +4295,48 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             task.cancel()
         }
         pendingPastePreparationTasks.removeAll(keepingCapacity: false)
-        pendingPastePreparationOrder.removeAll(keepingCapacity: false)
         for payload in pendingPastePreparedPayloadsByID.values {
             payload.cleanupTransferredTemporaryFiles(
                 using: GhosttyApp.terminalPasteboard
             )
         }
         pendingPastePreparedPayloadsByID.removeAll(keepingCapacity: false)
-        for payload in pendingPastePayloads {
-            payload.cleanupTransferredTemporaryFiles(
-                using: GhosttyApp.terminalPasteboard
-            )
+        pendingInputReplayActions.removeAll { action in
+            if case .paste = action { return true }
+            return false
         }
         pendingPasteSurface = nil
-        pendingPastePayloads.removeAll(keepingCapacity: false)
+        pendingPasteSurfaceID = nil
         pendingPastePayloadBytes = 0
+        pendingPastePayloadBytesByID.removeAll(keepingCapacity: false)
     }
 
     private func completePendingPastePreparation(
         preparationID: UUID,
         surfaceID: UUID,
-        payload: TerminalImageTransferPreparedContent
+        result: PendingPastePreparationResult
     ) {
+        let payload = result.payload
         pendingPastePreparationTasks.removeValue(forKey: preparationID)
-        guard pendingPastePreparationOrder.contains(preparationID) else {
+        guard pendingInputReplayActions.contains(where: { action in
+            if case .paste(let actionID) = action {
+                return actionID == preparationID
+            }
+            return false
+        }) else {
             payload.cleanupTransferredTemporaryFiles(
                 using: GhosttyApp.terminalPasteboard
             )
             return
         }
-        guard pendingPasteSurface?.id == surfaceID else {
-            pendingPastePreparationOrder.removeAll { $0 == preparationID }
+        guard pendingPasteSurface?.id == surfaceID,
+              pendingPasteSurfaceID == surfaceID else {
+            pendingInputReplayActions.removeAll { action in
+                if case .paste(let actionID) = action {
+                    return actionID == preparationID
+                }
+                return false
+            }
             payload.cleanupTransferredTemporaryFiles(
                 using: GhosttyApp.terminalPasteboard
             )
@@ -4325,10 +4344,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         if payload != .reject {
-            let payloadBytes = pendingPastePayloadByteCount(
-                payload,
-                using: GhosttyApp.terminalPasteboard
-            )
+            let payloadBytes = result.payloadBytes
             guard payloadBytes <= Self.maximumPendingPastePayloadBytes,
                   pendingPastePayloadBytes <=
                       Self.maximumPendingPastePayloadBytes - payloadBytes else {
@@ -4336,63 +4352,137 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     using: GhosttyApp.terminalPasteboard
                 )
                 pendingPastePreparedPayloadsByID[preparationID] = .reject
-                drainPendingPastePreparations()
+                replayPendingInputIfReady()
                 return
             }
             pendingPastePayloadBytes += payloadBytes
+            pendingPastePayloadBytesByID[preparationID] = payloadBytes
         }
         pendingPastePreparedPayloadsByID[preparationID] = payload
-        drainPendingPastePreparations()
-        replayPendingPasteAfterSurfaceReadyIfNeeded()
-    }
-
-    private func drainPendingPastePreparations() {
-        while let preparationID = pendingPastePreparationOrder.first,
-              let payload = pendingPastePreparedPayloadsByID.removeValue(
-                  forKey: preparationID
-              ) {
-            pendingPastePreparationOrder.removeFirst()
-            if payload != .reject {
-                pendingPastePayloads.append(payload)
-            }
-        }
+        replayPendingInputIfReady()
     }
 
     fileprivate func replayPendingPasteAfterSurfaceReadyIfNeeded() {
-        drainPendingPastePreparations()
-        guard !pendingPastePayloads.isEmpty else { return }
-        guard let pendingSurface = pendingPasteSurface,
-              pendingSurface === terminalSurface else {
+        replayPendingInputIfReady()
+    }
+
+    fileprivate func replayPendingInputIfReady() {
+        guard !pendingInputReplayActions.isEmpty,
+              let readySurface = terminalSurface,
+              surface != nil else {
+            return
+        }
+        let hasPendingKeyActions = pendingInputReplayActions.contains { action in
+            switch action {
+            case .keyDown, .keyUp:
+                return true
+            case .paste:
+                return false
+            }
+        }
+        let keySurfaceMatches = !hasPendingKeyActions
+            ? true
+            : pendingExplicitKeyDownSurface === readySurface
+                && pendingExplicitKeyDownSurfaceID == readySurface.id
+        let hasPendingPasteActions = pendingInputReplayActions.contains { action in
+            if case .paste = action { return true }
+            return false
+        }
+        let pasteSurfaceMatches = !hasPendingPasteActions
+            ? true
+            : pendingPasteSurface === readySurface
+                && pendingPasteSurfaceID == readySurface.id
+        guard keySurfaceMatches, pasteSurfaceMatches else {
+            discardPendingExplicitKeyDownEvents()
             discardPendingPasteAfterSurfaceReady()
             return
         }
-        guard surface != nil else { return }
-        let payloads = pendingPastePayloads
-        pendingPastePayloads.removeAll(keepingCapacity: false)
-        pendingPastePayloadBytes = 0
-        if pendingPastePreparationOrder.isEmpty {
-            pendingPasteSurface = nil
-        }
-        for payload in payloads {
-            guard pendingSurface === terminalSurface else {
-                payload.cleanupTransferredTemporaryFiles(
-                    using: GhosttyApp.terminalPasteboard
-                )
-                continue
+
+        replayingPendingInput = true
+        defer {
+            replayingPendingInput = false
+            let hasPendingKeys = pendingInputReplayActions.contains { action in
+                switch action {
+                case .keyDown, .keyUp:
+                    return true
+                case .paste:
+                    return false
+                }
             }
-            if !executePreparedImageTransfer(
-                payload,
-                mode: .paste,
-                onCancel: {}
-            ) {
-                payload.cleanupTransferredTemporaryFiles(
-                    using: GhosttyApp.terminalPasteboard
+            if !hasPendingKeys {
+                pendingExplicitKeyDownSurfaceID = nil
+                pendingExplicitKeyDownSurface = nil
+                pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
+            }
+            let hasPendingPastes = pendingInputReplayActions.contains { action in
+                if case .paste = action { return true }
+                return false
+            }
+            if !hasPendingPastes {
+                pendingPasteSurface = nil
+                pendingPasteSurfaceID = nil
+                pendingPastePayloadBytes = 0
+                pendingPastePayloadBytesByID.removeAll(keepingCapacity: false)
+            }
+        }
+
+        while let action = pendingInputReplayActions.first {
+            guard terminalSurface === readySurface, surface != nil else {
+                discardPendingExplicitKeyDownEvents()
+                discardPendingPasteAfterSurfaceReady()
+                return
+            }
+
+            switch action {
+            case .keyDown(let event):
+                pendingInputReplayActions.removeFirst()
+                let remainingKeyDowns =
+                    (pendingExplicitKeyDownKeyCodes[event.keyCode] ?? 1) - 1
+                if remainingKeyDowns > 0 {
+                    pendingExplicitKeyDownKeyCodes[event.keyCode] = remainingKeyDowns
+                } else {
+                    pendingExplicitKeyDownKeyCodes.removeValue(
+                        forKey: event.keyCode
+                    )
+                }
+                keyDown(with: event)
+            case .keyUp(let event):
+                pendingInputReplayActions.removeFirst()
+                keyUp(with: event)
+            case .paste(let preparationID):
+                guard let payload = pendingPastePreparedPayloadsByID[
+                    preparationID
+                ] else {
+                    // Preserve the authored order until this preparation
+                    // completes; later key events must not overtake it.
+                    return
+                }
+                pendingInputReplayActions.removeFirst()
+                pendingPastePreparedPayloadsByID.removeValue(
+                    forKey: preparationID
                 )
+                if let payloadBytes = pendingPastePayloadBytesByID.removeValue(
+                    forKey: preparationID
+                ) {
+                    pendingPastePayloadBytes = max(
+                        0,
+                        pendingPastePayloadBytes - payloadBytes
+                    )
+                }
+                if !executePreparedImageTransfer(
+                    payload,
+                    mode: .paste,
+                    onCancel: {}
+                ) {
+                    payload.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                }
             }
         }
     }
 
-    private func pendingPastePayloadByteCount(
+    private nonisolated static func pendingPastePayloadByteCount(
         _ payload: TerminalImageTransferPreparedContent,
         using pasteboardService: TerminalPasteboardService
     ) -> Int {
@@ -6016,7 +6106,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
             if cancelledDeferredAdmission ||
-                !pendingExplicitKeyDownEvents.isEmpty ||
+                pendingExplicitKeyDownKeyCodes.isEmpty == false ||
                 terminalSurface?.canCreateRuntimeSurface == true {
                 queueExplicitKeyDownForInputDemand(event)
                 requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface.afterRestoreCancel")
@@ -6484,12 +6574,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyUp(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        if pendingExplicitKeyDownKeyCodes[event.keyCode] != nil {
-            guard pendingExplicitKeyUpEventCount < Self.maximumPendingExplicitKeyDownEvents else {
+        if !replayingPendingInput,
+           pendingExplicitKeyDownKeyCodes[event.keyCode] != nil {
+            guard pendingInputReplayActions.count < Self.maximumPendingInputReplayActions else {
                 return
             }
-            pendingExplicitKeyUpEvents[event.keyCode, default: []].append(event)
-            pendingExplicitKeyUpEventCount += 1
+            pendingInputReplayActions.append(.keyUp(event))
             return
         }
         guard let surface = ensureSurfaceReadyForInput() else {
@@ -6834,7 +6924,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Applies terminal focus intent for pointer-downs that land outside the
     /// capped terminal content but remain inside its pane.
     func focusFromPointerDown() {
-        terminalSurface?.didReceiveExplicitInput()
         if let terminalSurface {
             activateContainerFocusFromPointerDown()
             terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
@@ -8111,6 +8200,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     deinit {
+        discardPendingExplicitKeyDownEvents()
         discardPendingPasteAfterSurfaceReady()
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
@@ -8259,7 +8349,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func executeImageTransferPlan(
         _ plan: TerminalImageTransferPlan,
         operation: TerminalImageTransferOperation? = nil,
-        onCancel: @escaping () -> Void = {}
+        onCancel: @escaping () -> Void = {},
+        onTextCompletion: @escaping () -> Void = {}
     ) -> Bool {
         guard plan != .reject else { return false }
 
@@ -8316,7 +8407,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let operation {
                         self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                     }
-                    self?.deliverUploadResultText(text)
+                    if let self {
+                        _ = self.deliverUploadResultText(
+                            text,
+                            onCompleted: onTextCompletion
+                        )
+                    } else {
+                        onTextCompletion()
+                    }
                 }
                 if Thread.isMainThread {
                     send()
@@ -8389,7 +8487,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 target: resolvedImageTransferTarget(),
                 mode: mode
             )
-            return executeImageTransferPlan(plan, onCancel: onCancel)
+            guard plan != .reject else {
+                preparedContent.cleanupTransferredTemporaryFiles(
+                    using: GhosttyApp.terminalPasteboard
+                )
+                return false
+            }
+            let onTextCompletion: () -> Void
+            switch plan {
+            case .insertText:
+                onTextCompletion = {
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                }
+            case .insertTextSegments(let segments, _):
+                var remainingSegments = segments.count
+                onTextCompletion = {
+                    remainingSegments = max(0, remainingSegments - 1)
+                    guard remainingSegments == 0 else { return }
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                }
+            case .uploadFiles:
+                // Upload callbacks own cleanup until the remote transfer has
+                // finished (or failed), so do not consume ownership here.
+                onTextCompletion = {}
+            case .reject:
+                onTextCompletion = {}
+            }
+            return executeImageTransferPlan(
+                plan,
+                onCancel: onCancel,
+                onTextCompletion: onTextCompletion
+            )
         }
     }
 
@@ -9289,8 +9421,7 @@ final class GhosttySurfaceScrollView: NSView {
                 self.surfaceView.discardPendingPasteAfterSurfaceReady()
                 return
             }
-            self.surfaceView.replayPendingExplicitKeyDownEventsIfReady()
-            self.surfaceView.replayPendingPasteAfterSurfaceReadyIfNeeded()
+            self.surfaceView.replayPendingInputIfReady()
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
         })
         observers.append(NotificationCenter.default.addObserver(
