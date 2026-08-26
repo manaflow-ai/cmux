@@ -124,12 +124,22 @@ final class MainWindowVisibilityController {
 
     private var dependencies: Dependencies
     private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
+    private let committedClosedWindows = NSHashTable<NSWindow>.weakObjects()
     var appHiddenWindowRestoreTargets: [NSWindow] = []
     var dismissedWindowRestoreTargets: [NSWindow] = []
     var pendingApplicationActivationKeyRestoreTarget: NSWindow?
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
+    }
+
+    func commitClose(_ window: NSWindow) {
+        committedClosedWindows.add(window)
+        discardClosedWindow(window)
+    }
+
+    func hasCommittedClose(for window: NSWindow) -> Bool {
+        committedClosedWindows.contains(window)
     }
 
     @discardableResult
@@ -149,6 +159,10 @@ final class MainWindowVisibilityController {
         )
         defer { workspaceSwitchSignposts.end(switchInterval) }
 
+        guard !hasCommittedClose(for: window) else {
+            log("focus.closed", reason: reason, windows: [window])
+            return false
+        }
         if respectActivationSuppression, dependencies.isActivationSuppressed() {
             dependencies.setActiveMainWindow(window)
             log("focus.suppressed", reason: reason, windows: [window])
@@ -205,6 +219,10 @@ final class MainWindowVisibilityController {
         )
         defer { workspaceSwitchSignposts.end(switchInterval) }
 
+        guard !hasCommittedClose(for: window) else {
+            log("focus.inWindow.closed", reason: reason, windows: [window])
+            return
+        }
         dependencies.setActiveMainWindow(window)
         guard !dependencies.windowOperations.isKeyWindow(window) else {
             log("focus.inWindow.key", reason: reason, windows: [window])
@@ -484,7 +502,9 @@ final class MainWindowVisibilityController {
 
     private func uniqueWindows(_ windows: [NSWindow]) -> [NSWindow] {
         var result: [NSWindow] = []
-        for window in windows where !result.contains(where: { $0 === window }) {
+        for window in windows where
+            !hasCommittedClose(for: window) &&
+            !result.contains(where: { $0 === window }) {
             result.append(window)
         }
         return result
