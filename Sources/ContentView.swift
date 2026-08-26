@@ -3622,7 +3622,11 @@ struct ContentView: View {
             }
         }
 
-        workspaceHandoffFallbackScheduler.schedule(after: .milliseconds(150)) {
+        // The timeout is a liveness escape (dead PTY, wedged renderer), not
+        // the normal completion: frame-driven completion typically lands well
+        // under 100ms. Holding the retiring content a bit longer beats
+        // painting a blank frame.
+        workspaceHandoffFallbackScheduler.schedule(after: .milliseconds(500)) {
             completeWorkspaceHandoff(reason: "timeout")
         }
     }
@@ -3630,6 +3634,10 @@ struct ContentView: View {
     private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
         guard focusedTabId == tabManager.selectedTabId else { return }
         guard retiringWorkspaceId != nil else { return }
+        // Focus can land on an incoming terminal before it renders its first
+        // frame; completing then hides the retiring content over an empty
+        // layer (#1291). Let the frame watcher (or the timeout) finish.
+        guard !workspaceHandoffFrameWatcher.isPending else { return }
         completeWorkspaceHandoff(reason: reason)
     }
 

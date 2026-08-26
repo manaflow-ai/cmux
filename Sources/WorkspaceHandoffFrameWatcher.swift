@@ -15,6 +15,11 @@ final class WorkspaceHandoffFrameWatcher {
     private var frameDemandRetention: (any RenderDemandRetention)?
     private var onReady: (() -> Void)?
 
+    /// True while incoming terminals still owe their first rendered frame.
+    /// Focus-driven handoff completions defer to this so focus arriving ahead
+    /// of the first frame cannot re-expose the blank transition (#1291).
+    var isPending: Bool { plan != nil }
+
     /// Starts watching. An empty `expectedSurfaceIds` never fires `onReady`;
     /// callers complete such handoffs through the immediate path instead.
     func begin(
