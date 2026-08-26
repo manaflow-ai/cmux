@@ -102,9 +102,11 @@ extension CMUXCLI {
             let historyPath = sessionDirectory
                 .appendingPathComponent("chat_history.jsonl", isDirectory: false)
                 .path
-            guard fallbackLineCount != nil,
-                  FileManager.default.fileExists(atPath: historyPath) else { return nil }
-            return textFileGrowthMetric(path: historyPath, fallbackLineCount: fallbackLineCount ?? 0)
+            guard FileManager.default.fileExists(atPath: historyPath) else { return nil }
+            let resolvedFallbackLineCount = fallbackLineCount
+                ?? readRecentTextFileLines(path: historyPath, maxBytes: 512 * 1024)?.count
+            guard let resolvedFallbackLineCount else { return nil }
+            return textFileGrowthMetric(path: historyPath, fallbackLineCount: resolvedFallbackLineCount)
         }
     }
 
