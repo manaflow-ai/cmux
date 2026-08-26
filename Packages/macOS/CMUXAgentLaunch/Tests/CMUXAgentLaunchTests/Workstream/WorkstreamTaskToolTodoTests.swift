@@ -498,4 +498,31 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "s1") == ["pending-1"])
         #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
     }
+
+    @Test("Seeding discards post-hook frames from the pre-restart accumulator")
+    func seedDiscardsStalePostOperations() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"stale"}"#,
+            response: #"{"error":"denied"}"#,
+            requestId: "stale-post",
+            isError: true
+        ))
+        store.seedTaskTodos(
+            forWorkstream: "s1",
+            todos: [WorkstreamTaskTodo(id: "existing", content: "existing", state: .pending)]
+        )
+
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"stale"}"#,
+            requestId: "fresh-pre"
+        ))
+
+        #expect(latestTodos(store)?.map(\.content) == ["existing", "stale"])
+    }
 }
