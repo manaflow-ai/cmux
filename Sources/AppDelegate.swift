@@ -4559,7 +4559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load(
+        let resumeIndexes = await loadResumeIndexesUsingSharedAgentIndex(
             ttyDeviceBindings: ttyDeviceBindings
         )
 #if DEBUG
@@ -4615,6 +4615,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: false,
             persistedAt: now,
             fingerprint: autosaveFingerprint
+        )
+    }
+
+    /// Resume-index load for autosave and non-terminating persistence passes.
+    ///
+    /// The agent index comes from the ``SharedLiveAgentIndex`` owner, folding
+    /// in pending hook-store changes and coalescing with any refresh already
+    /// in flight instead of running a second independent hook-store scan.
+    /// Process liveness and surface resume bindings are still revalidated
+    /// against a fresh-enough process snapshot off-main. Terminate and
+    /// power-off saves keep `ProcessDetectedResumeIndexes.loadFresh`, which
+    /// deliberately captures an uncached process view.
+    private func loadResumeIndexesUsingSharedAgentIndex(
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64]
+    ) async -> ProcessDetectedResumeIndexes {
+        guard let index = await SharedLiveAgentIndex.shared.indexForSessionPersistence() else {
+            // The owner failed closed before publishing any index (refresh
+            // timeout or cancellation). Keep the previous independent-load
+            // behavior rather than persisting an empty agent index.
+            return await ProcessDetectedResumeIndexes.load(
+                ttyDeviceBindings: ttyDeviceBindings
+            )
+        }
+        return await ProcessDetectedResumeIndexes.load(
+            cachedRestorableAgentIndex: index,
+            ttyDeviceBindings: ttyDeviceBindings
         )
     }
 
@@ -4691,11 +4717,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let generation = nextProcessDetectedSessionSaveGeneration()
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
         Task { @MainActor [weak self] in
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load(
+            guard let self else { return }
+            let resumeIndexes = await self.loadResumeIndexesUsingSharedAgentIndex(
                 ttyDeviceBindings: ttyDeviceBindings
             )
-            guard let self,
-                  !self.isTerminatingApp,
+            guard !self.isTerminatingApp,
                   self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,

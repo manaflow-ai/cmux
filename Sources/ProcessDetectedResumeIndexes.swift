@@ -4,9 +4,14 @@ struct ProcessDetectedResumeIndexes: Sendable {
     let restorableAgentIndex: RestorableAgentSessionIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
 
+    /// When `cachedRestorableAgentIndex` is supplied (the SharedLiveAgentIndex
+    /// owner's coalesced result), the hook stores are not re-read: the cached
+    /// index is revalidated against a fresh-enough process snapshot and only
+    /// the surface resume bindings are recomputed.
     static func load(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
+        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
@@ -14,6 +19,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
                 maximumSnapshotAge: 5,
+                cachedRestorableAgentIndex: cachedRestorableAgentIndex,
                 ttyDeviceBindings: ttyDeviceBindings
             )
         }.value
