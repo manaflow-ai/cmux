@@ -8,6 +8,7 @@ import Foundation
 /// identity and the complete artifact fingerprint so a cleared flag or an
 /// in-place rewrite fails closed before the launch gate is released.
 struct CmuxPluginExecutionSnapshotVerifier {
+    private static let maximumInterpreterBytes = 512 * 1024 * 1024
     private let fileManager: FileManager
 
     init(fileManager: FileManager = .default) {
@@ -27,7 +28,11 @@ struct CmuxPluginExecutionSnapshotVerifier {
                       )
                   )
               }),
-              let manifestData = try? Data(contentsOf: snapshot.manifestURL),
+              let manifestDescriptor = snapshot.pinnedFileDescriptors["manifest.json"],
+              let manifestData = readBoundedData(
+                  descriptor: manifestDescriptor,
+                  maximumBytes: CmuxPluginDirectoryLoader.maximumManifestBytes
+              ),
               let manifest = try? JSONDecoder().decode(
                   CmuxExtensionManifest.self,
                   from: manifestData
@@ -45,7 +50,10 @@ struct CmuxPluginExecutionSnapshotVerifier {
                     isDirectory: false
                 )
             guard sameFile(interpreterDescriptor, interpreterURL),
-                  let data = try? Data(contentsOf: interpreterURL) else {
+                  let data = readBoundedData(
+                      descriptor: interpreterDescriptor,
+                      maximumBytes: Self.maximumInterpreterBytes
+                  ) else {
                 return false
             }
             interpreterData = data
@@ -62,6 +70,32 @@ struct CmuxPluginExecutionSnapshotVerifier {
             interpreterData: interpreterData
         )
         return fingerprint == snapshot.fingerprint
+    }
+
+    private func readBoundedData(descriptor: Int32, maximumBytes: Int) -> Data? {
+        var metadata = Darwin.stat()
+        guard descriptor >= 0,
+              Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_size >= 0,
+              UInt64(metadata.st_size) <= UInt64(maximumBytes) else {
+            return nil
+        }
+        var data = Data()
+        var offset: off_t = 0
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while data.count <= maximumBytes {
+            let remaining = maximumBytes + 1 - data.count
+            let count = min(buffer.count, remaining)
+            let bytesRead = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.pread(descriptor, bytes.baseAddress, count, offset)
+            }
+            guard bytesRead >= 0 else { return nil }
+            if bytesRead == 0 { break }
+            data.append(contentsOf: buffer.prefix(bytesRead))
+            offset += off_t(bytesRead)
+        }
+        return data.count <= maximumBytes ? data : nil
     }
 
     private func sameFile(_ descriptor: Int32, _ url: URL) -> Bool {

@@ -97,7 +97,7 @@ public actor CmuxPluginRegistry {
         var nextApprovals: [String: Bool] = [:]
         var nextTokens: [String: String] = [:]
         var nextTokenFingerprints: [String: String] = [:]
-        var actionOwners: [String: String] = [:]
+        var actionOwners: [String: (pluginID: String, actionID: String)] = [:]
         var ambiguousActionsByPluginID: [String: Set<String>] = [:]
         for plugin in loadedReport.plugins {
             for action in plugin.manifest.actions {
@@ -105,11 +105,11 @@ public actor CmuxPluginRegistry {
                     pluginID: plugin.manifest.id,
                     actionID: action.id
                 )
-                if let owner = actionOwners[namespacedID], owner != plugin.manifest.id {
-                    ambiguousActionsByPluginID[owner, default: []].insert(action.id)
+                if let owner = actionOwners[namespacedID], owner.pluginID != plugin.manifest.id {
+                    ambiguousActionsByPluginID[owner.pluginID, default: []].insert(owner.actionID)
                     ambiguousActionsByPluginID[plugin.manifest.id, default: []].insert(action.id)
                 } else {
-                    actionOwners[namespacedID] = plugin.manifest.id
+                    actionOwners[namespacedID] = (plugin.manifest.id, action.id)
                 }
             }
         }

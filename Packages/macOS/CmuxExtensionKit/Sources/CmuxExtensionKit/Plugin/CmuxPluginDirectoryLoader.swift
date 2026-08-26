@@ -92,6 +92,8 @@ public actor CmuxPluginDirectoryLoader {
     public static let maximumManifestBytes = 256 * 1024
     /// Maximum number of plugin directories scanned in one root reload.
     public static let maximumPluginCount = 64
+    /// Maximum total immediate entries inspected in one plugin root.
+    public static let maximumRootEntryCount = 128
 
     /// Default user plugin directory (`~/Library/Application Support/cmux/plugins`).
     public static var defaultDirectoryURL: URL {
@@ -138,22 +140,33 @@ public actor CmuxPluginDirectoryLoader {
         guard fileManager.fileExists(atPath: directoryURL.path) else {
             return CmuxPluginLoadReport(plugins: [], failures: [])
         }
-        let entries: [URL]
-        do {
-            entries = try fileManager.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
+        guard let enumerator = fileManager.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        ) else {
             return CmuxPluginLoadReport(
                 plugins: [],
                 failures: [CmuxPluginLoadFailure(
                     directoryURL: directoryURL,
                     code: .unreadableDirectory,
-                    detail: error.localizedDescription
+                    detail: "plugin root could not be enumerated"
                 )]
             )
+        }
+        var entries: [URL] = []
+        for case let entry as URL in enumerator {
+            guard entries.count < Self.maximumRootEntryCount else {
+                return CmuxPluginLoadReport(
+                    plugins: [],
+                    failures: [CmuxPluginLoadFailure(
+                        directoryURL: directoryURL,
+                        code: .unreadableDirectory,
+                        detail: "plugin root exceeds the supported entry count"
+                    )]
+                )
+            }
+            entries.append(entry)
         }
 
         let pluginDirectoryCount = entries.reduce(into: 0) { count, entry in

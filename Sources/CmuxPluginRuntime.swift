@@ -42,12 +42,14 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     var sessionTokens: [String: String] = [:]
     var processAuthorizations: [pid_t: CmuxPluginProcessAuthorization] = [:]
     var processAuthorizationIdentities: [pid_t: CmuxPluginProcessIdentity] = [:]
+    var revokedPluginProcessGroups: Set<pid_t> = []
     var subscriptionsByPluginID: [String: [UUID: CmuxEventSubscription]] = [:]
     var actionSubscriptionIDsByPluginID: [String: Set<UUID>] = [:]
     private var pluginErrors: [String: String] = [:]
     private var snapshotGeneration: UInt64 = 0
     var pluginShortcutStore: CmuxPluginShortcutStore?
     var routablePluginShortcuts: [String: StoredShortcut] = [:]
+    var configuredCmuxShortcutBindings: [String: StoredShortcut] = [:]
     private var hasStarted = false
     private var pluginDirectoryWatcher: RecursivePathWatcher?
     private var pluginDirectoryWatchTask: Task<Void, Never>?

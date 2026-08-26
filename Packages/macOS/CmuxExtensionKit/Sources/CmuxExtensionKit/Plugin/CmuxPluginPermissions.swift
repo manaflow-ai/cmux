@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// The effective, user-approved capabilities of one plugin.
@@ -175,6 +176,8 @@ public struct CmuxPluginGrant: Codable, Equatable, Sendable {
 public actor CmuxPluginPermissionStore {
     /// Current schema version for the JSON grant file.
     public static let schemaVersion = 1
+    /// Hard cap for the user-editable persisted grant envelope.
+    public static let maximumStorageBytes = 4 * 1024 * 1024
 
     private struct FileEnvelope: Codable {
         var schemaVersion: Int
@@ -333,10 +336,7 @@ public actor CmuxPluginPermissionStore {
             return
         }
 
-        let data: Data
-        do {
-            data = try Data(contentsOf: storageURL)
-        } catch {
+        guard let data = readBoundedStorageFile(at: storageURL) else {
             loadFailure = .unreadableFile
             return
         }
@@ -353,6 +353,35 @@ public actor CmuxPluginPermissionStore {
             return
         }
         grants = envelope.grants
+    }
+
+    private func readBoundedStorageFile(at url: URL) -> Data? {
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_size >= 0,
+              UInt64(metadata.st_size) <= UInt64(Self.maximumStorageBytes) else {
+            return nil
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        var data = Data()
+        do {
+            while data.count <= Self.maximumStorageBytes {
+                let remaining = Self.maximumStorageBytes + 1 - data.count
+                let chunk = try handle.read(upToCount: min(64 * 1024, remaining)) ?? Data()
+                if chunk.isEmpty { break }
+                data.append(chunk)
+            }
+        } catch {
+            return nil
+        }
+        return data.count <= Self.maximumStorageBytes ? data : nil
     }
 
     /// Reads only filesystem metadata to detect an external grant-file edit.

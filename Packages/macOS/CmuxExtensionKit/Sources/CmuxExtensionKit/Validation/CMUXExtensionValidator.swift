@@ -291,7 +291,10 @@ private enum CmuxPluginManifestValidation {
               !path.hasPrefix("/"),
               !path.contains("\\") else { return false }
         let components = path.split(separator: "/", omittingEmptySubsequences: false)
-        guard !components.isEmpty, !components.contains(".."), !components.contains("") else { return false }
+        guard !components.isEmpty,
+              !components.contains("."),
+              !components.contains(".."),
+              !components.contains("") else { return false }
         return components.allSatisfy { component in
             isSafeComponent(String(component), maximumLength: 128)
         }

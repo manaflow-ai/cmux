@@ -64,6 +64,19 @@ extension CmuxPluginRuntime {
         return routablePluginShortcuts
     }
 
+    /// Updates the configured cmux action projection that has routing priority
+    /// over plugin shortcuts.
+    func setConfiguredCmuxShortcutBindings(_ bindings: [String: StoredShortcut]) {
+        lock.lock()
+        guard configuredCmuxShortcutBindings != bindings else {
+            lock.unlock()
+            return
+        }
+        configuredCmuxShortcutBindings = bindings
+        lock.unlock()
+        refreshRoutablePluginShortcuts()
+    }
+
     /// Returns namespaced action ids currently exposed by enabled plugins.
     func activePluginActionIDs() -> Set<String> {
         let currentSnapshot = currentSnapshot()
@@ -117,7 +130,13 @@ extension CmuxPluginRuntime {
     func refreshRoutablePluginShortcuts() {
         let candidates = activePluginShortcutBindings()
         let invocableActionIDs = invocablePluginActionIDs()
-        let conflicts = KeyboardShortcutSettings.pluginShortcutConflicts(in: candidates)
+        lock.lock()
+        let configuredBindings = configuredCmuxShortcutBindings
+        lock.unlock()
+        let conflicts = KeyboardShortcutSettings.pluginShortcutConflicts(
+            in: candidates,
+            configuredCmuxShortcuts: configuredBindings
+        )
         var next: [String: StoredShortcut] = [:]
         for (actionID, shortcut) in candidates {
             guard invocableActionIDs.contains(actionID), conflicts[actionID] == nil else { continue }

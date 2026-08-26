@@ -48,6 +48,9 @@ extension HostSettingsActions {
     func pluginShortcutDescriptors() -> [PluginShortcutDescriptor] {
         let snapshot = pluginRuntime.currentSnapshot()
         let activeBindings = pluginRuntime.activePluginShortcutBindings()
+        pluginRuntime.setConfiguredCmuxShortcutBindings(
+            AppDelegate.shared?.configuredCmuxShortcutBindingsForPluginConflicts() ?? [:]
+        )
         let conflicts = KeyboardShortcutSettings.pluginShortcutConflicts(
             in: activeBindings,
             configuredCmuxShortcuts: AppDelegate.shared?

@@ -46,10 +46,10 @@ struct CmuxPluginArtifactFingerprinter {
             throw CmuxPluginArtifactFingerprintError.missingManifest
         }
         let manifestURL = root.appendingPathComponent(manifestRelativePath, isDirectory: false)
-        let currentManifestData: Data
-        do {
-            currentManifestData = try Data(contentsOf: manifestURL)
-        } catch {
+        guard let currentManifestData = readBoundedData(
+            at: manifestURL,
+            maximumBytes: UInt64(CmuxPluginDirectoryLoader.maximumManifestBytes)
+        ) else {
             throw CmuxPluginArtifactFingerprintError.unreadableFile(manifestURL)
         }
         guard currentManifestData == manifestData else {
@@ -211,13 +211,23 @@ struct CmuxPluginArtifactFingerprinter {
         at url: URL,
         maximumBytes: UInt64? = nil
     ) throws -> (byteCount: UInt64, digest: SHA256.Digest) {
-        let handle: FileHandle
-        do {
-            handle = try FileHandle(forReadingFrom: url)
-        } catch {
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
             throw CmuxPluginArtifactFingerprintError.unreadableFile(url)
         }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_size >= 0,
+              maximumBytes.map({ UInt64(metadata.st_size) <= $0 }) ?? true else {
+            throw CmuxPluginArtifactFingerprintError.unreadableFile(url)
+        }
 
         var hasher = SHA256()
         var byteCount: UInt64 = 0
@@ -233,6 +243,37 @@ struct CmuxPluginArtifactFingerprinter {
             throw CmuxPluginArtifactFingerprintError.unreadableFile(url)
         }
         return (byteCount, hasher.finalize())
+    }
+
+    private func readBoundedData(at url: URL, maximumBytes: UInt64) -> Data? {
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_size >= 0,
+              UInt64(metadata.st_size) <= maximumBytes else {
+            return nil
+        }
+        var data = Data()
+        do {
+            while UInt64(data.count) <= maximumBytes {
+                let remaining = maximumBytes + 1 - UInt64(data.count)
+                let count = Int(min(UInt64(Self.chunkSize), remaining))
+                let chunk = try handle.read(upToCount: count) ?? Data()
+                if chunk.isEmpty { break }
+                data.append(chunk)
+            }
+        } catch {
+            return nil
+        }
+        return UInt64(data.count) <= maximumBytes ? data : nil
     }
 
     private func updateLengthPrefixed(
