@@ -332,6 +332,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
         var lastPerfLogTime: CFTimeInterval = 0
         #endif
+
+        /// Seeds the held position from a verified-replay viewport anchor so a
+        /// gesture that begins while the replay presentation is frozen rebases
+        /// from the pre-replay reading position (what the frozen pixels show)
+        /// instead of the mid-replay or bottom-reset live viewport. Only an
+        /// idle authority may be seeded: a live gesture's held position always
+        /// wins, and an epoch bump (typing snap, surface replacement, alt
+        /// routing) between the caller's epoch read and this write voids the
+        /// seed.
+        mutating func seedHeldPositionIfIdle(
+            row: UInt64,
+            positionPx: Double,
+            revision: UInt64,
+            total: UInt64,
+            epoch: UInt64
+        ) -> Bool {
+            guard self.epoch == epoch, lastApplied == nil else { return false }
+            remainderPx = 0
+            lastApplied = (
+                row: row,
+                remainderPx: 0,
+                positionPx: positionPx,
+                revision: revision,
+                total: total
+            )
+            return true
+        }
     }
     nonisolated let localPixelScrollState =
         OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
