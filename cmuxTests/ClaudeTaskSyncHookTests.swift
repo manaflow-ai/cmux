@@ -3,8 +3,72 @@ import Dispatch
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 @Suite(.serialized)
 struct ClaudeTaskSyncHookTests {
+    @Test("A delayed consumed SessionEnd cannot clear a replacement generation")
+    func rejectsConsumedSessionEndForReplacementGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-end-generation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appendingPathComponent("sessions.json")
+        let workspaceId = "01010101-0101-0101-0101-010101010101"
+        let surfaceId = "02020202-0202-0202-0202-020202020202"
+        let sessionId = "consumed-generation-session"
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ])
+        _ = try store.upsert(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: root.path,
+            markActive: true,
+            allowsNewSessionReplacement: true
+        )
+        let firstRecord = try #require(try store.lookup(sessionId: sessionId))
+        let consumed = try #require(try store.consumeAfterClaudeTaskSync(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            expectedStartedAt: firstRecord.startedAt,
+            scope: "generation-test",
+            deadlineUptime: ProcessInfo.processInfo.systemUptime + 5
+        ))
+        #expect(try store.upsertAuthoritativeClaudeSessionStart(
+            sessionId: sessionId,
+            source: "clear",
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: root.path
+        ))
+
+        let telemetry = CLISocketSentryTelemetry(
+            command: "hooks",
+            commandArgs: ["claude", "session-end"],
+            socketPath: root.appendingPathComponent("unused.sock").path,
+            processEnv: ["CMUX_CLI_SENTRY_DISABLED": "1"]
+        )
+        let shouldApply = CMUXCLI(args: []).shouldApplyClaudeHookVisibleMutation(
+            sessionStore: store,
+            sessionId: sessionId,
+            turnId: nil,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            telemetry: telemetry,
+            allowEndedSession: true,
+            expectedSessionStartedAt: consumed.startedAt
+        )
+        #expect(!shouldApply)
+    }
+
     @Test("Task-tool hooks publish one authoritative snapshot to Feed and workspace todos")
     func publishesAuthoritativeSnapshot() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync")
