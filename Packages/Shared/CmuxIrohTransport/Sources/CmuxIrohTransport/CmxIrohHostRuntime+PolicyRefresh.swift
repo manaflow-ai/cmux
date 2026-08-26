@@ -617,6 +617,26 @@ extension CmxIrohHostRuntime {
                   let discovery = policy.discovery else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
+            if initialPublicationPending {
+                let ready = await initialPublicationReady(
+                    engine: connectivityEngine
+                )
+                try requireCurrent(revision)
+                guard ready else {
+                    // The first publication of this lifecycle stays gated on
+                    // a verified usable relay path; the authenticated
+                    // reconcile above already applied admission policy,
+                    // binding adoption, and renewal scheduling. The ready
+                    // gate runs the publishing round once the relay works.
+                    registrationRefreshFailureCount = 0
+                    completedSuccessfully = true
+                    scheduleRegistrationRenewal(
+                        binding: registration.binding,
+                        revision: revision
+                    )
+                    return
+                }
+            }
             await handleBinding(registration, discovery, policy.attestation)
             try requireCurrent(revision)
             await handleRoute(policy.binding, policy.routePathHints)

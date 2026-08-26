@@ -237,7 +237,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func networkChangeDuringActiveRefreshDoesNotRequestAnotherRegistration() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let gate = HostRuntimeRegistrationGate()
         let refreshes = HostRuntimeLANRefreshRecorder()
         let broker = TestIrohHostBroker(
@@ -278,8 +278,7 @@ extension CmxIrohHostRuntimeTests {
             relays: Array(fixture.managedRelays),
             lanGeneration: 2
         )
-        let endpoint = TestIrohEndpoint(
-            identity: fixture.endpointID,
+        let endpoint = try fixture.relayReadyEndpoint(
             directAddresses: ["192.168.1.10:50906"]
         )
         let policies = HostRuntimeLANPolicyRecorder()
@@ -503,7 +502,7 @@ extension CmxIrohHostRuntimeTests {
 
         #expect(await runtime.snapshot().state == .failed)
         #expect(await bindings.count() == 0)
-        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await endpoint.waitForCloseCallCount(1))
     }
 
     @Test

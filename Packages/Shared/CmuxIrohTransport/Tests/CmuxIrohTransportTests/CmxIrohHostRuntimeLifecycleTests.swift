@@ -514,7 +514,10 @@ extension CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity,
+            subsequentRegistrationErrors: [
+                .connectivity, .connectivity, .connectivity,
+            ]
         )
         let bindings = HostRuntimeBindingRecorder()
         let runtime = CmxIrohHostRuntime(
@@ -536,7 +539,7 @@ extension CmxIrohHostRuntimeTests {
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
         #expect(await runtime.lanAdvertisementContext()?.rendezvous == cachedPolicy.lanRendezvous)
         await runtime.waitForInitialPublicationForTesting()
-        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await broker.waitForRegistrationCount(1, timeout: .seconds(5)))
         #expect(await runtime.snapshot().state == .active)
         #expect(await bindings.count() == 0)
         await runtime.stop()
@@ -570,7 +573,7 @@ extension CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            registrationClock: ImmediateHostActivationClock(),
+            registrationClock: HostRegistrationRenewalClock(now: now),
             handleTransport: { session, _ in await session.close() },
             handleRoute: { binding, pathHints in
                 await routes.record(binding: binding, pathHints: pathHints)

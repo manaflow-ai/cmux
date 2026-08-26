@@ -87,8 +87,14 @@ extension CmxIrohHostRuntimeTests {
         #expect(await routes.values().isEmpty)
         #expect(await runtime.snapshot().state == .active)
 
-        // The relay comes up through the normal credential installation path.
-        // Publication must follow, exactly once, with the post-relay hints.
+        // The relay credential installs, then native iroh reports the home
+        // relay online. Publication must follow, exactly once, with the
+        // post-relay hints.
+        for _ in 0 ..< 20_000 {
+            if await !endpoint.observedRelayUpdates().isEmpty { break }
+            await Task.yield()
+        }
+        await endpoint.emit(.online)
         #expect(await bindings.waitForCount(1, timeout: .seconds(5)))
         let republished = await routes.values()
         #expect(republished.map(\.binding.bindingID) == [fixture.binding.bindingID])
@@ -300,5 +306,79 @@ extension CmxIrohHostRuntimeTests {
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().state == .active)
         await runtime.stop()
+    }
+
+    /// A requested refresh must not perform the deferred first publication
+    /// while the home relay is still unusable, even though its authenticated
+    /// broker round runs and applies admission policy.
+    @Test("a requested refresh while the relay is unready does not publish")
+    func requestedRefreshWhileRelayUnreadyDoesNotPublish() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let bindings = HostRuntimeBindingRecorder()
+        let routes = HostRuntimeRouteRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            }
+        )
+
+        try await runtime.start()
+        await runtime.requestRegistrationRefresh()
+
+        #expect(await broker.observedRegistrationCount() == 2)
+        #expect(await bindings.count() == 0)
+        #expect(await routes.values().isEmpty)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    /// Cached authority must be verified against the live broker even when
+    /// the home relay never becomes usable: a server-side rejection fails
+    /// the runtime closed instead of hiding behind the relay outage.
+    @Test("stale cached authority fails closed without relay readiness")
+    func staleCachedAuthorityFailsClosedWithoutRelayReadiness() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .missingAuthentication
+        )
+        let bindings = HostRuntimeBindingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration(
+                cachedHostPolicy: try cachedFixture.policy()
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            relayReadinessTimeout: .milliseconds(50),
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
+        )
+
+        try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
+
+        #expect(await broker.waitForRegistrationCount(1, timeout: .seconds(5)))
+        #expect(await endpoint.waitForCloseCallCount(1))
+        #expect(await runtime.snapshot().state == .failed)
+        #expect(await bindings.count() == 0)
     }
 }

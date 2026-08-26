@@ -402,16 +402,31 @@ public actor CmxIrohHostRuntime {
                         retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
                     )
                 } else {
-                    // The ready gate activates the relay, waits for a usable
-                    // home relay, and then runs the one live reconcile that
-                    // publishes fresh path hints.
                     initialPublicationPending = true
                     allowsReplacedBindingAdoption = cachedStartPolicy != nil
+                    if let retryAfterSeconds = publishedPolicy
+                        .registrationRetryAfterSeconds {
+                        // A broker cooldown observed during activation keeps
+                        // its validated floor for the next live round.
+                        scheduleRegistrationRetry(
+                            revision: revision,
+                            retryAfterSeconds: retryAfterSeconds
+                        )
+                    } else if cachedStartPolicy != nil {
+                        // Cached authority is verified against the live broker
+                        // immediately, independent of relay readiness, so a
+                        // server-side revocation or replacement cannot hide
+                        // behind a relay outage. Readiness gates only the
+                        // publication inside the refresh round.
+                        scheduleRegistrationRefresh(revision: revision)
+                    }
+                    // The ready gate activates the relay, waits for a usable
+                    // home relay, and then runs the round that performs the
+                    // deferred first publication with fresh path hints.
                     scheduleInitialPublication(
                         binding: publishedPolicy.binding,
                         endpointID: endpointID,
                         bootstrap: publishedPolicy.relayBootstrap,
-                        retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds,
                         revision: revision
                     )
                 }
@@ -620,7 +635,7 @@ public actor CmxIrohHostRuntime {
 
     /// Returns whether the binding may be published immediately: the home
     /// relay is already usable, or this endpoint will never own a relay.
-    private func initialPublicationReady(
+    func initialPublicationReady(
         engine: CmxConnectivityEngine
     ) async -> Bool {
         if await engine.hasUsableHomeRelay() { return true }
@@ -632,7 +647,6 @@ public actor CmxIrohHostRuntime {
         binding: CmxIrohBrokerBindingMetadata,
         endpointID: CmxIrohPeerIdentity,
         bootstrap: CmxIrohRelayTokenResponse?,
-        retryAfterSeconds: Int?,
         revision: UInt64
     ) {
         initialPublicationTask?.cancel()
@@ -641,7 +655,6 @@ public actor CmxIrohHostRuntime {
                 binding: binding,
                 endpointID: endpointID,
                 bootstrap: bootstrap,
-                retryAfterSeconds: retryAfterSeconds,
                 revision: revision
             )
         }
@@ -651,7 +664,6 @@ public actor CmxIrohHostRuntime {
         binding: CmxIrohBrokerBindingMetadata,
         endpointID: CmxIrohPeerIdentity,
         bootstrap: CmxIrohRelayTokenResponse?,
-        retryAfterSeconds: Int?,
         revision: UInt64
     ) async {
         guard lifecyclePhase == .active,
@@ -723,16 +735,13 @@ public actor CmxIrohHostRuntime {
         guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               !Task.isCancelled else { return }
-        if let retryAfterSeconds {
-            // A broker cooldown observed during activation keeps its validated
-            // floor; the lifecycle retry loop owns the next live round.
-            scheduleRegistrationRetry(
-                revision: revision,
-                retryAfterSeconds: retryAfterSeconds
-            )
+        guard initialPublicationPending else { return }
+        guard registrationRefreshFailureCount == 0 else {
+            // A broker cooldown or failure retry is already armed. That
+            // lifecycle-owned round performs the deferred publication once it
+            // succeeds, and it honors the broker's validated retry floor.
             return
         }
-        guard initialPublicationPending else { return }
         scheduleRegistrationRefresh(revision: revision)
     }
 
