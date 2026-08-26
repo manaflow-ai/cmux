@@ -72,6 +72,7 @@ struct SystemSudoProcessInspector: SudoProcessInspecting {
         var lastResult: [Int32] = []
         for _ in 0..<4 {
             var processIdentifiers = [pid_t](repeating: 0, count: capacity)
+            errno = 0
             let returnedCount = processIdentifiers.withUnsafeMutableBufferPointer { buffer in
                 proc_listchildpids(
                     processIdentifier,
@@ -80,6 +81,7 @@ struct SystemSudoProcessInspector: SudoProcessInspecting {
                 )
             }
             guard returnedCount >= 0 else { return lastResult }
+            guard returnedCount != 0 || errno == 0 else { return lastResult }
             let count = min(processIdentifiers.count, Int(returnedCount))
             lastResult = processIdentifiers.prefix(count).filter { $0 > 1 }
             if Int(returnedCount) < processIdentifiers.count {
@@ -88,6 +90,34 @@ struct SystemSudoProcessInspector: SudoProcessInspecting {
             capacity = max(processIdentifiers.count * 2, Int(returnedCount) + 16)
         }
         return lastResult
+    }
+
+    func processIdentifiers(inProcessGroup processGroupIdentifier: Int32) -> [Int32]? {
+        guard processGroupIdentifier > 1 else { return [] }
+        let stride = MemoryLayout<pid_t>.stride
+        var capacity = 16
+        var lastResult: [Int32] = []
+        let maximumCapacity = 16 * 1_024
+        while capacity <= maximumCapacity {
+            var processIdentifiers = [pid_t](repeating: 0, count: capacity)
+            errno = 0
+            let returnedCount = processIdentifiers.withUnsafeMutableBufferPointer { buffer in
+                proc_listpgrppids(
+                    processGroupIdentifier,
+                    buffer.baseAddress,
+                    Int32(buffer.count * stride)
+                )
+            }
+            guard returnedCount >= 0 else { return nil }
+            guard returnedCount != 0 || errno == 0 else { return nil }
+            let count = min(processIdentifiers.count, Int(returnedCount))
+            lastResult = processIdentifiers.prefix(count).filter { $0 > 1 }
+            if Int(returnedCount) < processIdentifiers.count {
+                return lastResult
+            }
+            capacity = max(processIdentifiers.count * 2, Int(returnedCount) + 16)
+        }
+        return nil
     }
 
     func processGroupIdentifier(for processIdentifier: Int32) -> Int32? {

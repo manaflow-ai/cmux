@@ -83,7 +83,17 @@ public struct SudoExecutionRunner {
         run(requestID: requestID, expectedManifestData: nil)
     }
 
-    func run(requestID: String, expectedManifestData: Data?) -> Int32 {
+    /// Executes one approved request while optionally binding the runner to a serialized manifest.
+    ///
+    /// When ``expectedManifestData`` is provided, it must decode to the exact manifest currently
+    /// stored for ``requestID``. The runner rejects malformed, stale, or raced manifests before
+    /// claiming execution, preserving the cross-process capability binding.
+    ///
+    /// - Parameters:
+    ///   - requestID: The approved request identifier supplied by the app.
+    ///   - expectedManifestData: An ISO 8601 JSON encoding of the expected execution manifest.
+    /// - Returns: Zero after a terminal result is persisted, or a runner setup error code.
+    public func run(requestID: String, expectedManifestData: Data?) -> Int32 {
         do {
             try store.ensureDirectories()
             guard parentValidator.validate(expectedExecutableURL: expectedParentExecutableURL) else {

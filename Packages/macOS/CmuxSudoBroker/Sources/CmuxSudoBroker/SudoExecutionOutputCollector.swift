@@ -9,7 +9,8 @@ struct SudoExecutionOutputCollector {
     private let readinessMarker: Data?
     private let controlMarkers: SudoExecutionControlMarkers
     private let passwordMarker = Data(SudoAuthenticationOutputDetector.passwordPrompt.utf8)
-    private var pending = Data()
+    // Keep a slice so consuming a prefix does not shift every buffered byte.
+    private var pending = ArraySlice<UInt8>()
     private var persistedByteCount = 0
     private var authenticationWindowOpen = true
     private(set) var authenticationFailed = false
@@ -49,7 +50,7 @@ struct SudoExecutionOutputCollector {
     }
 
     mutating func consume(_ data: Data) throws {
-        pending.append(data)
+        pending.append(contentsOf: data)
         try processPending(isFinal: false)
     }
 
@@ -58,18 +59,17 @@ struct SudoExecutionOutputCollector {
     }
 
     private mutating func processPending(isFinal: Bool) throws {
+        var markers = activeMarkers()
+        var matcher = SudoExecutionMarkerMatcher(markers: markers)
         while !pending.isEmpty {
-            let markers = activeMarkers()
-            let match = markers.compactMap { marker -> Match? in
-                pending.range(of: marker.bytes).map {
-                    Match(range: $0, kind: marker.kind)
-                }
-            }.min { $0.range.lowerBound < $1.range.lowerBound }
-
-            if let match {
-                try persist(Data(pending[..<match.range.lowerBound]))
-                pending.removeSubrange(..<match.range.upperBound)
-                switch match.kind {
+            let scan = matcher.scan(pending, isFinal: isFinal)
+            if let match = scan.match {
+                let marker = markers[match.markerIndex]
+                let consumedCount = match.offset + marker.bytes.count
+                try persist(Data(pending.prefix(match.offset)))
+                pending = pending.dropFirst(consumedCount)
+                compactPending()
+                switch marker.kind {
                 case .authentication:
                     authenticationFailed = true
                 case .readiness:
@@ -82,33 +82,46 @@ struct SudoExecutionOutputCollector {
                 case .privilegedTransport, .privilegedLaunch:
                     privilegedFailure = .privilegedTransportFailed
                 }
+                markers = activeMarkers()
+                matcher = SudoExecutionMarkerMatcher(markers: markers)
                 continue
             }
 
-            let retainedSuffixCount = isFinal
-                ? 0
-                : max(0, (markers.map { $0.bytes.count }.max() ?? 1) - 1)
-            let persistedCount = max(0, pending.count - retainedSuffixCount)
-            guard persistedCount > 0 else { return }
-            try persist(Data(pending.prefix(persistedCount)))
-            pending.removeFirst(persistedCount)
-            return
+            let retainedSuffixCount = isFinal ? 0 : scan.retainedSuffixLength
+            let count = pending.count - retainedSuffixCount
+            guard count > 0 else { return }
+            try persist(Data(pending.prefix(count)))
+            pending = pending.dropFirst(count)
+            compactPending()
         }
     }
 
-    private func activeMarkers() -> [(bytes: Data, kind: MarkerKind)] {
-        var markers: [(bytes: Data, kind: MarkerKind)] = []
+    private func activeMarkers() -> [SudoExecutionMarkerMatcher.Marker] {
+        var markers: [SudoExecutionMarkerMatcher.Marker] = []
         if authenticationWindowOpen, !authenticationFailed {
-            markers.append((passwordMarker, .authentication))
+            markers.append((bytes: Array(passwordMarker), kind: .authentication))
         }
         if !inputReady, let readinessMarker {
-            markers.append((readinessMarker, .readiness))
+            markers.append((bytes: Array(readinessMarker), kind: .readiness))
         }
-        markers.append((controlMarkers.executionTimedOut, .privilegedTimeout))
-        markers.append((controlMarkers.cleanupFailed, .privilegedCleanup))
-        markers.append((controlMarkers.transportFailed, .privilegedTransport))
-        markers.append((controlMarkers.launchFailed, .privilegedLaunch))
+        markers.append(
+            (bytes: Array(controlMarkers.executionTimedOut), kind: .privilegedTimeout)
+        )
+        markers.append(
+            (bytes: Array(controlMarkers.cleanupFailed), kind: .privilegedCleanup)
+        )
+        markers.append(
+            (bytes: Array(controlMarkers.transportFailed), kind: .privilegedTransport)
+        )
+        markers.append(
+            (bytes: Array(controlMarkers.launchFailed), kind: .privilegedLaunch)
+        )
         return markers
+    }
+
+    private mutating func compactPending() {
+        guard pending.startIndex > 64 * 1_024 else { return }
+        pending = ArraySlice(Array(pending))
     }
 
     private mutating func persist(_ data: Data) throws {
@@ -133,20 +146,6 @@ struct SudoExecutionOutputCollector {
                 throw Failure.write(count == 0 ? EIO : errno)
             }
         }
-    }
-
-    private struct Match {
-        let range: Range<Data.Index>
-        let kind: MarkerKind
-    }
-
-    private enum MarkerKind {
-        case authentication
-        case readiness
-        case privilegedTimeout
-        case privilegedCleanup
-        case privilegedTransport
-        case privilegedLaunch
     }
 
     private enum Failure: Error {

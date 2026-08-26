@@ -317,6 +317,8 @@ public struct SudoCLICommand {
         case .standardInput:
             do {
                 data = try io.readStandardInput(overflowSentinelLimit)
+            } catch SudoBoundedInputReader.Failure.tooLarge {
+                throw SudoCLICommandError(message: messages.scriptTooLarge, exitCode: 2)
             } catch {
                 throw SudoCLICommandError(message: messages.inputReadFailed, exitCode: 2)
             }

@@ -74,6 +74,23 @@ struct SudoProcessLifecycleTests {
         #expect(receivedBytes == reviewedBytes)
     }
 
+    @Test("Privileged supervisor rejects an expired deadline before spawning")
+    func expiredPrivilegedDeadlineDoesNotSpawn() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let supervisor = SudoPrivilegedProcessSupervisor(
+            now: { now },
+            preflightNow: { now }
+        )
+
+        let outcome = supervisor.execute(
+            scriptDescriptor: -1,
+            displayName: "expired.sh",
+            deadline: now.addingTimeInterval(-1)
+        )
+
+        #expect(outcome == .timedOut)
+    }
+
     @Test("Detached runner reaper collects its child", .timeLimit(.minutes(1)))
     func detachedRunnerReaperCollectsChild() async throws {
         let fixture = try SudoTestFixture()

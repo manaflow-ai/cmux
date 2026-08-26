@@ -3,9 +3,10 @@ import SwiftUI
 
 @MainActor
 final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
-    private let presentation: SudoApprovalPresentation
-    private let deny: @MainActor @Sendable () async -> Void
+    private var presentation: SudoApprovalPresentation
+    private var deny: @MainActor @Sendable () async -> Void
     private let didClose: @MainActor () -> Void
+    private let hostingController: NSHostingController<SudoApprovalReviewView>
     private var isProgrammaticDismissal = false
 
     init(
@@ -17,7 +18,7 @@ final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
         self.presentation = presentation
         self.deny = deny
         self.didClose = didClose
-        let hostingController = NSHostingController(
+        hostingController = NSHostingController(
             rootView: SudoApprovalReviewView(
                 presentation: presentation,
                 approve: approve,
@@ -38,6 +39,21 @@ final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        presentation: SudoApprovalPresentation,
+        approve: @MainActor @Sendable @escaping () async -> Void,
+        deny: @MainActor @Sendable @escaping () async -> Void
+    ) {
+        self.presentation = presentation
+        self.deny = deny
+        hostingController.rootView = SudoApprovalReviewView(
+            presentation: presentation,
+            approve: approve,
+            deny: deny
+        )
+        window?.title = presentation.windowTitle
     }
 
     func present() {

@@ -21,6 +21,12 @@ public final class SudoApprovalWindowPresenter: SudoApprovalPresenting {
     ) {
         let id = presentation.request.id
         if let controller = controllers[id] {
+            controller.update(
+                presentation: presentation,
+                approve: approve,
+                deny: deny
+            )
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
             controller.present()
             return
         }

@@ -16,11 +16,15 @@ struct SudoProcessExitWaiter: Sendable {
         among identities: [SudoProcessIdentity],
         after timeout: TimeInterval
     ) -> [SudoProcessIdentity] {
-        let initial = identities.filter(inspector.isRunning)
-        var remaining = Set(initial)
+        let observed = identities.filter(inspector.isRunning)
         var identityByProcessIdentifier = Dictionary(
-            uniqueKeysWithValues: initial.map { ($0.processIdentifier, $0) }
+            observed.map { ($0.processIdentifier, $0) },
+            uniquingKeysWith: { existing, replacement in
+                self.inspector.isRunning(replacement) ? replacement : existing
+            }
         )
+        let initial = Array(identityByProcessIdentifier.values)
+        var remaining = Set(initial)
         guard !remaining.isEmpty, timeout > 0 else { return initial }
 
         let queue = kqueue()
@@ -55,7 +59,9 @@ struct SudoProcessExitWaiter: Sendable {
             udata: nil
         )
         guard kevent(queue, &timerEvent, 1, nil, 0, nil) == 0 else {
-            return identities.filter { remaining.contains($0) && inspector.isRunning($0) }
+            return identityByProcessIdentifier.values.filter {
+                remaining.contains($0) && inspector.isRunning($0)
+            }
         }
 
         while !remaining.isEmpty {
@@ -64,7 +70,7 @@ struct SudoProcessExitWaiter: Sendable {
             if result > 0 {
                 if triggeredEvent.filter == Int16(EVFILT_TIMER),
                    triggeredEvent.ident == timerIdentifier {
-                    return identities.filter {
+                    return identityByProcessIdentifier.values.filter {
                         remaining.contains($0) && inspector.isRunning($0)
                     }
                 }
@@ -76,7 +82,7 @@ struct SudoProcessExitWaiter: Sendable {
                     identityByProcessIdentifier.removeValue(forKey: processIdentifier)
                 }
             } else if result < 0, errno != EINTR {
-                return identities.filter {
+                return identityByProcessIdentifier.values.filter {
                     remaining.contains($0) && inspector.isRunning($0)
                 }
             }

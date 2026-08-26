@@ -45,6 +45,12 @@ final class CountingSudoProcessInspector: SudoProcessInspecting, @unchecked Send
         identitiesByProcessIdentifier[processIdentifier] == nil ? nil : 10_000
     }
 
+    func processIdentifiers(inProcessGroup processGroupIdentifier: Int32) -> [Int32]? {
+        processGroupIdentifier == 10_000
+            ? Array(identitiesByProcessIdentifier.keys)
+            : []
+    }
+
     func allProcessIdentifiers() -> [Int32] {
         Array(identitiesByProcessIdentifier.keys)
     }

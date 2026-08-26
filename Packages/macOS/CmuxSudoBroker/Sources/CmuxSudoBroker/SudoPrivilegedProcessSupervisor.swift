@@ -9,17 +9,20 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
     private let terminator: SudoProcessTreeTerminator
     private let exitWaiter: SudoProcessExitWaiter
     private let now: @Sendable () -> Date
+    private let preflightNow: @Sendable () -> Date
 
     init(
         inspector: any SudoProcessInspecting = SystemSudoProcessInspector(),
         signaler: any SudoProcessSignaling = SystemSudoProcessSignaler(),
-        now: @Sendable @escaping () -> Date = { .now }
+        now: @Sendable @escaping () -> Date = { .now },
+        preflightNow: @Sendable @escaping () -> Date = { .now }
     ) {
         self.inspector = inspector
         inventory = SudoOrphanProcessInventory(inspector: inspector)
         terminator = SudoProcessTreeTerminator(inspector: inspector, signaler: signaler)
         exitWaiter = SudoProcessExitWaiter(inspector: inspector)
         self.now = now
+        self.preflightNow = preflightNow
     }
 
     func execute(
@@ -27,6 +30,8 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
         displayName: String,
         deadline: Date
     ) -> SudoPrivilegedProcessOutcome {
+        // Keep preflight on an independent wall clock; execution clocks may coordinate test I/O.
+        guard deadline > preflightNow() else { return .timedOut }
         let processIdentifier: Int32
         do {
             processIdentifier = try spawn(
@@ -44,6 +49,11 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
             terminateAndReap(processIdentifier)
             return .launchFailed
         }
+        let remainingBeforeResume = deadline.timeIntervalSince(preflightNow())
+        guard remainingBeforeResume > 0 else {
+            terminateAndReap(processIdentifier)
+            return .timedOut
+        }
         guard kill(processIdentifier, SIGCONT) == 0 else {
             terminateAndReap(processIdentifier)
             return .launchFailed
@@ -52,9 +62,11 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
         let remaining = max(0, deadline.timeIntervalSince(now()))
         let survivors = exitWaiter.survivors(among: [identity], after: remaining)
         if survivors.isEmpty {
-            let cleanupSurvivors = terminator.terminate(
-                roots: identities(inProcessGroup: processIdentifier)
-            )
+            guard let groupIdentities = identities(inProcessGroup: processIdentifier) else {
+                _ = terminator.terminate(root: identity)
+                return .cleanupFailed
+            }
+            let cleanupSurvivors = terminator.terminate(roots: groupIdentities)
             let outcome = reapOutcome(processIdentifier)
             guard cleanupSurvivors.isEmpty else { return .cleanupFailed }
             let detached = inventory.identitiesByScriptPath(
@@ -75,8 +87,13 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
         return cleanupSurvivors.isEmpty ? .timedOut : .cleanupFailed
     }
 
-    private func identities(inProcessGroup group: Int32) -> [SudoProcessIdentity] {
-        inspector.allProcessIdentifiers().compactMap { processIdentifier in
+    private func identities(inProcessGroup group: Int32) -> [SudoProcessIdentity]? {
+        guard var processIdentifiers = inspector.processIdentifiers(inProcessGroup: group) else {
+            return nil
+        }
+        // Include the known root even when a successful group listing omits it.
+        processIdentifiers.append(group)
+        return Set(processIdentifiers).compactMap { processIdentifier in
             guard let initialIdentity = inspector.identity(for: processIdentifier),
                   inspector.processGroupIdentifier(for: processIdentifier) == group,
                   let finalIdentity = inspector.identity(for: processIdentifier),

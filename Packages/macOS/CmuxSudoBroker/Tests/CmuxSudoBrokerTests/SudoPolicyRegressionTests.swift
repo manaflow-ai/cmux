@@ -34,6 +34,45 @@ struct SudoPolicyRegressionTests {
         #expect(SudoCLITimeoutDisposition.resolve(phase: .executing) == .approvedExecution)
     }
 
+    @Test("Marker matcher preserves the earliest overlapping marker")
+    func markerMatcherChoosesEarliestStart() {
+        let matcher = SudoExecutionMarkerMatcher(
+            markers: [
+                (bytes: Array("abcd".utf8), kind: .authentication),
+                (bytes: Array("bc".utf8), kind: .readiness),
+            ]
+        )
+
+        let result = matcher.scan(
+            ArraySlice(Array("xabcd".utf8)),
+            isFinal: true
+        )
+
+        #expect(result.match?.offset == 1)
+        #expect(result.match?.markerIndex == 0)
+    }
+
+    @Test("Exit waiter handles reused PID generations without trapping")
+    func exitWaiterHandlesDuplicatePIDGenerations() {
+        let first = SudoProcessIdentity(
+            processIdentifier: 7_777,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let second = SudoProcessIdentity(
+            processIdentifier: 7_777,
+            startSeconds: 11,
+            startMicroseconds: 2
+        )
+        let inspector = TestSudoProcessInspector(runningIdentities: Set([first, second]))
+        let waiter = SudoProcessExitWaiter(inspector: inspector)
+
+        let survivors = waiter.survivors(among: [first, second], after: 0)
+
+        #expect(survivors.count == 1)
+        #expect(survivors.first == second)
+    }
+
     @Test("Bundle scopes cannot escape the sudo spool root")
     func reservedBundleScopes() {
         let applicationSupport = URL(
@@ -153,6 +192,31 @@ struct SudoPolicyRegressionTests {
 
         #expect(collector.privilegedFailure == .privilegedTimedOut)
         #expect(try Data(contentsOf: outputURL) == Data("beforeafter".utf8))
+    }
+
+    @Test("Output collector retains marker-leading ordinary output in one bounded prefix")
+    func markerLeadingOrdinaryOutputIsRetained() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.paths.results.appendingPathComponent("underscore-output.txt")
+        let outputDescriptor = Darwin.open(
+            outputURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        try #require(outputDescriptor >= 0)
+        defer { Darwin.close(outputDescriptor) }
+        var collector = SudoExecutionOutputCollector(
+            outputDescriptor: outputDescriptor,
+            readinessMarker: nil,
+            controlMarkers: SudoExecutionControlMarkers()
+        )
+        let ordinaryOutput = Data(repeating: UInt8(ascii: "_"), count: 64 * 1_024)
+
+        try collector.consume(ordinaryOutput)
+        try collector.finish()
+
+        #expect(try Data(contentsOf: outputURL) == ordinaryOutput)
     }
 
     @Test("Reviewed-script capability is anonymous and byte exact")

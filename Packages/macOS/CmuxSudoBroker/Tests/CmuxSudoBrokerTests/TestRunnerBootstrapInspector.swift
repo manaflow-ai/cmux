@@ -30,6 +30,8 @@ struct TestRunnerBootstrapInspector: SudoProcessInspecting {
 
     func processGroupIdentifier(for processIdentifier: Int32) -> Int32? { nil }
 
+    func processIdentifiers(inProcessGroup processGroupIdentifier: Int32) -> [Int32]? { [] }
+
     func allProcessIdentifiers() -> [Int32] { [] }
 
     func isRunning(_ identity: SudoProcessIdentity) -> Bool { false }

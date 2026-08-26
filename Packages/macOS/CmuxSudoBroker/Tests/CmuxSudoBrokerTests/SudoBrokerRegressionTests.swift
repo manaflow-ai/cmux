@@ -34,7 +34,7 @@ struct SudoBrokerRegressionTests {
         let result = try #require(fixture.store.result(id: request.id))
         #expect(result.status == .failed)
         #expect(result.errorCode == .pamTidUnavailable)
-        #expect(result.note?.contains("scripts/setup-pam-tid.sh") == true)
+        #expect(result.note?.contains("setup-touch-id") == true)
         let pending = await broker.pendingRequests()
         #expect(pending.isEmpty)
     }

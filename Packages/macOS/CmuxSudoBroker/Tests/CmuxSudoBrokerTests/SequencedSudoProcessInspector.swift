@@ -37,6 +37,8 @@ final class SequencedSudoProcessInspector: @unchecked Sendable, SudoProcessInspe
 
     func processGroupIdentifier(for processIdentifier: Int32) -> Int32? { nil }
 
+    func processIdentifiers(inProcessGroup processGroupIdentifier: Int32) -> [Int32]? { [] }
+
     func allProcessIdentifiers() -> [Int32] { [processIdentifier] }
 
     func isRunning(_ identity: SudoProcessIdentity) -> Bool { false }

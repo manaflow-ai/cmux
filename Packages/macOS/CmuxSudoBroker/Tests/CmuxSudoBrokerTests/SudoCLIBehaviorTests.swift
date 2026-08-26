@@ -50,6 +50,24 @@ struct SudoCLIBehaviorTests {
         #expect(fixture.store.pendingRequests().isEmpty)
     }
 
+    @Test("Standard input overflow reports the script-size error")
+    func standardInputOverflowUsesSpecificError() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let output = TestCLIOutput()
+        output.standardInputError = SudoBoundedInputReader.Failure.tooLarge
+        let command = Self.command(fixture: fixture, output: output)
+
+        do {
+            _ = try command.run(arguments: ["run", "-"])
+            Issue.record("Expected standard-input overflow to fail")
+        } catch let error as SudoCLICommandError {
+            #expect(error.message.contains("script exceeds"))
+            #expect(error.exitCode == 2)
+        }
+        #expect(fixture.store.pendingRequests().isEmpty)
+    }
+
     @Test("Non-regular script input fails without reading the device")
     func nonRegularFileIsRejected() throws {
         let fixture = try SudoTestFixture()
@@ -113,7 +131,10 @@ struct SudoCLIBehaviorTests {
         #expect(output.standardError.contains("not approved"))
     }
 
-    @Test("A result-wait failure preserves an approved execution")
+    @Test(
+        "A result-wait failure preserves an approved execution",
+        .timeLimit(.minutes(1))
+    )
     func waitFailureReportsApprovedExecution() throws {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
@@ -245,11 +266,13 @@ private final class TestCLIOutput {
     private(set) var standardError = ""
     private(set) var requestedStandardInputByteCounts: [Int] = []
     var standardInput = Data()
+    var standardInputError: Error?
 
     var io: SudoCLIIO {
         SudoCLIIO(
             readStandardInput: { [weak self] maximumBytes in
                 self?.requestedStandardInputByteCounts.append(maximumBytes)
+                if let error = self?.standardInputError { throw error }
                 return Data((self?.standardInput ?? Data()).prefix(maximumBytes))
             },
             writeStandardOutput: { [weak self] in self?.standardOutput.append($0) },

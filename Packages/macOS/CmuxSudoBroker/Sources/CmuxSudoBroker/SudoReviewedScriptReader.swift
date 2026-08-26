@@ -16,7 +16,7 @@ struct SudoReviewedScriptReader: Sendable {
               status.st_uid == geteuid(),
               status.st_nlink == 0,
               status.st_size >= 0,
-              status.st_size <= SudoReviewedScriptCapability.maximumBytes else {
+              status.st_size <= off_t(SudoReviewedScriptCapability.maximumBytes) else {
             throw Failure.invalidCapability
         }
         guard lseek(descriptor, 0, SEEK_SET) == 0 else {
