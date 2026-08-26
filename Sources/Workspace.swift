@@ -1,5 +1,6 @@
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxPanes
 import Foundation
 import CmuxCore
 import CmuxRemoteDaemon
@@ -6397,21 +6398,32 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         recomputeListeningPorts()
     }
 
+    /// Panel ids in on-screen order.
+    ///
+    /// Ids only, all the way down. The version this replaced asked for `Tab`
+    /// values and a `treeSnapshot()`, and both read every tab's title:
+    /// `Tab.init(from:)` copies all fourteen `TabItem` properties, and the
+    /// snapshot puts a title in every `ExternalTab`. Sidebar views call this
+    /// from inside their bodies, so an animating tab title invalidated them
+    /// about twenty times a second for an ordering that never looked at a
+    /// title. `allPaneIds` walks the tree first-then-second exactly as
+    /// `ExternalTreeNode.orderedPaneIds` does, so the snapshot was not buying
+    /// the order either.
     func sidebarOrderedPanelIds() -> [UUID] {
+        let orderedPaneIds = bonsplitController.allPaneIds
         let paneTabs: [String: [UUID]] = Dictionary(
-            uniqueKeysWithValues: bonsplitController.allPaneIds.map { paneId in
+            uniqueKeysWithValues: orderedPaneIds.map { paneId in
                 let panelIds = bonsplitController
-                    .tabs(inPane: paneId)
-                    .compactMap { panelIdFromSurfaceId($0.id) }
+                    .tabIds(inPane: paneId)
+                    .compactMap { panelIdFromSurfaceId($0) }
                 return (paneId.id.uuidString, panelIds)
             }
         )
 
-        let fallbackPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
-        let tree = bonsplitController.treeSnapshot()
-        return tree.orderedPanelIds(
+        return PaneSpatialOrder.orderedPanelIds(
+            orderedPaneIds: orderedPaneIds.map { $0.id.uuidString },
             paneTabs: paneTabs,
-            fallbackPanelIds: fallbackPanelIds
+            fallbackPanelIds: panels.keys.sorted { $0.uuidString < $1.uuidString }
         )
     }
 

@@ -23,6 +23,31 @@ extension ExternalTreeNode {
         paneTabs: [String: [UUID]],
         fallbackPanelIds: [UUID]
     ) -> [UUID] {
+        PaneSpatialOrder.orderedPanelIds(
+            orderedPaneIds: orderedPaneIds,
+            paneTabs: paneTabs,
+            fallbackPanelIds: fallbackPanelIds
+        )
+    }
+}
+
+/// Ordering that needs pane order but not the rest of a tree snapshot.
+///
+/// `BonsplitController.allPaneIds` walks first-then-second the same way
+/// `ExternalTreeNode.orderedPaneIds` does, so a caller holding pane ids
+/// already has the order and does not need to build a snapshot to get it.
+/// That matters because a snapshot reads every tab's title, and a caller
+/// running inside a SwiftUI update is then invalidated by every title change
+/// in the window.
+public enum PaneSpatialOrder {
+    /// Panel ids in on-screen spatial order: panes in the given order, tabs
+    /// within each pane in tab order, then any panels missing from the panes
+    /// in the caller-provided stable fallback order.
+    public static func orderedPanelIds(
+        orderedPaneIds: [String],
+        paneTabs: [String: [UUID]],
+        fallbackPanelIds: [UUID]
+    ) -> [UUID] {
         var ordered: [UUID] = []
         var seen: Set<UUID> = []
 
