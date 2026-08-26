@@ -11,10 +11,13 @@ extension CmuxPluginRuntime {
         for pluginID: String,
         generation: UUID = UUID(),
         processGroupID: pid_t? = nil
-    ) -> CmuxPluginProcessIdentity {
+    ) -> CmuxPluginProcessIdentity? {
+        guard let startMicroseconds = Self.processStartMicroseconds(processID) else {
+            return nil
+        }
         let identity = CmuxPluginProcessIdentity(
             generation: generation,
-            startMicroseconds: Self.processStartMicroseconds(processID),
+            startMicroseconds: startMicroseconds,
             processGroupID: processGroupID ?? processID
         )
         lock.lock()
@@ -47,7 +50,7 @@ extension CmuxPluginRuntime {
                 )
             }
             revokedPluginProcessGroups[storedIdentity.processGroupID] =
-                storedIdentity.startMicroseconds ?? -1
+                storedIdentity.startMicroseconds
         }
         let detached = detachSubscriptionsLocked(pluginID: pluginID)
         lock.unlock()
@@ -162,10 +165,11 @@ extension CmuxPluginRuntime {
     /// registration uses the same check to close the PID-reuse window.
     func processIdentityIsCurrentLocked(rootProcessID: pid_t) -> Bool {
         guard let identity = processAuthorizationIdentities[rootProcessID],
-              let expectedStart = identity.startMicroseconds else {
+              Self.processStartMicroseconds(rootProcessID)
+                == identity.startMicroseconds else {
             return false
         }
-        return Self.processStartMicroseconds(rootProcessID) == expectedStart
+        return true
     }
 
     /// Detaches a plugin's streams while the caller holds ``lock``.

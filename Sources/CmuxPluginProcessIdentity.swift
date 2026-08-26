@@ -6,6 +6,6 @@ import Foundation
 /// lookups after macOS reuses the PID.
 struct CmuxPluginProcessIdentity: Equatable, Sendable {
     let generation: UUID
-    let startMicroseconds: Int64?
+    let startMicroseconds: Int64
     let processGroupID: pid_t
 }

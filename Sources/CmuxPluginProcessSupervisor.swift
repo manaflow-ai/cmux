@@ -71,6 +71,13 @@ final class CmuxPluginProcessSupervisor {
         let desired = Dictionary(snapshot.plugins.map {
             ($0.plugin.manifest.id, $0)
         }, uniquingKeysWith: { _, replacement in replacement })
+        let desiredPluginIDs = Set(desired.keys)
+        for pluginID in Set(restartAttempts.keys).union(restartFingerprints.keys)
+        where !desiredPluginIDs.contains(pluginID) {
+            restartTasks.removeValue(forKey: pluginID)?.cancel()
+            restartAttempts[pluginID] = nil
+            restartFingerprints[pluginID] = nil
+        }
 
         // Collect first: mutating a dictionary while iterating its storage is
         // undefined and can leave a stale child running after a revoke.
@@ -352,12 +359,27 @@ final class CmuxPluginProcessSupervisor {
         }
 
         let processID = process.processIdentifier
-        let authorizationIdentity = runtime.registerProcess(
+        guard let authorizationIdentity = runtime.registerProcess(
             processID,
             for: pluginID,
             generation: processGeneration,
             processGroupID: processID
-        )
+        ) else {
+            terminateProcess(process, processGroupID: processID)
+            try? launchGate.fileHandleForReading.close()
+            try? launchGate.fileHandleForWriting.close()
+            integrityMonitor.cancel()
+            integrityTask.cancel()
+            Task { await snapshotter.remove(executionSnapshot) }
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
         processes[pluginID] = RunningProcess(
             process: process,
             fingerprint: descriptor.plugin.manifestFingerprint,

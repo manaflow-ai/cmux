@@ -16,20 +16,20 @@ extension AppDelegate {
         return bindings
     }
 
-    func configuredPluginShortcutBindings() -> [StoredShortcut] {
-        guard let pluginRuntime else { return [] }
-        pluginRuntime.setConfiguredCmuxShortcutBindings(
+    func refreshConfiguredCmuxShortcutBindingsForPlugins() {
+        pluginRuntime?.setConfiguredCmuxShortcutBindings(
             configuredCmuxShortcutBindingsForPluginConflicts()
         )
-        return Array(pluginRuntime.routablePluginShortcutBindings().values)
+    }
+
+    func configuredPluginShortcutBindings() -> [StoredShortcut] {
+        guard let pluginRuntime else { return [] }
+        return pluginRuntime.routablePluginShortcutValueList()
     }
 
     @discardableResult
     func handlePluginShortcut(event: NSEvent) -> Bool {
         guard let pluginRuntime else { return false }
-        pluginRuntime.setConfiguredCmuxShortcutBindings(
-            configuredCmuxShortcutBindingsForPluginConflicts()
-        )
         let routableBindings = pluginRuntime.routablePluginShortcutBindings()
         for (commandID, shortcut) in routableBindings {
             guard matchConfiguredShortcut(event: event, shortcut: shortcut) else {

@@ -5204,6 +5204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
     // import) drive the same registration paths.
     func notifyMainWindowContextsDidChange() {
+        refreshConfiguredCmuxShortcutBindingsForPlugins()
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -14097,6 +14098,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
+        refreshConfiguredCmuxShortcutBindingsForPlugins()
         reconcileSocketListenerConfiguration(source: source)
     }
 

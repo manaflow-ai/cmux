@@ -64,6 +64,13 @@ extension CmuxPluginRuntime {
         return routablePluginShortcuts
     }
 
+    /// Returns the cached value-only projection used while arming chords.
+    func routablePluginShortcutValueList() -> [StoredShortcut] {
+        lock.lock()
+        defer { lock.unlock() }
+        return routablePluginShortcutValues
+    }
+
     /// Updates the configured cmux action projection that has routing priority
     /// over plugin shortcuts.
     func setConfiguredCmuxShortcutBindings(_ bindings: [String: StoredShortcut]) {
@@ -144,6 +151,7 @@ extension CmuxPluginRuntime {
         }
         lock.lock()
         routablePluginShortcuts = next
+        routablePluginShortcutValues = Array(next.values)
         lock.unlock()
     }
 
