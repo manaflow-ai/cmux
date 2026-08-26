@@ -470,10 +470,6 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
-    func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
-        MobileHostIrohRuntime.shared
-    }
-
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
     /// stream's forwarding task does not retain this host bridge.
@@ -542,8 +538,6 @@ final class HostSettingsActions: SettingsHostActions {
             return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
         case .debugLoopback:
             return String(localized: "settings.mobile.route.loopback", defaultValue: "Loopback")
-        case .iroh:
-            return String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")
         case .websocket:
             return String(localized: "settings.mobile.route.websocket", defaultValue: "WebSocket")
         }

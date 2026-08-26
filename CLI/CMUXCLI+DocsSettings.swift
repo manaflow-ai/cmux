@@ -423,8 +423,6 @@ extension CMUXCLI {
             return "automation"
         case "browser":
             return "browser"
-        case "networking", "network", "iroh":
-            return "networking"
         case "browser-import", "browserimport", "import-browser-data":
             return "browserImport"
         case "global-hotkey", "globalhotkey", "hotkey":

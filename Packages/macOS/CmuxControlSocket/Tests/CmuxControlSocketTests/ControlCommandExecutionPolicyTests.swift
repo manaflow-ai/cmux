@@ -185,10 +185,6 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
-    @Test func diagnosticReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
-        #expect(ControlCommandExecutionPolicy(forV1Command: "iroh_diag") == .socketWorker(mainThreadCallable: false))
-    }
-
     @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {
         // `ping` is the dispatcher's former hard-coded worker fast path; it is
         // a pure probe, so in-process main-thread callers may run it inline.
@@ -327,8 +323,6 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy.agentJournalV1Commands == agentJournal)
         let terminalRead: Set<String> = ["read_screen"]
         #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
-        let diagnosticRead: Set<String> = ["iroh_diag"]
-        #expect(ControlCommandExecutionPolicy.diagnosticReadV1Commands == diagnosticRead)
         let resolutionReads: Set<String> = [
             "list_windows", "current_window", "list_workspaces",
             "list_surfaces", "current_workspace",
@@ -349,10 +343,10 @@ struct ControlCommandExecutionPolicyTests {
         )
         let expectedWorker = telemetry.union(notification).union(agentJournal)
             .union(terminalRead)
-            .union(diagnosticRead).union(resolutionReads).union(sends)
+            .union(resolutionReads).union(sends)
             .union(configurationMutations).union(windowCapture).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // Every member except terminal and diagnostic reads, the journal
+        // Every member except terminal reads, the journal
         // append (durability fsync must never run inline on main), blocking
         // configuration mutations, and async window capture is deliberately
         // main-thread callable (deadlock-free inline: bus enqueues plus
@@ -361,7 +355,6 @@ struct ControlCommandExecutionPolicyTests {
             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
                 == expectedWorker
                     .subtracting(terminalRead)
-                    .subtracting(diagnosticRead)
                     .subtracting(agentJournal)
                     .subtracting(configurationMutations)
                     .subtracting(windowCapture)
