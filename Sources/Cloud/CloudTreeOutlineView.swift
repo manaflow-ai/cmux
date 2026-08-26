@@ -209,7 +209,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localMachine, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
-                nodeActions.openWorkspace(machine, workspace, node.children.compactMap { $0.dragResource?.id })
+                nodeActions.openGroup(machine, node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: []), .split, workspace.id)
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
@@ -324,22 +324,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _):
-                let terminals = node.children.compactMap { $0.dragResource?.id }
+                let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
+                    item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(machine, group, .split, workspace.id) },
+                    item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
-                    item(String(localized: "cloudTree.menu.openAll", defaultValue: "Open All Terminals")) { [nodeActions] in
-                        for terminal in terminals {
-                            nodeActions.project(terminal, .split, true)
-                        }
-                    },
                     .separator(),
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
                 ]
             case .localWorkspace(let row):
-                return [
+                var items = [
                     item(String(localized: "cloudTree.menu.selectWorkspace", defaultValue: "Go to Workspace")) { [nodeActions] in nodeActions.selectLocalWorkspace(row.workspaceID) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(.local, nil) },
                 ]
+                if let group = node.dragGroup {
+                    items.append(item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(.local, group, .split, nil) })
+                }
+                return items
             case .terminal(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .browser(let row):
@@ -411,17 +412,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Drag source
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            guard let node = item as? CloudTreeNode, let resource = node.dragResource,
+            guard let node = item as? CloudTreeNode, let group = node.dragGroup, let lead = group.resources.first,
                   let transferRegistry = tabDragTransferRegistry() else { return nil }
-            let dragID = SurfaceResourceDragRegistry.shared.register(resource.id)
-            guard let registration = SurfaceResourceDragPayload(resource: resource, dragID: dragID)
+            let dragID = SurfaceResourceDragRegistry.shared.register(group)
+            guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: dragID)
                 .register(with: transferRegistry) else {
                 SurfaceResourceDragRegistry.shared.discard(id: dragID)
                 return nil
             }
             activeDrag = (dragID, registration)
 #if DEBUG
-            cmuxDebugLog("surfaces.drag.begin drag=\(dragID.uuidString.prefix(5)) resource=\(resource.id)")
+            cmuxDebugLog("surfaces.drag.begin drag=\(dragID.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) lead=\(lead)")
 #endif
             return registration.pasteboardItem
         }

@@ -458,14 +458,121 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(catalogOnly.map(\.id), ["machine:ghost"])
     }
 
-    func testSurfaceResourceDragRecordRoundTripsAndNamesTheResource() throws {
-        let id = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "port:8000")
-        let record = SurfaceResourceDragPasteboardRecord(dragID: UUID(), resource: id.rawValue)
+    func testSurfaceResourceDragRecordRoundTripsAndNamesEveryResource() throws {
+        let port = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "port:8000")
+        let term = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .terminal, key: "term_1")
+        let record = SurfaceResourceDragPasteboardRecord(dragID: UUID(), resources: [term.rawValue, port.rawValue], title: "main")
         let data = try JSONEncoder().encode(record)
         let decoded = try JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: data)
         XCTAssertEqual(decoded, record)
-        XCTAssertEqual(SurfaceResourceID(rawValue: decoded.resource), id)
+        XCTAssertEqual(decoded.resourceIDs, [term, port], "open order is preserved")
+        XCTAssertEqual(decoded.title, "main")
         XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/root/app"), "~/app")
+    }
+
+    func testWorkspaceRowsDragTheirWholeCollectionTerminalsThenBrowsers() {
+        let ws0 = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        let ws1 = SurfaceRemoteWorkspace(id: "ws_side", name: "side", index: 1, focused: false)
+        let termB = terminal(.cloud("m"), "term_b", workspace: ws0)
+        let termA = terminal(.cloud("m"), "term_a", workspace: ws0)
+        let termSide = terminal(.cloud("m"), "term_side", workspace: ws1)
+        var browserMain = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .browser, key: "browser_1"), title: "Docs", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: ws0, port: nil, url: "https://x.y")
+        browserMain.remoteWorkspace = ws0
+        let local = UUID(), other = UUID()
+        let localTerm = terminal(.local, "AAA", title: "zsh")
+        let localTerm2 = terminal(.local, "BBB", title: "fish")
+        let localBrowser = SurfaceResource(id: SurfaceResourceID(machine: .local, kind: .browser, key: "CCC"), title: "Web", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: "https://cmux.com")
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [machineInfo(.local), machineInfo(.cloud("m"), hasDesktop: false)],
+            resources: [browserMain, termSide, termB, termA, localTerm2, localTerm, localBrowser],
+            projections: [
+                SurfaceProjection(resource: localTerm.id, workspaceID: local, panelID: UUID()),
+                SurfaceProjection(resource: localBrowser.id, workspaceID: local, panelID: UUID()),
+                SurfaceProjection(resource: localTerm2.id, workspaceID: other, panelID: UUID()),
+            ]
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: "m", image: "blaxel/base-image:latest")],
+            snapshot: snapshot,
+            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true), CloudTreeLocalWorkspace(id: other, title: "notes", isSelected: false)]
+        )
+        let flattened = CloudTreeNodeBuilder.flattened(nodes)
+        let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        // A cmux-tui workspace row drags every resource of that workspace: terminals first, then browsers.
+        let main = byID["machine:m/ws/ws_main"]!
+        XCTAssertEqual(main.dragGroup?.title, "main")
+        XCTAssertEqual(main.dragGroup?.resources, [termB.id, termA.id, browserMain.id], "terminals in catalog order, then the workspace's browsers")
+        XCTAssertEqual(byID["machine:m/ws/ws_side"]!.dragGroup?.resources, [termSide.id])
+        // A local workspace row drags the panes it projects (terminal, then browser).
+        XCTAssertEqual(byID["machine:local/ws/\(local.uuidString)"]!.dragGroup?.resources, [localTerm.id, localBrowser.id])
+        XCTAssertEqual(byID["machine:local/ws/\(other.uuidString)"]!.dragGroup?.resources, [localTerm2.id])
+        // Leaves are one-element groups; headers and machines are not draggable.
+        XCTAssertEqual(byID["resource:m/terminal/term_a"]!.dragGroup?.resources, [termA.id])
+        XCTAssertNil(byID["machine:m"]!.dragGroup)
+        XCTAssertNil(byID["machine:local"]!.dragGroup)
+        XCTAssertNil(byID["machine:m/workspaces"]!.dragGroup)
+    }
+
+    @MainActor
+    private final class GroupFakeProvider: SurfaceProvider {
+        let machine: SurfaceMachineID
+        var info: SurfaceMachineInfo
+        var materialized: [(SurfaceResourceID, SurfaceDestination, Bool)] = []
+        init(machine: SurfaceMachineID) {
+            self.machine = machine
+            info = SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: nil, hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
+        }
+        func refresh() async {}
+        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+            materialized.append((resource.id, destination, focus))
+            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        }
+        func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+            SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_new"), title: "shell", detail: nil, lifecycle: .launching, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
+        }
+        func projectionDidEnd(_ projection: SurfaceProjection) {}
+    }
+
+    @MainActor
+    func testProjectGroupLandsTheFirstAtTheDropAndTheRestAsTabsOfThatPane() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = GroupFakeProvider(machine: .cloud("m"))
+        catalog.register(provider)
+        let a = terminal(.cloud("m"), "term_a"), b = terminal(.cloud("m"), "term_b")
+        let browser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .browser, key: "port:3000"), title: ":3000", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: nil)
+        catalog.replaceResources([a, b, browser], on: .cloud("m"))
+        let ws = UUID()
+        let missing = SurfaceResourceID(machine: .cloud("m"), kind: .terminal, key: "term_gone")
+        let drop = SurfaceDestination.split(workspaceID: ws, paneID: "pane-drop", direction: .left)
+
+        let projected = try await catalog.projectGroup([a.id, missing, b.id, browser.id], into: drop, focus: true) { panelID, workspaceID in
+            XCTAssertEqual(workspaceID, ws)
+            return "pane-of-\(panelID.uuidString.prefix(4))"
+        }
+        XCTAssertEqual(projected.map(\.resource), [a.id, b.id, browser.id], "the unknown resource is skipped, order kept")
+        XCTAssertEqual(provider.materialized.count, 3)
+        XCTAssertEqual(provider.materialized[0].1, drop)
+        XCTAssertTrue(provider.materialized[0].2, "only the first pane takes focus")
+        let leadPane = "pane-of-\(projected[0].panelID.uuidString.prefix(4))"
+        XCTAssertEqual(provider.materialized[1].1, .tab(workspaceID: ws, paneID: leadPane, index: nil))
+        XCTAssertEqual(provider.materialized[2].1, .tab(workspaceID: ws, paneID: leadPane, index: nil))
+        XCTAssertFalse(provider.materialized[1].2)
+        XCTAssertEqual(catalog.projections(of: a.id).count, 1)
+
+        // Without a resolvable pane the rest still join the lead workspace as tabs.
+        let again = try await catalog.projectGroup([a.id, b.id], into: .workspace(id: ws, placement: .split), focus: false) { _, _ in nil }
+        XCTAssertEqual(again.count, 2)
+        XCTAssertEqual(provider.materialized[4].1, .workspace(id: ws, placement: .tab))
+        XCTAssertEqual(catalog.projections(of: a.id).count, 2, "a drop never reuses a pane elsewhere")
+
+        // Nothing projectable → the first error surfaces.
+        do {
+            _ = try await catalog.projectGroup([missing], into: drop, focus: true) { _, _ in nil }
+            XCTFail("expected unknownResource")
+        } catch {
+            XCTAssertEqual(error as? SurfaceCatalogError, .unknownResource(missing))
+        }
     }
 
     func testCloudTreeExpansionStoreDefaultsToExpandedAndPersistsMachineCollapse() {

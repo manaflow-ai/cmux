@@ -37,11 +37,14 @@ final class CloudTreeNode: NSObject {
     let id: String
     let kind: Kind
     private(set) var children: [CloudTreeNode]
+    /// For workspace rows: everything the workspace holds, in the order it opens.
+    private let explicitDragGroup: SurfaceResourceGroup?
 
-    init(id: String, kind: Kind, children: [CloudTreeNode] = []) {
+    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
         self.id = id
         self.kind = kind
         self.children = children
+        self.explicitDragGroup = dragGroup
     }
 
     var isExpandable: Bool { !children.isEmpty }
@@ -86,7 +89,15 @@ final class CloudTreeNode: NSObject {
         }
     }
 
-    /// What dragging this row into the main view projects; nil for rows that only organize.
+    /// What dragging this row into the main view projects: a single resource wrapped as a
+    /// one-element group, or a workspace's whole collection (terminals, then browsers).
+    /// Machine rows and group headers only organize and are not draggable.
+    var dragGroup: SurfaceResourceGroup? {
+        if let explicitDragGroup { return explicitDragGroup.isEmpty ? nil : explicitDragGroup }
+        return dragResource.map { SurfaceResourceGroup(single: $0) }
+    }
+
+    /// The single resource a leaf row stands for; nil for workspace rows and headers.
     var dragResource: SurfaceResource? {
         switch kind {
         case .terminal(let row): return row.resource
@@ -240,17 +251,20 @@ enum CloudTreeNodeBuilder {
 
         var children: [CloudTreeNode] = orderedWorkspaces.map { workspace in
             let projected = terminalsByWorkspace[workspace.id] ?? []
+            let title = workspace.title.isEmpty
+                ? String(localized: "cloudTree.localWorkspace.untitled", defaultValue: "Workspace")
+                : workspace.title
+            let projectedBrowsers = browsers.filter { workspaceOf($0.id) == workspace.id }
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id.uuidString, machine: .local),
                 kind: .localWorkspace(CloudTreeLocalWorkspaceRow(
                     workspaceID: workspace.id,
-                    title: workspace.title.isEmpty
-                        ? String(localized: "cloudTree.localWorkspace.untitled", defaultValue: "Workspace")
-                        : workspace.title,
+                    title: title,
                     terminalCount: projected.count,
                     isSelected: workspace.isSelected
                 )),
-                children: projected.map { terminalNode($0, snapshot: snapshot) }
+                children: projected.map { terminalNode($0, snapshot: snapshot) },
+                dragGroup: SurfaceResourceGroup(title: title, resources: (projected + projectedBrowsers).map(\.id))
             )
         }
         children.append(contentsOf: unplaced.map { terminalNode($0, snapshot: snapshot) })
@@ -315,11 +329,16 @@ enum CloudTreeNodeBuilder {
             if workspaces.isEmpty, orphans.isEmpty {
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.noWorkspaces", defaultValue: "No workspaces yet"), style: .dimmed))
             } else {
+                let browsersByWorkspace = Dictionary(grouping: resources.filter { $0.kind == .browser && $0.remoteWorkspace != nil }, by: { $0.remoteWorkspace!.id })
                 var workspaceNodes = workspaces.map { workspace, projected in
                     CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
                         kind: .workspace(machine: machine, workspace, terminalCount: projected.count),
-                        children: projected.map { terminalNode($0, snapshot: snapshot) }
+                        children: projected.map { terminalNode($0, snapshot: snapshot) },
+                        dragGroup: SurfaceResourceGroup(
+                            title: workspace.name,
+                            resources: (projected + (browsersByWorkspace[workspace.id] ?? [])).map(\.id)
+                        )
                     )
                 }
                 workspaceNodes.append(contentsOf: orphans.map { terminalNode($0, snapshot: snapshot) })

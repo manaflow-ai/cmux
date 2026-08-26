@@ -189,8 +189,8 @@ extension Workspace {
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
             cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase) },
-            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment,
-            surfaceProjections: surfaceProjectionRecordsForSession
+            surfaceProjections: surfaceProjectionRecordsForSession,
+            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
         snapshot.dock = _dockSplit?.sessionSnapshot(

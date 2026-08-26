@@ -59545,6 +59545,40 @@
         }
       }
     },
+    "cloudTree.menu.openAllHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open All Here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてここで開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openAllInNewTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open All in New Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて新しいタブで開く"
+          }
+        }
+      }
+    },
     "cloudTree.menu.openFullClient": {
       "extractionState": "manual",
       "localizations": {

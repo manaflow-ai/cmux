@@ -38,9 +38,9 @@ protocol PaneDropContainer: AnyObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
-    /// Projects a Cloud tree row (a catalog resource) at this destination.
+    /// Projects a Cloud tree row (one resource, or a workspace's collection) at this destination.
     func performPortalSurfaceResourceDrop(
-        id: SurfaceResourceID,
+        group: SurfaceResourceGroup,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
@@ -98,8 +98,8 @@ extension PaneDropContainer {
                     destination: request.destination
                 )
             )
-        case .surfaceResource(let id):
-            handled = performPortalSurfaceResourceDrop(id: id, destination: request.destination)
+        case .surfaceResources(let group):
+            handled = performPortalSurfaceResourceDrop(group: group, destination: request.destination)
         case .surface:
             return nil
         }
@@ -115,7 +115,7 @@ extension PaneDropContainer {
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
         switch source {
-        case .vaultSession, .filePreview, .surfaceResource:
+        case .vaultSession, .filePreview, .surfaceResources:
             return true
         case .surface:
             return canPerformPortalSurfaceDrop(transfer)
@@ -145,8 +145,8 @@ extension PaneDropContainer {
                 urls: [URL(fileURLWithPath: entry.filePath)],
                 destination: destination
             ))
-        case .surfaceResource(let id):
-            return performPortalSurfaceResourceDrop(id: id, destination: destination)
+        case .surfaceResources(let group):
+            return performPortalSurfaceResourceDrop(group: group, destination: destination)
         case .surface:
             return performPortalSurfaceDrop(
                 tabId: tabId,
@@ -167,7 +167,7 @@ extension PaneDropContainer {
 
     /// Declines Cloud rows for containers that cannot host a projected surface (the Dock).
     func performPortalSurfaceResourceDrop(
-        id _: SurfaceResourceID,
+        group _: SurfaceResourceGroup,
         destination _: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         false
@@ -285,10 +285,10 @@ extension Workspace: PaneDropContainer {
 
     /// Projects a dragged Cloud row through the surface catalog.
     func performPortalSurfaceResourceDrop(
-        id: SurfaceResourceID,
+        group: SurfaceResourceGroup,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
-        handleSurfaceResourceDrop(id: id, destination: destination)
+        handleSurfaceResourceDrop(group: group, destination: destination)
     }
 
     /// Returns the workspace panel selected in the target pane.

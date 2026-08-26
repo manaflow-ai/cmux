@@ -10,8 +10,10 @@ struct CloudTreeNodeActions {
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
     /// Start a plain terminal on a machine (in a cmux-tui workspace when given) and show it.
     let newTerminal: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) -> Void
-    /// Open a cmux-tui workspace: its first terminal, else a fresh one there.
-    let openWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace, _ terminals: [SurfaceResourceID]) -> Void
+    /// Open a whole group (a workspace's terminals and browsers): the first at the
+    /// selected workspace, the rest as tabs of that pane. An empty group starts a fresh
+    /// terminal in `remoteWorkspaceID` on the machine instead.
+    let openGroup: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ placement: SurfacePlacement, _ remoteWorkspaceID: String?) -> Void
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
@@ -67,16 +69,16 @@ struct CloudTreeNodeActions {
                     _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
                 }
             },
-            openWorkspace: { machine, workspace, terminals in
-                if let first = terminals.first {
-                    run(openingLabel(machine)) { catalog in
-                        _ = try await catalog.project(first, into: try destination(.split), focus: true, reuseExisting: true)
-                    }
-                } else {
+            openGroup: { machine, group, placement, remoteWorkspaceID in
+                if group.isEmpty {
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                    }
+                } else {
+                    run(openingLabel(machine)) { catalog in
+                        _ = try await catalog.projectGroup(group.resources, into: try destination(placement), focus: true)
                     }
                 }
             },
