@@ -52,12 +52,46 @@ struct TaskComposerSheet: View {
     @State var attachmentPhotoSelection: [PhotosPickerItem] = []
     @State var isAttachmentFileImporterPresented = false
     @State var attachmentStagingTask: Task<Void, Never>?
+    /// Monotonic batch token: each staging batch bumps it, and a finishing
+    /// batch clears ``attachmentStagingTask`` only when its own token is still
+    /// current, so a stale (cancelled) batch cannot drop a newer batch's handle.
+    @State var attachmentStagingGeneration = 0
     @State var attachmentAlertMessage: String?
     /// Draft typing is sampled once per composer presentation so this bounded
     /// log records that editing occurred without one event per keystroke.
     @State var hasRecordedDraftChange = false
+    @State private var isDraftsListPresented = false
+    @State var isLeaveConfirmationPresented = false
+    /// Whether the user explicitly picked a model or effort this session.
+    /// Tracked as an action, not by comparing values: catalog refreshes
+    /// auto-reconcile those pickers, and an automatic adjustment must not
+    /// prompt to save on leave, while a deliberate pick must.
+    @State var hasUserPickedModelOrEffort = false
+    /// True until this session's preserved attachments finish re-staging, so
+    /// an early leave still persists their references instead of dropping
+    /// them with the not-yet-populated live list.
+    @State var isDraftAttachmentRestorePending: Bool
 
     let sessionGeneration: Int
+    /// Stable identity of this session's saved-draft entry. Every leave,
+    /// retry, and submit updates or removes exactly this entry. State, not a
+    /// stored `let`: the host re-evaluates this view's init on unrelated
+    /// re-renders (connection churn), and a fresh session must not mint a
+    /// new identity per evaluation or consecutive saves split into
+    /// duplicate draft entries.
+    @State var draftID: UUID
+    /// Replaces this editing session with another draft's. `nil` hides the
+    /// drafts affordance for hosts without a session presenter (previews and
+    /// accessibility harnesses).
+    private let onSwitchDraft: ((TaskComposerLaunchIntent) -> Void)?
+    /// Attachment references preserved with the resumed draft; re-staged
+    /// into session-owned temporary copies on appear. State for the same
+    /// re-evaluation stability as `draftID`.
+    @State var restoredDraftAttachments: [MobileTaskComposerDraftAttachment]
+    /// Leave-relevant state as this session opened; leaving with anything
+    /// different asks before discarding. State so a mid-session save cannot
+    /// move the baseline on re-evaluation.
+    @State var initialSessionFingerprint: TaskComposerSessionFingerprint
     private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
     private let availableWorkspaceGroups: [MobileWorkspaceGroupPreview]?
@@ -83,6 +117,8 @@ struct TaskComposerSheet: View {
 
     init(
         store: CMUXMobileShellStore,
+        launchIntent: TaskComposerLaunchIntent = .new,
+        onSwitchDraft: ((TaskComposerLaunchIntent) -> Void)? = nil,
         availableMachines: [MobilePairedMac]? = nil,
         availableWorkspaceGroups: [MobileWorkspaceGroupPreview]? = nil,
         taskAttachmentsCapabilityOverride: Bool? = nil,
@@ -126,9 +162,13 @@ struct TaskComposerSheet: View {
                 willStartCreate: willStartCreate
             )
         }
+        self.onSwitchDraft = onSwitchDraft
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
-        let draft = store.taskTemplateStore?.composerDraft()
+        let savedDrafts = store.taskTemplateStore?.composerDrafts() ?? []
+        let resumedDraft = launchIntent.resolveDraft(in: savedDrafts)
+        let draft = resumedDraft?.content
+        _draftID = State(initialValue: resumedDraft?.id ?? UUID())
         self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
@@ -265,6 +305,10 @@ struct TaskComposerSheet: View {
         let initialPrompt = draft?.prompt ?? ""
         let initialWorkspaceName = draft?.workspaceName ?? ""
         let initialOperationID = restoredOperationID ?? UUID()
+        let restoredAttachments = draft?.attachments ?? []
+        // The restored attachment identities are part of the request the
+        // operation ID belongs to; without them the async attachment restore
+        // would look like an edit and rotate a still-valid retry identity.
         let initialRequest = selectedTemplate.map {
             MobileTaskSubmissionSnapshot(
                 template: $0,
@@ -277,9 +321,28 @@ struct TaskComposerSheet: View {
                 workspaceName: initialWorkspaceName,
                 workspaceGroupID: initialWorkspaceGroupID,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
+                attachments: restoredAttachments.map {
+                    MobileTaskSubmissionAttachment(uploadID: $0.id, byteCount: $0.byteCount)
+                },
                 operationID: initialOperationID
             )
         }
+        _restoredDraftAttachments = State(initialValue: restoredAttachments)
+        _isDraftAttachmentRestorePending = State(initialValue: !restoredAttachments.isEmpty)
+        _initialSessionFingerprint = State(initialValue: TaskComposerSessionFingerprint(
+            prompt: initialPrompt,
+            workspaceName: initialWorkspaceName,
+            templateID: selectedTemplateID,
+            macPairingID: MobilePairedMac.pairingID(
+                macDeviceID: selectedMacID,
+                instanceTag: selectedMacInstanceTag
+            ),
+            directory: initialDirectory,
+            didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
+            workspaceGroupID: initialWorkspaceGroupID,
+            attachmentIDs: Set(initialAttachments.map(\.id))
+                .union(restoredAttachments.map(\.id))
+        ))
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
             && draftMatchesSelectedMac
             && draft?.workspaceGroupID == initialWorkspaceGroupID
@@ -342,6 +405,17 @@ struct TaskComposerSheet: View {
                     refresh: refreshTemplates
                 )
             }
+            .sheet(isPresented: $isDraftsListPresented) {
+                TaskComposerDraftsSheet(
+                    loadDrafts: { [store, draftID] in
+                        store.taskComposerSavedDrafts().filter { $0.id != draftID }
+                    },
+                    templates: templates,
+                    resume: resumeDraft,
+                    startNew: startNewDraft,
+                    delete: deleteDrafts
+                )
+            }
             .onDisappear {
                 store.recordAppEvent(
                     .taskComposerClosed,
@@ -352,10 +426,13 @@ struct TaskComposerSheet: View {
                 modelRefreshTask?.cancel()
                 modelRefreshOperationID = nil
                 attachmentStagingTask?.cancel()
-                removeStagedAttachmentFiles()
+                // Persist before deleting the staged files: preserving an
+                // attachment copies from its staged URL, so the reverse order
+                // silently drops attachments from the saved draft.
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
                 }
+                removeStagedAttachmentFiles()
             }
             .onAppear {
                 store.recordAppEvent(
@@ -370,6 +447,7 @@ struct TaskComposerSheet: View {
                 if restoredDraftAtInitialization {
                     store.recordAppEvent(.draftRestored)
                 }
+                restoreDraftAttachments()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 guard newPhase != .active else { return }
@@ -397,6 +475,33 @@ struct TaskComposerSheet: View {
                 isPresented: $isStartAgainConfirmationPresented,
                 confirm: confirmStartAgain
             ))
+            .alert(
+                L10n.string(
+                    "mobile.taskComposer.drafts.leaveDialog.title",
+                    defaultValue: "Save this task as a draft?"
+                ),
+                isPresented: $isLeaveConfirmationPresented
+            ) {
+                Button(L10n.string(
+                    "mobile.taskComposer.drafts.leaveDialog.save",
+                    defaultValue: "Save Draft"
+                )) {
+                    saveDraftAndDismiss()
+                }
+                Button(
+                    L10n.string(
+                        "mobile.taskComposer.drafts.leaveDialog.delete",
+                        defaultValue: "Delete Draft"
+                    ),
+                    role: .destructive
+                ) {
+                    deleteDraftAndDismiss()
+                }
+                Button(
+                    L10n.string("mobile.common.cancel", defaultValue: "Cancel"),
+                    role: .cancel
+                ) {}
+            }
             .modifier(TaskComposerAttachmentPickerModifier(
                 isPhotoPickerPresented: $isAttachmentPhotoPickerPresented,
                 photoSelection: $attachmentPhotoSelection,
@@ -481,6 +586,7 @@ struct TaskComposerSheet: View {
             attachments: attachments,
             showsAttachmentButton: showsAttachmentButton,
             optionsSheet: { optionsSheet },
+            openDrafts: openDraftsAction,
             endEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectTemplate: selectTemplateFromPicker,
             selectModel: selectModel,
@@ -492,6 +598,7 @@ struct TaskComposerSheet: View {
             requestStartAgain: { isStartAgainConfirmationPresented = true },
             chooseAttachmentPhotos: presentAttachmentPhotoPicker,
             chooseAttachmentFiles: presentAttachmentFileImporter,
+            pasteAttachments: stagePasteboardAttachments,
             removeAttachment: removeAttachment
         )
     }
@@ -827,7 +934,53 @@ struct TaskComposerSheet: View {
         isEditorPresented = true
     }
 
+    /// Leave-relevant state right now, compared against the session baseline.
+    var currentSessionFingerprint: TaskComposerSessionFingerprint {
+        TaskComposerSessionFingerprint(
+            prompt: prompt,
+            workspaceName: workspaceName,
+            templateID: selectedTemplateID,
+            macPairingID: MobilePairedMac.pairingID(
+                macDeviceID: selectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag
+            ),
+            directory: directory,
+            didEditDirectory: didEditDirectory,
+            workspaceGroupID: selectedWorkspaceGroupID,
+            attachmentIDs: isDraftAttachmentRestorePending
+                ? Set(restoredDraftAttachments.map(\.id))
+                : Set(attachments.map(\.id))
+        )
+    }
+
+    /// Whether leaving now would abandon anything the user changed this
+    /// session, including deliberate model and effort picks (automatic
+    /// catalog reconciliation does not count).
+    var hasUnsavedComposerChanges: Bool {
+        currentSessionFingerprint != initialSessionFingerprint
+            || hasUserPickedModelOrEffort
+    }
+
     private func cancelComposer() {
+        guard hasUnsavedComposerChanges else {
+            // Nothing changed this session: a resumed draft stays exactly as
+            // saved, and a fresh empty session leaves nothing behind.
+            shouldPersistDraftOnDisappear = false
+            dismiss()
+            return
+        }
+        isLeaveConfirmationPresented = true
+    }
+
+    /// Confirmed "Save Draft" while leaving.
+    func saveDraftAndDismiss() {
+        persistDraft()
+        shouldPersistDraftOnDisappear = false
+        dismiss()
+    }
+
+    /// Confirmed "Delete Draft" while leaving: the previous cancel semantics.
+    func deleteDraftAndDismiss() {
         store.recordAppEvent(
             .taskSubmitCancelled,
             correlationID: submissionIdentity.id.uuidString,
@@ -835,8 +988,53 @@ struct TaskComposerSheet: View {
         )
         submitTask?.cancel()
         shouldPersistDraftOnDisappear = false
-        store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
+        store.deleteTaskComposerDrafts(
+            ids: [draftID],
+            ifSessionGeneration: sessionGeneration
+        )
         dismiss()
+    }
+
+    /// The drafts toolbar affordance; hidden for hosts without a presenter.
+    private var openDraftsAction: (() -> Void)? {
+        guard onSwitchDraft != nil else { return nil }
+        return { presentDraftsList() }
+    }
+
+    /// Opens the saved-drafts list; the sheet loads its rows on appear.
+    private func presentDraftsList() {
+        isDraftsListPresented = true
+    }
+
+    /// Saves the current content under this session's identity, then hands
+    /// the presenter another draft to rebuild the composer from. A failed
+    /// save keeps the session in place instead of silently discarding it.
+    private func resumeDraft(_ id: UUID) {
+        guard let onSwitchDraft else { return }
+        guard persistDraftContent(base: draftSnapshot()) else { return }
+        // The replaced view's onDisappear must not persist again: state
+        // storage is already torn down by the identity switch, so that late
+        // persist reads initial values and its empty snapshot would delete
+        // the draft that was just saved.
+        shouldPersistDraftOnDisappear = false
+        onSwitchDraft(.resume(id))
+    }
+
+    /// Saves the current content as its own draft and starts a fresh one.
+    /// A failed save keeps the session in place instead of discarding it.
+    private func startNewDraft() {
+        guard let onSwitchDraft else { return }
+        guard persistDraftContent(base: draftSnapshot()) else { return }
+        // See resumeDraft: block the torn-down view's late empty persist.
+        shouldPersistDraftOnDisappear = false
+        onSwitchDraft(.new)
+    }
+
+    private func deleteDrafts(_ ids: Set<UUID>) {
+        store.deleteTaskComposerDrafts(
+            ids: ids,
+            ifSessionGeneration: sessionGeneration
+        )
     }
 
     private func selectMachine(_ macDeviceID: String, _ instanceTag: String?) {
@@ -909,10 +1107,7 @@ struct TaskComposerSheet: View {
     private func submit() async {
         guard submissionPhase.allowsSubmission,
               let snapshot = submissionSnapshot() else { return }
-        guard store.persistTaskComposerDraft(
-            snapshot.draft,
-            ifSessionGeneration: sessionGeneration
-        ) else {
+        guard persistDraftContent(base: snapshot.draft) else {
             failureTitleStyle = .launchFailed
             let message = Self.draftPersistenceFailureMessage
             failureText = message
@@ -931,10 +1126,7 @@ struct TaskComposerSheet: View {
             activeSubmissionSnapshot = nil
             guard !Task.isCancelled else { return }
             restoreSubmittedDraft(snapshot)
-            _ = store.persistTaskComposerDraft(
-                snapshot.draft,
-                ifSessionGeneration: sessionGeneration
-            )
+            persistDraftContent(base: snapshot.draft)
             submissionPhase = .retryReady
             failureTitleStyle = .launchFailed
             let message = Self.attachmentUploadFailureMessage(failure)
@@ -976,15 +1168,9 @@ struct TaskComposerSheet: View {
                 // this same draft with a fresh ID, but UI recovery still gates
                 // sending it until refresh and explicit confirmation.
                 submissionIdentity.rotate()
-                _ = store.persistTaskComposerDraft(
-                    draftSnapshot(),
-                    ifSessionGeneration: sessionGeneration
-                )
+                persistDraftContent(base: draftSnapshot())
             } else {
-                _ = store.persistTaskComposerDraft(
-                    snapshot.draft,
-                    ifSessionGeneration: sessionGeneration
-                )
+                persistDraftContent(base: snapshot.draft)
                 submissionPhase = .retryReady
             }
             failureTitleStyle = TaskComposerFailureTitleStyle(failure: failure)
@@ -1102,13 +1288,114 @@ struct TaskComposerSheet: View {
     private func persistDraft() {
         guard shouldPersistDraftOnDisappear else { return }
         if let activeSubmissionSnapshot {
-            store.persistTaskComposerDraft(
-                activeSubmissionSnapshot.draft,
-                ifSessionGeneration: sessionGeneration
-            )
+            persistDraftContent(base: activeSubmissionSnapshot.draft)
             return
         }
-        store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
+        persistDraftContent(base: draftSnapshot())
+    }
+
+    /// Persists `base` under this session's identity with the session's
+    /// attachments preserved into draft-owned files.
+    @discardableResult
+    func persistDraftContent(base: MobileTaskComposerDraft) -> Bool {
+        var content = base
+        content.attachments = persistedDraftAttachments()
+        return store.persistTaskComposerDraft(
+            content,
+            draftID: draftID,
+            ifSessionGeneration: sessionGeneration
+        )
+    }
+
+    /// Copies every staged attachment into draft-owned storage and returns
+    /// their preserved references. While the resume re-stage is still
+    /// pending, the resumed references are reused verbatim so an early leave
+    /// cannot drop them.
+    private func persistedDraftAttachments() -> [MobileTaskComposerDraftAttachment] {
+        if isDraftAttachmentRestorePending, attachments.isEmpty {
+            return restoredDraftAttachments
+        }
+        guard let templateStore = store.taskTemplateStore else { return [] }
+        var entries: [MobileTaskComposerDraftAttachment] = []
+        for attachment in attachments {
+            let displayNameExtension = (attachment.displayName as NSString).pathExtension
+            let preferredExtension = displayNameExtension.isEmpty
+                ? attachment.localStagedFileURL.pathExtension
+                : displayNameExtension
+            do {
+                let relativePath = try templateStore.persistComposerAttachmentFile(
+                    draftID: draftID,
+                    attachmentID: attachment.id,
+                    preferredExtension: preferredExtension,
+                    from: attachment.localStagedFileURL
+                )
+                entries.append(attachment.draftAttachment(relativePath: relativePath))
+            } catch {
+                store.recordAppEvent(
+                    .draftPersistenceFailed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            }
+        }
+        return entries
+    }
+
+    /// Re-stages preserved draft attachments into fresh session-owned
+    /// temporary copies, so session teardown never deletes draft-owned bytes.
+    func restoreDraftAttachments() {
+        guard !restoredDraftAttachments.isEmpty, attachments.isEmpty else {
+            isDraftAttachmentRestorePending = false
+            return
+        }
+        attachmentStagingTask?.cancel()
+        attachmentStagingTask = Task { @MainActor in
+            defer { attachmentStagingTask = nil }
+            var restored: [TaskComposerAttachment] = []
+            for entry in restoredDraftAttachments {
+                guard !Task.isCancelled else { break }
+                guard let sourceURL = store.taskTemplateStore?
+                    .composerAttachmentFileURL(relativePath: entry.relativePath) else {
+                    store.recordAppEvent(
+                        .draftPersistenceFailed,
+                        failure: .localStateUnavailable
+                    )
+                    continue
+                }
+                let fileExtension = (entry.relativePath as NSString).pathExtension
+                let stagedURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        "cmux-task-attachment-\(UUID().uuidString)"
+                            + (fileExtension.isEmpty ? "" : ".\(fileExtension)")
+                    )
+                do {
+                    try FileManager.default.copyItem(at: sourceURL, to: stagedURL)
+                } catch {
+                    store.recordAppEvent(
+                        .draftPersistenceFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
+                    continue
+                }
+                restored.append(TaskComposerAttachment(
+                    id: entry.id,
+                    kind: TaskComposerAttachment.Kind(persistedValue: entry.kind),
+                    displayName: entry.displayName,
+                    localStagedFileURL: stagedURL,
+                    byteCount: entry.byteCount,
+                    thumbnailData: entry.thumbnailData
+                ))
+            }
+            guard !Task.isCancelled else {
+                for attachment in restored {
+                    try? FileManager.default.removeItem(at: attachment.localStagedFileURL)
+                }
+                return
+            }
+            // Direct assignment: restoring saved state is not a user edit and
+            // must not rotate a still-valid retry identity.
+            attachments = restored
+            isDraftAttachmentRestorePending = false
+        }
     }
 
     private func validWorkspaceGroupID(

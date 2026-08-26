@@ -12,6 +12,62 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    // MARK: - Mirror session environment (issue #833)
+
+    /// Marker signalling to remote shell integration that this tmux session is
+    /// mirrored by a local cmux over ssh-tmux (`tmux -CC`, no relay socket).
+    static let mirrorMarkerEnvironmentKey = "CMUX_REMOTE_TMUX_MIRROR"
+
+    /// Pushes the mirror marker + identity pairs into the remote tmux SESSION
+    /// environment. Called from the first post-attach `list-windows` result, so
+    /// both paths — first connect and every reconnect — refresh values that
+    /// would otherwise go permanently stale after an app relaunch (issue #833:
+    /// the `tmux -CC` attach has no cmux wrapper shell outside tmux on the
+    /// remote, so nobody else ever re-publishes them).
+    ///
+    /// Deliberately NOT pushed: `CMUX_SOCKET_PATH`. The ssh-tmux transport has
+    /// no relay/reverse forward, so the local Mac socket path is meaningless on
+    /// the remote host; publishing it would point remote `cmux` CLI invocations
+    /// at a dead socket. Notification delivery instead rides the OSC 777/9
+    /// intercept in ``RemoteTmuxSessionMirror`` (see
+    /// ``RemoteTmuxNotificationOSCFilter``).
+    ///
+    /// Session scope (`-t`, not `-g`): the shell-integration refresh path runs
+    /// a session-scoped `show-environment`, which does not surface `-g` values.
+    func pushMirrorSessionEnvironment() {
+        // Target by the stable session id when known so the push can't race a
+        // rename (same convention as `rename-session`).
+        guard let target = sessionId.map({ "$\($0)" })
+            ?? RemoteTmuxHost.controlModeLineSafeName(sessionName)
+                .map(RemoteTmuxHost.shellSingleQuoted)
+        else { return }
+        var pairs = mirrorEnvironment
+        pairs[Self.mirrorMarkerEnvironmentKey] = "1"
+        let commands = Self.mirrorEnvironmentCommands(target: target, pairs: pairs)
+        guard !commands.isEmpty else { return }
+        _ = sendBatchInternal(commands, kinds: commands.map { _ in .other })
+    }
+
+    /// Builds the `set-environment -t <target> KEY VALUE` command lines for a
+    /// push, dropping any pair that could break the line-oriented control
+    /// stream. Pure (and deterministic — sorted by key) so tests can pin the
+    /// exact wire format.
+    static func mirrorEnvironmentCommands(
+        target: String,
+        pairs: [String: String]
+    ) -> [String] {
+        pairs.sorted { $0.key < $1.key }.compactMap { key, value in
+            // Keys are ours (static identifiers), but guard anyway: one CR/LF
+            // would terminate the command line before tmux parses the quotes.
+            guard RemoteTmuxHost.controlModeLineSafeName(key) != nil,
+                  !key.contains(" "),
+                  RemoteTmuxHost.controlModeLineSafeName(value) != nil
+            else { return nil }
+            return "set-environment -t \(target) \(key) "
+                + RemoteTmuxHost.shellSingleQuoted(value)
+        }
+    }
+
     /// Sends a command and reports how its `%begin`/`%end` block resolved:
     /// `true` on `%end`, `false` on `%error` — or `false` if the stream resets
     /// before the block arrives, since a fresh control stream can never answer
