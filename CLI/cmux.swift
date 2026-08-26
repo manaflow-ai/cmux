@@ -368,6 +368,7 @@ final class ClaudeHookSessionStore {
         try withLockedState { state in
             guard var record = state.sessions[normalized],
                   record.autoNameSpawnLeaseToken == token else { return }
+            record.autoNameSpawnLeaseAt = nil
             record.autoNameSpawnLeaseToken = nil
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
