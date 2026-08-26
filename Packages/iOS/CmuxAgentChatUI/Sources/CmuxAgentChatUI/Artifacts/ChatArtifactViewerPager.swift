@@ -65,7 +65,7 @@ struct ChatArtifactViewerPager: View {
                                 loaderSupportsArtifacts: loader.supportsArtifacts,
                                 loaderSupportsDirectoryBrowsing: loader.supportsDirectoryBrowsing,
                                 loaderSupportsArtifactSave: loader.supportsArtifactSave,
-                                isSavingToArtifacts: isSavingToArtifacts
+                                isSavingToArtifacts: isSavingToArtifacts || artifactSaveCleanupTask != nil
                             ),
                             actions: viewerActionsMenuActions
                         )
@@ -309,6 +309,10 @@ struct ChatArtifactViewerPager: View {
                 artifactSaveTask = nil
                 isSavingToArtifacts = false
             } catch ChatArtifactSaveTimeout.expired {
+                guard !Task.isCancelled else {
+                    operationTask.cancel()
+                    return
+                }
                 // The UI deadline is independent from the host operation. Keep
                 // the latter owned until it settles so a retry cannot overlap
                 // a potentially still-mutating save request.
