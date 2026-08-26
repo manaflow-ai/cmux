@@ -304,9 +304,6 @@ struct ClaudeHookSessionRecord: Codable {
     // confirmed title apply; the in-flight marker dedupes concurrent Stops.
     var autoNameLastTitle: String?
     var autoNameLastLineCount: Int?
-    /// Last time a missing file-backed transcript was searched for by the
-    /// synchronous Stop hook. The timestamp coalesces repeated discovery scans.
-    var autoNameTranscriptDiscoveryLastAttemptAt: TimeInterval?
     /// Transcript high-water observed by any hook pass, including passes that
     /// cannot generate a title. This is separate from the successful naming
     /// baseline so compaction remains detectable while naming is suppressed.
@@ -478,30 +475,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Reserves one bounded transcript discovery scan for a session.
-    @discardableResult
-    func claimAutoNamingTranscriptDiscovery(
-        sessionId: String,
-        now: Date,
-        minimumInterval: TimeInterval = 60
-    ) throws -> Bool {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return false }
-            let timestamp = now.timeIntervalSince1970
-            if let previous = record.autoNameTranscriptDiscoveryLastAttemptAt,
-               timestamp - previous < minimumInterval {
-                return false
-            }
-            record.autoNameTranscriptDiscoveryLastAttemptAt = timestamp
-            record.updatedAt = timestamp
-            state.sessions[normalized] = record
-            return true
-        }
-    }
-
-    /// Persists a transcript path discovered from a Codex session directory.
+    /// Persists an authoritative transcript path supplied by a hook worker.
     func recordAutoNamingTranscriptPath(sessionId: String, path: String) throws {
         let normalized = normalizeSessionId(sessionId)
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2955,35 +2929,28 @@ final class ClaudeHookSessionStore {
         targetIsAuthoritative: Bool
     ) -> Bool {
         let sessionId = record.sessionId
-        if let active = state.activeSessionsBySurface[record.surfaceId] {
-            guard active.sessionId == sessionId else { return false }
-        } else if let active = state.activeSessionsByWorkspace[record.workspaceId] {
-            guard active.sessionId == sessionId else {
-                // Legacy stores may predate per-surface active slots. Preserve
-                // a sibling-pane continuation only when the authoritative
-                // target surface also proves that this session is active.
-                guard targetIsAuthoritative,
-                      state.activeSessionsBySurface[targetSurfaceId]?.sessionId == sessionId else {
-                    return false
-                }
-            }
-        } else {
-            // A persisted record without any active ownership evidence may be
-            // an ended session. Do not resurrect it from a delayed compact hook.
-            return false
-        }
-
         let targetMatchesRecord = record.workspaceId == targetWorkspaceId
             && record.surfaceId == targetSurfaceId
+        if let active = state.activeSessionsBySurface[record.surfaceId] {
+            guard active.sessionId == sessionId else { return false }
+        } else if targetMatchesRecord {
+            guard state.activeSessionsByWorkspace[record.workspaceId]?.sessionId == sessionId else {
+                // An exact-target compact without active ownership evidence is
+                // a delayed event from an ended session, not a continuation.
+                return false
+            }
+        }
+
         guard !targetMatchesRecord else { return true }
         guard targetIsAuthoritative else { return false }
-        if let active = state.activeSessionsBySurface[targetSurfaceId] {
-            return active.sessionId == sessionId
-        }
-        if let active = state.activeSessionsByWorkspace[targetWorkspaceId] {
-            return active.sessionId == sessionId
-        }
-        return false
+        // A live pid/surface delivery resolution is the authoritative pane
+        // owner during a move. The persisted active indexes still point at the
+        // old record and are pruned before this transaction; requiring them to
+        // prove the new target would make every target-only rehome impossible.
+        // A workspace slot may belong to a sibling pane, so only a conflicting
+        // surface owner can reject this pane-scoped authoritative target.
+        return state.activeSessionsBySurface[targetSurfaceId]
+            .map { $0.sessionId == sessionId } ?? true
     }
 
     private func compactTargetIsAvailable(
@@ -35906,26 +35873,9 @@ export default CMUXSessionRestore;
                ), autoNameProbe["enabled"] as? Bool == true {
                 let workspaceUserOwned = autoNameProbe["workspace_user_owned"] as? Bool == true
                 let hasReplayableAutoName = hasReplayableAutoNamingState(autoNamingSession)
-                let autoNamingTranscriptPath: String? = {
-                    let recorded = normalizedHookValue(input.transcriptPath ?? autoNamingSession?.transcriptPath)
-                    guard workspaceUserOwned, hasReplayableAutoName,
-                          recorded == nil,
-                          autoNamingSource(for: def) == .codexRollout else {
-                        return recorded
-                    }
-                    guard (try? store.claimAutoNamingTranscriptDiscovery(
-                        sessionId: sessionId,
-                        now: Date()
-                    )) == true,
-                    let discovered = findCodexTranscriptPath(sessionId: sessionId, env: env) else {
-                        return nil
-                    }
-                    try? store.recordAutoNamingTranscriptPath(
-                        sessionId: sessionId,
-                        path: discovered
-                    )
-                    return discovered
-                }()
+                let autoNamingTranscriptPath = normalizedHookValue(
+                    input.transcriptPath ?? autoNamingSession?.transcriptPath
+                )
                 let autoNamingFallbackLineCount: Int? = {
                     guard workspaceUserOwned, hasReplayableAutoName,
                           let autoNamingTranscriptPath,

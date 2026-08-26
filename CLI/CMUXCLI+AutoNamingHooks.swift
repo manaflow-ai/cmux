@@ -250,6 +250,13 @@ extension CMUXCLI {
               let surfaceId = optionValue(commandArgs, name: "--surface") else {
             return
         }
+        let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        let spawnToken = normalizedHookValue(env["CMUX_AUTO_NAME_SPAWN_TOKEN"])
+        defer {
+            if let spawnToken {
+                try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
+            }
+        }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
             params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
@@ -258,15 +265,6 @@ extension CMUXCLI {
             return
         }
         let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
-
-        let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        let spawnToken = normalizedHookValue(env["CMUX_AUTO_NAME_SPAWN_TOKEN"])
-        var spawnLeasePending = spawnToken != nil
-        defer {
-            if spawnLeasePending, let spawnToken {
-                try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
-            }
-        }
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("codex-hook.auto-name.stale")
             return
@@ -276,12 +274,12 @@ extension CMUXCLI {
             telemetry.breadcrumb("codex-hook.auto-name.user-owned-no-replay")
             return
         }
-        let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
-            ?? findCodexTranscriptPath(sessionId: sessionId, env: env)
-        if let transcriptPath {
+        let suppliedTranscriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
+        let transcriptPath = suppliedTranscriptPath ?? normalizedHookValue(currentSession?.transcriptPath)
+        if let suppliedTranscriptPath {
             try? sessionStore.recordAutoNamingTranscriptPath(
                 sessionId: sessionId,
-                path: transcriptPath
+                path: suppliedTranscriptPath
             )
         }
         guard let transcriptPath,

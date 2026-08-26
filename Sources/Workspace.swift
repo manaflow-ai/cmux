@@ -5023,6 +5023,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
+        let isIdempotentRemoteAutoWrite = isRemoteTmuxMirror
+            && source == .auto
+            && previous == trimmed
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
@@ -5036,9 +5039,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 // A user write still claims ownership. Keep going so an
                 // idempotent write also repairs derived tab chrome.
                 if source == .user { panelCustomTitleSources[panelId] = .user }
-                // Remote `%window-renamed` events are authoritative. Reapplying
-                // the stored auto-title must not overwrite that remote choice.
-                if isRemoteTmuxMirror, source == .auto { return true }
+                if isIdempotentRemoteAutoWrite, panelTitle(panelId: panelId) != trimmed {
+                    // A differing remote `%window-renamed` value is
+                    // authoritative. Preserve it and its derived tab chrome.
+                    return true
+                }
             } else {
                 panelCustomTitles[panelId] = trimmed
                 panelCustomTitleSources[panelId] = source
@@ -5055,7 +5060,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror {
+        if isRemoteTmuxMirror, !isIdempotentRemoteAutoWrite {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )
