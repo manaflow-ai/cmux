@@ -28,6 +28,8 @@ struct ExtensionWorktreeSpawnArgsTests {
             createdHead: "0000000000000000000000000000000000000000",
             generatedArtifactRelativePath: "cmux-sample-dev/index.html",
             generatedArtifactContents: Data(),
+            worktreeDeviceID: nil,
+            worktreeFileID: nil,
             setupCommand: setupCommand
         )
     }
