@@ -22,11 +22,16 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
 - npm `cmux-relay`: launcher for the chatmux machine relay. Built and
   validated with every TUI release, but published ONLY through the
   `cmux-relay-vX.Y.Z` tag family (`relay-publish-npm.yml`).
-- npm `cmux-relay-*`: platform relay binary packages (including Windows x64);
-  same relay-only publish path.
-- Windows packages are published when the release input `include_windows` is
-  enabled. Configure Trusted Publishers for both `cmux-tui-win32-x64` and
-  `cmux-relay-win32-x64` before enabling that input.
+- npm `cmux-relay-*`: Unix platform relay binary packages. Each package
+  contains the matching `cmux-tui` runtime, and the launcher sets
+  `CHATMUX_RELAY_CMUX_TUI` to that exact bundled binary. The relay release is
+  five packages total (one launcher plus four Unix targets); it does not rely
+  on a separately published TUI package and must not silently degrade to a
+  shell.
+- Windows TUI packages can still be built when the general release input
+  `include_windows` is enabled. The stable Rust machine-relay workflow excludes
+  Windows because `chatmux-relay` has no tested Windows PTY backend. Keep the
+  chatmux Node relay as the Windows rollback lane until that backend exists.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
 
 Relay autostart needs a durable native executable. `npx cmux-relay
@@ -39,12 +44,11 @@ Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.
 
-Before upload, the package contract validator checks the exact five npm package
-trees, including both the TUI binary and hook, then runs `npm pack` and an
-offline install of the matching Linux package. It checks the exact six PyPI
-wheels, their platform tags, metadata, `RECORD` hashes, and executable modes.
-When `include_windows` is enabled, npm publishes the Windows TUI binary and
-hook and the Windows relay binary as platform packages. PyPI remains Unix-only.
+Before upload, the package contract validator checks the exact npm package
+tree, including each TUI binary and hook and each relay package's bundled TUI
+runtime. It then runs `npm pack` and an offline install of the matching Linux
+packages. It checks the exact six PyPI wheels, their platform tags, metadata,
+`RECORD` hashes, and executable modes. PyPI remains Unix-only.
 
 ## One-time registry setup
 
@@ -72,7 +76,6 @@ trusted publishers:
 - `cmux-relay-darwin-x64`
 - `cmux-relay-linux-x64`
 - `cmux-relay-linux-arm64`
-- `cmux-relay-win32-x64`
 
 with:
 
@@ -89,6 +92,10 @@ the production cutover flip — coordinate with the chatmux repo variable
 `CHATMUX_RELAY_PUBLISH_MODE=external-rust` so the Node publisher stands down
 first. The coordinated TUI publish and the nightly lane validate the relay
 package contract but never publish or move relay dist-tags.
+
+Do not configure or publish `cmux-relay-win32-x64` for the Rust cutover. The
+Node publisher must remain available for Windows until a tested Rust Windows
+PTY backend and its own capability contract are approved.
 
 Add a PyPI Trusted Publisher for:
 
@@ -110,8 +117,8 @@ Nightly publishing uses the same environments. Add trusted publishers for:
 
 ## Nightly channel
 
-`.github/workflows/cmux-tui-nightly.yml` runs on a daily schedule and by manual
-dispatch. It always checks out `main`, derives the next stable version from the
+`.github/workflows/cmux-tui-nightly.yml` runs by manual dispatch. Automatic
+scheduling is currently paused. It always checks out `main`, derives the next stable version from the
 latest reachable `cmux-tui-vX.Y.Z` tag by bumping patch, and falls back to
 `0.9.0` when no stable TUI tag exists.
 

@@ -216,7 +216,11 @@ extension CMUXCLI {
         case "planFilePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
         case "command":
-            return compactClaudeHookStringValue(rawValue, maxLength: 120)
+            guard let command = rawValue as? String else { return nil }
+            return compactClaudeHookStringValue(
+                redactClaudeSensitiveSpans(command),
+                maxLength: 120
+            )
         case "plan":
             return compactClaudeHookStringValue(rawValue, maxLength: 4_000)
         case "pattern", "query":
@@ -421,18 +425,6 @@ extension CMUXCLI {
     }
 
     func redactClaudeSensitiveSpans(_ value: String) -> String {
-        let patterns: [(pattern: String, replacement: String)] = [
-            (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
-            (#"(?:~|/)[^\s\"']+"#, "<path>"),
-            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
-            (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>")
-        ]
-        return patterns.reduce(value) { partial, entry in
-            partial.replacingOccurrences(
-                of: entry.pattern,
-                with: entry.replacement,
-                options: [.regularExpression, .caseInsensitive]
-            )
-        }
+        AgentHookNotificationPolicy.redactSensitiveCommand(value)
     }
 }
