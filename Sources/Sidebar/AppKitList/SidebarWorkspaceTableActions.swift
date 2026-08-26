@@ -49,7 +49,8 @@ struct SidebarWorkspaceTableActions {
     let updateDragAutoscroll: () -> Void
     let setBonsplitDropTargetCollectionActive: (Bool) -> Void
     let setBonsplitDropIndicator: (SidebarDropIndicator?) -> Void
-    /// Resolves a retained group-header row to the workspace it represents at
-    /// drag start; ordinary workspace rows return their supplied fallback id.
-    var workspaceIdForDrag: (UUID?, UUID) -> UUID = { _, fallback in fallback }
+    /// Returns the live group-to-anchor map captured at the beginning of a
+    /// native drag. The table controller caches it for the whole drag so a
+    /// multi-row drag does not rescan all groups for every item.
+    let workspaceGroupAnchorIdsForDrag: () -> [UUID: UUID] = { [:] }
 }

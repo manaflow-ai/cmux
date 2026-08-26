@@ -189,6 +189,19 @@ final class SidebarPointerInteractionMonitor {
         scheduleGeometryReconciliation()
     }
 
+    /// Records a group-header frame without assigning it a workspace target.
+    /// Group headers are container rows (and are not middle-click close
+    /// targets), so retaining a promoted anchor here would route a later
+    /// pointer event through a closed workspace identity.
+    func updateGroupFrame(
+        _ frame: CGRect,
+        for rowId: SidebarWorkspaceRenderItemID
+    ) {
+        rowFrames[rowId] = frame
+        workspaceIdsByRowId.removeValue(forKey: rowId)
+        scheduleGeometryReconciliation()
+    }
+
     func removeFrame(for rowId: SidebarWorkspaceRenderItemID) {
         rowFrames.removeValue(forKey: rowId)
         workspaceIdsByRowId.removeValue(forKey: rowId)

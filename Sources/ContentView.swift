@@ -11809,9 +11809,17 @@ struct VerticalTabsSidebar: View, Equatable {
                 group: group
             )
         }
+        // A group header is keyed by its stable group id, not by the mutable
+        // anchor workspace id. Keep the full live row identity set available
+        // while hidden so anchor promotion cannot prune a retained header.
+        let liveRowIds: [SidebarWorkspaceRenderItemID] = isPresented
+            ? renderContext.workspaceRenderItems.map(\.id)
+            : tabManager.workspaceGroups.map { .group($0.id) }
+                + tabManager.tabs.map { .workspace($0.id) }
         return SidebarWorkspaceTableView(
             contentUpdate: contentUpdate,
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
+            liveRowIds: liveRowIds,
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
@@ -11975,7 +11983,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
-        var actions = SidebarWorkspaceTableActions(
+        let actions = SidebarWorkspaceTableActions(
             attachScrollView: { scrollView in
                 dragAutoScrollController.attach(scrollView: scrollView)
             },
@@ -12107,12 +12115,17 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             setBonsplitDropIndicator: { indicator in
                 dragState.setDropIndicator(indicator)
+            },
+            workspaceGroupAnchorIdsForDrag: {
+                let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))
+                return Dictionary(
+                    uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
+                        guard liveWorkspaceIds.contains(group.anchorWorkspaceId) else { return nil }
+                        return (group.id, group.anchorWorkspaceId)
+                    }
+                )
             }
         )
-        actions.workspaceIdForDrag = { [weak tabManager] groupId, fallbackId in
-            guard let groupId else { return fallbackId }
-            return tabManager?.workspaceGroupAnchor(for: groupId)?.id ?? fallbackId
-        }
         return actions
     }
 

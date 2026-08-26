@@ -196,11 +196,9 @@ import Testing
     @Test func middleClickDoesNotResolveGroupHeaderAnchorWorkspace() {
         let monitor = SidebarPointerInteractionMonitor()
         let groupId = UUID()
-        let anchorWorkspaceId = UUID()
-        monitor.updateFrame(
+        monitor.updateGroupFrame(
             CGRect(x: 20, y: 40, width: 180, height: 28),
-            for: .group(groupId),
-            workspaceId: anchorWorkspaceId
+            for: .group(groupId)
         )
 
         #expect(monitor.rowId(at: CGPoint(x: 100, y: 54)) == .group(groupId))

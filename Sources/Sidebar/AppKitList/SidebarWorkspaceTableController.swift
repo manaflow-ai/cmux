@@ -42,6 +42,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
+    /// Live group-anchor ids resolved once per native drag session. Group
+    /// headers retain their stable row identity while an anchor may be
+    /// promoted; caching this map keeps multi-row drag work linear and
+    /// consistent across every dragged item.
+    private var dragWorkspaceGroupAnchorIds: [UUID: UUID]?
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
     private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
@@ -289,10 +294,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
     }
 
-    func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
+    func setPresentationActive(
+        _ isActive: Bool,
+        workspaceIds liveWorkspaceIds: [UUID],
+        rowIds liveRowIds: [SidebarWorkspaceRenderItemID]? = nil
+    ) {
+        let retainedRowIds = liveRowIds.map(Set.init) ?? Set(
+            liveWorkspaceIds.map { SidebarWorkspaceRenderItemID.workspace($0) }
+        )
         guard isPresentationActive != isActive else {
             if !isActive {
-                pruneHiddenPresentation(retainingWorkspaceIds: liveWorkspaceIds)
+                pruneHiddenPresentation(
+                    retainingRowIds: retainedRowIds,
+                    workspaceIds: liveWorkspaceIds
+                )
             }
             return
         }
@@ -312,27 +327,36 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
-        suspendPresentation(retainingWorkspaceIds: liveWorkspaceIds)
+        suspendPresentation(
+            retainingRowIds: retainedRowIds,
+            workspaceIds: liveWorkspaceIds
+        )
     }
 
-    private func pruneHiddenPresentation(retainingWorkspaceIds liveWorkspaceIds: [UUID]) {
-        guard workspaceIds != liveWorkspaceIds else { return }
+    private func pruneHiddenPresentation(
+        retainingRowIds liveRowIds: Set<SidebarWorkspaceRenderItemID>,
+        workspaceIds liveWorkspaceIds: [UUID]
+    ) {
+        guard workspaceIds != liveWorkspaceIds || Set(rows.map(\.id)) != liveRowIds else {
+            return
+        }
         workspaceIds = liveWorkspaceIds
-        let liveIds = Set(liveWorkspaceIds)
         let previousRowIds = rows.map(\.id)
-        rows = rows.filter { liveIds.contains($0.workspaceId) }
+        rows = rows.filter { liveRowIds.contains($0.id) }
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if previousRowIds != rows.map(\.id) {
             mutationScheduler.stageTableReload()
         }
     }
 
-    private func suspendPresentation(retainingWorkspaceIds liveWorkspaceIds: [UUID]) {
-        let liveIds = Set(liveWorkspaceIds)
+    private func suspendPresentation(
+        retainingRowIds liveRowIds: Set<SidebarWorkspaceRenderItemID>,
+        workspaceIds liveWorkspaceIds: [UUID]
+    ) {
         let previousRowIds = rows.map(\.id)
         let postUpdateActions = detachLoadedCells()
         rows = rows
-            .filter { liveIds.contains($0.workspaceId) }
+            .filter { liveRowIds.contains($0.id) }
             .map { $0.presentationSnapshot() }
         workspaceDragSessionDidEnd()
         actions = nil
@@ -829,9 +853,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let rowConfiguration = rows[row]
         // Only the group-header row represents the anchor. A grouped member
         // carries the same groupId but must remain independently draggable.
-        let workspaceId = rowConfiguration.isGroupHeader
-            ? actions.workspaceIdForDrag(rowConfiguration.groupId, rowConfiguration.workspaceId)
-            : rowConfiguration.workspaceId
+        let workspaceId = workspaceIdForDrag(rowConfiguration, actions: actions)
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
         let item = NSPasteboardItem()
@@ -860,15 +882,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let row = draggedRows[itemIndex]
             guard rows.indices.contains(row) else { return }
             let rowConfiguration = rows[row]
-            let workspaceId: UUID
-            if rowConfiguration.isGroupHeader {
-                workspaceId = actions?.workspaceIdForDrag(
-                    rowConfiguration.groupId,
-                    rowConfiguration.workspaceId
-                ) ?? rowConfiguration.workspaceId
-            } else {
-                workspaceId = rowConfiguration.workspaceId
-            }
+            let workspaceId = workspaceIdForDrag(rowConfiguration, actions: actions)
             let count = actions?.movingWorkspaceCount?(workspaceId) ?? 1
             guard count > 1,
                   let image = workspaceDragImage(
@@ -956,9 +970,26 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidEnd() {
+        dragWorkspaceGroupAnchorIds = nil
         reorderDragWindowPoint = nil
         reorderDragPayloadWorkspaceId = nil
         retireReorderIndicator()
+    }
+
+    /// Resolves one row's drag target from the map captured for this native
+    /// drag session. Group members keep their own workspace identity; only a
+    /// group-header row maps through its stable group id.
+    private func workspaceIdForDrag(
+        _ row: SidebarWorkspaceTableRowConfiguration,
+        actions: SidebarWorkspaceTableActions?
+    ) -> UUID {
+        guard row.isGroupHeader, let groupId = row.groupId else {
+            return row.workspaceId
+        }
+        if dragWorkspaceGroupAnchorIds == nil {
+            dragWorkspaceGroupAnchorIds = actions?.workspaceGroupAnchorIdsForDrag() ?? [:]
+        }
+        return dragWorkspaceGroupAnchorIds?[groupId] ?? row.workspaceId
     }
 
     // MARK: Workspace reorder drop
