@@ -317,6 +317,35 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func reconstructedNativeTableSourceRetainsItsCompletionAction() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        var completionCount = 0
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(endWorkspaceDrag: { completionCount += 1 }),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // This brackets the real production seam: AppKit has accepted the
+        // table as its source, then SwiftUI reconstructs the table before the
+        // terminal draggingSession(_:endedAt:operation:) callback arrives.
+        controller.workspaceDragSessionDidBegin()
+        controller.dismantleContainerView(container)
+        #expect(container.tableView.delegate === controller)
+
+        controller.workspaceDragSessionDidEnd()
+
+        #expect(completionCount == 1)
+        #expect(container.tableView.delegate == nil)
+    }
+
+    @Test
     func atomicReorderReloadAndDetachmentDeferInlineEditCommits() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -640,6 +669,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             [SidebarWorkspaceReorderDropOverlay.Target],
             UUID?
         ) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        endWorkspaceDrag: @escaping () -> Void = {},
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -649,7 +679,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
-            endWorkspaceDrag: {},
+            endWorkspaceDrag: endWorkspaceDrag,
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },

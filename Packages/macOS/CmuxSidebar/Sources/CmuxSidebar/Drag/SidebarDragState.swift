@@ -1,3 +1,4 @@
+public import AppKit
 public import Foundation
 public import Observation
 public import CmuxFoundation
@@ -10,16 +11,15 @@ public import CmuxFoundation
 /// That invariant is what prevents the layout-invalidation loop that caused
 /// https://github.com/manaflow-ai/cmux/issues/2586.
 ///
-/// Begin/clear of a drag also drive the process-wide cross-window identity
-/// through the injected ``SidebarWorkspaceDragRegistering`` seam so a destination
-/// window can resolve a drag that originated elsewhere.
+/// Begin/clear of a drag also drive the process-wide cross-window coordinator so
+/// a destination window can resolve a drag that originated elsewhere.
 @MainActor
 @Observable
 public final class SidebarDragState {
     /// The workspace currently dragged in this window, or `nil` when no local
     /// drag is in flight. A destination window mirrors a foreign id here to drive
     /// the cross-window drop machinery.
-    public var draggedTabId: UUID?
+    public private(set) var draggedTabId: UUID?
 
     /// Where the sidebar should currently render the drop indicator, or `nil`.
     public var dropIndicator: SidebarDropIndicator?
@@ -32,19 +32,10 @@ public final class SidebarDragState {
     /// The visible row scope where the active indicator should be drawn.
     public var dropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
 
-    /// True while the `debug.sidebar.simulate_drag` debug-only method is driving
-    /// the drag state. Lifecycle observers honor this by not starting the
-    /// failsafe monitor (which would otherwise post a `mouse_up_failsafe` clear
-    /// immediately since no real mouse is pressed during simulation). DEBUG-only
-    /// by convention; never set in release flows.
-    public var isSimulated: Bool = false
-
-    /// True only in the window that *originated* the current drag (set via
-    /// ``beginDragging(tabId:)``). A destination window that mirrors a foreign
-    /// drag id into ``draggedTabId`` for cross-window rendering does not own the
-    /// process-wide registry entry, so it must not clear it when its own local
-    /// drag state is reset.
-    private var originatedActiveDrag = false
+    /// Explicit source/mirror role for the coordinator session represented by
+    /// this window. The session token prevents an old clear from ending a newer
+    /// drag of the same workspace.
+    private var sessionRole: SidebarWorkspaceDragSessionRole?
 
     /// Pin state of a foreign (cross-window) dragged workspace, resolved once
     /// when the drag is mirrored into this window and reused for every hover
@@ -60,6 +51,7 @@ public final class SidebarDragState {
     ///   workspace is being dragged across all windows.
     public init(workspaceDragRegistry: any SidebarWorkspaceDragRegistering) {
         self.workspaceDragRegistry = workspaceDragRegistry
+        workspaceDragRegistry.register(self)
     }
 
     /// The workspace currently being sidebar-dragged anywhere in the process,
@@ -68,13 +60,67 @@ public final class SidebarDragState {
         workspaceDragRegistry.currentWorkspaceId
     }
 
+    /// The token of the process-wide drag currently in flight, if any.
+    public var currentWorkspaceDragSessionId: UUID? {
+        workspaceDragRegistry.currentSessionId
+    }
+
     /// Marks `tabId` as this window's dragged workspace and records it as the
     /// process-wide in-flight drag.
-    public func beginDragging(tabId: UUID) {
-        draggedTabId = tabId
-        clearDropIndicator()
-        originatedActiveDrag = true
-        workspaceDragRegistry.begin(workspaceId: tabId)
+    @discardableResult
+    public func beginDragging(tabId: UUID) -> SidebarWorkspaceDragSession {
+        let session = workspaceDragRegistry.beginSession(workspaceId: tabId)
+        activate(session: session, role: .source(session.id))
+        return session
+    }
+
+    /// Begins an AppKit-owned workspace drag and binds local presentation to it.
+    @discardableResult
+    public func beginNativeDragging(
+        tabId: UUID,
+        pasteboardItem: NSPasteboardItem,
+        sourceView: NSView,
+        event: NSEvent,
+        draggingFrame: NSRect,
+        dragImage: NSImage
+    ) -> Bool {
+        let session = workspaceDragRegistry.beginSession(workspaceId: tabId)
+        activate(session: session, role: .source(session.id))
+        guard workspaceDragRegistry.beginNativeDragging(
+            sessionId: session.id,
+            pasteboardItem: pasteboardItem,
+            sourceView: sourceView,
+            event: event,
+            draggingFrame: draggingFrame,
+            dragImage: dragImage,
+            capabilityValue: session.pasteboardValue
+        ) else {
+            workspaceDragRegistry.end(sessionId: session.id)
+            clearPresentation()
+            return false
+        }
+        return true
+    }
+
+    /// Mirrors the coordinator's current session into a destination window.
+    @discardableResult
+    public func mirrorDragging(tabId: UUID) -> Bool {
+        guard let session = workspaceDragRegistry.session(matching: tabId) else {
+            return false
+        }
+        // Re-observing the same session must not downgrade its source role.
+        if let sessionRole, sessionRole.sessionId == session.id {
+            activate(session: session, role: sessionRole)
+            return true
+        }
+        activate(session: session, role: .mirror(session.id))
+        return true
+    }
+
+    /// Restores local presentation only when a native session is still live.
+    @discardableResult
+    public func activateDragging(tabId: UUID) -> Bool {
+        mirrorDragging(tabId: tabId)
     }
 
     /// Sets the current drop indicator and whether it is positioned in top-level
@@ -102,10 +148,55 @@ public final class SidebarDragState {
     /// window originated the drag, so a destination window that merely mirrored a
     /// foreign id does not cancel the originating window's drag.
     public func clearDrag() {
-        if originatedActiveDrag, let draggedTabId {
-            workspaceDragRegistry.end(workspaceId: draggedTabId)
+        if case .source(let sessionId) = sessionRole {
+            workspaceDragRegistry.end(sessionId: sessionId)
         }
-        originatedActiveDrag = false
+        clearPresentation()
+    }
+
+    /// Removes this view's transient presentation without ending the native
+    /// process-wide session.
+    public func dismissPresentation() {
+        foreignDraggedIsPinned = nil
+        draggedTabId = nil
+        clearDropIndicator()
+    }
+
+    /// Completes a drag from either its source or destination presentation.
+    public func finishDrag() {
+        if let sessionRole {
+            workspaceDragRegistry.end(sessionId: sessionRole.sessionId)
+        }
+        clearPresentation()
+    }
+
+    /// Completes a specific native session and revokes its matching payload.
+    public func finishDrag(sessionId: UUID, capabilityValue: String) {
+        workspaceDragRegistry.nativeDraggingSessionDidEnd(
+            sessionId: sessionId,
+            capabilityValue: capabilityValue
+        )
+        if self.sessionRole?.sessionId == sessionId {
+            clearPresentation()
+        }
+    }
+
+    func coordinatorDidEnd(sessionId: UUID) {
+        guard self.sessionRole?.sessionId == sessionId else { return }
+        clearPresentation()
+    }
+
+    private func activate(
+        session: SidebarWorkspaceDragSession,
+        role: SidebarWorkspaceDragSessionRole
+    ) {
+        sessionRole = role
+        draggedTabId = session.workspaceId
+        clearDropIndicator()
+    }
+
+    private func clearPresentation() {
+        sessionRole = nil
         foreignDraggedIsPinned = nil
         draggedTabId = nil
         clearDropIndicator()

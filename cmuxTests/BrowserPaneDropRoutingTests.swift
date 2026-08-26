@@ -129,10 +129,18 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
     }
 
     func testHitTestingCapturesOnlyForRelevantDragEvents() {
-        XCTAssertTrue(
+        XCTAssertFalse(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
                 eventType: .cursorUpdate
+            ),
+            "A residual tab-transfer UTI must not capture browser pane hover without a live registration."
+        )
+        XCTAssertTrue(
+            BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .cursorUpdate,
+                hasLiveTabTransfer: true
             )
         )
         XCTAssertFalse(
@@ -264,6 +272,11 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
     }
 
     func testBrowserPaneFilePreviewOnlyDragUsesPaneDropPathInsteadOfHostedWebView() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
         let defaults = UserDefaults.standard
         let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
         defaults.set(FileDropDefaultBehavior.text.rawValue, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
@@ -311,13 +324,24 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             id: dragId
         )
         defer { FilePreviewDragRegistry.shared.discard(id: dragId) }
-        let payload = try JSONSerialization.data(withJSONObject: [
-            "tab": ["id": dragId.uuidString, "kind": "filePreview"],
-            "sourcePaneId": UUID().uuidString,
-            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
-        ])
-        pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-        pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        let registration = try XCTUnwrap(
+            appDelegate.tabDragTransferRegistry.register(
+                TabDragTransfer(
+                    tab: Tab(
+                        id: TabID(uuid: dragId),
+                        title: "from-image-pane.png",
+                        kind: "filePreview"
+                    ),
+                    sourcePaneId: PaneID()
+                )
+            )
+        )
+        XCTAssertTrue(registration.write(to: pasteboard))
+        pasteboard.setString(
+            "file-preview",
+            forType: DragOverlayRoutingPolicy.filePreviewTransferType
+        )
+        defer { appDelegate.tabDragTransferRegistry.end(registration) }
 
         XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
 

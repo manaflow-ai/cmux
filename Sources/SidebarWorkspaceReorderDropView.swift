@@ -8,6 +8,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     var performDropAtPoint: ((CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
     var clearDropIndicator: (() -> Void)?
     var setWorkspaceDropTargetCollectionActive: ((Bool) -> Void)?
+    var hasLiveWorkspaceDrag: (() -> Bool)?
     var pointOffset: CGSize = .zero
     private var isRequestingTargets = false
     private var targetRequestId: UInt64 = 0
@@ -31,13 +32,15 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        setTargetCollectionActive(true)
-        return update(sender)
+        let operation = update(sender)
+        setTargetCollectionActive(operation != [])
+        return operation
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        setTargetCollectionActive(true)
-        return update(sender)
+        let operation = update(sender)
+        setTargetCollectionActive(operation != [])
+        return operation
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -151,13 +154,14 @@ final class SidebarWorkspaceReorderDropView: NSView {
         guard sender.draggingPasteboard.types?.contains(SidebarWorkspaceReorderDropOverlay.pasteboardType) == true else {
             return false
         }
-        return isValidDrag?() == true
+        return hasLiveWorkspaceDrag?() == true && isValidDrag?() == true
     }
 
     private func acceptsCurrentDragPasteboard() -> Bool {
         SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
             eventType: NSApp.currentEvent?.type,
-            pasteboardTypes: NSPasteboard(name: .drag).types
+            pasteboardTypes: NSPasteboard(name: .drag).types,
+            hasLiveWorkspaceDrag: hasLiveWorkspaceDrag?() == true
         )
     }
 

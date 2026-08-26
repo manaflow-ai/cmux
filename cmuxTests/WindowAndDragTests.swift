@@ -2869,6 +2869,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
 }
 
 
+@MainActor
 final class FilePreviewDragPasteboardWriterTests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -2884,9 +2885,11 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
     func testRegistrationIsPreparedWhenDragTypesAreRequested() throws {
         let fileURL = URL(fileURLWithPath: "/tmp/example.txt").standardizedFileURL
+        let tabDragTransferRegistry = TabDragTransferRegistry()
         let writer = FilePreviewDragPasteboardWriter(
             filePath: fileURL.path,
-            displayTitle: "example.txt"
+            displayTitle: "example.txt",
+            tabDragTransferRegistry: tabDragTransferRegistry
         )
         let dragPasteboard = NSPasteboard(name: .drag)
 
@@ -2907,17 +2910,25 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertEqual(dragID, preparedDragID)
         XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: dragID))
 
-        let bonsplitData = try XCTUnwrap(
-            writer.pasteboardPropertyList(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType) as? Data
+        let bonsplitCapability = try XCTUnwrap(
+            writer.pasteboardPropertyList(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType) as? String
         )
-        XCTAssertEqual(FilePreviewDragPasteboardWriter.dragID(from: bonsplitData), dragID)
+        XCTAssertEqual(
+            tabDragTransferRegistry.resolve(from: dragPasteboard)?.tab.id.uuid,
+            dragID
+        )
         XCTAssertEqual(dragPasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType), filePreviewData)
-        XCTAssertEqual(dragPasteboard.data(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType), filePreviewData)
+        XCTAssertEqual(
+            dragPasteboard.string(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType),
+            bonsplitCapability
+        )
         XCTAssertEqual(dragPasteboard.string(forType: .fileURL), fileURL.absoluteString)
 
         FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: dragPasteboard)
+        tabDragTransferRegistry.end(from: dragPasteboard)
 
         XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: dragID))
+        XCTAssertNil(tabDragTransferRegistry.resolve(from: dragPasteboard))
     }
 
     func testRegistrySweepsExpiredDragEntries() {
@@ -3684,44 +3695,74 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 }
 
 
+@MainActor
 final class BonsplitTabDragPayloadTests: XCTestCase {
     func testRejectsStaleCurrentProcessPayloadAfterSourceEnded() throws {
         let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+        let registry = TabDragTransferRegistry()
 
         XCTAssertNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
+            BonsplitTabDragPayload.transfer(from: pasteboard, registry: registry),
             "A residual same-process payload must not resurrect a completed pane drag"
         )
     }
 
     func testRejectsFilePreviewCompatibilityPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
+        let context = try makeLiveBonsplitPayloadPasteboard(
+            kind: "filePreview",
+            includesFilePreviewTransferType: true
+        )
+        defer { context.registry.end(context.registration) }
 
         XCTAssertNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
+            BonsplitTabDragPayload.transfer(
+                from: context.pasteboard,
+                registry: context.registry
+            ),
             "Sidebar workspace drop targets should ignore file-preview drags instead of treating them as movable tabs"
         )
     }
 
     func testAcceptsRealFilePreviewTabPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview")
+        let context = try makeLiveBonsplitPayloadPasteboard(kind: "filePreview")
+        defer { context.registry.end(context.registration) }
 
         XCTAssertNotNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
+            BonsplitTabDragPayload.transfer(
+                from: context.pasteboard,
+                registry: context.registry
+            ),
             "Existing file-preview tabs should still move through normal Bonsplit tab drag paths"
         )
     }
 
     func testAcceptsRegularCurrentProcessTabPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+        let context = try makeLiveBonsplitPayloadPasteboard(kind: nil)
+        defer { context.registry.end(context.registration) }
 
-        XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
+        XCTAssertNotNil(
+            BonsplitTabDragPayload.transfer(
+                from: context.pasteboard,
+                registry: context.registry
+            )
+        )
     }
 
-    func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() {
+    func testWorkspaceDropRoutingAcceptsLiveTabTransferType() throws {
+        let registry = TabDragTransferRegistry()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.route.\(UUID().uuidString)"))
+        let registration = try XCTUnwrap(
+            registry.register(
+                TabDragTransfer(tab: Tab(title: "Test"), sourcePaneId: PaneID())
+            )
+        )
+        XCTAssertTrue(registration.write(to: pasteboard))
+        defer { registry.end(registration) }
         XCTAssertTrue(
             BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType]
+                pasteboardTypes: pasteboard.types,
+                registry: registry,
+                pasteboard: pasteboard
             )
         )
     }
@@ -3759,6 +3800,35 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }
         return pasteboard
+    }
+
+    private func makeLiveBonsplitPayloadPasteboard(
+        kind: String?,
+        includesFilePreviewTransferType: Bool = false
+    ) throws -> (
+        pasteboard: NSPasteboard,
+        registry: TabDragTransferRegistry,
+        registration: TabDragTransferRegistration
+    ) {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.live.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let registry = TabDragTransferRegistry()
+        let registration = try XCTUnwrap(
+            registry.register(
+                TabDragTransfer(
+                    tab: Tab(title: "Test tab", kind: kind),
+                    sourcePaneId: PaneID()
+                )
+            )
+        )
+        XCTAssertTrue(registration.write(to: pasteboard))
+        if includesFilePreviewTransferType {
+            pasteboard.setString(
+                "file-preview",
+                forType: DragOverlayRoutingPolicy.filePreviewTransferType
+            )
+        }
+        return (pasteboard, registry, registration)
     }
 }
 

@@ -39,6 +39,10 @@ struct SidebarWorkspaceTableTests {
 
         #expect(container.tableView.dataSource === controller)
         #expect(container.tableView.delegate === controller)
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(container.tableView.dataSource == nil)
+        #expect(container.tableView.delegate == nil)
     }
 
     @Test

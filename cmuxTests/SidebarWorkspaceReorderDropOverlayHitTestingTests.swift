@@ -85,6 +85,14 @@ import Testing
         ))
     }
 
+    @Test func liveSidebarSessionMayCapturePointerDrag() {
+        #expect(SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDragged,
+            pasteboardTypes: [NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)],
+            hasLiveWorkspaceDrag: true
+        ))
+    }
+
     @Test @MainActor func targetBridgeUpdatesEveryAttachedDropView() {
         let bridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
         let firstView = SidebarWorkspaceReorderDropOverlay.DropView()
@@ -172,6 +180,7 @@ import Testing
         var updateCalls = 0
         var performedDrops: [(CGPoint, [SidebarWorkspaceReorderDropOverlay.Target])] = []
         view.isValidDrag = { true }
+        view.hasLiveWorkspaceDrag = { true }
         view.setWorkspaceDropTargetCollectionActive = { activeStates.append($0) }
         view.clearDropIndicator = {}
         view.updateDrag = { _, _ in
@@ -234,6 +243,7 @@ import Testing
         var activeStates: [Bool] = []
         var performedDrops: [(CGPoint, [SidebarWorkspaceReorderDropOverlay.Target])] = []
         view.isValidDrag = { true }
+        view.hasLiveWorkspaceDrag = { true }
         view.setWorkspaceDropTargetCollectionActive = { activeStates.append($0) }
         view.clearDropIndicator = {}
         view.updateDrag = { _, _ in true }
@@ -291,6 +301,7 @@ import Testing
         var clearCount = 0
         var performedDrops: [(CGPoint, [SidebarWorkspaceReorderDropOverlay.Target])] = []
         view.isValidDrag = { true }
+        view.hasLiveWorkspaceDrag = { true }
         view.setWorkspaceDropTargetCollectionActive = { activeStates.append($0) }
         view.clearDropIndicator = { clearCount += 1 }
         view.updateDrag = { _, _ in true }

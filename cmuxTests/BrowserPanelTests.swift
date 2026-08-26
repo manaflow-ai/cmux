@@ -1582,13 +1582,15 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertTrue(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .cursorUpdate
+                eventType: .cursorUpdate,
+                hasLiveTabTransfer: true
             )
         )
         XCTAssertTrue(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .mouseEntered
+                eventType: .mouseEntered,
+                hasLiveTabTransfer: true
             )
         )
     }

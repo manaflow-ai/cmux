@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import CmuxFoundation
@@ -62,10 +63,10 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         let id = UUID()
         origin.beginDragging(tabId: id)
 
-        // Destination window mirrors the foreign id directly (no beginDragging),
-        // then resets its own state.
+        // Destination window mirrors the live foreign session, then resets its
+        // own presentation.
         let destination = SidebarDragState(workspaceDragRegistry: registry)
-        destination.draggedTabId = id
+        #expect(destination.mirrorDragging(tabId: id))
         destination.foreignDraggedIsPinned = true
         destination.clearDrag()
 
@@ -116,5 +117,74 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
 
         registry.end(workspaceId: second)
         #expect(registry.currentWorkspaceId == nil)
+    }
+
+    @Test func presentationDismissalKeepsNativeSessionAcrossReconstruction() throws {
+        let registry = SidebarWorkspaceDragRegistry()
+        let source = SidebarDragState(workspaceDragRegistry: registry)
+        let workspaceId = UUID()
+        _ = source.beginDragging(tabId: workspaceId)
+
+        source.dismissPresentation()
+
+        #expect(source.draggedTabId == nil)
+        #expect(registry.currentWorkspaceId == workspaceId)
+
+        let rebuilt = SidebarDragState(workspaceDragRegistry: registry)
+        #expect(rebuilt.mirrorDragging(tabId: workspaceId))
+        let sessionId = try #require(registry.currentSessionId)
+        registry.end(sessionId: sessionId)
+        #expect(rebuilt.draggedTabId == nil)
+        #expect(source.draggedTabId == nil)
+    }
+
+    @Test func staleNativeCompletionCannotEndNewerSession() {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-drag-lifecycle-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let registry = SidebarWorkspaceDragRegistry(
+            dragPasteboardProvider: { pasteboard }
+        )
+        let first = registry.beginSession(workspaceId: UUID())
+        let second = registry.beginSession(workspaceId: UUID())
+        pasteboard.setString(
+            second.pasteboardValue,
+            forType: NSPasteboard.PasteboardType(
+                SidebarWorkspaceDragSession.pasteboardTypeIdentifier
+            )
+        )
+
+        registry.nativeDraggingSessionDidEnd(
+            sessionId: first.id,
+            capabilityValue: first.pasteboardValue
+        )
+
+        #expect(registry.currentSession == second)
+        #expect(
+            pasteboard.string(
+                forType: NSPasteboard.PasteboardType(
+                    SidebarWorkspaceDragSession.pasteboardTypeIdentifier
+                )
+            ) == second.pasteboardValue
+        )
+    }
+
+    @Test func tokenizedPayloadRoundTripsWorkspaceAndSessionIdentity() {
+        let session = SidebarWorkspaceDragSession(workspaceId: UUID())
+
+        #expect(
+            SidebarWorkspaceDragPayloadParser().workspaceId(from: session.pasteboardValue)
+                == session.workspaceId
+        )
+        #expect(
+            SidebarWorkspaceDragPayloadParser().sessionId(from: session.pasteboardValue)
+                == session.id
+        )
+        #expect(
+            SidebarWorkspaceDragPayloadParser().workspaceId(
+                from: "\(SidebarWorkspaceDragSession.pasteboardPrefix)\(session.workspaceId.uuidString)"
+            ) == session.workspaceId
+        )
     }
 }

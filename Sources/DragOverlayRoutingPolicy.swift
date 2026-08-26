@@ -216,6 +216,7 @@ enum DragOverlayRoutingPolicy {
         hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
     }
 
+    @MainActor
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         let fileURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {
@@ -334,44 +335,27 @@ enum DragOverlayRoutingPolicy {
         return true
     }
 
-    static func shouldCaptureSidebarExternalOverlay(
-        hasSidebarDragState: Bool,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        guard hasSidebarDragState else { return false }
-        return hasSidebarTabReorder(pasteboardTypes)
-    }
-
-    static func shouldCaptureSidebarExternalOverlay(
-        draggedTabId: UUID?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        shouldCaptureSidebarExternalOverlay(
-            hasSidebarDragState: draggedTabId != nil,
-            pasteboardTypes: pasteboardTypes
-        )
-    }
-
     static func shouldPassThroughPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
-        hasActiveDropDrag: Bool = false
+        hasActiveDropDrag: Bool = false,
+        hasLiveTabTransfer: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
         let hasTabTransfer = hasBonsplitTabTransfer(pasteboardTypes)
-        let hasSidebarReorder = hasSidebarTabReorder(pasteboardTypes)
+            && hasLiveTabTransfer
+        let hasLiveFilePreviewTransfer = hasFilePreviewTransfer(pasteboardTypes)
+            && hasLiveTabTransfer
         switch routingContext.eventKind {
         case .pointerDrag:
             return hasTabTransfer
-                || hasFilePreviewTransfer(pasteboardTypes)
-                || hasSidebarReorder
+                || hasLiveFilePreviewTransfer
         case .pointerHover:
-            return hasTabTransfer || hasSidebarReorder
+            return hasTabTransfer
         case .pointerUp:
             guard hasActiveDropDrag else { return false }
             return hasTabTransfer
-                || hasFilePreviewTransfer(pasteboardTypes)
-                || hasSidebarReorder
+                || hasLiveFilePreviewTransfer
         case .noEvent, .keyboard, .pointerDown, .scroll, .appKitRouting, .other:
             return false
         }
@@ -380,7 +364,8 @@ enum DragOverlayRoutingPolicy {
     static func shouldPassThroughTerminalPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
-        hasActiveDropDrag: Bool = false
+        hasActiveDropDrag: Bool = false,
+        hasLiveTabTransfer: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
         guard routingContext.allowsTerminalPortalDragRouting else { return false }
@@ -389,13 +374,15 @@ enum DragOverlayRoutingPolicy {
             return shouldPassThroughPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
                 eventType: eventType,
-                hasActiveDropDrag: hasActiveDropDrag
+                hasActiveDropDrag: hasActiveDropDrag,
+                hasLiveTabTransfer: hasLiveTabTransfer
             ) || hasFileURL(pasteboardTypes)
         case .pointerUp:
             return shouldPassThroughPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
                 eventType: eventType,
-                hasActiveDropDrag: hasActiveDropDrag
+                hasActiveDropDrag: hasActiveDropDrag,
+                hasLiveTabTransfer: hasLiveTabTransfer
             )
         case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
             return false

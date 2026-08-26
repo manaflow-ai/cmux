@@ -11505,11 +11505,10 @@ class TerminalController {
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-            // Mark the drag as simulator-driven so VerticalTabsSidebar skips
-            // starting SidebarDragFailsafeMonitor — it would otherwise post
-            // mouse_up_failsafe immediately because no real mouse is pressed.
-            dragState.isSimulated = true
-            dragState.beginDragging(tabId: fromTabId)
+            // Simulation uses the same tokenized coordinator path as a real
+            // sidebar drag, but completes explicitly because no HID source is
+            // driving AppKit callbacks.
+            _ = dragState.beginDragging(tabId: fromTabId)
             return true
         }
         guard startedOK else {
@@ -11545,8 +11544,7 @@ class TerminalController {
 
         v2MainSync {
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
-            dragState.clearDrag()
-            dragState.isSimulated = false
+            dragState.finishDrag()
         }
 
         if aborted {
@@ -12237,7 +12235,11 @@ class TerminalController {
             let pb = NSPasteboard(name: .drag)
             shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pb.types,
-                eventType: eventType
+                eventType: eventType,
+                hasLiveTabTransfer: (
+                    pb.types?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
+                        || pb.types?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
+                ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(from: pb) != nil
             )
         }
         return shouldPassThrough ? "true" : "false"
@@ -12258,9 +12260,11 @@ class TerminalController {
         var shouldCapture = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
-            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
-                hasSidebarDragState: hasSidebarDragState,
-                pasteboardTypes: pb.types
+            shouldCapture = SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+                eventType: .leftMouseDragged,
+                pasteboardTypes: pb.types,
+                hasLiveWorkspaceDrag: hasSidebarDragState
+                    && AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
             )
         }
         return shouldCapture ? "true" : "false"

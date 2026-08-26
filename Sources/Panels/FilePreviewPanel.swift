@@ -508,7 +508,8 @@ final class FilePreviewDragRegistry {
     }
 }
 
-final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
+@MainActor
+final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPasteboardWriting {
     private struct MirrorTabItem: Codable {
         let id: UUID
         let title: String
@@ -528,16 +529,23 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         let sourceProcessId: Int32
     }
 
-    static let bonsplitTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    static let bonsplitTransferType = TabDragTransferRegistry.pasteboardType
 
     private let filePath: String
     private let displayTitle: String
+    private let tabDragTransferRegistry: TabDragTransferRegistry?
     private var transferData: Data?
+    private var bonsplitRegistration: TabDragTransferRegistration?
     private var didMirrorTransferDataToDragPasteboard = false
 
-    init(filePath: String, displayTitle: String) {
+    init(
+        filePath: String,
+        displayTitle: String,
+        tabDragTransferRegistry: TabDragTransferRegistry? = nil
+    ) {
         self.filePath = filePath
         self.displayTitle = displayTitle
+        self.tabDragTransferRegistry = tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
         super.init()
     }
 
@@ -549,6 +557,9 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     }
 
     static func dragID(from pasteboard: NSPasteboard) -> UUID? {
+        if let transfer = AppDelegate.shared?.tabDragTransferRegistry.resolve(from: pasteboard) {
+            return transfer.tab.id.uuid
+        }
         for type in [DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType] {
             if let data = pasteboard.data(forType: type),
                let id = dragID(from: data) {
@@ -563,6 +574,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     }
 
     static func discardRegisteredDrag(from pasteboard: NSPasteboard) {
+        AppDelegate.shared?.tabDragTransferRegistry.end(from: pasteboard)
         if let id = dragID(from: pasteboard) {
             FilePreviewDragRegistry.shared.discard(id: id)
         }
@@ -577,12 +589,15 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         let dragId = FilePreviewDragRegistry.shared.register(
             FilePreviewDragEntry(filePath: filePath, displayTitle: displayTitle)
         )
+        let icon = FilePreviewKindResolver.initialTabIconName(
+            for: URL(fileURLWithPath: filePath)
+        )
         let transfer = MirrorTabTransferData(
             tab: MirrorTabItem(
                 id: dragId,
                 title: displayTitle,
                 hasCustomTitle: false,
-                icon: FilePreviewKindResolver.initialTabIconName(for: URL(fileURLWithPath: filePath)),
+                icon: icon,
                 iconImageData: nil,
                 kind: "filePreview",
                 isDirty: false,
@@ -594,6 +609,17 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
             sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
         )
         let data = (try? JSONEncoder().encode(transfer)) ?? Data()
+        bonsplitRegistration = tabDragTransferRegistry?.register(
+            TabDragTransfer(
+                tab: Tab(
+                    id: TabID(uuid: dragId),
+                    title: displayTitle,
+                    icon: icon,
+                    kind: "filePreview"
+                ),
+                sourcePaneId: PaneID()
+            )
+        )
         transferData = data
         return data
     }
@@ -601,15 +627,23 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         let data = transferDataForDrag()
         mirrorTransferDataToDragPasteboard(data)
-        return [
+        var types: [NSPasteboard.PasteboardType] = [
             DragOverlayRoutingPolicy.filePreviewTransferType,
-            Self.bonsplitTransferType,
             .fileURL
         ]
+        if bonsplitRegistration != nil {
+            types.insert(Self.bonsplitTransferType, at: 1)
+        }
+        return types
     }
 
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == Self.bonsplitTransferType || type == DragOverlayRoutingPolicy.filePreviewTransferType {
+        if type == Self.bonsplitTransferType {
+            let data = transferDataForDrag()
+            mirrorTransferDataToDragPasteboard(data)
+            return bonsplitRegistration?.pasteboardItem.string(forType: Self.bonsplitTransferType)
+        }
+        if type == DragOverlayRoutingPolicy.filePreviewTransferType {
             let data = transferDataForDrag()
             mirrorTransferDataToDragPasteboard(data)
             return data
@@ -625,18 +659,15 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         guard !didMirrorTransferDataToDragPasteboard else { return }
         didMirrorTransferDataToDragPasteboard = true
         let fileURLString = URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
-        let write = { [transferData, fileURLString] in
-            let pasteboard = NSPasteboard(name: .drag)
-            pasteboard.addTypes([DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType, .fileURL], owner: nil)
-            pasteboard.setData(transferData, forType: Self.bonsplitTransferType)
-            pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-            pasteboard.setString(fileURLString, forType: .fileURL)
+        let pasteboard = NSPasteboard(name: .drag)
+        var types = [DragOverlayRoutingPolicy.filePreviewTransferType, .fileURL]
+        if bonsplitRegistration != nil {
+            types.append(Self.bonsplitTransferType)
         }
-        if Thread.isMainThread {
-            write()
-        } else {
-            DispatchQueue.main.async(execute: write)
-        }
+        pasteboard.addTypes(types, owner: nil)
+        bonsplitRegistration?.write(to: pasteboard)
+        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        pasteboard.setString(fileURLString, forType: .fileURL)
     }
 }
 

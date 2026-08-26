@@ -42,6 +42,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
+    private var isWorkspaceDragSourceActive = false
+    // Keep the source table alive until AppKit delivers the terminal callback.
+    // SwiftUI may remove the representable (fullscreen/display changes) while
+    // the native drag still owns that table.
+    private var activeWorkspaceDragTableView: SidebarWorkspaceTableViewImpl?
+    private var activeWorkspaceDragSessionId: UUID?
+    private var activeWorkspaceDragCapabilityValue: String?
+    private var pendingWorkspaceDragSessionId: UUID?
+    private var pendingWorkspaceDragWorkspaceId: UUID?
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
     private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
@@ -111,7 +120,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.action = #selector(didClickTableRow)
         table.doubleAction = #selector(didDoubleClickTableRow)
         table.setDraggingSourceOperationMask(.move, forLocal: true)
-        table.setDraggingSourceOperationMask(.move, forLocal: false)
+        // Workspace rows are a source only. Reorder/drop destinations live in
+        // the dedicated overlay so AppKit cannot claim Mission Control or
+        // other window-level drags while a stale pasteboard is present.
+        table.setDraggingSourceOperationMask([], forLocal: false)
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("workspace"))
         column.resizingMask = .autoresizingMask
@@ -173,8 +185,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
         let postUpdateActions = detachLoadedCells()
-        workspaceDragSessionDidEnd()
-        actions = nil
+        // A representable can be dismantled while AppKit still owns the native
+        // drag session (fullscreen/display reconstruction). Keep the action
+        // graph and table delegate alive until the terminal source callback.
+        if !isWorkspaceDragSourceActive {
+            actions?.endWorkspaceDrag()
+            actions = nil
+        }
+        clearWorkspaceDragPresentation()
         unreadObservation?.cancel()
         unreadObservation = nil
         unreadSource = nil
@@ -190,10 +208,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cancelSelectionIntent()
         clearDropViewActions(in: container)
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
-        container.tableView.workspaceController = nil
+        if !isWorkspaceDragSourceActive {
+            detachController(from: container.tableView)
+        }
         container.clipView.workspaceController = nil
-        container.tableView.dataSource = nil
-        container.tableView.delegate = nil
         containerView = nil
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
@@ -334,8 +352,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
-        workspaceDragSessionDidEnd()
-        actions = nil
+        if !isWorkspaceDragSourceActive {
+            actions?.endWorkspaceDrag()
+            actions = nil
+        }
+        clearWorkspaceDragPresentation()
         workspaceIds = liveWorkspaceIds
         selectedScrollTargetWorkspaceId = nil
         hoveredRowId = nil
@@ -826,15 +847,28 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Group headers intentionally mint their anchor payload: anchor drags
         // route to top-level whole-group plans and are rejected cross-window.
         guard rows.indices.contains(row), let actions else { return nil }
-        let workspaceId = rows[row].workspaceId
-        actions.beginWorkspaceDrag(workspaceId)
-        workspaceDragSessionDidBegin()
-        let item = NSPasteboardItem()
-        item.setString(
-            "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
-            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-        )
-        return item
+        let rowConfiguration = rows[row]
+        let workspaceId = actions.workspaceIdForDrag?(
+            rowConfiguration.id,
+            rowConfiguration.workspaceId
+        ) ?? rowConfiguration.workspaceId
+        let currentSessionId = actions.currentWorkspaceDragSessionId?()
+        let sessionId: UUID?
+        if let pendingWorkspaceDragSessionId,
+           pendingWorkspaceDragSessionId == currentSessionId,
+           pendingWorkspaceDragWorkspaceId != nil {
+            // NSTableView may ask for one writer per selected row. One native
+            // drag has one coordinator token; reuse it instead of superseding
+            // the session for every item.
+            sessionId = pendingWorkspaceDragSessionId
+        } else {
+            actions.beginWorkspaceDrag(workspaceId)
+            sessionId = actions.currentWorkspaceDragSessionId?()
+            pendingWorkspaceDragWorkspaceId = workspaceId
+        }
+        pendingWorkspaceDragSessionId = sessionId
+        let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
+        return SidebarTabDragPayload(tabId: payloadWorkspaceId, sessionId: sessionId).pasteboardItem()
     }
 
     func tableView(
@@ -845,6 +879,36 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) {
         _ = screenPoint
         let draggedRows = Array(rowIndexes)
+        if let sourceRow = draggedRows.first, rows.indices.contains(sourceRow) {
+            let rowConfiguration = rows[sourceRow]
+            let workspaceId = actions?.workspaceIdForDrag?(
+                rowConfiguration.id,
+                rowConfiguration.workspaceId
+            ) ?? rowConfiguration.workspaceId
+            let currentSessionId = actions?.currentWorkspaceDragSessionId?()
+            if pendingWorkspaceDragSessionId == nil || pendingWorkspaceDragSessionId != currentSessionId {
+                actions?.beginWorkspaceDrag(workspaceId)
+                pendingWorkspaceDragSessionId = actions?.currentWorkspaceDragSessionId?()
+                pendingWorkspaceDragWorkspaceId = workspaceId
+            }
+            let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
+            activeWorkspaceDragSessionId = pendingWorkspaceDragSessionId
+            if let activeWorkspaceDragSessionId {
+                let capabilityValue = SidebarTabDragPayload(
+                    tabId: payloadWorkspaceId,
+                    sessionId: activeWorkspaceDragSessionId
+                ).pasteboardValue
+                activeWorkspaceDragCapabilityValue = capabilityValue
+                // The writer runs before AppKit creates the session. Re-write
+                // the live pasteboard here so the terminal callback can fence
+                // cleanup against a newer drag of the same workspace.
+                session.draggingPasteboard.setString(
+                    capabilityValue,
+                    forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+                )
+            }
+            workspaceDragSessionDidBegin()
+        }
         session.enumerateDraggingItems(
             options: [],
             for: tableView,
@@ -854,7 +918,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             guard draggedRows.indices.contains(itemIndex) else { return }
             let row = draggedRows[itemIndex]
             guard rows.indices.contains(row) else { return }
-            let count = actions?.movingWorkspaceCount?(rows[row].workspaceId) ?? 1
+            let rowConfiguration = rows[row]
+            let workspaceId = actions?.workspaceIdForDrag?(
+                rowConfiguration.id,
+                rowConfiguration.workspaceId
+            ) ?? rowConfiguration.workspaceId
+            let count = actions?.movingWorkspaceCount?(workspaceId) ?? 1
             guard count > 1,
                   let image = workspaceDragImage(
                       tableView: tableView,
@@ -923,11 +992,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        actions?.endWorkspaceDrag()
         workspaceDragSessionDidEnd()
     }
 
     func workspaceDragSessionDidBegin() {
+        guard !isWorkspaceDragSourceActive else { return }
+        isWorkspaceDragSourceActive = true
+        if let tableView = containerView?.tableView {
+            activeWorkspaceDragTableView = tableView
+            tableView.activeWorkspaceDragController = self
+        }
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press
         // highlight painted in previewSelection — without this rollback a
@@ -941,9 +1015,48 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidEnd() {
+        guard isWorkspaceDragSourceActive else {
+            clearWorkspaceDragPresentation()
+            pendingWorkspaceDragSessionId = nil
+            return
+        }
+        isWorkspaceDragSourceActive = false
+        if let sessionId = activeWorkspaceDragSessionId,
+           let capabilityValue = activeWorkspaceDragCapabilityValue,
+           let finishWorkspaceDrag = actions?.finishWorkspaceDrag {
+            finishWorkspaceDrag(sessionId, capabilityValue)
+        } else {
+            actions?.endWorkspaceDrag()
+        }
+        activeWorkspaceDragSessionId = nil
+        activeWorkspaceDragCapabilityValue = nil
+        pendingWorkspaceDragSessionId = nil
+        pendingWorkspaceDragWorkspaceId = nil
         reorderDragWindowPoint = nil
         reorderDragPayloadWorkspaceId = nil
         retireReorderIndicator()
+
+        let tableView = activeWorkspaceDragTableView
+        activeWorkspaceDragTableView = nil
+        tableView?.activeWorkspaceDragController = nil
+        if let tableView, tableView !== containerView?.tableView {
+            detachController(from: tableView)
+        }
+        if !isPresentationActive || containerView == nil {
+            actions = nil
+        }
+    }
+
+    private func clearWorkspaceDragPresentation() {
+        reorderDragWindowPoint = nil
+        reorderDragPayloadWorkspaceId = nil
+        retireReorderIndicator()
+    }
+
+    private func detachController(from tableView: SidebarWorkspaceTableViewImpl) {
+        tableView.workspaceController = nil
+        tableView.dataSource = nil
+        tableView.delegate = nil
     }
 
     // MARK: Workspace reorder drop
@@ -961,8 +1074,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var reorderIndicatorPainter: SidebarWorkspaceTableReorderIndicatorPainter?
 
     /// Workspace id parsed from the live drag pasteboard by the overlay.
-    /// Survives dragState teardown (app-resign failsafe) so re-plans and the
-    /// final drop can re-arm the drag instead of silently no-oping.
+    /// Confirms the coordinator session during reconstruction; it cannot create
+    /// a session when the native source has already completed.
     private var reorderDragPayloadWorkspaceId: UUID?
 
     /// The plan whose indicator is currently painted. The drop commits this
@@ -1738,7 +1851,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             Self.reorderPayloadWorkspaceId(NSPasteboard(name: .drag))
         }
         reorder.isValidDrag = {
-            actions.isValidWorkspaceDrag() || livePayloadWorkspaceId() != nil
+            actions.isValidWorkspaceDrag()
+        }
+        reorder.hasLiveWorkspaceDrag = {
+            if let currentWorkspaceDragSessionId = actions.currentWorkspaceDragSessionId {
+                guard let sessionId = currentWorkspaceDragSessionId() else { return false }
+                return SidebarTabDragPayload.sessionId(
+                    from: NSPasteboard(name: .drag)
+                ) == sessionId
+            }
+            // Compatibility action bundles predate the tokenized registry; in
+            // those isolated clients the validity closure is their only live
+            // session signal.
+            return actions.isValidWorkspaceDrag()
         }
         reorder.updateDrag = { [weak self, weak reorder] point, _ in
             guard let self, let reorder else { return false }
@@ -1801,6 +1926,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let reorder = container.reorderDropView
         reorder.suspendPresentation()
         reorder.isValidDrag = { false }
+        reorder.hasLiveWorkspaceDrag = { false }
         reorder.updateDrag = { _, _ in false }
         reorder.performDropAtPoint = { _, _ in false }
         reorder.clearDropIndicator = {}

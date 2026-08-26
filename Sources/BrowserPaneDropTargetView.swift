@@ -51,7 +51,8 @@ final class BrowserPaneDropTargetView: NSView {
     @MainActor
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasLiveTabTransfer: Bool = false
     ) -> Bool {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
 
@@ -71,7 +72,9 @@ final class BrowserPaneDropTargetView: NSView {
         let fileDropWantsPreview = disposition == .previewInWorkspace
         let shouldCaptureFileDrop = disposition != nil
         let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+            && hasLiveTabTransfer
         let hasBonsplitTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+            && hasLiveTabTransfer
         let shouldCaptureFilePreviewTransfer = hasFilePreviewTransfer && (!hasFileURL || fileDropWantsPreview)
         let shouldCaptureBonsplitTransfer = hasBonsplitTransfer && !hasFilePreviewTransfer
         guard shouldCaptureBonsplitTransfer || shouldCaptureFilePreviewTransfer || shouldCaptureFileDrop else { return false }
@@ -88,9 +91,16 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         let pasteboardTypes = NSPasteboard(name: .drag).types
+        let hasLiveTabTransfer = (
+            pasteboardTypes?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
+                || pasteboardTypes?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
+        ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(
+            from: NSPasteboard(name: .drag)
+        ) != nil
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: eventType
+            eventType: eventType,
+            hasLiveTabTransfer: hasLiveTabTransfer
         )
 #if DEBUG
         logHitTestDecision(capture: capture, pasteboardTypes: pasteboardTypes, eventType: eventType)

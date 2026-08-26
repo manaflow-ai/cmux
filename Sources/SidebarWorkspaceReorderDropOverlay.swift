@@ -12,6 +12,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
     let performDrop: (CGPoint, [Target]) -> Bool
     let clearDropIndicator: () -> Void
     let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
+    let hasLiveWorkspaceDrag: () -> Bool
     let pointOffset: CGSize
 
     init(
@@ -21,6 +22,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         performDrop: @escaping (CGPoint, [Target]) -> Bool,
         clearDropIndicator: @escaping () -> Void,
         setWorkspaceDropTargetCollectionActive: @escaping (Bool) -> Void,
+        hasLiveWorkspaceDrag: @escaping () -> Bool = { false },
         pointOffset: CGSize = .zero
     ) {
         self.targetBridge = targetBridge
@@ -29,6 +31,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         self.performDrop = performDrop
         self.clearDropIndicator = clearDropIndicator
         self.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
+        self.hasLiveWorkspaceDrag = hasLiveWorkspaceDrag
         self.pointOffset = pointOffset
     }
 
@@ -51,6 +54,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         view.performDropAtPoint = performDrop
         view.clearDropIndicator = clearDropIndicator
         view.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
+        view.hasLiveWorkspaceDrag = hasLiveWorkspaceDrag
         view.pointOffset = pointOffset
     }
 
@@ -58,11 +62,16 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
 
     static func shouldCaptureHitTest(
         eventType: NSEvent.EventType?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        hasLiveWorkspaceDrag: Bool = false
     ) -> Bool {
         guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
             return false
         }
-        return pasteboardTypes?.contains(pasteboardType) == true
+        // AppKit keeps the last drag's UTI on NSPasteboard(name: .drag). The
+        // UTI is only a payload hint; a live coordinator session is required
+        // before this overlay may claim pointer events.
+        return hasLiveWorkspaceDrag
+            && pasteboardTypes?.contains(pasteboardType) == true
     }
 }

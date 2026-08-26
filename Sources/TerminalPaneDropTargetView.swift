@@ -52,13 +52,16 @@ final class PaneDropTargetView: NSView {
 
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasLiveTabTransfer: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
         guard routingContext.allowsPaneDropHitTesting else { return false }
 
         let hasTabTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileDropPayload(pasteboardTypes)
+            && hasLiveTabTransfer
+        let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
+            || (DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes) && hasLiveTabTransfer)
         guard hasTabTransfer || hasFileDropPayload else { return false }
 
         if hasFileDropPayload, !hasTabTransfer {
@@ -80,9 +83,16 @@ final class PaneDropTargetView: NSView {
         }
 
         let pasteboardTypes = NSPasteboard(name: .drag).types
+        let hasLiveTabTransfer = (
+            pasteboardTypes?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
+                || pasteboardTypes?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
+        ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(
+            from: NSPasteboard(name: .drag)
+        ) != nil
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: eventType
+            eventType: eventType,
+            hasLiveTabTransfer: hasLiveTabTransfer
         )
 #if DEBUG
         logHitTestDecision(capture: capture, pasteboardTypes: pasteboardTypes, eventType: eventType)

@@ -160,7 +160,28 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
             CmuxWebView.shouldRejectInternalPaneDrag([
                 DragOverlayRoutingPolicy.bonsplitTabTransferType,
                 NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
-            ])
+            ], hasLiveTabTransfer: true)
+        )
+    }
+
+    func testResidualInternalDragTypesDoNotBlockWebKit() {
+        XCTAssertFalse(
+            CmuxWebView.shouldRejectInternalPaneDrag([
+                DragOverlayRoutingPolicy.bonsplitTabTransferType
+            ]),
+            "A stale Bonsplit UTI without a live capability must not block WebKit."
+        )
+        XCTAssertFalse(
+            CmuxWebView.shouldRejectInternalPaneDrag([
+                DragOverlayRoutingPolicy.sidebarTabReorderType
+            ]),
+            "A stale sidebar UTI without a live session must not block WebKit."
+        )
+        XCTAssertTrue(
+            CmuxWebView.shouldRejectInternalPaneDrag(
+                [DragOverlayRoutingPolicy.sidebarTabReorderType],
+                hasLiveSidebarDrag: true
+            )
         )
     }
 

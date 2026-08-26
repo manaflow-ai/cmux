@@ -40,13 +40,18 @@ struct PaneTransferSourceResolver {
         self.surfaceIsLive = surfaceIsLive
     }
 
-    /// Normalizes opaque Bonsplit capabilities and legacy JSON onto one transfer model.
+    /// Resolves only an opaque live Bonsplit capability into one transfer model.
+    ///
+    /// A JSON payload from an earlier implementation can remain on AppKit's
+    /// drag pasteboard after completion. Falling back to that payload would
+    /// recreate a source from stale identity, so destination routing is gated
+    /// exclusively by the injected live registry.
     @MainActor
     func transfer(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
-        if let transfer = tabTransferRegistry()?.resolve(from: pasteboard) {
-            return PaneDragTransfer(tabDragTransfer: transfer)
+        guard let transfer = tabTransferRegistry()?.resolve(from: pasteboard) else {
+            return nil
         }
-        return PaneDragTransfer.decode(from: pasteboard)
+        return PaneDragTransfer(tabDragTransfer: transfer)
     }
 
     /// Captures the live source value so execution does not re-read mutable drag state.

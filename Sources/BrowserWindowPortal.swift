@@ -479,7 +479,11 @@ final class WindowBrowserHostView: NSView {
         if Self.shouldPassThroughToDragTargets(
             pasteboardTypes: dragPasteboard.types,
             eventType: eventType,
-            hasActiveDropDrag: hasActivePaneDropDrag
+            hasActiveDropDrag: hasActivePaneDropDrag,
+            hasLiveTabTransfer: (
+                dragPasteboard.types?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
+                    || dragPasteboard.types?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
+            ) && AppDelegate.shared?.tabDragTransferRegistry.resolve(from: dragPasteboard) != nil
         ) {
             if routingContext.eventKind == .pointerUp,
                hasActivePaneDropDrag,
@@ -838,12 +842,14 @@ final class WindowBrowserHostView: NSView {
     static func shouldPassThroughToDragTargets(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
-        hasActiveDropDrag: Bool = false
+        hasActiveDropDrag: Bool = false,
+        hasLiveTabTransfer: Bool = false
     ) -> Bool {
         DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType,
-            hasActiveDropDrag: hasActiveDropDrag
+            hasActiveDropDrag: hasActiveDropDrag,
+            hasLiveTabTransfer: hasLiveTabTransfer
         )
     }
 

@@ -1,7 +1,9 @@
 import XCTest
 import AppKit
 import SwiftUI
+import Testing
 @testable import Bonsplit
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -349,6 +351,102 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
+    func testStaleTabTransferTypeCannotEnablePortalHitTesting() {
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseDragged,
+                hasLiveTabTransfer: false
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseDragged,
+                hasLiveTabTransfer: true
+            )
+        )
+    }
+
+    func testInterruptedSidebarSessionCannotBlockTheNextPaneOrWorkspaceDrag() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("portal-drag-session-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let sidebarRegistry = SidebarWorkspaceDragRegistry(
+            dragPasteboardProvider: { pasteboard }
+        )
+        let sourcePresentation = SidebarDragState(workspaceDragRegistry: sidebarRegistry)
+        let firstWorkspaceId = UUID()
+        let interruptedSession = sourcePresentation.beginDragging(tabId: firstWorkspaceId)
+        #expect(pasteboard.setString(
+            interruptedSession.pasteboardValue,
+            forType: DragOverlayRoutingPolicy.sidebarTabReorderType
+        ))
+
+        // Fullscreen/display reconstruction can dismiss the old presentation
+        // while AppKit still owns the source. The rebuilt sidebar mirrors the
+        // live token and its terminal completion clears every presentation.
+        sourcePresentation.dismissPresentation()
+        let rebuiltPresentation = SidebarDragState(workspaceDragRegistry: sidebarRegistry)
+        #expect(rebuiltPresentation.mirrorDragging(tabId: firstWorkspaceId))
+        sidebarRegistry.nativeDraggingSessionDidEnd(
+            sessionId: interruptedSession.id,
+            capabilityValue: interruptedSession.pasteboardValue
+        )
+        #expect(sidebarRegistry.currentSessionId == nil)
+        #expect(rebuiltPresentation.draggedTabId == nil)
+
+        // Reproduce the system's residual UTI after completion. It must be
+        // inert for both the portal and the sidebar overlay.
+        #expect(pasteboard.setString(
+            interruptedSession.pasteboardValue,
+            forType: DragOverlayRoutingPolicy.sidebarTabReorderType
+        ))
+        #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+            pasteboardTypes: pasteboard.types,
+            eventType: .leftMouseDragged
+        ))
+        #expect(!SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDragged,
+            pasteboardTypes: pasteboard.types,
+            hasLiveWorkspaceDrag: false
+        ))
+
+        let tabRegistry = TabDragTransferRegistry()
+        let tabRegistration = try #require(tabRegistry.register(
+            TabDragTransfer(
+                tab: Tab(title: "Next pane", kind: "terminal"),
+                sourcePaneId: PaneID()
+            )
+        ))
+        pasteboard.clearContents()
+        #expect(tabRegistration.write(to: pasteboard))
+        #expect(DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+            pasteboardTypes: pasteboard.types,
+            eventType: .leftMouseDragged,
+            hasLiveTabTransfer: tabRegistry.resolve(from: pasteboard) != nil
+        ))
+        tabRegistry.end(tabRegistration)
+
+        let nextWorkspaceSession = sidebarRegistry.beginSession(workspaceId: UUID())
+        pasteboard.clearContents()
+        #expect(pasteboard.setString(
+            nextWorkspaceSession.pasteboardValue,
+            forType: DragOverlayRoutingPolicy.sidebarTabReorderType
+        ))
+        #expect(SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDragged,
+            pasteboardTypes: pasteboard.types,
+            hasLiveWorkspaceDrag: SidebarTabDragPayload.sessionId(from: pasteboard)
+                == sidebarRegistry.currentSessionId
+        ))
+        sidebarRegistry.nativeDraggingSessionDidEnd(
+            sessionId: nextWorkspaceSession.id,
+            capabilityValue: nextWorkspaceSession.pasteboardValue
+        )
+    }
+
     func testWindowInputRoutingContextRejectsKeyboardForPointerOnlyRoutes() {
         let context = WindowInputRoutingContext(eventType: .keyDown)
 
@@ -462,6 +560,13 @@ final class PortalTabDragRoutingTests: XCTestCase {
     }
 
     func testTerminalPaneDropTargetCapturesFinderFilesButIgnoresBrowserPayloads() {
+        XCTAssertFalse(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseDragged
+            ),
+            "A residual tab-transfer UTI must not capture terminal pane drags without a live registration."
+        )
         XCTAssertTrue(
             TerminalPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [.fileURL],
@@ -483,7 +588,8 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(
             TerminalPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType, .fileURL],
-                eventType: .leftMouseUp
+                eventType: .leftMouseUp,
+                hasLiveTabTransfer: true
             )
         )
 

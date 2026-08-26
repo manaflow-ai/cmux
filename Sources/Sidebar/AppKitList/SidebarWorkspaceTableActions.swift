@@ -1,6 +1,7 @@
 import Bonsplit
 import AppKit
 import CmuxFoundation
+import CmuxSidebar
 import Foundation
 
 /// Accepted reorder plan for the pointer's current position. The AppKit table
@@ -33,8 +34,7 @@ struct SidebarWorkspaceTableActions {
     let endWorkspaceDrag: () -> Void
     let isValidWorkspaceDrag: () -> Bool
     /// The trailing UUID is the drag pasteboard's workspace id, used to
-    /// re-arm drag state that was cleared while the native session stayed
-    /// alive (app-resign failsafe mid-drag).
+    /// restore presentation while the native session stays alive.
     let updateWorkspaceDrag: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate?
     let performWorkspaceDrop: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> Bool
     /// Commits a previously resolved plan verbatim (what the indicator showed).
@@ -49,4 +49,12 @@ struct SidebarWorkspaceTableActions {
     let updateDragAutoscroll: () -> Void
     let setBonsplitDropTargetCollectionActive: (Bool) -> Void
     let setBonsplitDropIndicator: (SidebarDropIndicator?) -> Void
+    /// Resolves the identity represented by a rendered row. Empty group
+    /// headers use the durable group id; grouped members keep their workspace
+    /// id so member drags never accidentally move the anchor.
+    let workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)? = nil
+    /// Reads the token for the currently prepared native sidebar drag.
+    let currentWorkspaceDragSessionId: (() -> UUID?)? = nil
+    /// Ends a specific native session without touching a newer session.
+    let finishWorkspaceDrag: ((UUID, String) -> Void)? = nil
 }

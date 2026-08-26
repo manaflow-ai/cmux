@@ -3570,6 +3570,33 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 
+    /// Resolves internal drag identity through the live registries. AppKit
+    /// drag callbacks arrive on the main thread, while this view predates the
+    /// app-wide MainActor annotation; the assumption keeps stale pasteboard
+    /// UTIs from suppressing ordinary file drops without adding a second owner.
+    private static func hasLiveInternalDrag(in pasteboard: NSPasteboard) -> Bool {
+        MainActor.assumeIsolated {
+            let app = AppDelegate.shared
+            if pasteboard.types?.contains(tabTransferPasteboardType) == true,
+               app?.tabDragTransferRegistry.resolve(from: pasteboard) != nil {
+                return true
+            }
+            guard pasteboard.types?.contains(sidebarTabReorderPasteboardType) == true,
+                  let currentSessionId = app?.sidebarWorkspaceDragRegistry.currentSessionId,
+                  let raw = SidebarTabDragPayload.pasteboardString(from: pasteboard),
+                  let payloadSessionId = SidebarTabDragPayload.sessionId(
+                      fromPasteboardString: raw
+                  ) else {
+                return false
+            }
+            return payloadSessionId == currentSessionId
+        }
+    }
+
+    private static func filteredDropTypes(_ types: [NSPasteboard.PasteboardType]) -> Set<NSPasteboard.PasteboardType> {
+        Set(types).subtracting([tabTransferPasteboardType, sidebarTabReorderPasteboardType])
+    }
+
     private enum WordPathResolutionSource: String {
         case quicklook
         case snapshot
@@ -4279,8 +4306,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
-        let types = NSPasteboard(name: .drag).types ?? []
-        return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
+        let pasteboard = NSPasteboard(name: .drag)
+        return hasLiveInternalDrag(in: pasteboard)
     }
 
     private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
@@ -8138,10 +8165,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let types = sender.draggingPasteboard.types else { return [] }
         // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
         // drop overlays should win over the terminal's text/file drop handling.
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return []
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
+        if Self.filteredDropTypes(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
         return .copy
@@ -8153,10 +8180,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return []
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
+        if Self.filteredDropTypes(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
         return .copy
@@ -8164,7 +8191,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let types = sender.draggingPasteboard.types ?? []
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return false
         }
         #if DEBUG
