@@ -37700,6 +37700,57 @@
         }
       }
     },
+    "cli.error.clearNotificationsCorrelationKeyInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid notification correlation key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知相関キーが無効です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsCorrelationKeyRequiresPanel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key requires --panel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key には --panel が必要です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        }
+      }
+    },
     "cli.error.markNotificationReadSelector": {
       "extractionState": "manual",
       "localizations": {
