@@ -3,6 +3,7 @@ import Foundation
 /// Matches `*` and `?` URL rules in linear time without regex backtracking.
 struct BrowserExternalURLWildcardPattern: Sendable {
     private let maximumPatternLength = 4096
+    private let literalAnchor: String?
     private let tokens: [BrowserExternalURLWildcardToken]
 
     /// Parses one glob, preserving backslash-escaped wildcard characters.
@@ -13,6 +14,8 @@ struct BrowserExternalURLWildcardPattern: Sendable {
         var parsed: [BrowserExternalURLWildcardToken] = []
         parsed.reserveCapacity(pattern.count)
         var isEscaping = false
+        var currentLiteral = ""
+        var longestLiteral = ""
 
         // Pattern matching preserves the legacy substring behavior of the
         // regex implementation, so every glob has an implicit `*` at both
@@ -27,6 +30,7 @@ struct BrowserExternalURLWildcardPattern: Sendable {
                         literal: String(character).lowercased()
                     )
                 )
+                currentLiteral += String(character).lowercased()
                 isEscaping = false
                 continue
             }
@@ -41,8 +45,16 @@ struct BrowserExternalURLWildcardPattern: Sendable {
                 if parsed.last?.kind != 0 {
                     parsed.append(BrowserExternalURLWildcardToken(kind: 0, literal: nil))
                 }
+                if currentLiteral.count > longestLiteral.count {
+                    longestLiteral = currentLiteral
+                }
+                currentLiteral = ""
             case "?":
                 parsed.append(BrowserExternalURLWildcardToken(kind: 1, literal: nil))
+                if currentLiteral.count > longestLiteral.count {
+                    longestLiteral = currentLiteral
+                }
+                currentLiteral = ""
             default:
                 parsed.append(
                     BrowserExternalURLWildcardToken(
@@ -50,22 +62,33 @@ struct BrowserExternalURLWildcardPattern: Sendable {
                         literal: String(character).lowercased()
                     )
                 )
+                currentLiteral += String(character).lowercased()
             }
         }
         if isEscaping {
             parsed.append(BrowserExternalURLWildcardToken(kind: 2, literal: "\\"))
+            currentLiteral += "\\"
+        }
+        if currentLiteral.count > longestLiteral.count {
+            longestLiteral = currentLiteral
         }
         if parsed.last?.kind != 0 {
             parsed.append(BrowserExternalURLWildcardToken(kind: 0, literal: nil))
         }
+        literalAnchor = longestLiteral.count >= 2 ? longestLiteral : nil
         tokens = parsed
     }
 
     /// Returns whether the glob matches `target` using a bounded greedy scan.
     func matches(
         _ characters: [String],
+        normalizedTarget: String,
         operationBudget: inout Int
     ) -> Bool {
+        if let literalAnchor,
+           normalizedTarget.range(of: literalAnchor) == nil {
+            return false
+        }
         var tokenIndex = 0
         var characterIndex = 0
         var lastStarIndex: Int?

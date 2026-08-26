@@ -6,10 +6,12 @@ struct BrowserExternalURLRegexSafety: Sendable {
     let maximumTargetLength = 16_384
     /// Maximum regex expression text accepted by the matcher.
     private let maximumExpressionLength = 8_192
-    // Eight quantifiers keep even the worst non-nested optional sequence
-    // bounded while covering normal URL rules (`https?`, `.*`, and `\d+`).
-    private let maximumQuantifierCount = 8
-    private let maximumAlternationCount = 32
+    // Two quantifiers and one alternation cover normal URL rules (`https?`,
+    // `.*`, and `\d+`) while keeping the accepted regex subset small enough
+    // for synchronous navigation decisions.
+    private let maximumQuantifierCount = 2
+    private let maximumAlternationCount = 1
+    private let minimumFixedSeparatorLengthForRepeatedQuantifiers = 7
 
     /// Returns whether `expression` has a bounded, supported shape.
     func accepts(_ expression: String) -> Bool {
@@ -27,6 +29,7 @@ struct BrowserExternalURLRegexSafety: Sendable {
         var quantifierCount = 0
         var alternationCount = 0
         var fixedCharactersSinceQuantifier: Int?
+        var previousQuantifierWasUnbounded: Bool?
         var index = expression.startIndex
 
         while index < expression.endIndex {
@@ -102,6 +105,7 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 previousAtom = 0
                 previousGroupIsComplex = false
                 fixedCharactersSinceQuantifier = nil
+                previousQuantifierWasUnbounded = nil
             case "*", "+", "?", "{":
                 var quantifierEndIndex = nextIndex
                 if character == "{" {
@@ -118,6 +122,13 @@ struct BrowserExternalURLRegexSafety: Sendable {
                    fixedCharactersSinceQuantifier < 3 {
                     return false
                 }
+                let quantifierIsUnbounded = character != "?"
+                if quantifierIsUnbounded,
+                   previousQuantifierWasUnbounded == true,
+                   let fixedCharactersSinceQuantifier,
+                   fixedCharactersSinceQuantifier < minimumFixedSeparatorLengthForRepeatedQuantifiers {
+                    return false
+                }
                 quantifierCount += 1
                 guard quantifierCount <= maximumQuantifierCount else { return false }
                 if !groupHasQuantifier.isEmpty {
@@ -126,12 +137,14 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 previousAtom = 3
                 previousGroupIsComplex = false
                 fixedCharactersSinceQuantifier = 0
+                previousQuantifierWasUnbounded = quantifierIsUnbounded
                 index = quantifierEndIndex
                 continue
             case "^", "$":
                 previousAtom = 0
                 previousGroupIsComplex = false
                 fixedCharactersSinceQuantifier = nil
+                previousQuantifierWasUnbounded = nil
             default:
                 previousAtom = 1
                 previousGroupIsComplex = false
@@ -147,7 +160,7 @@ struct BrowserExternalURLRegexSafety: Sendable {
 
     private func incrementFixed(_ value: inout Int?) {
         if let current = value {
-            value = min(current + 1, 3)
+            value = min(current + 1, 7)
         }
     }
 

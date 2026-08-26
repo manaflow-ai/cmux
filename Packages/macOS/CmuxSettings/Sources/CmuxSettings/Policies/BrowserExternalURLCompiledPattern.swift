@@ -49,10 +49,15 @@ struct BrowserExternalURLCompiledPattern: Sendable {
     func matches(
         _ target: String,
         normalizedTarget: [String],
+        normalizedTargetString: String,
         operationBudget: inout Int
     ) -> Bool {
         if let wildcardPattern {
-            return wildcardPattern.matches(normalizedTarget, operationBudget: &operationBudget)
+            return wildcardPattern.matches(
+                normalizedTarget,
+                normalizedTarget: normalizedTargetString,
+                operationBudget: &operationBudget
+            )
         }
         if let literalPattern {
             return target.range(of: literalPattern, options: [.caseInsensitive]) != nil

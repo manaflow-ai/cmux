@@ -3,7 +3,9 @@ import Foundation
 /// Normalizes URL rules and evaluates them with bounded, precompiled matchers.
 struct BrowserExternalURLPatternMatcher: Sendable {
     private let maximumTargetLength = 16_384
-    private let maximumMatchOperations = 1_000_000
+    /// Each wildcard receives an independent bounded slice so a costly rule
+    /// cannot prevent a later valid rule from being considered.
+    private let maximumMatchOperationsPerPattern = 32_768
     /// The largest number of rules retained by one policy snapshot.
     private let maximumPatternCount = 256
     /// The largest number of array elements inspected by one policy snapshot.
@@ -47,19 +49,22 @@ struct BrowserExternalURLPatternMatcher: Sendable {
             return false
         }
 
-        let normalizedTarget = compiledPatterns.contains(where: \.requiresNormalizedTarget)
-            ? target.lowercased().map(String.init)
-            : []
-        var operationBudget = maximumMatchOperations
+        let normalizedTargetString = compiledPatterns.contains(where: \.requiresNormalizedTarget)
+            ? target.lowercased()
+            : ""
+        let normalizedTarget = normalizedTargetString.isEmpty
+            ? []
+            : normalizedTargetString.map(String.init)
         for pattern in compiledPatterns {
+            var operationBudget = maximumMatchOperationsPerPattern
             if pattern.matches(
                 target,
                 normalizedTarget: normalizedTarget,
+                normalizedTargetString: normalizedTargetString,
                 operationBudget: &operationBudget
             ) {
                 return true
             }
-            guard operationBudget >= 0 else { return false }
         }
         return false
     }
