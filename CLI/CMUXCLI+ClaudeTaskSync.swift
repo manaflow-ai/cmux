@@ -111,20 +111,20 @@ extension CMUXCLI {
             let isTeamDeleteHook = isClaudeTeamDeleteHook(parsedInput)
             let coalescingTaskListID = deletedTeamTaskDirectoryName
                 ?? configuredTaskDirectoryName
-            let taskSyncLockScope = taskStoreIdentity.rawValue
+            let taskStoreScope = taskStoreIdentity.rawValue
             let taskSyncScanIdentity = Data(
                 "\(sessionID.utf8.count):\(sessionID)\((agentID ?? "").utf8.count):\(agentID ?? "")".utf8
             ).base64EncodedString()
             // Until the authoritative task list is known, every hook keeps an
             // identity-qualified scan scope. Independent automatic teams must
             // not supersede one another's first snapshot.
-            let taskSyncScanScope = taskSyncLockScope
+            let taskSyncScanScope = taskStoreScope
                 + ":<task-sync-scan>:" + taskSyncScanIdentity
             let initialCoalescingScope = coalescingTaskListID.map {
-                taskSyncLockScope + ":" + $0
+                taskStoreScope + ":" + $0
             } ?? taskSyncScanScope
             var activeTaskSyncClaim: (scope: String, token: String)?
-            let taskHookStartedAt = mappedSession?.startedAt
+            var taskHookStartedAt = mappedSession?.startedAt
             let taskHookStartedAfterSessionEnd = taskSyncSessionEntry.ended && !isTeamDeleteHook
             let taskHookPID = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             if let taskHookStartedAt, !isTeamDeleteHook {
@@ -149,7 +149,7 @@ extension CMUXCLI {
             } catch let error as POSIXError where error.code == .E2BIG {
                 // Reserve one deterministic overflow slot so saturation keeps
                 // one bounded worker instead of queueing unbounded full scans.
-                let overflowScope = taskSyncLockScope + ":<task-sync-overflow>"
+                let overflowScope = taskStoreScope + ":<task-sync-overflow>"
                 guard let overflowToken = try? sessionStore.claimClaudeTaskSync(
                     scope: overflowScope,
                     sessionId: isTeamDeleteHook ? nil : sessionID,
@@ -201,7 +201,7 @@ extension CMUXCLI {
                 )
                 guard !normalizedTaskListID.isEmpty else { return false }
                 guard let currentClaim = activeTaskSyncClaim else { return true }
-                let ownerScope = taskSyncLockScope + ":" + normalizedTaskListID
+                let ownerScope = taskStoreScope + ":" + normalizedTaskListID
                 if currentClaim.scope.hasSuffix(":<task-sync-overflow>") {
                     guard try sessionStore.transferClaudeTaskSyncClaim(
                         fromScope: currentClaim.scope,
@@ -225,12 +225,13 @@ extension CMUXCLI {
             // stay suppressed; live routing was already validated above, while
             // the resolved list identity owns shared synchronization.
             // Claude starts async hooks as independent CLI processes, which a
-            // Swift actor cannot serialize. The durable-store-scoped lock spans
-            // every configured Claude root: a later hook reads the latest files
-            // only after the earlier snapshot and ownership transition finish.
+            // Swift actor cannot serialize. Use the best-known coalescing scope
+            // for the lease: configured/deleted lists get a per-list lease,
+            // while first-sighting scans use an identity-qualified slot. This
+            // keeps unrelated lists from waiting behind a slow reconciliation.
             try sessionStore.withClaudeTaskSyncLock(
                 deadlineUptime: hookDeadlineUptime,
-                scope: taskSyncLockScope
+                scope: initialCoalescingScope
             ) {
                 guard taskSyncIsLatest() else {
                     telemetry.breadcrumb("claude-hook.task-sync.coalesced")
@@ -591,6 +592,15 @@ extension CMUXCLI {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
                     }
+                    let destinationWasRetired = try sessionStore.isClaudeTaskListRetired(
+                        taskListID: snapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity
+                    )
+                    let destinationRecordBeforePrepare = try sessionStore
+                        .claudeTaskListDestinationRecord(
+                            taskListID: snapshot.directoryName,
+                            taskStoreIdentity: taskStoreIdentity
+                        )
                     guard try prepareClaudeTaskListDestination(
                         taskDirectoryName: snapshot.directoryName,
                         taskStoreIdentity: taskStoreIdentity,
@@ -601,7 +611,12 @@ extension CMUXCLI {
                         telemetry: telemetry,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
-                    guard try sessionStore.bindClaudeTaskDirectory(
+                    let destinationRecordAfterPrepare = try sessionStore
+                        .claudeTaskListDestinationRecord(
+                            taskListID: snapshot.directoryName,
+                            taskStoreIdentity: taskStoreIdentity
+                        )
+                    guard let boundRecord = try sessionStore.bindClaudeTaskDirectory(
                         sessionId: sessionID,
                         directoryName: snapshot.directoryName,
                         taskStoreIdentity: taskStoreIdentity,
@@ -614,6 +629,24 @@ extension CMUXCLI {
                         telemetry.breadcrumb("claude-hook.task-sync.session-ended")
                         return
                     }
+                    if taskHookStartedAt == nil {
+                        taskHookStartedAt = boundRecord.startedAt
+                    }
+                    guard taskSyncIsLatest() else {
+                        rollbackFirstSightingClaudeTaskSync(
+                            currentRecord: currentRecord,
+                            boundRecord: boundRecord,
+                            taskDirectoryName: snapshot.directoryName,
+                            taskStoreIdentity: taskStoreIdentity,
+                            bindingSource: .configuredList,
+                            destinationBefore: destinationRecordBeforePrepare,
+                            destinationAfter: destinationRecordAfterPrepare,
+                            destinationWasRetired: destinationWasRetired,
+                            sessionStore: sessionStore
+                        )
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     guard sendClaudeTaskFeedSnapshot(
                         snapshot.todos,
                         client: client,
@@ -623,7 +656,20 @@ extension CMUXCLI {
                         surfaceId: resolvedTarget.surfaceId,
                         socketPassword: socketPassword,
                         deadlineUptime: hookDeadlineUptime
-                    ) else { return }
+                    ) else {
+                        rollbackFirstSightingClaudeTaskSync(
+                            currentRecord: currentRecord,
+                            boundRecord: boundRecord,
+                            taskDirectoryName: snapshot.directoryName,
+                            taskStoreIdentity: taskStoreIdentity,
+                            bindingSource: .configuredList,
+                            destinationBefore: destinationRecordBeforePrepare,
+                            destinationAfter: destinationRecordAfterPrepare,
+                            destinationWasRetired: destinationWasRetired,
+                            sessionStore: sessionStore
+                        )
+                        return
+                    }
                     guard let delivery = reconcileClaudeTaskSnapshot(
                         snapshot,
                         taskStoreIdentity: taskStoreIdentity,
@@ -716,10 +762,18 @@ extension CMUXCLI {
                             deadlineUptime: hookDeadlineUptime
                         ).succeeded else { return }
                     }
+                    let teamBindingBeforeCommit = try sessionStore.claudeTeamTaskBindingRecord(
+                        taskListID: snapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity
+                    )
                     let teamWorkspaceIDs = try sessionStore.commitClaudeTeamTaskListBinding(
                         automaticTeamResolution.binding,
                         workspaceIDs: transition.workspaceIDs,
                         retiredRecords: transition.retiredRecords
+                    )
+                    let teamBindingAfterCommit = try sessionStore.claudeTeamTaskBindingRecord(
+                        taskListID: snapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity
                     )
                     guard try migrateLegacyClaudeTaskChecklistOwnerIfNeeded(
                         currentRecord: currentRecord,
@@ -736,7 +790,7 @@ extension CMUXCLI {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
                     }
-                    guard try sessionStore.bindClaudeTaskDirectory(
+                    guard let boundRecord = try sessionStore.bindClaudeTaskDirectory(
                         sessionId: sessionID,
                         directoryName: snapshot.directoryName,
                         taskStoreIdentity: taskStoreIdentity,
@@ -749,7 +803,22 @@ extension CMUXCLI {
                         telemetry.breadcrumb("claude-hook.task-sync.session-ended")
                         return
                     }
+                    if taskHookStartedAt == nil {
+                        taskHookStartedAt = boundRecord.startedAt
+                    }
                     guard taskSyncIsLatest() else {
+                        rollbackFirstSightingClaudeTaskSync(
+                            currentRecord: currentRecord,
+                            boundRecord: boundRecord,
+                            taskDirectoryName: snapshot.directoryName,
+                            taskStoreIdentity: taskStoreIdentity,
+                            bindingSource: .automaticTeam,
+                            destinationBefore: nil,
+                            destinationAfter: nil,
+                            teamBindingBefore: teamBindingBeforeCommit,
+                            teamBindingAfter: teamBindingAfterCommit,
+                            sessionStore: sessionStore
+                        )
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
                     }
@@ -762,7 +831,21 @@ extension CMUXCLI {
                         surfaceId: resolvedTarget.surfaceId,
                         socketPassword: socketPassword,
                         deadlineUptime: hookDeadlineUptime
-                    ) else { return }
+                    ) else {
+                        rollbackFirstSightingClaudeTaskSync(
+                            currentRecord: currentRecord,
+                            boundRecord: boundRecord,
+                            taskDirectoryName: snapshot.directoryName,
+                            taskStoreIdentity: taskStoreIdentity,
+                            bindingSource: .automaticTeam,
+                            destinationBefore: nil,
+                            destinationAfter: nil,
+                            teamBindingBefore: teamBindingBeforeCommit,
+                            teamBindingAfter: teamBindingAfterCommit,
+                            sessionStore: sessionStore
+                        )
+                        return
+                    }
                     guard let delivery = reconcileClaudeTaskSnapshot(
                         snapshot,
                         taskStoreIdentity: taskStoreIdentity,
@@ -949,6 +1032,15 @@ extension CMUXCLI {
                     telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                     return
                 }
+                let destinationWasRetired = try sessionStore.isClaudeTaskListRetired(
+                    taskListID: sessionSnapshot.directoryName,
+                    taskStoreIdentity: taskStoreIdentity
+                )
+                let destinationRecordBeforePrepare = try sessionStore
+                    .claudeTaskListDestinationRecord(
+                        taskListID: sessionSnapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity
+                    )
                 guard try prepareClaudeTaskListDestination(
                     taskDirectoryName: sessionSnapshot.directoryName,
                     taskStoreIdentity: taskStoreIdentity,
@@ -959,7 +1051,12 @@ extension CMUXCLI {
                     telemetry: telemetry,
                     deadlineUptime: hookDeadlineUptime
                 ) else { return }
-                guard try sessionStore.bindClaudeTaskDirectory(
+                let destinationRecordAfterPrepare = try sessionStore
+                    .claudeTaskListDestinationRecord(
+                        taskListID: sessionSnapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity
+                    )
+                guard let boundRecord = try sessionStore.bindClaudeTaskDirectory(
                     sessionId: sessionID,
                     directoryName: sessionSnapshot.directoryName,
                     taskStoreIdentity: taskStoreIdentity,
@@ -984,6 +1081,26 @@ extension CMUXCLI {
                     }
                     return
                 }
+                if taskHookStartedAt == nil {
+                    taskHookStartedAt = boundRecord.startedAt
+                }
+                guard taskSyncIsLatest() else {
+                    rollbackFirstSightingClaudeTaskSync(
+                        currentRecord: currentRecord,
+                        boundRecord: boundRecord,
+                        taskDirectoryName: sessionSnapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity,
+                        bindingSource: usedCompatibilityScan
+                            ? .compatibilityScan
+                            : (taskBindingSource ?? .directSession),
+                        destinationBefore: destinationRecordBeforePrepare,
+                        destinationAfter: destinationRecordAfterPrepare,
+                        destinationWasRetired: destinationWasRetired,
+                        sessionStore: sessionStore
+                    )
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                    return
+                }
                 guard sendClaudeTaskFeedSnapshot(
                     sessionSnapshot.todos,
                     client: client,
@@ -993,7 +1110,22 @@ extension CMUXCLI {
                     surfaceId: resolvedTarget.surfaceId,
                     socketPassword: socketPassword,
                     deadlineUptime: hookDeadlineUptime
-                ) else { return }
+                ) else {
+                    rollbackFirstSightingClaudeTaskSync(
+                        currentRecord: currentRecord,
+                        boundRecord: boundRecord,
+                        taskDirectoryName: sessionSnapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity,
+                        bindingSource: usedCompatibilityScan
+                            ? .compatibilityScan
+                            : (taskBindingSource ?? .directSession),
+                        destinationBefore: destinationRecordBeforePrepare,
+                        destinationAfter: destinationRecordAfterPrepare,
+                        destinationWasRetired: destinationWasRetired,
+                        sessionStore: sessionStore
+                    )
+                    return
+                }
                 let delivery = reconcileClaudeTaskSnapshot(
                     sessionSnapshot,
                     taskStoreIdentity: taskStoreIdentity,
@@ -1064,6 +1196,55 @@ extension CMUXCLI {
             )
         }
         printClaudeHookAck()
+    }
+
+    /// Rolls back durable state created by a first-sighting hook whose Feed
+    /// snapshot was rejected. Existing generations remain untouched so their
+    /// owner can retry on the next task event.
+    private func rollbackFirstSightingClaudeTaskSync(
+        currentRecord: ClaudeHookSessionRecord?,
+        boundRecord: ClaudeHookSessionRecord,
+        taskDirectoryName: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        bindingSource: ClaudeTaskBindingSource,
+        destinationBefore: ClaudeHookTaskListDestinationRecord?,
+        destinationAfter: ClaudeHookTaskListDestinationRecord?,
+        destinationWasRetired: Bool = false,
+        teamBindingBefore: ClaudeHookTeamTaskBindingRecord? = nil,
+        teamBindingAfter: ClaudeHookTeamTaskBindingRecord? = nil,
+        sessionStore: ClaudeHookSessionStore
+    ) {
+        guard currentRecord == nil else { return }
+        if let destinationAfter {
+            _ = try? sessionStore.restoreClaudeTaskListDestinationRecord(
+                before: destinationBefore,
+                after: destinationAfter
+            )
+            if destinationWasRetired {
+                try? sessionStore.retireClaudeTaskList(
+                    taskListID: taskDirectoryName,
+                    taskStoreIdentity: taskStoreIdentity
+                )
+            } else {
+                try? sessionStore.unretireClaudeTaskList(
+                    taskListID: taskDirectoryName,
+                    taskStoreIdentity: taskStoreIdentity
+                )
+            }
+        }
+        if let teamBindingAfter {
+            _ = try? sessionStore.restoreClaudeTeamTaskBinding(
+                before: teamBindingBefore,
+                after: teamBindingAfter
+            )
+        }
+        _ = try? sessionStore.removeClaudeTaskSyncSessionIfMatching(
+            sessionId: boundRecord.sessionId,
+            expectedStartedAt: boundRecord.startedAt,
+            directoryName: taskDirectoryName,
+            taskStoreIdentity: taskStoreIdentity,
+            source: bindingSource
+        )
     }
 
     /// Clears every proven prior personal destination after its replacement succeeds.

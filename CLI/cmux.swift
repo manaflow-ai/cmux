@@ -515,9 +515,8 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Serializes task snapshot publication across every Claude config root
-    /// that shares this durable hook store, without waiting past the hook's
-    /// absolute deadline.
+    /// Serializes task snapshot publication for one bounded task-sync scope
+    /// without waiting past the hook's absolute deadline.
     func withClaudeTaskSyncLock<T>(
         deadlineUptime: TimeInterval,
         scope: String? = nil,
@@ -754,12 +753,11 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Persists a session-owned task-directory binding and its latest destination.
+    /// Persists a session-owned task-directory binding and returns its generation proof.
     ///
     /// Claude launches asynchronous hooks in separate CLI processes, so the
     /// binding is updated inside the existing cross-process session-store
     /// transaction rather than process-local mutable state.
-    @discardableResult
     func bindClaudeTaskDirectory(
         sessionId: String,
         directoryName: String,
@@ -769,7 +767,7 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         expectedStartedAt: TimeInterval? = nil,
         source: ClaudeTaskBindingSource = .directSession
-    ) throws -> Bool {
+    ) throws -> ClaudeHookSessionRecord? {
         let normalizedSessionId = normalizeSessionId(sessionId)
         let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
@@ -779,13 +777,13 @@ final class ClaudeHookSessionStore {
               normalizedDirectoryName != ".",
               normalizedDirectoryName != "..",
               !normalizedDirectoryName.contains("/"),
-              !normalizedDirectoryName.contains("\0") else { return false }
+              !normalizedDirectoryName.contains("\0") else { return nil }
         return try withLockedState { state in
             // A task hook may finish after SessionEnd consumed its record. Do
             // not let that stale process recreate the ended session.
             guard state.endedSessionIDs[normalizedSessionId] == nil,
                   state.endedSessionGenerationStarts[normalizedSessionId] == nil else {
-                return false
+                return nil
             }
             let now = Date.now.timeIntervalSince1970
             var record: ClaudeHookSessionRecord
@@ -794,7 +792,7 @@ final class ClaudeHookSessionStore {
                       existing.startedAt == expectedStartedAt else {
                     // A hook that began without a record must not bind into a
                     // newly-created generation that appeared while it ran.
-                    return false
+                    return nil
                 }
                 record = existing
             } else {
@@ -802,7 +800,7 @@ final class ClaudeHookSessionStore {
                 // record existed at hook entry. If one did exist, the caller
                 // supplies its generation and this branch fails closed after
                 // SessionEnd removes it.
-                guard expectedStartedAt == nil else { return false }
+                guard expectedStartedAt == nil else { return nil }
                 record = ClaudeHookSessionRecord(
                     sessionId: normalizedSessionId,
                     workspaceId: normalizedWorkspaceId,
@@ -813,7 +811,7 @@ final class ClaudeHookSessionStore {
             }
             if let pid {
                 if let existingPID = record.pid, existingPID != pid {
-                    return false
+                    return nil
                 }
                 record.pid = pid
                 if let identity = processStartIdentity(pid: pid) {
@@ -827,7 +825,9 @@ final class ClaudeHookSessionStore {
                 || record.surfaceId != normalizedSurfaceId
             let generationProofChanged = record.claudeTaskBindingStartedAt != record.startedAt
                 || record.claudeTaskBindingSource != source
-            guard bindingChanged || destinationChanged || generationProofChanged else { return true }
+            guard bindingChanged || destinationChanged || generationProofChanged else {
+                return record
+            }
             if bindingChanged {
                 record.claudeTaskDirectoryName = normalizedDirectoryName
                 record.claudeTaskStoreID = taskStoreIdentity.rawValue
@@ -839,6 +839,48 @@ final class ClaudeHookSessionStore {
             record.surfaceId = normalizedSurfaceId
             record.updatedAt = now
             state.sessions[normalizedSessionId] = record
+            return record
+        }
+    }
+
+    /// Removes a first-sighting task-sync session only when its binding proof
+    /// still matches the hook that created it. This is the failure rollback for
+    /// an unacknowledged Feed snapshot; an unrelated lifecycle update cannot
+    /// delete a newer generation by accident.
+    @discardableResult
+    func removeClaudeTaskSyncSessionIfMatching(
+        sessionId: String,
+        expectedStartedAt: TimeInterval,
+        directoryName: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        source: ClaudeTaskBindingSource
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        let normalizedDirectoryName = directoryName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedSessionId.isEmpty,
+              !normalizedDirectoryName.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalizedSessionId],
+                  record.startedAt == expectedStartedAt,
+                  record.claudeTaskDirectoryName == normalizedDirectoryName,
+                  record.claudeTaskStoreID == taskStoreIdentity.rawValue,
+                  record.claudeTaskBindingStartedAt == expectedStartedAt,
+                  record.claudeTaskBindingSource?.rawValue == source.rawValue else {
+                return false
+            }
+            state.sessions.removeValue(forKey: normalizedSessionId)
+            if record.pendingCursorShellApprovals?.isEmpty == false {
+                removeCursorPendingIndex(
+                    &state,
+                    sessionId: normalizedSessionId,
+                    workspaceId: record.workspaceId,
+                    surfaceId: record.surfaceId,
+                    countDelta: -1
+                )
+            }
+            clearActiveSessionIfMatching(&state, removed: record, turnId: nil)
             return true
         }
     }
@@ -1981,6 +2023,27 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Restores one destination proof when a subsequent external mutation was
+    /// rejected. The compare-and-set against `after` keeps a newer hook's
+    /// authoritative destination intact.
+    @discardableResult
+    func restoreClaudeTaskListDestinationRecord(
+        before: ClaudeHookTaskListDestinationRecord?,
+        after: ClaudeHookTaskListDestinationRecord
+    ) throws -> Bool {
+        try withLockedState { state in
+            let afterStorageKey = claudeTaskListStorageKey(after)
+            guard state.claudeTaskListDestinations[afterStorageKey] == after else {
+                return false
+            }
+            state.claudeTaskListDestinations.removeValue(forKey: afterStorageKey)
+            if let before {
+                state.claudeTaskListDestinations[claudeTaskListStorageKey(before)] = before
+            }
+            return true
+        }
+    }
+
     /// Returns the unique retained automatic-team proof for a hook identity.
     ///
     /// Team proofs are stored outside individual sessions because process-based
@@ -2270,6 +2333,29 @@ final class ClaudeHookSessionStore {
                 return
             }
             state.claudeTeamTaskBindings.removeValue(forKey: storageKey)
+        }
+    }
+
+    /// Restores a team ownership proof when its first-sighting Feed delivery
+    /// was rejected. The compare-and-set preserves a sibling hook's newer
+    /// transition if it changed the proof after this hook committed it.
+    @discardableResult
+    func restoreClaudeTeamTaskBinding(
+        before: ClaudeHookTeamTaskBindingRecord?,
+        after: ClaudeHookTeamTaskBindingRecord
+    ) throws -> Bool {
+        try withLockedState { state in
+            let afterStorageKey = claudeTeamTaskBindingStorageKey(after.binding)
+            guard state.claudeTeamTaskBindings[afterStorageKey] == after else {
+                return false
+            }
+            state.claudeTeamTaskBindings.removeValue(forKey: afterStorageKey)
+            if let before {
+                state.claudeTeamTaskBindings[
+                    claudeTeamTaskBindingStorageKey(before.binding)
+                ] = before
+            }
+            return true
         }
     }
 
@@ -29808,11 +29894,13 @@ struct CMUXCLI {
                 ).resolve(),
                 hostNamespace: client.taskStoreHostNamespace
             )
-            let sessionEndTaskStoreScope = sessionEndTaskStoreIdentity.rawValue
             let sessionEndHookPID = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let sessionEndEntry = parsedInput.sessionId.flatMap {
                 try? sessionStore.claudeTaskSyncSessionEntry(sessionId: $0)
             }
+            let sessionEndTaskStoreScope = sessionEndEntry?.record?.claudeTaskDirectoryName.map {
+                sessionEndTaskStoreIdentity.rawValue + ":" + $0
+            } ?? sessionEndTaskStoreIdentity.rawValue
             var mappedSession = sessionEndEntry?.record
             if parsedInput.sessionId != nil, mappedSession == nil {
                 // A session-id-bearing end event without an atomic generation
