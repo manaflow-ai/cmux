@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// A validated plugin discovered in a plugin directory.
@@ -189,13 +190,7 @@ public actor CmuxPluginDirectoryLoader {
                 ))
                 continue
             }
-            guard let manifestValues = try? resolvedManifest.resourceValues(
-                forKeys: [.isRegularFileKey, .fileSizeKey]
-            ),
-                  manifestValues.isRegularFile == true,
-                  (manifestValues.fileSize ?? Self.maximumManifestBytes + 1) <= Self.maximumManifestBytes,
-                  let data = try? Data(contentsOf: resolvedManifest),
-                  data.count <= Self.maximumManifestBytes else {
+            guard let data = readBoundedManifest(at: resolvedManifest) else {
                 failures.append(CmuxPluginLoadFailure(
                     directoryURL: directory,
                     code: .unreadableManifest,
@@ -320,6 +315,40 @@ public actor CmuxPluginDirectoryLoader {
             plugins: plugins.sorted { $0.manifest.id < $1.manifest.id },
             failures: failures.sorted { $0.directoryURL.path < $1.directoryURL.path }
         )
+    }
+
+    /// Opens and reads a manifest through one no-follow descriptor with a hard
+    /// byte cap. This closes the path-size/read race and rejects FIFOs or other
+    /// non-regular replacements before any unbounded `Data` allocation or block.
+    private func readBoundedManifest(at url: URL) -> Data? {
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadata.st_size >= 0,
+              UInt64(metadata.st_size) <= UInt64(Self.maximumManifestBytes) else {
+            return nil
+        }
+
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+        var data = Data()
+        do {
+            while data.count <= Self.maximumManifestBytes {
+                let remaining = Self.maximumManifestBytes + 1 - data.count
+                let chunk = try handle.read(upToCount: min(64 * 1024, remaining)) ?? Data()
+                if chunk.isEmpty { break }
+                data.append(chunk)
+            }
+        } catch {
+            return nil
+        }
+        return data.count <= Self.maximumManifestBytes ? data : nil
     }
 
     private static func failureCode(for error: CmuxExtensionValidationError) -> CmuxPluginLoadFailure.Code {

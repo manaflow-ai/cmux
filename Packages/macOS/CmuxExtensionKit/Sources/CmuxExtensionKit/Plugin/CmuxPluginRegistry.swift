@@ -97,9 +97,31 @@ public actor CmuxPluginRegistry {
         var nextApprovals: [String: Bool] = [:]
         var nextTokens: [String: String] = [:]
         var nextTokenFingerprints: [String: String] = [:]
+        var actionOwners: [String: String] = [:]
+        var ambiguousActionsByPluginID: [String: Set<String>] = [:]
+        for plugin in loadedReport.plugins {
+            for action in plugin.manifest.actions {
+                let namespacedID = Self.namespacedActionID(
+                    pluginID: plugin.manifest.id,
+                    actionID: action.id
+                )
+                if let owner = actionOwners[namespacedID], owner != plugin.manifest.id {
+                    ambiguousActionsByPluginID[owner, default: []].insert(action.id)
+                    ambiguousActionsByPluginID[plugin.manifest.id, default: []].insert(action.id)
+                } else {
+                    actionOwners[namespacedID] = plugin.manifest.id
+                }
+            }
+        }
         for plugin in loadedReport.plugins {
             let grant = await permissionStore.grant(for: plugin)
-            let permissions = grant.effectivePermissions(for: plugin)
+            var permissions = grant.effectivePermissions(for: plugin)
+            // Dot-joined IDs are retained for wire compatibility, so disable
+            // only colliding declarations rather than allowing one plugin to
+            // shadow another in the palette or shortcut router.
+            permissions.actions.subtract(
+                ambiguousActionsByPluginID[plugin.manifest.id] ?? []
+            )
             nextPermissions[plugin.manifest.id] = permissions
             nextApprovals[plugin.manifest.id] = grant.pluginID == plugin.manifest.id
                 && grant.manifestFingerprint == plugin.manifestFingerprint

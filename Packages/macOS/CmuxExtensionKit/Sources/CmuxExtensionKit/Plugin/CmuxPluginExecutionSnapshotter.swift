@@ -485,8 +485,11 @@ public actor CmuxPluginExecutionSnapshotter {
         url.standardizedFileURL.pathComponents.count
     }
 
-    private func removeStagingRoot(_ stagingRoot: URL) {
-        let root = rootDirectoryURL.standardizedFileURL
+    private func removeStagingRoot(
+        _ stagingRoot: URL,
+        within rootDirectory: URL = rootDirectoryURL
+    ) {
+        let root = rootDirectory.standardizedFileURL
         let candidate = stagingRoot.standardizedFileURL
         guard candidate.path.hasPrefix(root.path + "/") else { return }
         guard let values = try? candidate.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
@@ -504,25 +507,57 @@ public actor CmuxPluginExecutionSnapshotter {
     /// removed, leaving snapshots from another currently-running host untouched
     /// while bounding disk retention.
     private func pruneOrphanedSnapshots() {
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: rootDirectoryURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
         let cutoff = Date().addingTimeInterval(-Self.orphanSnapshotAge)
-        for entry in entries {
-            guard UUID(uuidString: entry.lastPathComponent) != nil,
-                  let values = try? entry.resourceValues(
-                      forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
-                  ),
-                  values.isDirectory == true,
-                  values.isSymbolicLink != true,
-                  let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
-                  let modified = attributes[.modificationDate] as? Date,
-                  modified < cutoff else {
+        let rootName = rootDirectoryURL.lastPathComponent
+        let roots: [URL]
+        if rootName.hasPrefix("cmux-plugin-snapshots-") {
+            let parent = rootDirectoryURL.deletingLastPathComponent()
+            roots = (try? fileManager.contentsOfDirectory(
+                at: parent,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            ))?.filter { $0.lastPathComponent.hasPrefix("cmux-plugin-snapshots-") }
+                ?? [rootDirectoryURL]
+        } else {
+            roots = [rootDirectoryURL]
+        }
+
+        for root in roots {
+            if root.standardizedFileURL != rootDirectoryURL.standardizedFileURL,
+               let pid = snapshotRootProcessID(root.lastPathComponent),
+               isProcessAlive(pid) {
                 continue
             }
-            removeStagingRoot(entry)
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for entry in entries {
+                guard UUID(uuidString: entry.lastPathComponent) != nil,
+                      let values = try? entry.resourceValues(
+                          forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+                      ),
+                      values.isDirectory == true,
+                      values.isSymbolicLink != true,
+                      let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
+                      let modified = attributes[.modificationDate] as? Date,
+                      modified < cutoff else {
+                    continue
+                }
+                removeStagingRoot(entry, within: root)
+            }
         }
+    }
+
+    private func snapshotRootProcessID(_ name: String) -> pid_t? {
+        guard let raw = name.split(separator: "-").last,
+              let value = Int32(raw),
+              value > 1 else { return nil }
+        return value
+    }
+
+    private func isProcessAlive(_ processID: pid_t) -> Bool {
+        Darwin.kill(processID, 0) == 0 || errno == EPERM
     }
 }

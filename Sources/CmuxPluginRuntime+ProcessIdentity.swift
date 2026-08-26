@@ -122,8 +122,17 @@ extension CmuxPluginRuntime {
         }
 
     private static func parentProcessID(_ processID: Int32) -> Int32? {
-        guard let info = processBSDInfo(processID) else { return nil }
-        return pid_t(info.pbi_ppid)
+        if let info = processBSDInfo(processID) {
+            return pid_t(info.pbi_ppid)
+        }
+        // Match the control-socket ancestry fallback when proc_pidinfo is
+        // transiently unavailable; otherwise a plugin peer could be admitted
+        // generically while this narrower resolver returns nil.
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, processID]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return nil }
+        return info.kp_eproc.e_ppid
     }
 
     private static func processBSDInfo(_ processID: Int32) -> proc_bsdinfo? {
