@@ -107,7 +107,8 @@ cmux vm open <id>:port/3000            # private tokened URL for an HTTP port, a
 cmux vm open <id> 3000                 # same as :port/3000
 cmux vm open <id> 3000 --print         # URL only, no pane
 cmux vm open … --workspace <ws> --focus true   # target a local workspace; focus the new pane (default: open beside you)
-cmux vm shell <id> | cmux vm tui <id>  # the full cmux-tui client in a pane (its own workspaces/panes)
+cmux vm shell <id>                     # a plain terminal on the machine (like ssh): one terminal in its cmux-tui session, attached in a pane
+cmux vm tui <id>                       # the FULL cmux-tui client in a pane (its own workspaces/panes) — only when you want the client itself
 ```
 
 `vm open` prints `OK surface=… workspace=… terminal=… [reused=true]`; `--json` prints the socket payload.

@@ -51,6 +51,8 @@ Repeat runs from the same directory hit the same machine (sticky binding), so sy
 
 ## Running work
 
+Opening a machine (`cmux vm shell <id>`, `vm new`, `vm base open`, the sidebar) gives a **plain terminal** on it — one terminal in the machine's cmux-tui session, attached in a pane like an ssh session; it keeps running if the pane closes and shows up in `cmux vm tree` (reattach with the `cmux vm open <m>/<ws>/<term>` address the `OK` line prints). `cmux vm tui <id>` is the only command that opens the full cmux-tui client.
+
 ```bash
 cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
 cmux vm agent --agent codex --machine <id> -- exec "summarize work/app"       # args pass through when they start with a flag/subcommand

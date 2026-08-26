@@ -58026,6 +58026,74 @@
         }
       }
     },
+    "cli.vm.tree.link.asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "asleep — cmux vm open %@ wakes it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ中 — cmux vm open %@ で起動します"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中…"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠ link %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠ リンク %@: %@"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "retry: cmux vm tree %@ --refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行: cmux vm tree %@ --refresh"
+          }
+        }
+      }
+    },
     "cli.vm.tree.noWorkspaces": {
       "extractionState": "manual",
       "localizations": {
