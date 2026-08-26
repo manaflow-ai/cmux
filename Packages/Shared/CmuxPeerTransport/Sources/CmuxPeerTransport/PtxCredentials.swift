@@ -290,7 +290,18 @@ public actor PtxCredentialService {
         let start = ContinuousClock.now
         let needsRegister = !registeredOnce
         let task = Task<[PtxRelayCredential], any Error> { [broker] in
-            needsRegister ? try await broker.registerAndMint() : try await broker.mint()
+            if needsRegister {
+                return try await broker.registerAndMint()
+            }
+            do {
+                return try await broker.mint()
+            } catch PtxBrokerError.shape {
+                // Policy-only response: the endpoint is not bound under the
+                // CALLING account (registry-side unbinding, or the token
+                // source now serves a different account). One re-register
+                // heals the binding; a genuine failure throws from there.
+                return try await broker.registerAndMint()
+            }
         }
         refreshTask = task
         defer { refreshTask = nil }
@@ -334,7 +345,9 @@ public actor PtxCredentialService {
             while !Task.isCancelled {
                 guard let self else { return }
                 let sleepSeconds = await self.secondsUntilRenewal()
-                try? await Task.sleep(for: .seconds(max(5, sleepSeconds)))
+                // Floor of 30s: when credentials are stale or minting keeps
+                // failing, retrying faster only burns the broker rate budget.
+                try? await Task.sleep(for: .seconds(max(30, sleepSeconds)))
                 guard !Task.isCancelled else { return }
                 await self.renewAndRotate(endpoint: endpoint, preferredRelayURL: preferredRelayURL)
             }

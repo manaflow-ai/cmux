@@ -285,6 +285,11 @@ public actor PtxReconnectOwner {
                 }
                 log.emit(PtxEventKind.livenessPing, session: session.sessionID)
                 guard let self else { return }
+                // Give the pong a bounded window before judging it missed;
+                // evaluating immediately after send counted every in-flight
+                // pong as a miss.
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
                 let pongAt = await self.lastPongObservation()
                 if pongAt < sentAt {
                     missed += 1

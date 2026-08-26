@@ -1,5 +1,6 @@
 #if DEBUG
 import CMUXMobileCore
+import CryptoKit
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxPeerTransport
@@ -106,10 +107,20 @@ final class MobileHostPtxRuntime {
         eventLog = log
 
         let defaults = UserDefaults.standard
-        identityWasPersisted = defaults.data(forKey: Self.identityDefaultsKey) != nil
+        // Endpoint identity, broker registration, and credentials are all
+        // ACCOUNT-scoped, like the legacy transport's keychain repositories:
+        // relay tokens are only minted for endpoints bound under the calling
+        // account, so an account switch (the sim-leg agent/personal seesaw
+        // re-arms the Mac between accounts) needs its own identity. The
+        // launcher relaunches the app to switch accounts, so resolving the
+        // scope once at start is sufficient; the grant signer stays global so
+        // phone grants survive the seesaw.
+        let scope = await resolveAccountScope()
+        let identityKey = Self.identityDefaultsKey + "." + scope
+        identityWasPersisted = defaults.data(forKey: identityKey) != nil
         let identity = PtxIdentityStore.loadOrCreate(
             defaults: defaults,
-            key: Self.identityDefaultsKey,
+            key: identityKey,
             deviceID: cmxCanonicalDeviceID(MobileHostIdentity.deviceID()),
             appIdentity: Self.hostAppIdentity
         )
@@ -151,7 +162,7 @@ final class MobileHostPtxRuntime {
         let credentials = PtxCredentialService(
             broker: broker,
             defaults: defaults,
-            cacheKey: Self.credentialCacheDefaultsKey,
+            cacheKey: Self.credentialCacheDefaultsKey + "." + scope,
             log: log
         )
         credentialService = credentials
@@ -357,6 +368,20 @@ final class MobileHostPtxRuntime {
         guard let user = auth?.currentUser else { return nil }
         if let email = user.primaryEmail, !email.isEmpty { return email }
         return user.id
+    }
+
+    /// Stable per-account key suffix, polled briefly because session restore
+    /// races app startup. "signed-out" is a real scope: its broker calls fail
+    /// closed until sign-in, and the next relaunch lands on the account scope.
+    private func resolveAccountScope() async -> String {
+        for _ in 0..<40 {
+            if let account = accountIdentity() {
+                let digest = SHA256.hash(data: Data(account.lowercased().utf8))
+                return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return "signed-out"
     }
 
     /// Real LAN interface IPs carrying the bound v4 port. Bound sockets

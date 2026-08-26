@@ -96,33 +96,48 @@ enum MobileHostPtxBridge {
         }
         let supervisor = CmxIrohAdmittedConnectionSupervisor(
             runControl: {
-                guard let control = try? await acceptor.nextControlStream() else {
-                    mobileHostPtxLog.notice(
-                        """
-                        bridge: control stream never arrived (connection closed) \
-                        session=\(sessionID, privacy: .public) \
-                        device=\(devicePrefix, privacy: .public)
-                        """
-                    )
-                    return CmxIrohAdmittedConnectionExit(
-                        lifecycle: .remoteClosed,
-                        failure: .none
-                    )
+                // A ptx connection OUTLIVES any single RPC client: the phone's
+                // reconnect owner holds the session ready while RPC clients
+                // come and go, each opening a fresh control stream. Serve
+                // every inbound control stream (concurrently: a replacement
+                // client's stream can overlap the dying one's during handoff)
+                // until the connection itself closes.
+                var served = 0
+                await withDiscardingTaskGroup { group in
+                    while let control = try? await acceptor.nextControlStream() {
+                        served += 1
+                        let ordinal = served
+                        mobileHostPtxLog.notice(
+                            """
+                            bridge: control stream #\(ordinal, privacy: .public) accepted; \
+                            starting RPC service \
+                            session=\(sessionID, privacy: .public) \
+                            device=\(devicePrefix, privacy: .public)
+                            """
+                        )
+                        group.addTask {
+                            _ = await MobileHostService.acceptTransport(
+                                PtxBridgeByteTransport(stream: control),
+                                authorization: .irohAdmission(peer),
+                                artifactTransfers: artifactTransfers,
+                                independentEventWriter: eventWriter,
+                                promoteUsableSession: { true },
+                                isCurrent: isCurrent
+                            )
+                        }
+                    }
                 }
                 mobileHostPtxLog.notice(
                     """
-                    bridge: control stream accepted; starting RPC service \
+                    bridge: control accept loop ended (connection closed) \
                     session=\(sessionID, privacy: .public) \
-                    device=\(devicePrefix, privacy: .public)
+                    device=\(devicePrefix, privacy: .public) \
+                    served=\(served, privacy: .public)
                     """
                 )
-                return await MobileHostService.acceptTransport(
-                    PtxBridgeByteTransport(stream: control),
-                    authorization: .irohAdmission(peer),
-                    artifactTransfers: artifactTransfers,
-                    independentEventWriter: eventWriter,
-                    promoteUsableSession: { true },
-                    isCurrent: isCurrent
+                return CmxIrohAdmittedConnectionExit(
+                    lifecycle: .remoteClosed,
+                    failure: .none
                 )
             },
             runApplicationLanes: {
