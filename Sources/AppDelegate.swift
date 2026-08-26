@@ -13555,6 +13555,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if shouldCaptureBrowserKeyboardShortcuts(for: event) {
+            // Capture evaluation may have materialized the broader focus
+            // snapshot. Release that event-scoped snapshot before the local
+            // monitor returns; the browser ownership cache is attached to the
+            // event and remains available to later AppKit boundaries.
+            clearShortcutEventFocusContextCache(for: event)
 #if DEBUG
             cmuxDebugLog("browser.captureShortcuts.bypass \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -17260,6 +17265,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// as Cmd+H, Cmd+M, or Cmd+`.
     private func browserCaptureMatchesCmuxShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
+        // Ordinary page typing has no device-independent modifier. Avoid
+        // resolving every configured shortcut (and its UserDefaults/when
+        // clause) for those events; cmux's browser-conflicting bindings all
+        // carry a modifier in the browser surface.
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard !normalizedFlags.isEmpty else { return false }
+
         let focusContext = shortcutEventFocusContext(event)
         if KeyboardShortcutSettings.Action.allCases.contains(where: { action in
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
@@ -17751,6 +17765,7 @@ private extension NSApplication {
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
         defer {
             AppDelegate.shared?.clearShortcutEventBrowserWebViewCache(for: event)
+            AppDelegate.shared?.clearShortcutEventFocusContextCache(for: event)
         }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil

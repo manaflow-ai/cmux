@@ -123,7 +123,7 @@ extension AppDelegate {
         let rightSidebarFocused = !simulatorFocused
             && (shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false)
         let focusState = ShortcutFocusState(
-            browser: browserPanel != nil,
+            browser: browserPanel != nil || browserWebViewFocused,
             markdown: markdownPanel != nil,
             sidebar: rightSidebarFocused,
             filePreviewTextEditor: filePreviewTextEditorFocused,
