@@ -10373,24 +10373,23 @@ class TerminalController {
             let store = v2MainSync {
                 ctx.webView.configuration.websiteDataStore.httpCookieStore
             }
-            guard var cookies = v2BrowserCookieStoreAll(store) else {
+            guard let cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
 
-            if let name = v2String(params, "name") {
-                cookies = cookies.filter { $0.name == name }
-            }
-            if let domain = v2String(params, "domain") {
-                cookies = cookies.filter { $0.domain.contains(domain) }
-            }
-            if let path = v2String(params, "path") {
-                cookies = cookies.filter { $0.path == path }
-            }
-            if let httpOnly = v2Bool(params, "httpOnly") {
-                cookies = cookies.filter { $0.isHTTPOnly == httpOnly }
+            let name = v2String(params, "name")
+            let domain = v2String(params, "domain")
+            let path = v2String(params, "path")
+            let httpOnly = v2Bool(params, "httpOnly")
+            let filteredCookies = cookies.filter { cookie in
+                if let name, cookie.name != name { return false }
+                if let domain, !cookie.domain.contains(domain) { return false }
+                if let path, cookie.path != path { return false }
+                if let httpOnly, cookie.isHTTPOnly != httpOnly { return false }
+                return true
             }
 
-            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": cookies.map(v2BrowserCookieDict)]))
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": filteredCookies.map(v2BrowserCookieDict)]))
         }
     }
 
@@ -10428,12 +10427,12 @@ class TerminalController {
             var setCount = 0
             for raw in cookieObjects {
                 guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: cookieContext.fallbackURL) else {
-                    return .err(code: "invalid_params", message: "Invalid cookie payload", data: ["cookie": raw])
+                    return .err(code: "invalid_params", message: "Invalid cookie payload", data: nil)
                 }
                 if v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
                     setCount += 1
                 } else {
-                    return .err(code: "timeout", message: "Timed out setting cookie", data: ["name": cookie.name])
+                    return .err(code: "timeout", message: "Timed out setting cookie", data: nil)
                 }
             }
 
