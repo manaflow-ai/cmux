@@ -1833,8 +1833,7 @@ class TerminalController {
         let lineReader = ControlClientAsyncLineReader(
             socket: socket,
             initialLimits: initialReadLimits,
-            authorizationRevocationSignal: authorizationRevocationSignal,
-            maximumBufferedBytes: 4 * 1024 * 1024
+            authorizationRevocationSignal: authorizationRevocationSignal
         )
         let writer = ControlClientAsyncWriter(socket: socket)
         let rateLimiter = ControlClientRateLimiter()

@@ -194,6 +194,51 @@ struct CmuxPluginRegistrySecurityTests {
     }
 
     @Test
+    func executionSnapshotRejectsSourceTreesBeyondArtifactEntryBound() async throws {
+        let root = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        let snapshotRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: snapshotRoot)
+        }
+
+        let manifest = CmuxExtensionManifest.plugin(
+            id: "dev.example.oversized-tree",
+            displayName: "Oversized Tree",
+            entrypoint: "bin/plugin"
+        )
+        try CmuxPluginSystemTests.writePlugin(manifest, to: root)
+        let resources = root
+            .appendingPathComponent(manifest.id, isDirectory: true)
+            .appendingPathComponent("resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        for index in 0 ... CmuxPluginArtifactFingerprinter.maximumArtifactEntries {
+            try Data([UInt8(index & 0xFF)]).write(
+                to: resources.appendingPathComponent("extra-\(index)", isDirectory: false)
+            )
+        }
+
+        let pluginDirectory = root.appendingPathComponent(manifest.id, isDirectory: true)
+        let plugin = CmuxLoadedPlugin(
+            manifest: manifest,
+            directoryURL: pluginDirectory,
+            entrypointURL: pluginDirectory.appendingPathComponent(
+                manifest.entrypoint ?? "bin/plugin",
+                isDirectory: false
+            ),
+            manifestFingerprint: "unused"
+        )
+        let snapshotter = CmuxPluginExecutionSnapshotter(rootDirectoryURL: snapshotRoot)
+
+        do {
+            _ = try await snapshotter.makeSnapshot(for: plugin)
+            Issue.record("A source tree beyond the artifact entry bound must fail closed")
+        } catch let error as CmuxPluginExecutionSnapshotError {
+            #expect(error == .copyFailed)
+        }
+    }
+
+    @Test
     func executionSnapshotPinsEntrypointAgainstSnapshotPathReplacement() async throws {
         let root = try CmuxPluginSystemTests.makeTemporaryDirectory()
         let snapshotRoot = try CmuxPluginSystemTests.makeTemporaryDirectory()

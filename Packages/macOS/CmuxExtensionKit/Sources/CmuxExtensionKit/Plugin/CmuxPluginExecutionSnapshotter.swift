@@ -85,6 +85,7 @@ public enum CmuxPluginExecutionSnapshotError: Error, Equatable, Sendable {
 public actor CmuxPluginExecutionSnapshotter {
     private let rootDirectoryURL: URL
     private let fileManager: FileManager
+    private let artifactCopier: CmuxPluginBoundedArtifactCopier
     private var openEntrypointDescriptors: Set<Int32> = []
     private static let orphanSnapshotAge: TimeInterval = 24 * 60 * 60
     private static let maximumOrphanSnapshotCount = 2
@@ -100,6 +101,7 @@ public actor CmuxPluginExecutionSnapshotter {
     ) {
         self.rootDirectoryURL = rootDirectoryURL.standardizedFileURL
         self.fileManager = fileManager
+        self.artifactCopier = CmuxPluginBoundedArtifactCopier(fileManager: fileManager)
         Task { [weak self] in
             await self?.pruneOrphanedSnapshots()
         }
@@ -145,7 +147,10 @@ public actor CmuxPluginExecutionSnapshotter {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: NSNumber(value: 0o700)]
             )
-            try fileManager.copyItem(at: sourceDirectory, to: copiedDirectory)
+            try artifactCopier.copyDirectory(
+                from: sourceDirectory,
+                to: copiedDirectory
+            )
         } catch {
             removeStagingRoot(stagingRoot)
             throw CmuxPluginExecutionSnapshotError.copyFailed
@@ -508,10 +513,12 @@ public actor CmuxPluginExecutionSnapshotter {
               values.isDirectory == true,
               values.isSymbolicLink != true else {
             try? fileManager.removeItem(at: candidate)
+            removeEmptySnapshotRoot(at: root)
             return
         }
         clearImmutableFlags(at: candidate)
         try? fileManager.removeItem(at: candidate)
+        removeEmptySnapshotRoot(at: root)
     }
 
     /// Recovers UUID-named snapshots left by a crashed or force-quit host.
@@ -573,6 +580,32 @@ public actor CmuxPluginExecutionSnapshotter {
         where index >= Self.maximumOrphanSnapshotCount || candidate.modified < cutoff {
             removeStagingRoot(candidate.url, within: candidate.root)
         }
+        roots.forEach { removeEmptySnapshotRoot(at: $0) }
+    }
+
+    private func removeEmptySnapshotRoot(at root: URL) {
+        let root = root.standardizedFileURL
+        guard root.lastPathComponent.hasPrefix("cmux-plugin-snapshots-"),
+              let values = try? root.resourceValues(
+                  forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+              ),
+              values.isDirectory == true,
+              values.isSymbolicLink != true,
+              let entries = try? fileManager.contentsOfDirectory(
+                  at: root,
+                  includingPropertiesForKeys: nil,
+                  options: []
+              ),
+              entries.isEmpty else {
+            return
+        }
+        if root != rootDirectoryURL.standardizedFileURL,
+           let pid = snapshotRootProcessID(root.lastPathComponent),
+           isProcessAlive(pid) {
+            return
+        }
+        clearImmutableFlags(at: root)
+        try? fileManager.removeItem(at: root)
     }
 
     private func snapshotRootProcessID(_ name: String) -> pid_t? {

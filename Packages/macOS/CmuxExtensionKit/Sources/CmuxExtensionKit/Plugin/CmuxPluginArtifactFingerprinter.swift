@@ -20,7 +20,8 @@ struct CmuxPluginArtifactFingerprinter {
     private static let chunkSize = 64 * 1024
     static let maximumArtifactFiles = 64
     static let maximumArtifactEntries = 128
-    private static let maximumArtifactBytes: UInt64 = 256 * 1024 * 1024
+    /// Maximum aggregate regular-file bytes admitted from one plugin bundle.
+    static let maximumArtifactBytes: UInt64 = 256 * 1024 * 1024
     private static let maximumInterpreterBytes: UInt64 = 256 * 1024 * 1024
     private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
     private static let formatMarker = Data("cmux-plugin-artifact-v3".utf8)
