@@ -78,7 +78,7 @@ struct BrowserExternalURLPatternMatcher: Sendable {
         if pattern.contains("*") || pattern.contains("?") {
             guard isLegacyRegexWildcardPattern(pattern) else {
                 return BrowserExternalURLCompiledPattern(
-                    regex: makeRegex(wildcardRegex(for: pattern), allowGlobShape: true)
+                    wildcard: BrowserExternalURLWildcardPattern(pattern: pattern)
                 )
             }
         }
@@ -93,11 +93,8 @@ struct BrowserExternalURLPatternMatcher: Sendable {
         return BrowserExternalURLCompiledPattern(literal: pattern)
     }
 
-    private func makeRegex(
-        _ expression: String,
-        allowGlobShape: Bool = false
-    ) -> NSRegularExpression? {
-        guard regexSafety.accepts(expression, allowGlobShape: allowGlobShape) else { return nil }
+    private func makeRegex(_ expression: String) -> NSRegularExpression? {
+        guard regexSafety.accepts(expression) else { return nil }
         return try? NSRegularExpression(
             pattern: expression,
             options: [.caseInsensitive]
@@ -143,42 +140,6 @@ struct BrowserExternalURLPatternMatcher: Sendable {
         }
 
         return hasLegacyQuantifier
-    }
-
-    private func wildcardRegex(for pattern: String) -> String {
-        var expression = ""
-        expression.reserveCapacity(pattern.count * 2)
-        var isEscaping = false
-        var previousWasWildcard = false
-        for character in pattern {
-            if isEscaping {
-                expression += NSRegularExpression.escapedPattern(for: String(character))
-                isEscaping = false
-                previousWasWildcard = false
-                continue
-            }
-            if character == "\\" {
-                isEscaping = true
-                continue
-            }
-            switch character {
-            case "*":
-                if !previousWasWildcard {
-                    expression += ".*"
-                }
-                previousWasWildcard = true
-            case "?":
-                expression += "."
-                previousWasWildcard = false
-            default:
-                expression += NSRegularExpression.escapedPattern(for: String(character))
-                previousWasWildcard = false
-            }
-        }
-        if isEscaping {
-            expression += NSRegularExpression.escapedPattern(for: "\\")
-        }
-        return expression
     }
 
     private func normalizedPatterns(from values: [String]) -> [String] {

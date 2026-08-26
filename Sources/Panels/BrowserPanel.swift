@@ -3016,7 +3016,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.screenshotCopiedToken &+= 1
         }
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
-            self?.openLinkInNewTab(url: url)
+            self?.openContextMenuLinkInNewTab(url: url)
         }
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         automationDocumentReadiness.bind(to: webViewInstanceID, hasCommittedDocument: webView.backForwardList.currentItem != nil)
@@ -6084,6 +6084,23 @@ extension BrowserPanel {
         )
     }
 
+    /// Routes the context-menu tab action through configured external rules.
+    func openContextMenuLinkInNewTab(url: URL) {
+        switch BrowserExternalNavigationHandler().openConfiguredExternallyResult(
+            url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true
+        ) {
+        case .opened:
+            return
+        case .failed:
+            browserPresentExternalNavigationFailure(for: url, in: webView)
+            return
+        case .notConfigured:
+            openLinkInNewTab(url: url)
+        }
+    }
+
     /// Opens a request in a sibling browser tab without dropping request metadata.
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
         guard let seed = browserNewTabNavigationSeed(
@@ -6093,21 +6110,6 @@ extension BrowserPanel {
             return
         }
 
-        // Context-menu tab creation bypasses WKNavigationDelegate, so apply
-        // the same configured external rule before creating a sibling tab.
-        switch BrowserExternalNavigationHandler().openConfiguredExternallyResult(
-            seed.url,
-            navigationType: .linkActivated,
-            targetFrameIsMain: true
-        ) {
-        case .opened:
-            return
-        case .failed:
-            browserPresentExternalNavigationFailure(for: seed.url, in: webView)
-            return
-        case .notConfigured:
-            break
-        }
 #if DEBUG
         cmuxDebugLog(
             "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +

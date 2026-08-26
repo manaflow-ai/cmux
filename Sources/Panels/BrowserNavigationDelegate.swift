@@ -304,6 +304,33 @@ import WebKit
             return
         }
 
+        // Authenticated cmux app links carry an in-process handoff action.
+        // Consume them before generic URL rules so a broad external pattern
+        // cannot divert the signed-in split placement to LaunchServices.
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.targetFrame?.isMainFrame != false,
+           let url = navigationAction.request.url,
+           let appLink = BrowserAppLinkOpenRequest(
+               url: url,
+               webOrigin: AuthEnvironment.appSessionHandoffOrigin
+           ),
+           openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                navigationAction,
+                webView
+            ) ?? {}
+            reportTerminalCancellation()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=openAppLinkInBrowserSplit " +
+                "url=\(browserNavigationDebugURL(appLink.destinationURL))"
+            )
+#endif
+            decisionHandler(.cancel)
+            return
+        }
+
         if let url = navigationAction.request.url {
             let openResult = externalNavigationHandler.openConfiguredExternallyResult(
                 url,
@@ -413,30 +440,6 @@ import WebKit
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
         )
 #endif
-
-        if navigationAction.navigationType == .linkActivated,
-           navigationAction.targetFrame?.isMainFrame != false,
-           let url = navigationAction.request.url,
-           let appLink = BrowserAppLinkOpenRequest(
-               url: url,
-               webOrigin: AuthEnvironment.appSessionHandoffOrigin
-           ),
-           openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
-            clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
-                navigationAction,
-                webView
-            ) ?? {}
-            reportTerminalCancellation()
-#if DEBUG
-            cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openAppLinkInBrowserSplit " +
-                "url=\(browserNavigationDebugURL(appLink.destinationURL))"
-            )
-#endif
-            decisionHandler(.cancel)
-            return
-        }
 
         if let url = navigationAction.request.url,
            shouldOpenInSystemBrowser(navigationAction, url: url) {

@@ -192,7 +192,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // not as a nested popup. Falls back to system browser if opener is gone.
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             if let opener = self?.openerPanel {
-                opener.openLinkInNewTab(url: url)
+                opener.openContextMenuLinkInNewTab(url: url)
                 return
             }
 
