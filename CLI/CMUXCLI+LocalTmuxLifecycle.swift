@@ -14,7 +14,13 @@ extension CMUXCLI {
             builder: builder,
             runner: runner
         )
-        let result = try runner.run(arguments: builder.listSessionsArguments())
+        var result = try runner.run(arguments: builder.listSessionsArguments())
+        if result.succeeded,
+           !result.stdoutWasTruncated,
+           !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try identityResolver.ensureServerIdentity()
+            result = try runner.run(arguments: builder.listSessionsArguments())
+        }
         let liveSessions = try localTmuxSessionLines(
             result,
             builder: builder,
@@ -31,29 +37,17 @@ extension CMUXCLI {
                 runner.run(arguments: builder.listClientsArguments())
             )
         }
-        var recordsByName: [String: LocalTmuxSessionRecord] = [:]
-        for record in records {
-            recordsByName[record.name] = record
-        }
-        var managedRecordIDs = Set<UUID>()
+        let managedRecords = try LocalTmuxSessionReconciler(
+            identityResolver: identityResolver
+        ).managedRecords(records: records, liveSessions: liveSessions)
+        let managedRecordIDs = Set(managedRecords.values.map(\.id))
         var clientCountsBySession: [String: Int] = [:]
         for client in clients {
             clientCountsBySession[client.sessionName, default: 0] += 1
         }
         var rows: [[String: Any]] = []
         for session in liveSessions {
-            let record: LocalTmuxSessionRecord?
-            if let candidate = recordsByName[session.name] {
-                record = try identityResolver.reconciledRecord(
-                    candidate,
-                    liveIdentity: session.identity
-                )
-                if let record {
-                    managedRecordIDs.insert(record.id)
-                }
-            } else {
-                record = nil
-            }
+            let record = managedRecords[session.binding]
             rows.append([
                 "id": record?.id.uuidString ?? NSNull(),
                 "session_name": session.name,
@@ -73,7 +67,7 @@ extension CMUXCLI {
             rows.append([
                 "id": record.id.uuidString,
                 "session_name": record.name,
-                "session_id": record.tmuxSessionID ?? NSNull(),
+                "session_id": record.tmuxBinding?.sessionID.rawValue ?? NSNull(),
                 "socket_path": builder.socketPath,
                 "managed": true,
                 "workspace_id": record.workspaceID ?? NSNull(),
@@ -128,24 +122,27 @@ extension CMUXCLI {
         case let .live(session):
             liveSession = session
             clients = try localTmuxClientLines(
-                runner.run(arguments: builder.listClientsArguments(sessionID: session.identity))
+                runner.run(arguments: builder.listClientsArguments(binding: session.binding))
             )
         case .stopped:
             liveSession = nil
             clients = []
         }
+        let effectiveRecord = liveSession?.record ?? record
         var payload: [String: Any] = [
-            "id": record.id.uuidString,
-            "session_name": record.name,
+            "id": effectiveRecord.id.uuidString,
+            "session_name": effectiveRecord.name,
             "socket_path": builder.socketPath,
-            "cwd": record.cwd,
-            "workspace_id": record.workspaceID ?? NSNull(),
-            "workspace_title": record.workspaceTitle ?? NSNull(),
-            "surface_id": record.surfaceID ?? NSNull(),
-            "tmux_session_id": liveSession?.identity.rawValue ?? record.tmuxSessionID ?? NSNull(),
+            "cwd": effectiveRecord.cwd,
+            "workspace_id": effectiveRecord.workspaceID ?? NSNull(),
+            "workspace_title": effectiveRecord.workspaceTitle ?? NSNull(),
+            "surface_id": effectiveRecord.surfaceID ?? NSNull(),
+            "tmux_session_id": liveSession?.identity.rawValue
+                ?? effectiveRecord.tmuxBinding?.sessionID.rawValue
+                ?? NSNull(),
             "live": liveSession != nil,
             "clients": clients.count,
-            "updated_at": record.updatedAt,
+            "updated_at": effectiveRecord.updatedAt,
         ]
         if liveSession == nil {
             payload["stale"] = true
@@ -155,7 +152,7 @@ extension CMUXCLI {
         } else {
             print(String.localizedStringWithFormat(
                 String(localized: "cli.localTmux.output.status", defaultValue: "%@ [%@] clients=%lld socket=%@"),
-                record.name,
+                effectiveRecord.name,
                 liveSession != nil ? "live" : "stale",
                 clients.count,
                 builder.socketPath
@@ -177,7 +174,13 @@ extension CMUXCLI {
             builder: builder,
             runner: runner
         )
-        let listed = try runner.run(arguments: builder.listSessionsArguments())
+        var listed = try runner.run(arguments: builder.listSessionsArguments())
+        if listed.succeeded,
+           !listed.stdoutWasTruncated,
+           !listed.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try identityResolver.ensureServerIdentity()
+            listed = try runner.run(arguments: builder.listSessionsArguments())
+        }
         let liveSessions = try localTmuxSessionLines(
             listed,
             builder: builder,
@@ -186,21 +189,10 @@ extension CMUXCLI {
                 defaultValue: "local-tmux cleanup could not list sessions; the registry was left unchanged."
             )
         )
-        var recordsByName: [String: LocalTmuxSessionRecord] = [:]
-        for record in records {
-            recordsByName[record.name] = record
-        }
-        var managedRecordIDs = Set<UUID>()
-        for session in liveSessions {
-            guard let record = recordsByName[session.name],
-                  let reconciled = try identityResolver.reconciledRecord(
-                    record,
-                    liveIdentity: session.identity
-                  ) else {
-                continue
-            }
-            managedRecordIDs.insert(reconciled.id)
-        }
+        let managedRecords = try LocalTmuxSessionReconciler(
+            identityResolver: identityResolver
+        ).managedRecords(records: records, liveSessions: liveSessions)
+        let managedRecordIDs = Set(managedRecords.values.map(\.id))
         let stale = records.filter { !managedRecordIDs.contains($0.id) }
         let staleIDs = Set(stale.map(\.id))
         let removed = prune
@@ -298,7 +290,7 @@ extension CMUXCLI {
             runner: runner
         ).resolve(record)
         if case let .live(session) = resolution {
-            let result = try runner.run(arguments: builder.killSessionArguments(sessionID: session.identity))
+            let result = try runner.run(arguments: builder.killSessionArguments(binding: session.binding))
             guard result.succeeded
                 || result.stderr.localizedCaseInsensitiveContains("no server running")
                 || result.stderr.localizedCaseInsensitiveContains("session not found") else {
@@ -337,7 +329,7 @@ extension CMUXCLI {
             builder: builder,
             runner: runner
         ).requireLive(record)
-        let listed = try runner.run(arguments: builder.listClientsArguments(sessionID: session.identity))
+        let listed = try runner.run(arguments: builder.listClientsArguments(binding: session.binding))
         let clients = try localTmuxClientLines(listed)
         let target: String?
         if invocation.all {
@@ -346,7 +338,7 @@ extension CMUXCLI {
             guard clients.contains(where: { $0.clientID == explicit }) else {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(localized: "cli.localTmux.error.clientNotFound", defaultValue: "local-tmux client not found for session %@: %@"),
-                    record.name,
+                    session.record.name,
                     explicit
                 ))
             }
@@ -356,7 +348,7 @@ extension CMUXCLI {
                 if clients.isEmpty {
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.localTmux.error.noClients", defaultValue: "local-tmux session has no attached clients: %@"),
-                        record.name
+                        session.record.name
                     ))
                 }
                 throw CLIError(message: String(localized: "cli.localTmux.error.multipleClients", defaultValue: "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly"))
@@ -364,7 +356,7 @@ extension CMUXCLI {
             target = only.clientID
         }
         _ = try runner.requireSuccess(
-            builder.detachArguments(sessionID: session.identity, clientID: target),
+            builder.detachArguments(binding: session.binding, clientID: target),
             context: "detach"
         )
         var updated = session.record
@@ -374,8 +366,8 @@ extension CMUXCLI {
             "detached": true,
             "all": invocation.all,
             "client_id": target ?? NSNull(),
-            "id": record.id.uuidString,
-            "session_name": record.name,
+            "id": session.record.id.uuidString,
+            "session_name": session.record.name,
         ]
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -383,12 +375,12 @@ extension CMUXCLI {
             if invocation.all {
                 print(String.localizedStringWithFormat(
                     String(localized: "cli.localTmux.output.detachedAll", defaultValue: "OK detached all clients from session=%@"),
-                    record.name
+                    session.record.name
                 ))
             } else {
                 print(String.localizedStringWithFormat(
                     String(localized: "cli.localTmux.output.detached", defaultValue: "OK detached session=%@ client=%@"),
-                    record.name,
+                    session.record.name,
                     target ?? "unknown"
                 ))
             }
@@ -401,7 +393,7 @@ extension CMUXCLI {
     ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: builder.tmuxPath)
-        process.arguments = builder.attachArguments(sessionID: session.identity)
+        process.arguments = builder.attachArguments(binding: session.binding)
         var environment = ProcessInfo.processInfo.environment
         environment = environment.filter { !$0.key.hasPrefix("CMUX_") && !$0.key.hasPrefix("CMUXD_") }
         environment.removeValue(forKey: "TMUX")

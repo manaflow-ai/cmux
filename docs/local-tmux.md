@@ -36,15 +36,23 @@ generated attach command is carried in the existing terminal snapshot and is
 replayed only when it has the `TMUX= CMUX_LOCAL_TMUX=1` marker.
 New sessions receive a bounded 10,000-line tmux history limit.
 
-The registry stores a stable logical session UUID bound to tmux's immutable
-`$N` session ID, plus the tmux name/socket, cwd, and the last authoritative
-workspace/surface identifiers. Attach, detach, and close target the immutable
-ID; if a different session reuses the saved name, cmux fails closed instead of
-controlling the replacement. Reattach also validates workspace/surface IDs
-against the live control plane. Title and cwd remain display and diagnostic
-hints only: when the saved identifiers are stale, pass an explicit `--workspace`
-rather than attaching to a mutable lookalike. `--new-client` deliberately
-creates another cmux client instead of reusing a restored one.
+The registry stores a stable logical session UUID bound to a tmux server
+incarnation marker, the immutable `$N` session ID, and the session creation
+time. The random server marker lives only in that tmux server's memory, so a
+restarted server cannot inherit an old record even if it reuses `$N`. Attach,
+detach, and close check the marker inside the same tmux request that performs
+the operation and fail closed on a mismatch. A tmux-side session rename keeps
+the immutable binding and updates the registry name instead of creating a
+second record.
+
+The registry also stores the tmux socket, cwd, and the last authoritative
+workspace/surface identifiers. Reattach validates workspace IDs against the
+live control plane; if the workspace still exists but its old surface is gone,
+cmux creates a replacement client surface. Title and cwd remain display and
+diagnostic hints only: when the saved workspace identifier is stale, pass an
+explicit `--workspace` rather than attaching to a mutable lookalike.
+`--new-client` deliberately creates another cmux client instead of reusing a
+restored one.
 
 ## Discovery, cleanup, and safety
 

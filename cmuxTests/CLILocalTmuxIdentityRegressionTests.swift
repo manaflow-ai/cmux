@@ -11,6 +11,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let registryURL = root.appendingPathComponent("sessions.json", isDirectory: false)
         let logicalID = UUID()
         let sessionName = "replacement"
+        let staleServerID = "77777777-7777-7777-7777-777777777777"
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         XCTAssertEqual(chmod(root.path, 0o700), 0)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -23,17 +24,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         for argument in "$@"; do
           if [ "$previous" = "-t" ]; then target=$argument; fi
           case "$argument" in
-            has-session|display-message|list-sessions|list-clients|attach-session|detach-client|kill-session) command_name=$argument ;;
+            has-session|display-message|list-sessions|list-clients|attach-session|detach-client|kill-session|if-shell) command_name=$argument ;;
           esac
           previous=$argument
         done
         case "$command_name:$target" in
-          'has-session:$1') exit 1 ;;
+          'has-session:$1') exit 0 ;;
           'has-session:=replacement') exit 0 ;;
-          'display-message:=replacement') printf '%s\n' '$2'; exit 0 ;;
-          list-sessions:*) printf 'replacement\t$2\t1\t123\n'; exit 0 ;;
+          display-message:*) printf 'replacement\t$1\t88888888-8888-8888-8888-888888888888\t123\n'; exit 0 ;;
+          list-sessions:*) printf 'replacement\t$1\t88888888-8888-8888-8888-888888888888\t123\t1\n'; exit 0 ;;
           list-clients:*) exit 0 ;;
-          attach-session:*|detach-client:*|kill-session:*) printf '%s\n' "$*" >> "$MUTATION_LOG"; exit 0 ;;
+          attach-session:*|detach-client:*|kill-session:*|if-shell:*) printf '%s\n' "$*" >> "$MUTATION_LOG"; exit 0 ;;
           *) exit 0 ;;
         esac
         """
@@ -43,7 +44,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let session: [String: Any] = [
             "id": logicalID.uuidString,
             "name": sessionName,
-            "tmuxSessionID": "$1",
+            "tmuxBinding": [
+                "sessionID": "$1",
+                "serverID": staleServerID,
+                "sessionCreated": 123,
+            ],
             "socketPath": root.appendingPathComponent("server.sock").path,
             "cwd": root.path,
             "createdAt": 1.0,
@@ -74,7 +79,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let listedSessions = try XCTUnwrap(listPayload["sessions"] as? [[String: Any]])
         XCTAssertEqual(listedSessions.count, 2)
         XCTAssertTrue(listedSessions.contains {
-            ($0["session_id"] as? String) == "$2"
+            ($0["session_id"] as? String) == "$1"
                 && ($0["managed"] as? Bool) == false
                 && ($0["live"] as? Bool) == true
         })
@@ -135,7 +140,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             [
                 "id": UUID().uuidString,
                 "name": "duplicate",
-                "tmuxSessionID": "$\(index)",
+                "tmuxBinding": [
+                    "sessionID": "$\(index)",
+                    "serverID": "99999999-9999-9999-9999-999999999999",
+                    "sessionCreated": index,
+                ],
                 "socketPath": root.appendingPathComponent("server.sock").path,
                 "cwd": root.path,
                 "createdAt": Double(index),
@@ -179,8 +188,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$*" in
-          *list-sessions*) printf 'legacy\t$9\t1\t456\n'; exit 0 ;;
+          *list-sessions*) printf 'legacy\t$9\taaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\t456\t1\n'; exit 0 ;;
           *list-clients*) exit 0 ;;
+          *set-option*) exit 0 ;;
           *) exit 1 ;;
         esac
         """
@@ -224,6 +234,87 @@ extension CLINotifyProcessIntegrationRegressionTests {
             JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [String: Any]
         )
         let persistedSessions = try XCTUnwrap(persisted["sessions"] as? [[String: Any]])
-        XCTAssertEqual(persistedSessions.first?["tmuxSessionID"] as? String, "$9")
+        let binding = try XCTUnwrap(persistedSessions.first?["tmuxBinding"] as? [String: Any])
+        XCTAssertEqual(binding["sessionID"] as? String, "$9")
+    }
+
+    func testLocalTmuxAttachReconcilesRenamedSessionByBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-local-tmux-renamed-\(UUID().uuidString)", isDirectory: true)
+        let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
+        let registryURL = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let logicalID = UUID()
+        let serverID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertEqual(chmod(root.path, 0o700), 0)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fakeTmux = """
+        #!/bin/sh
+        case "$*" in
+          *display-message*'#{session_name}'*) printf 'renamed\t$21\tbbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\t21\n'; exit 0 ;;
+          *list-sessions*) printf 'renamed\t$21\tbbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\t21\t1\n'; exit 0 ;;
+          *list-clients*) exit 0 ;;
+          *has-session*|*set-option*|*if-shell*) exit 0 ;;
+          *) exit 0 ;;
+        esac
+        """
+        try Data(fakeTmux.utf8).write(to: fakeTmuxURL)
+        XCTAssertEqual(chmod(fakeTmuxURL.path, 0o755), 0)
+
+        let session: [String: Any] = [
+            "id": logicalID.uuidString,
+            "name": "original",
+            "tmuxBinding": [
+                "sessionID": "$21",
+                "serverID": serverID,
+                "sessionCreated": 21,
+            ],
+            "socketPath": root.appendingPathComponent("server.sock").path,
+            "cwd": root.path,
+            "createdAt": 1.0,
+            "updatedAt": 1.0,
+        ]
+        try JSONSerialization.data(withJSONObject: ["version": 1, "sessions": [session]], options: [.sortedKeys])
+            .write(to: registryURL)
+        XCTAssertEqual(chmod(registryURL.path, 0o600), 0)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_LOCAL_TMUX_BIN"] = fakeTmuxURL.path
+        environment["CMUX_LOCAL_TMUX_STATE_DIR"] = root.path
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+
+        let attach = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "attach", "renamed", "--headless"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertEqual(attach.status, 0, attach.stderr)
+
+        let list = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "list", "--json"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertEqual(list.status, 0, list.stderr)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(list.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(payload["sessions"] as? [[String: Any]])
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?["id"] as? String, logicalID.uuidString)
+        XCTAssertEqual(sessions.first?["session_name"] as? String, "renamed")
+        XCTAssertEqual(sessions.first?["managed"] as? Bool, true)
+
+        let persisted = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [String: Any]
+        )
+        let persistedSessions = try XCTUnwrap(persisted["sessions"] as? [[String: Any]])
+        XCTAssertEqual(persistedSessions.count, 1)
+        XCTAssertEqual(persistedSessions.first?["name"] as? String, "renamed")
     }
 }

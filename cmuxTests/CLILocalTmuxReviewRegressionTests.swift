@@ -13,7 +13,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$*" in
-          *display-message*'#{session_id}'*) printf '%s\n' '$101'; exit 0 ;;
+          *display-message*'#{session_name}'*) printf 'detached-headless\t$101\t11111111-1111-1111-1111-111111111111\t101\n'; exit 0 ;;
           *has-session*) exit 1 ;;
           *) exit 0 ;;
         esac
@@ -63,7 +63,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
-          *display-message*'#{session_id}'*) printf '%s\n' '$102'; exit 0 ;;
+          *display-message*'#{session_name}'*) printf 'stale-workspace\t$102\t22222222-2222-2222-2222-222222222222\t102\n'; exit 0 ;;
           create:*has-session*) exit 1 ;;
           live:*has-session*) exit 0 ;;
           *) exit 0 ;;
@@ -197,7 +197,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$*" in
-          *display-message*'#{session_id}'*) printf '%s\n' '$103'; exit 0 ;;
+          *display-message*'#{session_name}'*) printf 'already-live\t$103\t33333333-3333-3333-3333-333333333333\t103\n'; exit 0 ;;
           *has-session*) exit 0 ;;
           *display-message*'#{session_path}'*) printf '%s\n' "$EXISTING_TMUX_CWD"; exit 0 ;;
           *) exit 0 ;;
@@ -262,7 +262,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
-          *display-message*'#{session_id}'*) printf '%s\n' '$104'; exit 0 ;;
+          *display-message*'#{session_name}'*) printf 'cross-window\t$104\t44444444-4444-4444-4444-444444444444\t104\n'; exit 0 ;;
           create:*has-session*) exit 1 ;;
           live:*has-session*) exit 0 ;;
           *) exit 0 ;;
@@ -290,7 +290,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(start.status, 0, start.stderr)
 
         let state = MockSocketServerState()
-        let expectedCommand = "TMUX= CMUX_LOCAL_TMUX=1 exec '\(fakeTmuxURL.path)' -S '\(root.appendingPathComponent("server.sock").path)' attach-session -t '$104'"
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let action = ["attach-session", "-t", "$104"].map(quote).joined(separator: " ")
+        let condition = "#{==:#{@cmux_local_server_id},44444444-4444-4444-4444-444444444444}"
+        let expectedCommand = "TMUX= CMUX_LOCAL_TMUX=1 exec \(quote(fakeTmuxURL.path)) -S \(quote(root.appendingPathComponent("server.sock").path)) if-shell -F \(quote(condition)) \(quote(action)) \(quote("run-shell false"))"
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,

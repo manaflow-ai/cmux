@@ -366,7 +366,12 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     @Test("cmux-generated local tmux attach commands are restorable")
     func restorableTmuxStartCommandAcceptsLocalTmuxMarker() {
         let service = makeService()
-        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S '/tmp/.cmux/local-tmux/server.sock' attach-session -t '$7'"
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: "/tmp/.cmux/local-tmux/server.sock",
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        )
 
         #expect(service.restorableTmuxStartCommand(command) == command)
         #expect(service.localTmuxStartCommand(command) == command)
@@ -376,7 +381,16 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     @Test("local tmux restore rejects shell substitutions in persisted commands")
     func localTmuxRestoreRejectsShellSubstitution() {
         let service = makeService()
-        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S /tmp/.cmux/local-tmux/$(touch${IFS}/tmp/pwn)/server.sock attach-session -t '$7'"
+        let safeSocket = "/tmp/.cmux/local-tmux/server.sock"
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: safeSocket,
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        ).replacingOccurrences(
+            of: "'\(safeSocket)'",
+            with: "/tmp/.cmux/local-tmux/$(touch${IFS}/tmp/pwn)/server.sock"
+        )
 
         #expect(service.localTmuxStartCommand(command) == nil)
     }
@@ -384,8 +398,29 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     @Test("local tmux restore accepts canonical custom executable and state paths")
     func localTmuxRestoreAcceptsCustomPaths() {
         let service = makeService()
-        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/custom/bin/session-owner' -S '/var/tmp/cmux-state/server.sock' attach-session -t '$42'"
+        let command = localTmuxAttachCommand(
+            executable: "/custom/bin/session-owner",
+            socket: "/var/tmp/cmux-state/server.sock",
+            sessionID: "$42",
+            serverID: UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        )
 
         #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    private func localTmuxAttachCommand(
+        executable: String,
+        socket: String,
+        sessionID: String,
+        serverID: UUID
+    ) -> String {
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let action = ["attach-session", "-t", sessionID]
+            .map(quote)
+            .joined(separator: " ")
+        let condition = "#{==:#{@cmux_local_server_id},\(serverID.uuidString.lowercased())}"
+        return "TMUX= CMUX_LOCAL_TMUX=1 exec \(quote(executable)) -S \(quote(socket)) if-shell -F \(quote(condition)) \(quote(action)) \(quote("run-shell false"))"
     }
 }

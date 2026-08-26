@@ -16,7 +16,7 @@ extension CMUXCLI {
             record: originalRecord,
             client: client
         )
-        let attachCommand = builder.attachCommand(sessionID: session.identity)
+        let attachCommand = builder.attachCommand(binding: session.binding)
         guard workspace.id != nil || (originalRecord.workspaceID == nil && originalRecord.workspaceTitle == nil) else {
             throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
         }
@@ -32,13 +32,6 @@ extension CMUXCLI {
             )
         } else {
             nil
-        }
-        if !invocation.newClient,
-           invocation.surface == nil,
-           invocation.pane == nil,
-           originalRecord.surfaceID != nil,
-           existingSurface == nil {
-            throw CLIError(message: String(localized: "cli.localTmux.error.surfaceNotFound", defaultValue: "local-tmux surface target was not found"))
         }
         var payload: [String: Any]
         if !invocation.newClient,

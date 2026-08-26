@@ -4,9 +4,11 @@ import Foundation
 struct LocalTmuxSessionListParser {
     struct SessionLine {
         let name: String
-        let identity: LocalTmuxSessionIdentity
+        let binding: LocalTmuxSessionBinding
         let windows: Int
-        let created: String
+
+        var identity: LocalTmuxSessionIdentity { binding.sessionID }
+        var created: String { String(binding.sessionCreated) }
     }
 
     struct ClientLine {
@@ -19,10 +21,12 @@ struct LocalTmuxSessionListParser {
     func sessions(_ output: String) throws -> [SessionLine] {
         try output.split(whereSeparator: \.isNewline).map { line in
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count == 4,
+            guard fields.count == 5,
                   !fields[0].isEmpty,
-                  let identity = LocalTmuxSessionIdentity(fields[1]),
-                  let windows = Int(fields[2]) else {
+                  let sessionID = LocalTmuxSessionIdentity(fields[1]),
+                  let serverID = UUID(uuidString: fields[2]),
+                  let sessionCreated = UInt64(fields[3]),
+                  let windows = Int(fields[4]) else {
                 throw CLIError(message: String(
                     localized: "cli.localTmux.error.listingIncomplete",
                     defaultValue: "local-tmux session listing was incomplete; liveness is unknown."
@@ -30,9 +34,12 @@ struct LocalTmuxSessionListParser {
             }
             return SessionLine(
                 name: fields[0],
-                identity: identity,
-                windows: windows,
-                created: fields[3]
+                binding: LocalTmuxSessionBinding(
+                    sessionID: sessionID,
+                    serverID: serverID,
+                    sessionCreated: sessionCreated
+                ),
+                windows: windows
             )
         }
     }

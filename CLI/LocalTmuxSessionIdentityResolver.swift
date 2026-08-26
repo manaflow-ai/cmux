@@ -1,10 +1,17 @@
 import Foundation
 
-/// Binds cmux registry records to tmux-owned session identities.
+/// Binds cmux registry records to one session in one tmux server incarnation.
 struct LocalTmuxSessionIdentityResolver {
+    struct ObservedSession: Sendable {
+        let name: String
+        let binding: LocalTmuxSessionBinding
+    }
+
     struct LiveSession: Sendable {
         let record: LocalTmuxSessionRecord
-        let identity: LocalTmuxSessionIdentity
+        let binding: LocalTmuxSessionBinding
+
+        var identity: LocalTmuxSessionIdentity { binding.sessionID }
     }
 
     enum Resolution: Sendable {
@@ -16,71 +23,86 @@ struct LocalTmuxSessionIdentityResolver {
     let builder: LocalTmuxCommandBuilder
     let runner: LocalTmuxProcessRunner
 
-    func identity(named sessionName: String) throws -> LocalTmuxSessionIdentity {
-        try readIdentity(
-            arguments: builder.sessionIdentityArguments(sessionName: sessionName),
+    func ensureServerIdentity(sessionName: String = "server") throws {
+        let result = try runner.run(
+            arguments: builder.ensureServerIdentityArguments(candidate: UUID())
+        )
+        guard result.succeeded, !result.outputWasTruncated else {
+            throw identityUnavailableError(sessionName: sessionName)
+        }
+    }
+
+    func observedSession(named sessionName: String) throws -> ObservedSession {
+        try ensureServerIdentity(sessionName: sessionName)
+        return try readObservedSession(
+            arguments: builder.sessionBindingArguments(sessionName: sessionName),
             sessionName: sessionName
+        )
+    }
+
+    func observedSession(sessionID: LocalTmuxSessionIdentity, nameHint: String) throws -> ObservedSession {
+        try ensureServerIdentity(sessionName: nameHint)
+        return try readObservedSession(
+            arguments: builder.sessionBindingArguments(sessionID: sessionID),
+            sessionName: nameHint
         )
     }
 
     func bind(
         _ record: LocalTmuxSessionRecord,
-        to identity: LocalTmuxSessionIdentity
+        to observed: ObservedSession
     ) throws -> LiveSession {
-        if let storedValue = record.tmuxSessionID {
-            guard let storedIdentity = LocalTmuxSessionIdentity(storedValue) else {
-                throw LocalTmuxRegistryError.invalidState(registry.sessionsURL.path)
-            }
-            guard storedIdentity == identity else {
-                throw identityChangedError(sessionName: record.name)
-            }
-            return LiveSession(record: record, identity: identity)
+        if let storedBinding = record.tmuxBinding,
+           storedBinding != observed.binding {
+            throw identityChangedError(sessionName: record.name)
         }
 
         var updated = record
-        updated.tmuxSessionID = identity.rawValue
-        updated.updatedAt = Date.now.timeIntervalSince1970
-        try registry.upsert(updated)
-        return LiveSession(record: updated, identity: identity)
+        updated.name = observed.name
+        updated.tmuxBinding = observed.binding
+        if updated != record {
+            updated.updatedAt = Date.now.timeIntervalSince1970
+            try registry.upsert(updated)
+        }
+        return LiveSession(record: updated, binding: observed.binding)
     }
 
-    /// Returns the managed record for one listed session. A same-name session
-    /// with a different tmux identity is deliberately left unmanaged.
+    /// Returns the managed record for a listed session. A same-name session
+    /// from another server incarnation is deliberately left unmanaged.
     func reconciledRecord(
         _ record: LocalTmuxSessionRecord,
-        liveIdentity: LocalTmuxSessionIdentity
+        observed: ObservedSession
     ) throws -> LocalTmuxSessionRecord? {
-        guard let storedValue = record.tmuxSessionID else {
-            return try bind(record, to: liveIdentity).record
+        if let storedBinding = record.tmuxBinding {
+            guard storedBinding == observed.binding else { return nil }
+        } else {
+            guard record.name == observed.name else { return nil }
         }
-        guard let storedIdentity = LocalTmuxSessionIdentity(storedValue) else {
-            throw LocalTmuxRegistryError.invalidState(registry.sessionsURL.path)
-        }
-        return storedIdentity == liveIdentity ? record : nil
+        return try bind(record, to: observed).record
     }
 
     func resolve(_ record: LocalTmuxSessionRecord) throws -> Resolution {
-        if let storedValue = record.tmuxSessionID {
-            guard let storedIdentity = LocalTmuxSessionIdentity(storedValue) else {
-                throw LocalTmuxRegistryError.invalidState(registry.sessionsURL.path)
-            }
-            if try hasSession(arguments: builder.hasSessionArguments(sessionID: storedIdentity), sessionName: record.name) {
-                let liveIdentity = try readIdentity(
-                    arguments: builder.sessionIdentityArguments(sessionID: storedIdentity),
-                    sessionName: record.name
+        if let storedBinding = record.tmuxBinding {
+            if try hasSession(
+                arguments: builder.hasSessionArguments(sessionID: storedBinding.sessionID),
+                sessionName: record.name
+            ) {
+                let observed = try observedSession(
+                    sessionID: storedBinding.sessionID,
+                    nameHint: record.name
                 )
-                guard liveIdentity == storedIdentity else {
+                guard observed.binding == storedBinding else {
                     throw identityChangedError(sessionName: record.name)
                 }
-                return .live(LiveSession(record: record, identity: storedIdentity))
+                return .live(try bind(record, to: observed))
             }
 
             if try hasSession(arguments: builder.hasSessionArguments(record.name), sessionName: record.name) {
-                let replacementIdentity = try identity(named: record.name)
-                guard replacementIdentity == storedIdentity else {
+                let replacement = try observedSession(named: record.name)
+                guard replacement.binding == storedBinding else {
                     throw identityChangedError(sessionName: record.name)
                 }
-                return .live(LiveSession(record: record, identity: storedIdentity))
+                return .live(try bind(record, to: replacement))
             }
             return .stopped
         }
@@ -88,7 +110,7 @@ struct LocalTmuxSessionIdentityResolver {
         guard try hasSession(arguments: builder.hasSessionArguments(record.name), sessionName: record.name) else {
             return .stopped
         }
-        return .live(try bind(record, to: identity(named: record.name)))
+        return .live(try bind(record, to: observedSession(named: record.name)))
     }
 
     func requireLive(_ record: LocalTmuxSessionRecord) throws -> LiveSession {
@@ -121,18 +143,35 @@ struct LocalTmuxSessionIdentityResolver {
         throw identityUnavailableError(sessionName: sessionName)
     }
 
-    private func readIdentity(
+    private func readObservedSession(
         arguments: [String],
         sessionName: String
-    ) throws -> LocalTmuxSessionIdentity {
+    ) throws -> ObservedSession {
         let result = try runner.run(arguments: arguments)
-        let rawIdentity = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = result.stdout.split(whereSeparator: \.isNewline)
         guard result.succeeded,
               !result.outputWasTruncated,
-              let identity = LocalTmuxSessionIdentity(rawIdentity) else {
+              lines.count == 1 else {
             throw identityUnavailableError(sessionName: sessionName)
         }
-        return identity
+        let fields = lines[0]
+            .split(separator: "\t", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard fields.count == 4,
+              !fields[0].isEmpty,
+              let sessionID = LocalTmuxSessionIdentity(fields[1]),
+              let serverID = UUID(uuidString: fields[2]),
+              let sessionCreated = UInt64(fields[3]) else {
+            throw identityUnavailableError(sessionName: sessionName)
+        }
+        return ObservedSession(
+            name: fields[0],
+            binding: LocalTmuxSessionBinding(
+                sessionID: sessionID,
+                serverID: serverID,
+                sessionCreated: sessionCreated
+            )
+        )
     }
 
     private func identityChangedError(sessionName: String) -> CLIError {

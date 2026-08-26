@@ -16,6 +16,8 @@ struct LocalTmuxSessionNameValidator {
 /// Builds the only shell command cmux persists for local-tmux reattachment.
 struct LocalTmuxCommandBuilder {
     static let restoreMarker = "CMUX_LOCAL_TMUX=1"
+    static let serverIdentityOption = "@cmux_local_server_id"
+    static let identityMismatchCommand = "run-shell false"
 
     let tmuxPath: String
     let socketPath: String
@@ -25,8 +27,10 @@ struct LocalTmuxCommandBuilder {
         self.socketPath = socketPath
     }
 
-    func attachCommand(sessionID: LocalTmuxSessionIdentity) -> String {
-        "TMUX= \(Self.restoreMarker) exec \(shellQuote(tmuxPath)) -S \(shellQuote(socketPath)) attach-session -t \(shellQuote(sessionID.rawValue))"
+    func attachCommand(binding: LocalTmuxSessionBinding) -> String {
+        let condition = serverIdentityCondition(binding)
+        let action = tmuxCommand("attach-session", "-t", binding.sessionID.rawValue)
+        return "TMUX= \(Self.restoreMarker) exec \(shellQuote(tmuxPath)) -S \(shellQuote(socketPath)) if-shell -F \(shellQuote(condition)) \(shellQuote(action)) \(shellQuote(Self.identityMismatchCommand))"
     }
 
     func hasSessionArguments(_ sessionName: String) -> [String] {
@@ -41,24 +45,40 @@ struct LocalTmuxCommandBuilder {
         ["-S", socketPath, "display-message", "-p", "-t", sessionID.rawValue, "#{session_path}"]
     }
 
-    func sessionIdentityArguments(sessionName: String) -> [String] {
-        ["-S", socketPath, "display-message", "-p", "-t", exactTarget(sessionName), "#{session_id}"]
+    func ensureServerIdentityArguments(candidate: UUID) -> [String] {
+        [
+            "-S", socketPath, "set-option", "-soq",
+            Self.serverIdentityOption, candidate.uuidString.lowercased(),
+        ]
     }
 
-    func sessionIdentityArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
-        ["-S", socketPath, "display-message", "-p", "-t", sessionID.rawValue, "#{session_id}"]
+    func sessionBindingArguments(sessionName: String) -> [String] {
+        ["-S", socketPath, "display-message", "-p", "-t", exactTarget(sessionName), sessionBindingFormat]
+    }
+
+    func sessionBindingArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
+        ["-S", socketPath, "display-message", "-p", "-t", sessionID.rawValue, sessionBindingFormat]
     }
 
     func listSessionsArguments() -> [String] {
-        ["-S", socketPath, "list-sessions", "-F", "#{session_name}\t#{session_id}\t#{session_windows}\t#{session_created}"]
+        [
+            "-S", socketPath, "list-sessions", "-F",
+            "\(sessionBindingFormat)\t#{session_windows}",
+        ]
     }
 
     func listClientsArguments() -> [String] {
         ["-S", socketPath, "list-clients", "-F", "#{client_id}\t#{session_name}\t#{client_pid}\t#{client_tty}"]
     }
 
-    func listClientsArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
-        ["-S", socketPath, "list-clients", "-t", sessionID.rawValue, "-F", "#{client_id}\t#{session_name}\t#{client_pid}\t#{client_tty}"]
+    func listClientsArguments(binding: LocalTmuxSessionBinding) -> [String] {
+        guardedArguments(
+            binding: binding,
+            action: tmuxCommand(
+                "list-clients", "-t", binding.sessionID.rawValue,
+                "-F", "#{client_id}\t#{session_name}\t#{client_pid}\t#{client_tty}"
+            )
+        )
     }
 
     func newSessionArguments(
@@ -73,26 +93,59 @@ struct LocalTmuxCommandBuilder {
         return arguments
     }
 
-    func attachArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
-        ["-S", socketPath, "attach-session", "-t", sessionID.rawValue]
+    func attachArguments(binding: LocalTmuxSessionBinding) -> [String] {
+        guardedArguments(
+            binding: binding,
+            action: tmuxCommand("attach-session", "-t", binding.sessionID.rawValue)
+        )
     }
 
-    func historyLimitArguments(sessionID: LocalTmuxSessionIdentity, lines: Int = 10_000) -> [String] {
-        ["-S", socketPath, "set-window-option", "-t", sessionID.rawValue, "history-limit", String(lines)]
+    func historyLimitArguments(binding: LocalTmuxSessionBinding, lines: Int = 10_000) -> [String] {
+        guardedArguments(
+            binding: binding,
+            action: tmuxCommand(
+                "set-window-option", "-t", binding.sessionID.rawValue,
+                "history-limit", String(lines)
+            )
+        )
     }
 
-    func detachArguments(sessionID: LocalTmuxSessionIdentity, clientID: String? = nil) -> [String] {
-        var arguments = ["-S", socketPath, "detach-client"]
-        if let clientID {
-            arguments.append(contentsOf: ["-t", clientID])
+    func detachArguments(binding: LocalTmuxSessionBinding, clientID: String? = nil) -> [String] {
+        let action = if let clientID {
+            tmuxCommand("detach-client", "-t", clientID)
         } else {
-            arguments.append(contentsOf: ["-s", sessionID.rawValue])
+            tmuxCommand("detach-client", "-s", binding.sessionID.rawValue)
         }
-        return arguments
+        return guardedArguments(binding: binding, action: action)
     }
 
-    func killSessionArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
-        ["-S", socketPath, "kill-session", "-t", sessionID.rawValue]
+    func killSessionArguments(binding: LocalTmuxSessionBinding) -> [String] {
+        guardedArguments(
+            binding: binding,
+            action: tmuxCommand("kill-session", "-t", binding.sessionID.rawValue)
+        )
+    }
+
+    private var sessionBindingFormat: String {
+        "#{session_name}\t#{session_id}\t#{\(Self.serverIdentityOption)}\t#{session_created}"
+    }
+
+    private func guardedArguments(
+        binding: LocalTmuxSessionBinding,
+        action: String
+    ) -> [String] {
+        [
+            "-S", socketPath, "if-shell", "-F", serverIdentityCondition(binding),
+            action, Self.identityMismatchCommand,
+        ]
+    }
+
+    private func serverIdentityCondition(_ binding: LocalTmuxSessionBinding) -> String {
+        "#{==:#{\(Self.serverIdentityOption)},\(binding.serverID.uuidString.lowercased())}"
+    }
+
+    private func tmuxCommand(_ arguments: String...) -> String {
+        arguments.map(shellQuote).joined(separator: " ")
     }
 
     /// Prefixes a session target with `=` so tmux requires an exact match

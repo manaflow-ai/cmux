@@ -117,7 +117,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
-          start:*display-message*'#{session_id}'*) printf '%s\n' '$201'; exit 0 ;;
+          start:*display-message*'#{session_name}'*) printf '%s\t$201\t55555555-5555-5555-5555-555555555555\t201\n' "$FAKE_TMUX_SESSION_NAME"; exit 0 ;;
           start:*has-session*) exit 1 ;;
           start:*) exit 0 ;;
           fail:*) echo "tmux unavailable" >&2; exit 1 ;;
@@ -132,6 +132,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_LOCAL_TMUX_BIN"] = fakeTmuxURL.path
         environment["CMUX_LOCAL_TMUX_STATE_DIR"] = stateRoot.path
         environment["FAKE_TMUX_MODE"] = "start"
+        environment["FAKE_TMUX_SESSION_NAME"] = sessionName
         environment.removeValue(forKey: "CMUX_SOCKET_PATH")
         environment.removeValue(forKey: "CMUX_SOCKET")
 
@@ -187,8 +188,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
-          start:*display-message*'pipe-'*'#{session_id}'*) printf '%s\n' '$302'; exit 0 ;;
-          start:*display-message*'#{session_id}'*) printf '%s\n' '$301'; exit 0 ;;
+          start:*display-message*'#{session_name}'*) printf '%s\t%s\t66666666-6666-6666-6666-666666666666\t%s\n' "$FAKE_TMUX_SESSION_NAME" "$FAKE_TMUX_SESSION_ID" "$FAKE_TMUX_SESSION_CREATED"; exit 0 ;;
           start:*has-session*) exit 1 ;;
           start:*) exit 0 ;;
           stopped:*list-sessions*) echo "no server running on $2" >&2; exit 1 ;;
@@ -207,6 +207,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_LOCAL_TMUX_BIN"] = fakeTmuxURL.path
         environment["CMUX_LOCAL_TMUX_STATE_DIR"] = stateRoot.path
         environment["FAKE_TMUX_MODE"] = "start"
+        environment["FAKE_TMUX_SESSION_NAME"] = sessionName
+        environment["FAKE_TMUX_SESSION_ID"] = "$301"
+        environment["FAKE_TMUX_SESSION_CREATED"] = "301"
         environment.removeValue(forKey: "CMUX_SOCKET_PATH")
         environment.removeValue(forKey: "CMUX_SOCKET")
 
@@ -250,6 +253,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual((prunePayload["removed_names"] as? [String])?.count, 1)
 
         environment["FAKE_TMUX_MODE"] = "start"
+        environment["FAKE_TMUX_SESSION_NAME"] = "pipe-\(sessionName)"
+        environment["FAKE_TMUX_SESSION_ID"] = "$302"
+        environment["FAKE_TMUX_SESSION_CREATED"] = "302"
         let secondStart = runProcess(
             executablePath: cliPath,
             arguments: ["local-tmux", "start", "pipe-\(sessionName)", "--cwd", stateRoot.path, "--detached"],

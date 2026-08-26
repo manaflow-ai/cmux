@@ -200,8 +200,12 @@ extension CMUXCLI {
         )
         let existing = try runner.run(arguments: builder.hasSessionArguments(name))
         if existing.succeeded {
-            let identity = try identityResolver.identity(named: name)
-            let existingPath = localTmuxSessionPath(identity: identity, builder: builder, runner: runner)
+            let observed = try identityResolver.observedSession(named: name)
+            let existingPath = localTmuxSessionPath(
+                identity: observed.binding.sessionID,
+                builder: builder,
+                runner: runner
+            )
             if let requestedCwd,
                let existingPath,
                requestedCwd != existingPath {
@@ -211,8 +215,10 @@ extension CMUXCLI {
                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCommand", defaultValue: "local-tmux session already exists; use attach or close it before supplying a new command"))
             }
-            if var record = try registry.load().first(where: { $0.name == name }) {
-                let liveSession = try identityResolver.bind(record, to: identity)
+            let records = try registry.load()
+            if var record = records.first(where: { $0.tmuxBinding == observed.binding })
+                ?? records.first(where: { $0.name == name }) {
+                let liveSession = try identityResolver.bind(record, to: observed)
                 record = liveSession.record
                 if let sessionPath = existingPath {
                     record.cwd = sessionPath
@@ -220,17 +226,17 @@ extension CMUXCLI {
                 record.socketPath = builder.socketPath
                 record.updatedAt = Date.now.timeIntervalSince1970
                 try registry.upsert(record)
-                return .init(record: record, identity: identity)
+                return .init(record: record, binding: observed.binding)
             }
             let sessionCwd = existingPath ?? ""
             let record = LocalTmuxSessionRecord(
                 name: name,
-                tmuxSessionID: identity.rawValue,
+                tmuxBinding: observed.binding,
                 socketPath: builder.socketPath,
                 cwd: sessionCwd
             )
             try registry.upsert(record)
-            return .init(record: record, identity: identity)
+            return .init(record: record, binding: observed.binding)
         }
 
         let cwd = try requestedCwd ?? localTmuxWorkingDirectory(nil)
@@ -238,22 +244,22 @@ extension CMUXCLI {
             builder.newSessionArguments(sessionName: name, workingDirectory: cwd, command: invocation.command),
             context: "start"
         )
-        let identity = try identityResolver.identity(named: name)
+        let observed = try identityResolver.observedSession(named: name)
         // tmux owns scrollback for this profile; keep a useful bounded history
         // rather than inheriting a small user/global default.
         _ = try? runner.requireSuccess(
-            builder.historyLimitArguments(sessionID: identity),
+            builder.historyLimitArguments(binding: observed.binding),
             context: "configure history"
         )
         try registry.validateServerSocketIfPresent()
         let record = LocalTmuxSessionRecord(
             name: name,
-            tmuxSessionID: identity.rawValue,
+            tmuxBinding: observed.binding,
             socketPath: builder.socketPath,
             cwd: cwd
         )
         try registry.upsert(record)
-        return .init(record: record, identity: identity)
+        return .init(record: record, binding: observed.binding)
     }
 
     private func localTmuxWorkingDirectory(_ raw: String?) throws -> String {
@@ -320,11 +326,24 @@ extension CMUXCLI {
                 builder: builder,
                 runner: runner
             )
-            let identity = try identityResolver.identity(named: validatedName)
-            let sessionCwd = localTmuxSessionPath(identity: identity, builder: builder, runner: runner) ?? ""
+            let observed = try identityResolver.observedSession(named: validatedName)
+            let sessionCwd = localTmuxSessionPath(
+                identity: observed.binding.sessionID,
+                builder: builder,
+                runner: runner
+            ) ?? ""
+            if var record = records.first(where: { $0.tmuxBinding == observed.binding }) {
+                let liveSession = try identityResolver.bind(record, to: observed)
+                record = liveSession.record
+                record.socketPath = builder.socketPath
+                if !sessionCwd.isEmpty { record.cwd = sessionCwd }
+                record.updatedAt = Date.now.timeIntervalSince1970
+                try registry.upsert(record)
+                return record
+            }
             let record = LocalTmuxSessionRecord(
                 name: validatedName,
-                tmuxSessionID: identity.rawValue,
+                tmuxBinding: observed.binding,
                 socketPath: builder.socketPath,
                 cwd: sessionCwd
             )

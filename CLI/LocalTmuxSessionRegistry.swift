@@ -5,7 +5,7 @@ import Foundation
 struct LocalTmuxSessionRecord: Codable, Equatable, Sendable {
     var id: UUID
     var name: String
-    var tmuxSessionID: String?
+    var tmuxBinding: LocalTmuxSessionBinding?
     var socketPath: String
     var cwd: String
     var workspaceID: String?
@@ -17,7 +17,7 @@ struct LocalTmuxSessionRecord: Codable, Equatable, Sendable {
     init(
         id: UUID = UUID(),
         name: String,
-        tmuxSessionID: String? = nil,
+        tmuxBinding: LocalTmuxSessionBinding? = nil,
         socketPath: String,
         cwd: String,
         workspaceID: String? = nil,
@@ -28,7 +28,7 @@ struct LocalTmuxSessionRecord: Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.name = name
-        self.tmuxSessionID = tmuxSessionID
+        self.tmuxBinding = tmuxBinding
         self.socketPath = socketPath
         self.cwd = cwd
         self.workspaceID = workspaceID
@@ -112,7 +112,14 @@ struct LocalTmuxSessionRegistry {
     func upsert(_ record: LocalTmuxSessionRecord) throws {
         try ensureSecureStorage()
         try withLockedState { state in
-            state.sessions.removeAll { $0.id == record.id || $0.name == record.name }
+            guard !state.sessions.contains(where: {
+                $0.id != record.id
+                    && ($0.name == record.name
+                        || (record.tmuxBinding != nil && $0.tmuxBinding == record.tmuxBinding))
+            }) else {
+                throw LocalTmuxRegistryError.invalidState(sessionsURL.path)
+            }
+            state.sessions.removeAll { $0.id == record.id }
             state.sessions.append(record)
             state.sessions.sort { $0.createdAt < $1.createdAt }
         }
@@ -230,13 +237,12 @@ struct LocalTmuxSessionRegistry {
             let state = try JSONDecoder().decode(LocalTmuxRegistryFile.self, from: data)
             let uniqueIDs = Set(state.sessions.map(\.id))
             let uniqueNames = Set(state.sessions.map(\.name))
-            let storedTmuxIDs = state.sessions.compactMap(\.tmuxSessionID)
-            let uniqueTmuxIDs = Set(storedTmuxIDs)
+            let storedBindings = state.sessions.compactMap(\.tmuxBinding)
+            let uniqueBindings = Set(storedBindings)
             guard state.version == 1,
                   uniqueIDs.count == state.sessions.count,
                   uniqueNames.count == state.sessions.count,
-                  uniqueTmuxIDs.count == storedTmuxIDs.count,
-                  storedTmuxIDs.allSatisfy({ LocalTmuxSessionIdentity($0) != nil }) else {
+                  uniqueBindings.count == storedBindings.count else {
                 throw LocalTmuxRegistryError.invalidState(sessionsURL.path)
             }
             return state

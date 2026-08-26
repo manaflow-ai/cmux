@@ -5,7 +5,7 @@ import Foundation
 /// `tmuxStartCommand` is also used by older agent integrations, so accepting
 /// every command that happens to contain `tmux` would turn session restore into
 /// an arbitrary shell-command launcher. The profile emits a fixed environment
-/// marker and an `exec ... attach-session` shape; both are required here.
+/// marker and a server-incarnation-guarded attach shape; both are required here.
 struct LocalTmuxRestoreCommandPolicy: Sendable {
     func restorableCommand(_ rawCommand: String?) -> String? {
         guard let command = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -14,7 +14,7 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
             return nil
         }
         let words = shellWords(command)
-        guard words.count == 9,
+        guard words.count == 11,
               words[0] == "TMUX=",
               words[1] == "CMUX_LOCAL_TMUX=1",
               words[2] == "exec",
@@ -24,16 +24,22 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
               words[5].hasPrefix("/"),
               (words[5] as NSString).lastPathComponent == "server.sock",
               URL(fileURLWithPath: words[5]).standardizedFileURL.path == words[5],
-              words[6] == "attach-session",
-              words[7] == "-t",
-              words[8].range(of: "^\\$[0-9]+$", options: .regularExpression) != nil else {
+              words[6] == "if-shell",
+              words[7] == "-F",
+              let serverID = serverIdentity(from: words[8]),
+              let sessionID = attachSessionID(from: words[9]),
+              words[10] == "run-shell false" else {
             return nil
         }
         // The command is later evaluated by a login shell. Accept only the
         // exact single-quoted serialization produced by LocalTmuxCommandBuilder;
         // otherwise shell substitutions/operators could survive this word
         // parser even though their decoded values look structurally valid.
-        let canonical = "TMUX= CMUX_LOCAL_TMUX=1 exec \(shellQuote(words[3])) -S \(shellQuote(words[5])) attach-session -t \(shellQuote(words[8]))"
+        let condition = "#{==:#{@cmux_local_server_id},\(serverID.uuidString.lowercased())}"
+        let action = ["attach-session", "-t", sessionID]
+            .map(shellQuote)
+            .joined(separator: " ")
+        let canonical = "TMUX= CMUX_LOCAL_TMUX=1 exec \(shellQuote(words[3])) -S \(shellQuote(words[5])) if-shell -F \(shellQuote(condition)) \(shellQuote(action)) \(shellQuote(words[10]))"
         guard command == canonical else { return nil }
         return command
     }
@@ -51,6 +57,28 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
 
     private func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func serverIdentity(from condition: String) -> UUID? {
+        let prefix = "#{==:#{@cmux_local_server_id},"
+        guard condition.hasPrefix(prefix), condition.hasSuffix("}") else { return nil }
+        let rawValue = String(condition.dropFirst(prefix.count).dropLast())
+        guard let serverID = UUID(uuidString: rawValue),
+              serverID.uuidString.lowercased() == rawValue else {
+            return nil
+        }
+        return serverID
+    }
+
+    private func attachSessionID(from command: String) -> String? {
+        let words = shellWords(command)
+        guard words.count == 3,
+              words[0] == "attach-session",
+              words[1] == "-t",
+              words[2].range(of: "^\\$[0-9]+$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return words[2]
     }
 
     /// Small shell-word reader used only to validate cmux-generated commands.
