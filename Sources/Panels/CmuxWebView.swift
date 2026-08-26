@@ -12,6 +12,9 @@ import WebKit
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
+    /// Popups are standalone browser surfaces rather than portal-bound panels.
+    /// The marker gives shared shortcut routing a direct ownership signal.
+    var isBrowserPopupWebView = false
 
     /// One-shot app-owned internal navigations (file/data/blob/etc.) that
     /// must pass the browser URL policy's trusted-load seam. Page callbacks

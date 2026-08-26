@@ -43,7 +43,21 @@ private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEve
 /// `cmux_performKeyEquivalent` can dispatch it to the main menu's
 /// "Close Tab" action (which would close the parent browser tab).
 final class BrowserPopupPanel: NSPanel {
+    /// The popup page hosted by this panel. Weak ownership avoids a panel ↔
+    /// web-view cycle while letting the panel yield its close shortcut when
+    /// browser capture is enabled.
+    weak var browserWebView: CmuxWebView?
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let browserWebView,
+           AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(
+               for: event,
+               webView: browserWebView
+           ) == true {
+            // Let CmuxWebView run the shared capture path before this panel's
+            // Close Tab interception can consume the same command.
+            return browserWebView.performKeyEquivalent(with: event)
+        }
         if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
             return true
         }

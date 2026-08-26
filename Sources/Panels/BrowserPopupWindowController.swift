@@ -23,7 +23,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
-    private let panel: NSPanel
+    private let panel: BrowserPopupPanel
     private let urlLabel: NSTextField, urlLabelHeightConstraint: NSLayoutConstraint
     private weak var openerPanel: BrowserPanel?
     private weak var parentPopupController: BrowserPopupWindowController?
@@ -62,6 +62,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // overlaying the opener's browser context so OAuth popups keep cmux's
         // shared cookie/storage scope and opener linkage.
         let webView = CmuxWebView(frame: .zero, configuration: configuration)
+        webView.isBrowserPopupWebView = true
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
@@ -116,6 +117,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.minSize = NSSize(width: minWidth, height: minHeight)
         panel.title = String(localized: "browser.popup.loadingTitle", defaultValue: "Loading\u{2026}")
+        panel.browserWebView = webView
         self.panel = panel
 
         let urlLabel = NSTextField(labelWithString: "")

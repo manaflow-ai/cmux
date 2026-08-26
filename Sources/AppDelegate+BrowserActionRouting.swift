@@ -16,7 +16,7 @@ extension AppDelegate {
         return panel
     }
 
-    /// Whether a ``CmuxWebView`` belongs to an in-app browser panel.
+    /// Whether a ``CmuxWebView`` belongs to a cmux browser surface.
     ///
     /// The navigation-delegate owner and portal context are both direct,
     /// bounded ownership signals. They keep keyboard routing off the global
@@ -24,6 +24,7 @@ extension AppDelegate {
     func isBrowserPanelWebView(_ webView: CmuxWebView) -> Bool {
         directBrowserPanelOwner(of: webView) != nil
             || BrowserWindowPortalRegistry.paneDropContext(for: webView) != nil
+            || webView.isBrowserPopupWebView
     }
 
     /// Resolves a browser panel by its globally unique panel identifier.
