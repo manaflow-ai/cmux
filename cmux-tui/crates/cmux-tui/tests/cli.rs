@@ -3158,6 +3158,13 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
     let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
     let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    // Create all terminals before opening the long-lived raw control client.
+    // Terminal creation can rebalance the shared Kitty image budget; keeping
+    // this resource setup ahead of the sizing lease avoids a cross-resource
+    // wait in this fixture.
+    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
+    assert_success(&split);
+    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
     let raw_tree =
         raw_json(&server, serde_json::json!({"id":"created-tree","cmd":"list-workspaces"}));
     let sizing_surface =
@@ -3257,9 +3264,6 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         "ordinary public layout unexpectedly used viewport columns"
     );
 
-    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
-    assert_success(&split);
-    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
     let projected = json_cli(
         &server,
         &[
