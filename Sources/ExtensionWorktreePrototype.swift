@@ -12,8 +12,8 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     let generatedArtifactContents: Data
     /// Filesystem identity captured immediately after `git worktree add`.
     /// Rollback refuses to touch a path whose checkout was replaced.
-    let worktreeDeviceID: UInt64? = nil
-    let worktreeFileID: UInt64? = nil
+    let worktreeDeviceID: UInt64?
+    let worktreeFileID: UInt64?
     /// A convenience command (e.g. a sample dev-server launcher) that should run
     /// inside the new workspace's interactive shell. This is *setup*, never the
     /// workspace's primary process.
@@ -537,7 +537,8 @@ enum CmuxExtensionWorktreePrototype {
         expectedIdentity: (deviceID: UInt64, fileID: UInt64)?
     ) async {
         guard let expectedIdentity,
-              filesystemIdentity(at: worktree) == expectedIdentity else {
+              let currentIdentity = Self.filesystemIdentity(at: worktree),
+              currentIdentity == expectedIdentity else {
             logPrivateDiagnostic("Skipped failed worktree cleanup after identity changed.")
             return
         }
