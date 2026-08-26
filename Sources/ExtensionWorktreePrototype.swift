@@ -12,36 +12,12 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     let generatedArtifactContents: Data
     /// Filesystem identity captured immediately after `git worktree add`.
     /// Rollback refuses to touch a path whose checkout was replaced.
-    let worktreeDeviceID: UInt64?
-    let worktreeFileID: UInt64?
+    let worktreeDeviceID: UInt64? = nil
+    let worktreeFileID: UInt64? = nil
     /// A convenience command (e.g. a sample dev-server launcher) that should run
     /// inside the new workspace's interactive shell. This is *setup*, never the
     /// workspace's primary process.
     let setupCommand: String
-
-    init(
-        projectRootPath: String,
-        worktreePath: String,
-        branchName: String,
-        workspaceTitle: String,
-        createdHead: String,
-        generatedArtifactRelativePath: String,
-        generatedArtifactContents: Data,
-        worktreeDeviceID: UInt64? = nil,
-        worktreeFileID: UInt64? = nil,
-        setupCommand: String
-    ) {
-        self.projectRootPath = projectRootPath
-        self.worktreePath = worktreePath
-        self.branchName = branchName
-        self.workspaceTitle = workspaceTitle
-        self.createdHead = createdHead
-        self.generatedArtifactRelativePath = generatedArtifactRelativePath
-        self.generatedArtifactContents = generatedArtifactContents
-        self.worktreeDeviceID = worktreeDeviceID
-        self.worktreeFileID = worktreeFileID
-        self.setupCommand = setupCommand
-    }
 }
 
 /// Arguments for spawning a workspace in a freshly created worktree.
@@ -561,8 +537,7 @@ enum CmuxExtensionWorktreePrototype {
         expectedIdentity: (deviceID: UInt64, fileID: UInt64)?
     ) async {
         guard let expectedIdentity,
-              let currentIdentity = filesystemIdentity(at: worktree),
-              currentIdentity == expectedIdentity else {
+              filesystemIdentity(at: worktree) == expectedIdentity else {
             logPrivateDiagnostic("Skipped failed worktree cleanup after identity changed.")
             return
         }
