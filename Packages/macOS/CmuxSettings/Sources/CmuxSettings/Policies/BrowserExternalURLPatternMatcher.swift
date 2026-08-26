@@ -1,55 +1,50 @@
 import Foundation
 
-/// Parses and matches the line-oriented URL rule syntax used by the browser policy.
+/// Normalizes URL rules and evaluates them with bounded, precompiled matchers.
 struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
-    func matches(pattern: String, target: String) -> Bool {
-        if pattern.lowercased().hasPrefix("re:") {
-            let expression = String(pattern.dropFirst(3))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return regexMatches(expression, target: target)
-        }
+    /// The largest number of rules retained by one policy snapshot.
+    private let maximumPatternCount = 256
+    /// The largest individual rule accepted for matching.
+    private let maximumPatternLength = 4096
+    /// The total rule text retained by one policy snapshot.
+    private let maximumTotalPatternLength = 65_536
 
-        // Keep the documented plain-text substring behavior, while accepting
-        // the regex-shaped rules users historically supplied to this setting.
-        // A rule containing star/question wildcards is a glob by default, even
-        // when it also contains regex metacharacters. The common unprefixed
-        // `.*`/`.+` forms remain regexes for compatibility; use `re:` for any
-        // other regex that also needs wildcard characters.
-        if pattern.contains("*") || pattern.contains("?") {
-            guard isLegacyRegexWildcardPattern(pattern) else {
-                return regexMatches(wildcardRegex(for: pattern), target: target)
-            }
-        }
+    /// The normalized rules represented by this matcher.
+    let patterns: [String]
+    private let compiledPatterns: [BrowserExternalURLCompiledPattern]
 
-        if isRegexShaped(pattern) {
-            if target.range(of: pattern, options: [.caseInsensitive]) != nil {
-                return true
-            }
-            return regexMatches(pattern, target: target)
-        }
-
-        return target.range(of: pattern, options: [.caseInsensitive]) != nil
+    /// Builds a normalized matcher from line-oriented or array-backed values.
+    init(patterns: [String]) {
+        let normalized = normalizedPatterns(from: patterns)
+        self.patterns = normalized
+        compiledPatterns = normalized.map(compile)
     }
 
+    /// Builds a normalized matcher from a property-list value.
+    init(rawValue: Any?) {
+        if let values = rawValue as? [String] {
+            self.init(patterns: values)
+        } else if let values = rawValue as? NSArray {
+            self.init(patterns: values.compactMap { $0 as? String })
+        } else if let value = rawValue as? String {
+            self.init(patterns: [value])
+        } else {
+            self.init(patterns: [])
+        }
+    }
+
+    /// Returns whether one of the precompiled rules matches `target`.
+    func matches(_ target: String) -> Bool {
+        compiledPatterns.contains { $0.matches(target) }
+    }
+
+    /// Converts a legacy array value to the newline text expected by Settings.
     func legacyArrayStringValue(from rawValue: Any?) -> String? {
         guard let values = arrayValues(from: rawValue) else { return nil }
         return normalizedPatterns(from: values).joined(separator: "\n")
     }
 
-    func normalizedPatterns(from values: [String]) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for value in values {
-            for token in value.components(separatedBy: .newlines) {
-                let normalized = token.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !normalized.isEmpty, !normalized.hasPrefix("#") else { continue }
-                guard seen.insert(normalized).inserted else { continue }
-                result.append(normalized)
-            }
-        }
-        return result
-    }
-
+    /// Extracts supported string representations from a UserDefaults value.
     func stringValues(from rawValue: Any?) -> [String] {
         if let values = rawValue as? [String] {
             return values
@@ -63,16 +58,39 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
         return []
     }
 
-    private func regexMatches(_ expression: String, target: String) -> Bool {
-        guard !expression.isEmpty,
-              let regex = try? NSRegularExpression(
-                  pattern: expression,
-                  options: [.caseInsensitive]
-              ) else {
-            return false
+    private func compile(_ pattern: String) -> BrowserExternalURLCompiledPattern {
+        guard pattern.count <= maximumPatternLength else {
+            return BrowserExternalURLCompiledPattern(unmatchable: ())
         }
-        let range = NSRange(target.startIndex..<target.endIndex, in: target)
-        return regex.firstMatch(in: target, options: [], range: range) != nil
+
+        if pattern.lowercased().hasPrefix("re:") {
+            let expression = String(pattern.dropFirst(3))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return BrowserExternalURLCompiledPattern(regex: makeRegex(expression))
+        }
+
+        if pattern.contains("*") || pattern.contains("?") {
+            guard isLegacyRegexWildcardPattern(pattern) else {
+                return BrowserExternalURLCompiledPattern(regex: makeRegex(wildcardRegex(for: pattern)))
+            }
+        }
+
+        if isRegexShaped(pattern) {
+            return BrowserExternalURLCompiledPattern(
+                literalFallback: pattern,
+                regex: makeRegex(pattern)
+            )
+        }
+
+        return BrowserExternalURLCompiledPattern(literal: pattern)
+    }
+
+    private func makeRegex(_ expression: String) -> NSRegularExpression? {
+        guard !expression.isEmpty else { return nil }
+        return try? NSRegularExpression(
+            pattern: expression,
+            options: [.caseInsensitive]
+        )
     }
 
     private func isRegexShaped(_ pattern: String) -> Bool {
@@ -143,6 +161,28 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
             expression += NSRegularExpression.escapedPattern(for: "\\")
         }
         return expression
+    }
+
+    private func normalizedPatterns(from values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        var totalLength = 0
+        for value in values {
+            guard totalLength < maximumTotalPatternLength else { return result }
+            let boundedValue = String(value.prefix(maximumTotalPatternLength))
+            for token in boundedValue.components(separatedBy: .newlines) {
+                let normalized = token.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalized.isEmpty, !normalized.hasPrefix("#") else { continue }
+                guard seen.insert(normalized).inserted else { continue }
+                guard result.count < maximumPatternCount,
+                      totalLength + normalized.count <= maximumTotalPatternLength else {
+                    return result
+                }
+                result.append(normalized)
+                totalLength += normalized.count
+            }
+        }
+        return result
     }
 
     private func arrayValues(from rawValue: Any?) -> [String]? {

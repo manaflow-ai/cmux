@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import CmuxSettings
 import Foundation
 import WebKit
@@ -7,13 +8,16 @@ import WebKit
 ///
 /// Browser delegates and terminal routing construct this handler with the
 /// same defaults and opener seam, so matching and opener-failure behavior stay
-/// consistent without reaching through a static settings namespace.
+/// consistent without reaching through a static settings namespace. The
+/// compiled policy is retained and refreshed only when its stored rule value
+/// changes, keeping repeated link actions bounded on the main actor.
 @MainActor
 struct BrowserExternalNavigationHandler {
     typealias OpenResult = BrowserExternalNavigationOpenResult
 
     private let defaults: UserDefaults
     private let openURL: @MainActor @Sendable (URL) -> Bool
+    private let policyCache: BrowserExternalURLPolicyCache
 
     init(
         defaults: UserDefaults = .standard,
@@ -21,29 +25,33 @@ struct BrowserExternalNavigationHandler {
     ) {
         self.defaults = defaults
         self.openURL = openURL
+        self.policyCache = BrowserExternalURLPolicyCache(defaults: defaults)
     }
 
     /// Returns whether a URL matches a configured external rule.
     func shouldOpenExternally(_ url: URL) -> Bool {
-        guard !Self.isAppOwnedInternalURL(url) else {
+        let externalURL = canonicalURL(for: url)
+        guard !Self.isAppOwnedInternalURL(externalURL) else {
             return false
         }
-        return shouldOpenExternally(target: url.absoluteString)
+        return shouldOpenExternally(target: externalURL.absoluteString)
     }
 
     /// Returns whether raw URL text matches a configured external rule.
     func shouldOpenExternally(_ rawURL: String) -> Bool {
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
-        if let parsedURL = URL(string: target), Self.isAppOwnedInternalURL(parsedURL) {
-            return false
+        if let parsedURL = URL(string: target) {
+            let externalURL = canonicalURL(for: parsedURL)
+            guard !Self.isAppOwnedInternalURL(externalURL) else { return false }
+            return shouldOpenExternally(target: externalURL.absoluteString)
         }
         return shouldOpenExternally(target: target)
     }
 
     private func shouldOpenExternally(target: String) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
-        return BrowserExternalURLPolicy(defaults: defaults).matches(target)
+        return policyCache.currentPolicy().matches(target)
     }
 
     /// Returns whether a user-activated main-frame navigation should be external.
@@ -82,6 +90,21 @@ struct BrowserExternalNavigationHandler {
         return BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url)
     }
 
+    /// Maps the browser-only remote loopback alias back to its user-visible URL.
+    private func canonicalURL(for url: URL) -> URL {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host,
+              let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
+                  forAliasHost: host,
+                  aliasHost: RemoteLoopbackProxyAlias.aliasHost
+              ) else {
+            return url
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = displayHost
+        return components?.url ?? url
+    }
+
     /// Opens a matching URL through the injected system-browser opener.
     @discardableResult
     func openConfiguredExternallyIfNeeded(
@@ -101,8 +124,9 @@ struct BrowserExternalNavigationHandler {
         _ url: URL,
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> OpenResult {
-        guard shouldOpenExternally(url) else { return .notConfigured }
-        guard openURL(url) else { return .failed }
+        let externalURL = canonicalURL(for: url)
+        guard shouldOpenExternally(externalURL) else { return .notConfigured }
+        guard openURL(externalURL) else { return .failed }
         onOpened()
         return .opened
     }
@@ -134,14 +158,15 @@ struct BrowserExternalNavigationHandler {
         targetFrameIsMain: Bool?,
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> OpenResult {
+        let externalURL = canonicalURL(for: url)
         guard shouldOpenExternally(
-            url,
+            externalURL,
             navigationType: navigationType,
             targetFrameIsMain: targetFrameIsMain
         ) else {
             return .notConfigured
         }
-        guard openURL(url) else { return .failed }
+        guard openURL(externalURL) else { return .failed }
         onOpened()
         return .opened
     }

@@ -5,7 +5,9 @@ import Foundation
 /// Rules are stored as one string per line by the legacy settings surface, but
 /// the JSON settings importer and older releases can leave them as an array in
 /// `UserDefaults`. The policy accepts both representations so every browser
-/// entry point evaluates the same effective rules.
+/// entry point evaluates the same effective rules. A policy snapshot retains
+/// at most 256 rules and 65,536 characters of rule text; individual rules over
+/// 4,096 characters are retained for display but fail closed during matching.
 public struct BrowserExternalURLPolicy: Equatable, Sendable {
     /// The legacy `UserDefaults` key used by the browser settings catalog.
     public static let userDefaultsKey = "browserExternalOpenPatterns"
@@ -26,15 +28,15 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
     ///
     /// - Parameter patterns: Rules in either line-oriented or array form.
     public init(patterns: [String]) {
-        let matcher = BrowserExternalURLPatternMatcher()
+        let matcher = BrowserExternalURLPatternMatcher(patterns: patterns)
         self.matcher = matcher
-        self.patterns = matcher.normalizedPatterns(from: patterns)
+        self.patterns = matcher.patterns
     }
 
     private init(rawValue: Any?) {
-        let matcher = BrowserExternalURLPatternMatcher()
+        let matcher = BrowserExternalURLPatternMatcher(rawValue: rawValue)
         self.matcher = matcher
-        self.patterns = matcher.normalizedPatterns(from: matcher.stringValues(from: rawValue))
+        self.patterns = matcher.patterns
     }
 
     /// Returns whether a URL matches at least one configured rule.
@@ -47,8 +49,6 @@ public struct BrowserExternalURLPolicy: Equatable, Sendable {
         let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return false }
 
-        return patterns.contains { pattern in
-            matcher.matches(pattern: pattern, target: target)
-        }
+        return matcher.matches(target)
     }
 }

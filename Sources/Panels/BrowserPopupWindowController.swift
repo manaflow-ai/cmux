@@ -193,8 +193,26 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             if let opener = self?.openerPanel {
                 opener.openLinkInNewTab(url: url)
-            } else {
-                NSWorkspace.shared.open(url)
+                return
+            }
+
+            // A popup without an opener cannot create a sibling tab, but a
+            // configured rule still gets the shared canonicalization and
+            // fail-closed opener handling before the system fallback.
+            let handler = BrowserExternalNavigationHandler()
+            switch handler.openConfiguredExternallyResult(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            ) {
+            case .opened:
+                return
+            case .failed:
+                if let webView = self?.webView {
+                    browserPresentExternalNavigationFailure(for: url, in: webView)
+                }
+            case .notConfigured:
+                _ = NSWorkspace.shared.open(url)
             }
         }
 
