@@ -2,6 +2,11 @@ import CmuxFoundation
 import Foundation
 
 extension FileContentChangeCoordinator {
+    typealias ObserverRegistration = (
+        id: UUID,
+        handler: ChangeHandler
+    )
+
     typealias WatchRegistration = (
         watcher: FileWatcher?,
         task: Task<Void, Never>?
@@ -23,5 +28,7 @@ extension FileContentChangeCoordinator {
         var lookupPathsByWatchedPath: [String: Set<String>] = [:]
         var indexedLookupPaths: Set<String> = []
         var observers: [UUID: ChangeHandler] = [:]
+        /// Copy-on-write dispatch snapshot; rebuilt only when observers change.
+        var observerHandlers: [ObserverRegistration] = []
     }
 }

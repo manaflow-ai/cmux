@@ -62,12 +62,13 @@ final class FileContentChangeCoordinator {
             )
         }
         entry.observers[observationID] = onChange
-        refreshLookupIndex(for: canonicalPath, in: &entry)
-        entriesByPath[canonicalPath] = entry
+        entry.observerHandlers.append((id: observationID, handler: onChange))
         observationsByID[observationID] = (
             canonicalPath: canonicalPath,
             watchedPath: watchedPath
         )
+        pruneUnusedWatches(for: canonicalPath, in: &entry)
+        entriesByPath[canonicalPath] = entry
 
         // Close the capture/attachment gap: the first fingerprint is sampled
         // before watcher construction and this second sample happens after the
@@ -88,6 +89,7 @@ final class FileContentChangeCoordinator {
             return
         }
         entry.observers.removeValue(forKey: observationID)
+        entry.observerHandlers.removeAll { $0.id == observationID }
         guard !entry.observers.isEmpty else {
             for registration in entry.watches.values {
                 registration.task?.cancel()
@@ -95,31 +97,13 @@ final class FileContentChangeCoordinator {
             entry.watches.removeAll()
             entry.lastObservedStates.removeAll()
             entry.lookupPathsByWatchedPath.removeAll()
+            entry.observerHandlers.removeAll()
             refreshLookupIndex(for: observation.canonicalPath, in: &entry)
             entriesByPath.removeValue(forKey: observation.canonicalPath)
             return
         }
 
-        let remainingWatchedPaths = Set(
-            observationsByID.values
-                .filter { $0.canonicalPath == observation.canonicalPath }
-                .map { $0.watchedPath }
-        )
-        var requiredWatchPaths = remainingWatchedPaths
-        if remainingWatchedPaths.contains(where: { $0 != observation.canonicalPath }) {
-            // Alias observers need the stable target watcher so a retargeted
-            // alias cannot strand panels still showing the original inode.
-            requiredWatchPaths.insert(observation.canonicalPath)
-        }
-        for watchPath in Array(entry.watches.keys)
-            where !requiredWatchPaths.contains(watchPath) {
-            if let registration = entry.watches.removeValue(forKey: watchPath) {
-                registration.task?.cancel()
-            }
-            entry.lastObservedStates.removeValue(forKey: watchPath)
-            entry.lookupPathsByWatchedPath.removeValue(forKey: watchPath)
-        }
-        refreshLookupIndex(for: observation.canonicalPath, in: &entry)
+        pruneUnusedWatches(for: observation.canonicalPath, in: &entry)
         entriesByPath[observation.canonicalPath] = entry
     }
 
@@ -141,12 +125,11 @@ final class FileContentChangeCoordinator {
             for watchPath in Array(entry.lastObservedStates.keys) {
                 entry.lastObservedStates[watchPath] = .capture(path: watchPath)
             }
-            let handlers = entry.observers.compactMap { observationID, handler in
-                observationID == excludedObservationID ? nil : handler
-            }
+            let handlers = entry.observerHandlers
             entriesByPath[entryKey] = entry
-            for handler in handlers {
-                handler()
+            for registration in handlers
+                where registration.id != excludedObservationID {
+                registration.handler()
             }
         }
     }
@@ -277,21 +260,66 @@ final class FileContentChangeCoordinator {
                 in: &entry
             )
         }
-        if entry.lookupPathsByWatchedPath[watchedPath] != nextLookupPaths {
+        let lookupPathsChanged =
+            entry.lookupPathsByWatchedPath[watchedPath] != nextLookupPaths
+        if lookupPathsChanged {
             entry.lookupPathsByWatchedPath[watchedPath] = nextLookupPaths
-            refreshLookupIndex(for: canonicalPath, in: &entry)
         }
-        guard nextState != lastObservedState else {
+        let stateChanged = nextState != lastObservedState
+        if stateChanged {
+            entry.lastObservedStates[watchedPath] = nextState
+        }
+        // A symlink may be retargeted repeatedly. Keep only the current target
+        // (plus targets still required by other active aliases) so each event
+        // cannot accumulate another FileWatcher and dispatch source.
+        if lookupPathsChanged {
+            pruneUnusedWatches(for: canonicalPath, in: &entry)
+        }
+        guard stateChanged else {
             entriesByPath[canonicalPath] = entry
             return false
         }
-        entry.lastObservedStates[watchedPath] = nextState
-        let handlers = Array(entry.observers.values)
+        let handlers = entry.observerHandlers
         entriesByPath[canonicalPath] = entry
-        for handler in handlers {
-            handler()
+        for registration in handlers {
+            registration.handler()
         }
         return true
+    }
+
+    private func pruneUnusedWatches(
+        for entryKey: String,
+        in entry: inout Entry
+    ) {
+        let requiredWatchPaths = requiredWatchPaths(for: entryKey, in: entry)
+        for watchPath in Array(entry.watches.keys)
+            where !requiredWatchPaths.contains(watchPath) {
+            if let registration = entry.watches.removeValue(forKey: watchPath) {
+                registration.task?.cancel()
+            }
+            entry.lastObservedStates.removeValue(forKey: watchPath)
+            entry.lookupPathsByWatchedPath.removeValue(forKey: watchPath)
+        }
+        refreshLookupIndex(for: entryKey, in: &entry)
+    }
+
+    private func requiredWatchPaths(
+        for entryKey: String,
+        in entry: Entry
+    ) -> Set<String> {
+        var required: Set<String> = [entryKey]
+        for observationID in entry.observers.keys {
+            guard let observation = observationsByID[observationID],
+                  observation.canonicalPath == entryKey else { continue }
+            required.insert(observation.watchedPath)
+            required.formUnion(
+                entry.lookupPathsByWatchedPath[observation.watchedPath] ?? []
+            )
+            // Keep the current target even if an older entry was created
+            // before its lookup map was refreshed.
+            required.insert(Self.canonicalPath(observation.watchedPath))
+        }
+        return required
     }
 
     private func refreshLookupIndex(

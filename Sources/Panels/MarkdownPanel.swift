@@ -130,6 +130,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // Initial disk hydration must not overwrite edits made while a large
         // file is loading; explicit reload/revert paths retain the destructive
         // default through `loadTextContent(replacingDirtyContent:)`.
+        // Seed the observation fingerprint before registration so the
+        // coordinator's initial reconciliation does not enqueue a duplicate
+        // full-file read when the file has not changed.
+        lastObservedFileState = .capture(path: filePath)
         _ = loadFileContent(replacingDirtyContent: false)
         startWatchingForFileChanges()
         observeTypographyDefaults()
