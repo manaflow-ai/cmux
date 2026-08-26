@@ -417,7 +417,7 @@ _cmux_install_cli_wrapper() {
     local wrapper_path="$bundle_dir/bin/$wrapper_file"
     [[ -x "$wrapper_path" ]] || return 0
 
-    if (( ${+aliases[$command_name]} )); then
+    if (( ${+aliases[$command_name]} || ${+galiases[$command_name]} )); then
         has_user_alias=1
     fi
 
