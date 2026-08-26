@@ -84,7 +84,6 @@ extension GhosttyApp {
                     "reload.config.surfaceApply.end source=\(snapshot.source)"
                 )
 #endif
-                configurationApplyNeedsRecovery = snapshot.needsRecovery
                 completionBox.finish()
             }
         )
@@ -182,8 +181,7 @@ extension GhosttyApp {
         _ snapshot: TerminalConfigurationApplySnapshot,
         to surface: TerminalSurface
     ) {
-        if snapshot.appliesNativeConfiguration,
-           let config,
+        if let config,
            let liveSurface = surface
             .liveSurfaceForGhosttyAccess(
                 reason: "configReload.incrementalApply"
@@ -200,9 +198,6 @@ extension GhosttyApp {
                         snapshot.preferredColorScheme
                 )
         }
-        guard snapshot.refreshesHostAppearance else {
-            return
-        }
         surface.hostedView
             .refreshHostBackgroundAfterGhosttyConfigReload()
         surface.forceRefresh(
@@ -218,15 +213,6 @@ extension GhosttyApp {
         for lifecycleID: UUID,
         reason: ConfigurationSnapshotAbandonReason
     ) {
-        switch reason {
-        case .retryLimitReached,
-             .surfaceUnavailable,
-             .surfaceUnregistered:
-            snapshot.markNeedsRecovery()
-        case .pendingWorkReplaced,
-             .surfaceReplaced:
-            break
-        }
         guard let state = snapshot.removeSurfaceState(
             lifecycleID: lifecycleID
         ), let surface = state.surface else {

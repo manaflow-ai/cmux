@@ -9,9 +9,6 @@ final class TerminalConfigurationApplySnapshot {
     let previousMagnificationPercent: Int
     let terminalFontConfiguration:
         WorkspaceTerminalFontConfigurationSnapshot
-    let appliesNativeConfiguration: Bool
-    let refreshesHostAppearance: Bool
-    private(set) var needsRecovery = false
 
     private var surfaceStates:
         [UUID: TerminalConfigurationSurfaceApplyState] = [:]
@@ -22,9 +19,7 @@ final class TerminalConfigurationApplySnapshot {
             GhosttyConfig.ColorSchemePreference,
         previousMagnificationPercent: Int,
         terminalFontConfiguration:
-            WorkspaceTerminalFontConfigurationSnapshot,
-        appliesNativeConfiguration: Bool = true,
-        refreshesHostAppearance: Bool = true
+            WorkspaceTerminalFontConfigurationSnapshot
     ) {
         self.source = source
         self.preferredColorScheme = preferredColorScheme
@@ -32,13 +27,6 @@ final class TerminalConfigurationApplySnapshot {
             previousMagnificationPercent
         self.terminalFontConfiguration =
             terminalFontConfiguration
-        self.appliesNativeConfiguration = appliesNativeConfiguration
-        self.refreshesHostAppearance = refreshesHostAppearance
-    }
-
-    /// Marks that at least one surface needs another reload attempt.
-    func markNeedsRecovery() {
-        needsRecovery = true
     }
 
     func surfaceState(

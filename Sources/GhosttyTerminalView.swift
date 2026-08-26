@@ -496,9 +496,6 @@ class GhosttyApp {
         >(
             maximumVisitsPerDrain: 1
         )
-    /// Keeps a later no-op reload useful after a surface apply exhausted its
-    /// bounded retries or was lost to lifecycle churn.
-    private var configurationApplyNeedsRecovery = false
     private var appliedConfigurationContentIdentity:
         GhosttyConfigurationContentIdentity?
     var terminalConfigurationPresentationMetrics:
@@ -2111,19 +2108,6 @@ class GhosttyApp {
 #endif
         applyBackgroundToKeyWindow()
 
-        let needsSurfaceReconciliation =
-            configurationChanged
-            || fontTransaction.magnificationDidChange
-            || configurationApplyNeedsRecovery
-        guard needsSurfaceReconciliation else {
-            didCommit()
-            logThemeAction(
-                "reload end source=\(source) soft=\(soft) mode=full changed=false"
-            )
-            completion()
-            return
-        }
-
         let snapshot = TerminalConfigurationApplySnapshot(
             source: source,
             preferredColorScheme:
@@ -2131,9 +2115,7 @@ class GhosttyApp {
             previousMagnificationPercent:
                 fontTransaction.previousMagnificationPercent,
             terminalFontConfiguration:
-                terminalFontConfiguration,
-            appliesNativeConfiguration: configurationChanged,
-            refreshesHostAppearance: configurationChanged
+                terminalFontConfiguration
         )
         scheduleConfigurationApply(
             snapshot,
