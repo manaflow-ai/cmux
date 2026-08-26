@@ -103,8 +103,8 @@ import Testing
             url = https://github.com/old-owner/old-repo.git
         """.write(to: fixture.gitDirectory.appendingPathComponent("remotes.inc"), atomically: true, encoding: .utf8)
 
-        // The in-place include is read first, so the later top-level url wins.
-        #expect(slugs(forDirectory: fixture.root.path) == ["manaflow-ai/cmux"])
+        // Git uses the first URL as the fetch URL; later values are push-only.
+        #expect(slugs(forDirectory: fixture.root.path) == ["old-owner/old-repo"])
     }
 
     @Test func treatsTrailingSlashGitdirAsRecursive() throws {
