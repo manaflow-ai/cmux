@@ -4589,8 +4589,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
+        // AppKit can attach the view before it has published an occlusion bit
+        // (notably while a CI virtual display is being installed). An ordered,
+        // non-miniaturized window is still presentable in that gap; the
+        // occlusion observer below will replace this optimistic value as soon
+        // as WindowServer reports a definitive transition.
         terminalSurface?.setRendererWindowVisible(
-            window.occlusionState.contains(.visible)
+            window.occlusionState.contains(.visible) ||
+                (window.isVisible && !window.isMiniaturized)
         )
 
         if let surface = terminalSurface?.surface,
@@ -8292,6 +8298,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func windowDidChangeScreen(_ notification: Notification) {
         guard let window else { return }
         guard let object = notification.object as? NSWindow, window == object else { return }
+        // A screen move can order a window before WindowServer publishes its
+        // first occlusion bit. Reconcile the optimistic ordered-window state
+        // here so a renderer born during that transition is not left occluded.
+        terminalSurface?.setRendererWindowVisible(
+            window.occlusionState.contains(.visible) ||
+                (window.isVisible && !window.isMiniaturized)
+        )
         guard let screen = window.screen else { return }
         guard let surface = terminalSurface?.surface else { return }
 
