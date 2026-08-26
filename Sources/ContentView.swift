@@ -11351,14 +11351,26 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             uniquingKeysWith: { first, _ in first }
         )
-        var canInsertDividerAboveByTopLevelId: [UUID: Bool] = [:]
-        var canInsertDividerBelowByTopLevelId: [UUID: Bool] = [:]
-        for (index, topLevelId) in sidebarTopLevelWorkspaceIds.enumerated() {
-            canInsertDividerAboveByTopLevelId[topLevelId] = index > 0
-                && !sidebarDividerAnchors.contains(sidebarTopLevelWorkspaceIds[index - 1])
-            canInsertDividerBelowByTopLevelId[topLevelId] = index < sidebarTopLevelWorkspaceIds.count - 1
-                && !sidebarDividerAnchors.contains(topLevelId)
-        }
+        let canInsertDividerAboveByTopLevelId = Dictionary(
+            sidebarTopLevelWorkspaceIds.enumerated().map { index, topLevelId in
+                (
+                    topLevelId,
+                    index > 0
+                        && !sidebarDividerAnchors.contains(sidebarTopLevelWorkspaceIds[index - 1])
+                )
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let canInsertDividerBelowByTopLevelId = Dictionary(
+            sidebarTopLevelWorkspaceIds.enumerated().map { index, topLevelId in
+                (
+                    topLevelId,
+                    index < sidebarTopLevelWorkspaceIds.count - 1
+                        && !sidebarDividerAnchors.contains(topLevelId)
+                )
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         let sidebarDividerCanInsertAboveByWorkspaceId = Dictionary(
             tabs.map { tab in
                 (
