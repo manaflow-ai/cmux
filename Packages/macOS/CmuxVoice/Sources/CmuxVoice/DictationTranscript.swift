@@ -6,8 +6,8 @@ import Foundation
 /// volatile partials update ``volatileText`` (shown live in the HUD), and
 /// finalized segments move into ``committedText``. ``apply(_:)`` returns the
 /// exact delta string the caller must type into the insertion target —
-/// including an automatically inserted space between adjacent segments — so
-/// insertion and display can never drift apart.
+/// including a boundary-aware separator between adjacent segments — so
+/// insertion and display can never drift apart across writing systems.
 ///
 /// ```swift
 /// var transcript = DictationTranscript()
@@ -88,7 +88,72 @@ public struct DictationTranscript: Equatable, Sendable {
     }
 
     private func needsSeparator(before text: String) -> Bool {
-        guard let last = committedText.last, let first = text.first else { return false }
-        return !last.isWhitespace && !first.isWhitespace
+        guard let last = committedText.last, let first = text.first,
+              !last.isWhitespace, !first.isWhitespace else { return false }
+
+        // Punctuation and symbols carry their own boundary. In particular,
+        // avoid producing `word ,` or `( word` when a recognizer emits those
+        // as separate finalized segments.
+        guard !first.isPunctuation, !first.isSymbol,
+              !isOpeningPunctuation(last) else { return false }
+
+        // CJK, Hangul, and several Southeast-Asian scripts conventionally
+        // separate words without ASCII spaces. Suppress an inserted space
+        // when both adjacent segments use one of those scripts. A punctuation
+        // mark next to such a script is also kept tight (for example `世界。`)
+        // while Latin word boundaries retain the existing space behavior.
+        if usesNonSpacingScript(last) && usesNonSpacingScript(first) {
+            return false
+        }
+        if last.isPunctuation && usesNonSpacingScript(first) {
+            return false
+        }
+        return true
+    }
+
+    private func isOpeningPunctuation(_ character: Character) -> Bool {
+        if character == "\"" || character == "'" { return true }
+        return character.unicodeScalars.contains { scalar in
+            switch scalar.properties.generalCategory {
+            case .openPunctuation, .initialPunctuation:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private func usesNonSpacingScript(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            // Hiragana, Katakana, Bopomofo, and Han ideographs.
+            case 0x2E80...0x2FFF,
+                 0x3000...0x30FF,
+                 0x3100...0x312F,
+                 0x31A0...0x31FF,
+                 0x3400...0x4DBF,
+                 0x4E00...0x9FFF,
+                 0xF900...0xFAFF,
+                 0xFE30...0xFE4F,
+                 0x20000...0x323AF:
+                return true
+            // Hangul jamo and syllables.
+            case 0x1100...0x11FF,
+                 0x3130...0x318F,
+                 0xA960...0xA97F,
+                 0xAC00...0xD7FF:
+                return true
+            // Thai, Lao, Khmer, and Myanmar script blocks.
+            case 0x0E00...0x0E7F,
+                 0x0E80...0x0EFF,
+                 0x1000...0x109F,
+                 0x1780...0x17FF,
+                 0xA9E0...0xA9FF,
+                 0xAA60...0xAA7F:
+                return true
+            default:
+                return false
+            }
+        }
     }
 }

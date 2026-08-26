@@ -104,7 +104,10 @@ final class VoiceDictationHUDController {
 
     private func position(_ panel: NSPanel) {
         panel.setContentSize(panel.contentView?.fittingSize ?? panel.frame.size)
-        guard let anchorWindow = NSApp.keyWindow ?? NSApp.mainWindow else {
+        let anchorWindow = [NSApp.keyWindow, NSApp.mainWindow]
+            .compactMap { $0 }
+            .first { $0 !== panel }
+        guard let anchorWindow else {
             if let screen = NSScreen.main {
                 let frame = screen.visibleFrame
                 panel.setFrameOrigin(NSPoint(

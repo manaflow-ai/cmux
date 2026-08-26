@@ -15,11 +15,10 @@ import Speech
 /// Recognition never leaves the machine.
 @available(macOS 26.0, *)
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
-    /// Raw audio-tap payload. The tap captures only value metadata and the
-    /// framework-owned buffer reference; AnalyzerInput construction happens
-    /// on the conversion worker. Safety: AVAudioEngine transfers an owned
-    /// buffer reference whose lifetime is retained by this value until the
-    /// single conversion worker consumes it.
+    /// Raw audio-tap payload. `AVAudioNodeTapBlock` documents that callbacks
+    /// receive copies of node output; retaining that framework-supplied copy
+    /// here extends its lifetime until the single conversion worker consumes
+    /// it. AnalyzerInput construction happens on that worker.
     private struct RawAudioInput: @unchecked Sendable {
         let buffer: AVAudioPCMBuffer
         let sampleTime: AVAudioFramePosition?
@@ -35,8 +34,8 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     /// The bounded handoff from the audio-thread tap to the actor.
     ///
     /// Lock carve-out: the AVAudioEngine tap is a synchronous audio-thread
-    /// callback. It only snapshots the continuation and enqueues a raw buffer
-    /// reference; format conversion and AnalyzerInput allocation happen on
+    /// callback. It only snapshots the continuation and enqueues the tap's
+    /// output copy; format conversion and AnalyzerInput allocation happen on
     /// the actor's worker task.
     private final class InputBox: @unchecked Sendable {
         private let lock = OSAllocatedUnfairLock()
@@ -242,7 +241,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             do {
                 for try await result in transcriber.results {
                     let text = String(result.text.characters)
-                    let event = result.isFinal ? .final(text) : .partial(text)
+                    let event: DictationTranscriptionEvent = result.isFinal
+                        ? .final(text)
+                        : .partial(text)
                     if case .dropped = continuation.yield(event) {
                         continuation.finish(
                             throwing: DictationFailure.transcriptionFailed(
@@ -319,14 +320,17 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             }
             return
         }
-        if converter == nil || converter?.inputFormat != buffer.format {
-            converter = AVAudioConverter(from: buffer.format, to: analyzerFormat)
+        let inputFormat = buffer.format
+        let inputSampleRate = inputFormat.sampleRate
+        let inputFrameLength = buffer.frameLength
+        if converter == nil || converter?.inputFormat != inputFormat {
+            converter = AVAudioConverter(from: inputFormat, to: analyzerFormat)
             converter?.primeMethod = .none
         }
         guard let converter else { return }
-        let ratio = analyzerFormat.sampleRate / buffer.format.sampleRate
+        let ratio = analyzerFormat.sampleRate / inputSampleRate
         let capacity = AVAudioFrameCount(
-            (Double(buffer.frameLength) * ratio).rounded(.up) + 16
+            (Double(inputFrameLength) * ratio).rounded(.up) + 16
         )
         guard let converted = AVAudioPCMBuffer(
             pcmFormat: analyzerFormat,

@@ -39,14 +39,11 @@ public final class DictationController {
     private let inserter: any DictationTextInserting
     private let makeTranscriber: @MainActor () -> any SpeechTranscribing
     private let localeProvider: @MainActor () -> Locale
-    private let clock: any Clock<Duration>
     private var activeTranscriber: (any SpeechTranscribing)?
     private var sessionTask: Task<Void, Never>?
-    private var stopWatchdogTask: Task<Void, Never>?
+    private var finishTask: Task<Void, Never>?
     private var sessionGeneration = 0
     private var insertionSessionActive = false
-
-    private static let stopWatchdogTimeout: Duration = .seconds(3)
 
     /// Creates a controller.
     ///
@@ -61,14 +58,12 @@ public final class DictationController {
         authorizer: any DictationAuthorizing,
         inserter: any DictationTextInserting,
         makeTranscriber: @escaping @MainActor () -> any SpeechTranscribing,
-        localeProvider: @escaping @MainActor () -> Locale,
-        clock: any Clock<Duration> = ContinuousClock()
+        localeProvider: @escaping @MainActor () -> Locale
     ) {
         self.authorizer = authorizer
         self.inserter = inserter
         self.makeTranscriber = makeTranscriber
         self.localeProvider = localeProvider
-        self.clock = clock
     }
 
     /// Whether a session is running (any phase other than the resting
@@ -92,6 +87,8 @@ public final class DictationController {
     /// Starts a new session. No-op while one is active.
     public func start() {
         guard !isActive else { return }
+        finishTask?.cancel()
+        finishTask = nil
         sessionGeneration += 1
         let generation = sessionGeneration
         phase = .requestingAuthorization
@@ -104,7 +101,7 @@ public final class DictationController {
     /// Asks the active session to finish. Finalized text still in the
     /// engine is flushed and inserted before the session ends.
     public func stop() {
-        guard isActive else { return }
+        guard isActive, phase != .stopping else { return }
         let phaseAtStop = phase
         phase = .stopping
         if phaseAtStop == .requestingAuthorization || phaseAtStop == .preparing {
@@ -113,11 +110,7 @@ public final class DictationController {
             // hypothesis instead of letting finishTranscribing flush it.
             sessionTask?.cancel()
         }
-        armStopWatchdog(for: sessionGeneration)
-        let transcriber = activeTranscriber
-        Task {
-            await transcriber?.finishTranscribing()
-        }
+        requestFinish(for: sessionGeneration)
     }
 
     private func runSession(generation: Int) async {
@@ -162,7 +155,11 @@ public final class DictationController {
                 // Stop raced engine startup; finish again so the engine the
                 // first finish could not see yet is torn down and the
                 // stream ends.
-                await transcriber.finishTranscribing()
+                if let finishTask {
+                    await finishTask.value
+                } else {
+                    await transcriber.finishTranscribing()
+                }
                 settle(generation: generation)
                 return
             }
@@ -184,7 +181,11 @@ public final class DictationController {
             // A cancelled startup may have raced far enough to create an
             // engine. Tear it down before settling so stopping never leaves
             // capture or model resources alive.
-            await activeTranscriber?.finishTranscribing()
+            if let finishTask {
+                await finishTask.value
+            } else {
+                await activeTranscriber?.finishTranscribing()
+            }
             settle(generation: generation)
         } catch {
             let failure = (error as? DictationFailure)
@@ -225,7 +226,6 @@ public final class DictationController {
 
     private func settle(generation: Int) {
         guard sessionGeneration == generation, isActive else { return }
-        cancelStopWatchdog()
         endInsertionSessionIfActive()
         activeTranscriber = nil
         sessionTask = nil
@@ -238,38 +238,34 @@ public final class DictationController {
         // re-fire the failure handler.
         guard sessionGeneration == generation, isActive else { return }
         let transcriber = activeTranscriber
+        requestFinish(transcriber: transcriber, generation: generation)
         sessionTask?.cancel()
-        cancelStopWatchdog()
         endInsertionSessionIfActive()
         activeTranscriber = nil
         sessionTask = nil
         phase = .failed(failure)
         failureHandler?(failure)
-        Task {
-            await transcriber?.finishTranscribing()
-        }
     }
 
-    private func armStopWatchdog(for generation: Int) {
-        stopWatchdogTask?.cancel()
-        let clock = self.clock
-        stopWatchdogTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: Self.stopWatchdogTimeout)
-            guard !Task.isCancelled, let self else { return }
-            guard self.sessionGeneration == generation, self.phase == .stopping else { return }
-            self.sessionTask?.cancel()
-            let transcriber = self.activeTranscriber
-            Task { await transcriber?.finishTranscribing() }
-            self.fail(
-                .transcriptionFailed("dictation stop timed out"),
-                generation: generation
-            )
-        }
+    private func requestFinish(for generation: Int) {
+        guard let transcriber = activeTranscriber else { return }
+        requestFinish(transcriber: transcriber, generation: generation)
     }
 
-    private func cancelStopWatchdog() {
-        stopWatchdogTask?.cancel()
-        stopWatchdogTask = nil
+    private func requestFinish(
+        transcriber: (any SpeechTranscribing)?,
+        generation: Int
+    ) {
+        guard let transcriber else { return }
+        // One finish operation owns the engine shutdown for this generation.
+        // Reusing it avoids racing two finalization calls when an insertion
+        // failure arrives while a user-requested stop is already flushing.
+        guard finishTask == nil else { return }
+        finishTask = Task { [weak self] in
+            await transcriber.finishTranscribing()
+            guard let self, self.sessionGeneration == generation else { return }
+            self.finishTask = nil
+        }
     }
 
     private func endInsertionSessionIfActive() {
