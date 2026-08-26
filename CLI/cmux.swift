@@ -326,12 +326,23 @@ final class ClaudeHookSessionStore {
 
     /// Atomically reserves the detached-worker spawn for one session.
     @discardableResult
-    func claimAutoNamingSpawn(sessionId: String, now: Date) throws -> Bool {
+    func claimAutoNamingSpawn(
+        sessionId: String,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        now: Date
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return false }
             let timestamp = now.timeIntervalSince1970
+            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+                sessionId: normalized,
+                workspaceId: workspaceId ?? "",
+                surfaceId: surfaceId ?? "",
+                startedAt: timestamp,
+                updatedAt: timestamp
+            )
             if let leaseAt = record.autoNameSpawnLeaseAt,
                timestamp - leaseAt < AutoNamingEngine().config.inFlightExpiry {
                 return false
@@ -2102,7 +2113,10 @@ final class ClaudeHookSessionStore {
                 allowsNewSessionReplacement: inheritedActiveRecord?.allowsNewSessionReplacement,
                 updatedAt: now
             )
-            state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
+            if state.activeSessionsByWorkspace[normalizedWorkspaceId]?.sessionId == nil
+                || state.activeSessionsByWorkspace[normalizedWorkspaceId]?.sessionId == normalizedSessionId {
+                state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
+            }
             state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
             return true
         }
@@ -33541,7 +33555,12 @@ export default CMUXSessionRestore;
                     probe: autoNameProbe,
                     session: autoNamingSession,
                     currentProgress: autoNamingProgress
-                ), (try? store.claimAutoNamingSpawn(sessionId: sessionId, now: Date())) == true {
+                ), (try? store.claimAutoNamingSpawn(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    now: Date()
+                )) == true {
                     spawnDetachedAgentAutoName(
                         def: def,
                         sessionId: sessionId,

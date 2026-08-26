@@ -197,7 +197,27 @@ extension CMUXCLI {
                 )
             }
         }()
-        guard let sourceResult, !sourceResult.messages.isEmpty else { return }
+        guard let sourceResult else { return }
+        if sourceResult.messages.isEmpty {
+            guard workspaceUserOwned else { return }
+            // Even without extractable user/assistant text, a compaction can
+            // change the source high-water. Run the bookkeeping path so the
+            // observation is consumed without forking an LLM summarizer.
+            runAutoNamingPass(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                lineCount: sourceResult.lineCount,
+                sessionStore: sessionStore,
+                client: client,
+                allowSummarization: false,
+                expectedWorkspaceTitle: probe["workspace_title"] as? String,
+                expectedPanelTitle: probe["panel_title"] as? String,
+                telemetryKey: "\(def.name)-hook.auto-name.bookkeeping",
+                telemetry: telemetry
+            ) { _, _ in nil }
+            return
+        }
 
         runMessageBackedAutoName(
             sessionId: sessionId,
