@@ -268332,7 +268332,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "File Editor Current Line"
+            "value": "File Editor Current Line Highlight"
           }
         },
         "es": {
@@ -268356,7 +268356,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルエディタのカレント行"
+            "value": "ファイルエディタの現在行をハイライト"
           }
         },
         "km": {
@@ -268773,7 +268773,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "จำนวนคอลัมน์ต่อแท็บ เส้นนำการเยื้องใช้ค่านี"
+            "value": "จำนวนคอลัมน์ต่อแท็บ เส้นนำการเยื้องใช้ค่านี้"
           }
         },
         "tr": {
