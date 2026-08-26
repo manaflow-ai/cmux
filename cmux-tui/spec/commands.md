@@ -162,6 +162,17 @@ controller. Omitting `client` and `exclusive` releases any owner and freezes
 the terminal. For browsers, the same command retains the legacy include,
 exclude, and exclusive reducer controls.
 
+### Relay attachment sizing boundary
+
+The Rust `chatmux-relay` wrapper can have several relay viewers for one
+terminal. When its local owner leaves, disconnects, or receives an
+unsuccessful report response, the wrapper closes that attachment and does not
+issue a replacement claim from another relay socket. The core server has no
+generation token for ordering such a cross-socket hand-off, so geometry stays
+frozen until a newly attached relay viewer makes an explicit report and
+`set-client-sizing` claim. This relay boundary preserves the core server rule;
+it does not elect a survivor implicitly.
+
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
 ## Implemented Commands
