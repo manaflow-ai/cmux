@@ -16,9 +16,14 @@ template_dir="$script_dir/../services/vms/images/blaxel"
 
 command -v bl >/dev/null 2>&1 || { echo "blaxel CLI (bl) not installed" >&2; exit 127; }
 
-# --name is required: bl push names the image after the directory ("blaxel")
-# otherwise, ignoring the name in blaxel.toml.
-bl push -t sandbox -d "$template_dir" -n cmux-devbox -y "$@"
+# Run from inside the template directory. `bl push -d <dir>` resolves blaxel.toml
+# from <dir> but packages the CALLER's cwd as the build context: invoked from the
+# repo root it uploads the monorepo, finds no Dockerfile there, sees the root
+# package.json, and silently generates a Node app image instead of building this
+# template (measured 2026-08-26). --name is also required: the CLI otherwise
+# names the image after the directory, ignoring blaxel.toml.
+cd "$template_dir"
+bl push -t sandbox -n cmux-devbox -y "$@"
 
 echo
 echo "Published. Resolve the image id with:"

@@ -183,10 +183,8 @@ RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.b
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cua/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf
 
-# The entrypoint must live at /entrypoint.sh: Blaxel's push pipeline derives the
-# microVM boot command from that exact path (the official templates all use it);
-# with any other path the boot command silently falls back to a generic
-# `node /blaxel/index.js` and the machine crash-loops.
+# /entrypoint.sh is the path every official Blaxel template uses; the microVM
+# boot command comes from this ENTRYPOINT.
 COPY start-vnc.sh /usr/local/bin/start-vnc.sh
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /usr/local/bin/start-vnc.sh /entrypoint.sh /usr/local/bin/sandbox-api \
