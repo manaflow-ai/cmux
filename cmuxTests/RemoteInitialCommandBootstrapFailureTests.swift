@@ -137,6 +137,65 @@ struct RemoteInitialCommandBootstrapFailureTests {
         #expect(try initialCommandMarkerCount(home: home) == 1)
     }
 
+    @Test(.enabled(if: RemoteInitialCommandBootstrapFailureTests.fishExecutablePath != nil))
+    func fishFallbackRunsInitialCommandAfterLoginStartup() throws {
+        let fish = try #require(Self.fishExecutablePath)
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-remote-initial-command-fish-fallback-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let bin = root.appendingPathComponent("bin")
+        let fishBin = root.appendingPathComponent("fish-bin")
+        let fishConfig = home.appendingPathComponent(".config/fish")
+        let shellState = home.appendingPathComponent(".cmux/relay/0.shell")
+        let marker = home.appendingPathComponent("fish fallback marker.txt")
+        let invocations = home.appendingPathComponent("opencode invocations.txt")
+        try fileManager.createDirectory(at: fishConfig, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: fishBin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+        try writeExecutable(
+            to: fishBin.appendingPathComponent("opencode"),
+            body: """
+            #!/bin/sh
+            printf '%s\n' "$*" >> "$HOME/opencode invocations.txt"
+            """
+        )
+        try "set -gx PATH \"\(fishBin.path)\" $PATH\n".write(
+            to: fishConfig.appendingPathComponent("config.fish"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let command = #"set -l marker "$HOME/fish fallback marker.txt"; opencode attach; printf '%s\n' "$marker" > "$marker""#
+        let bootstrap = RemoteInitialCommandBootstrap(command: command)
+        let script = [
+            "cmux_shell_dir=\"$CMUX_SHELL_INTEGRATION_DIR\"",
+            "mkdir -p \"$cmux_shell_dir\"",
+        ] + bootstrap.preparationLines + bootstrap.fallbackShellLines
+        let environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_LOGIN_SHELL": fish,
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
+            "CMUX_SHELL_INTEGRATION_DIR": shellState.path,
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+            "SHELL": fish,
+            "XDG_CONFIG_HOME": home.appendingPathComponent(".config").path,
+        ]) { _, new in new }
+
+        let first = try runShell(script.joined(separator: "\n"), environment: environment)
+        #expect(first.status == 0, Comment(rawValue: first.stderr))
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "\(marker.path)\n")
+        #expect(try String(contentsOf: invocations, encoding: .utf8) == "attach\n")
+
+        let second = try runShell(script.joined(separator: "\n"), environment: environment)
+        #expect(second.status == 0, Comment(rawValue: second.stderr))
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "\(marker.path)\n")
+        #expect(try String(contentsOf: invocations, encoding: .utf8) == "attach\n")
+    }
+
     @Test
     func unsupportedShellRunsAndConsumesCommandOnlyOnce() throws {
         let fileManager = FileManager.default
