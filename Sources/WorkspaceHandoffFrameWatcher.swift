@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxTerminal
+import CmuxTerminalCore
 
 /// Waits for the incoming workspace's visible terminals to render their first
 /// frames after a workspace switch, then fires a ready action. While waiting
