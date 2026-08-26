@@ -3592,6 +3592,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertLessThanOrEqual(copies.count, 256)
     }
 
+    func testProjectFileCleanupReservesSlotForZeroByteHandoff() throws {
+        let directory = try makeTemporaryDirectory(prefix: "cmux-project-file-zero-byte-cleanup")
+        for index in 0..<256 {
+            let url = directory.appendingPathComponent("cmux-project-file-zero-\(index)")
+            XCTAssertTrue(
+                FileManager.default.createFile(
+                    atPath: url.path,
+                    contents: Data()
+                )
+            )
+        }
+
+        XCTAssertFalse(
+            CMUXCLI(args: []).cleanupTemporaryProjectFiles(
+                in: directory,
+                reservingBytes: 0,
+                reservingFileCount: 1
+            ),
+            "A zero-byte handoff must still reserve one temporary-file slot"
+        )
+    }
+
     func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {
         let cliPath = try bundledCLIPath()
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
