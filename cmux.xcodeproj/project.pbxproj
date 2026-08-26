@@ -2247,7 +2247,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 			E60610300000000000000002 /* SSHPTYAttachReconnectInputFilterState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60610300000000000000001 /* SSHPTYAttachReconnectInputFilterState.swift */; };
 			E60610300000000000000003 /* SSHPTYAttachReconnectInputFilterState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60610300000000000000001 /* SSHPTYAttachReconnectInputFilterState.swift */; };
 			B6285B71BA6F82AF8F945E00 /* SSHPTYAttachReconnectInputFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4AD348F196FBBEE52D53A7 /* SSHPTYAttachReconnectInputFilterTests.swift */; };
+		D0F102000000000000000001 /* SSHPTYAttachReplayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F102000000000000000011 /* SSHPTYAttachReplayState.swift */; };
 		E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */; };
+		E30780000000000000000017 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */; };
 		6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */; };
 		D0F101000000000000000002 /* SSHPTYTerminalInputMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000012 /* SSHPTYTerminalInputMode.swift */; };
 		9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6800000000000000000001 /* SSHPTYTerminalReadinessReport.swift */; };
@@ -5092,6 +5094,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			E60610100000000000000001 /* SSHPTYAttachReconnectInputFilterSequenceMatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachReconnectInputFilterSequenceMatch.swift; sourceTree = "<group>"; };
 			E60610300000000000000001 /* SSHPTYAttachReconnectInputFilterState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachReconnectInputFilterState.swift; sourceTree = "<group>"; };
 			0C4AD348F196FBBEE52D53A7 /* SSHPTYAttachReconnectInputFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachReconnectInputFilterTests.swift; sourceTree = "<group>"; };
+		D0F102000000000000000011 /* SSHPTYAttachReplayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachReplayState.swift; sourceTree = "<group>"; };
 		E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachStartupCommandBuilder.swift; sourceTree = "<group>"; };
 		6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYResizeMonitor.swift; sourceTree = "<group>"; };
 		D0F101000000000000000012 /* SSHPTYTerminalInputMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYTerminalInputMode.swift; sourceTree = "<group>"; };
@@ -7868,6 +7871,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */,
+				D0F102000000000000000011 /* SSHPTYAttachReplayState.swift */,
 				D0F101000000000000000012 /* SSHPTYTerminalInputMode.swift */,
 				D0F101000000000000000013 /* TerminalRawMode.swift */,
 				D0F101000000000000000011 /* CMUXCLI+SSHPTYInputControl.swift */,
@@ -11196,6 +11200,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E60610400000000000000002 /* SSHPTYAttachReconnectInputFilterPumpIO.swift in Sources */,
 				E60610100000000000000002 /* SSHPTYAttachReconnectInputFilterSequenceMatch.swift in Sources */,
 				E60610300000000000000002 /* SSHPTYAttachReconnectInputFilterState.swift in Sources */,
+				D0F102000000000000000001 /* SSHPTYAttachReplayState.swift in Sources */,
+				E30780000000000000000017 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */,
 				D0F101000000000000000002 /* SSHPTYTerminalInputMode.swift in Sources */,
 				9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */,
