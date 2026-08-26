@@ -1,6 +1,13 @@
 import Foundation
 
 extension AgentHibernationController {
+    /// Returns whether a process snapshot has no unrelated process for pressure reclaim.
+    nonisolated static func memoryPressureTeardownAllowsProcessEntry(
+        _ entry: RestorableAgentSessionIndex.Entry?
+    ) -> Bool {
+        entry?.containsUnrelatedProcess != true
+    }
+
     func teardownIsStillSafe(
         _ request: ConfirmedTeardownRequest,
         index: RestorableAgentSessionIndex,
@@ -36,7 +43,7 @@ extension AgentHibernationController {
             ) &&
             (
                 request.trigger != .systemMemoryPressure ||
-                    currentProcessEntry?.containsUnrelatedProcess != true
+                    Self.memoryPressureTeardownAllowsProcessEntry(currentProcessEntry)
             ) &&
             currentHibernationPanelProcessIDs == record.panelProcessIDs &&
             currentTerminationProcessIDs == record.processIDs &&

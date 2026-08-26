@@ -354,6 +354,47 @@ struct AgentHibernationTerminationFailureTests {
         #expect(record.processSafetyAllowsHibernation)
     }
 
+    @Test
+    func pressureTeardownRequiresFreshProcessEntry() {
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(nil) == false
+        )
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("test-agent"),
+            sessionId: "pressure-entry-evidence",
+            workingDirectory: "/tmp",
+            launchCommand: nil
+        )
+        func makeEntry(containsUnrelatedProcess: Bool) -> RestorableAgentSessionIndex.Entry {
+            RestorableAgentSessionIndex.Entry(
+                snapshot: snapshot,
+                lifecycle: .idle,
+                updatedAt: 0,
+                processLiveness: .exited,
+                processIDs: [],
+                processIdentities: [:],
+                agentProcessIDs: [],
+                agentProcessIdentities: [:],
+                hibernationPanelProcessIDs: [],
+                terminationProcessIDs: [],
+                terminationProcessIdentities: [:],
+                containsUnrelatedProcess: containsUnrelatedProcess
+            )
+        }
+
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(containsUnrelatedProcess: false)
+            )
+        )
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(containsUnrelatedProcess: true)
+            ) == false
+        )
+    }
+
     @MainActor
     @Test
     func oversizedLiveProcessScopeIsNotEligibleForHibernation() throws {
