@@ -1283,7 +1283,7 @@ final class TerminalControllerSocketSecurityTests {
 
         XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
         let error = try XCTUnwrap(response["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "remote_pty_error")
+        XCTAssertEqual(error["code"] as? String, "remote_connection_inactive")
         let data = try XCTUnwrap(error["data"] as? [String: Any])
         let locatedWorkspaceId = appDelegate.workspaceContainingPanel(
             panelId: moved.panel.id,
@@ -1335,7 +1335,7 @@ final class TerminalControllerSocketSecurityTests {
 
         XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
         let error = try XCTUnwrap(response["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "remote_pty_error")
+        XCTAssertEqual(error["code"] as? String, "remote_connection_inactive")
         let data = try XCTUnwrap(error["data"] as? [String: Any])
         XCTAssertEqual(data["workspace_id"] as? String, moved.destination.id.uuidString)
         XCTAssertEqual(data["session_id"] as? String, moved.sessionID)

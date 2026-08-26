@@ -1,4 +1,5 @@
 internal import Foundation
+internal import CmuxFoundation
 
 // Inbound frame handling: stdout/websocket framing, response routing into the
 // pending-call registry, push-event fan-out to stream/PTY subscriptions, and
@@ -280,7 +281,10 @@ extension RemoteDaemonRPCClient {
                 ?? ptySubscriptions.removeValue(forKey: legacyKey)
             let detail = ((payload["error"] as? String) ?? (payload["message"] as? String))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            event = .error(detail?.isEmpty == false ? detail! : "PTY error")
+            let message = detail?.isEmpty == false ? detail! : "PTY error"
+            let code = RemotePTYErrorCode.normalized(payload["code"] as? String)
+            event = code.map { .codedError(message: message, code: $0) }
+                ?? .error(message)
 
         default:
             return true

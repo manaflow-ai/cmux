@@ -74,45 +74,6 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
         .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
 }
 
-nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
-    v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
-}
-
-nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
-    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return "remote PTY operation failed" }
-    let lowered = trimmed.lowercased()
-    if lowered.contains("missing required capability") ||
-        lowered.contains("pty.session") ||
-        lowered.contains("method_not_found") {
-        return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
-    }
-    if lowered.contains("pty_session_not_found") ||
-        (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
-        (lowered.contains("persistent pty session") && lowered.contains("not running")) {
-        return "persistent SSH PTY session is no longer running"
-    }
-    if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
-        return "remote PTY input is temporarily backed up"
-    }
-    if lowered.contains("remote connection is not active") {
-        return "remote connection is not active"
-    }
-    if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
-        return "remote daemon is not ready"
-    }
-    if lowered.contains("missing workspace_id in ssh pty session list response") {
-        return "missing workspace_id in SSH PTY session list response"
-    }
-    if lowered.contains("missing session_id in ssh pty session list response") {
-        return "missing session_id in SSH PTY session list response"
-    }
-    if lowered.contains("timed out") || lowered.contains("timeout") {
-        return "remote daemon did not respond in time"
-    }
-    return "remote PTY operation failed"
-}
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -4503,6 +4464,7 @@ class TerminalController {
                 guard let controller = target.controller else {
                     var payload = v2RemotePTYTargetPayload(target)
                     payload["error"] = "remote connection is not active"
+                    payload["error_code"] = RemotePTYErrorCode.connectionInactive.rawValue
                     errors.append(payload)
                     continue
                 }
@@ -4514,6 +4476,7 @@ class TerminalController {
                 } catch {
                     var payload = v2RemotePTYTargetPayload(target)
                     payload["error"] = v2RemotePTYUserFacingErrorMessage(error)
+                    payload["error_code"] = v2RemotePTYErrorCode(error)
                     errors.append(payload)
                 }
             }
@@ -4529,7 +4492,7 @@ class TerminalController {
         }
         guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
+            return .err(code: RemotePTYErrorCode.connectionInactive.rawValue, message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
         }
         do {
             let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4562,7 +4525,7 @@ class TerminalController {
             payload["sessions"] = sessions.map { v2RemotePTYSessionPayload($0, target: target) }
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
+            return .err(code: v2RemotePTYErrorCode(error), message: v2RemotePTYUserFacingErrorMessage(error), data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
         }
     }
 
@@ -4600,7 +4563,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+            return .err(code: RemotePTYErrorCode.connectionInactive.rawValue, message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,
@@ -4614,7 +4577,7 @@ class TerminalController {
             payload["closed"] = true
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+            return .err(code: v2RemotePTYErrorCode(error), message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,
@@ -4651,7 +4614,7 @@ class TerminalController {
         if let error = resolved.error { return error }
         guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef, "session_id": sessionID, "attachment_id": attachmentID])
+            return .err(code: RemotePTYErrorCode.connectionInactive.rawValue, message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef, "session_id": sessionID, "attachment_id": attachmentID])
         }
 
         do {
@@ -4666,7 +4629,7 @@ class TerminalController {
             payload["detached"] = true
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+            return .err(code: v2RemotePTYErrorCode(error), message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,
@@ -4714,7 +4677,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+            return .err(code: RemotePTYErrorCode.connectionInactive.rawValue, message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
             ])
@@ -4738,7 +4701,9 @@ class TerminalController {
             payload["attachment_id"] = endpoint.attachmentID
             return .ok(payload)
         } catch {
-            let code = (error as? RemotePTYLifecycleError) == .intentionallyClosed ? "pty_lifecycle_closed" : "remote_pty_error"
+            let code = (error as? RemotePTYLifecycleError) == .intentionallyClosed
+                ? RemotePTYErrorCode.lifecycleClosed.rawValue
+                : v2RemotePTYErrorCode(error)
             return .err(code: code, message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
@@ -4781,7 +4746,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+            return .err(code: RemotePTYErrorCode.connectionInactive.rawValue, message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,
@@ -4806,7 +4771,7 @@ class TerminalController {
             payload["resized"] = true
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+            return .err(code: v2RemotePTYErrorCode(error), message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
                 "session_id": sessionID,

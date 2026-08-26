@@ -81,6 +81,7 @@ type rpcEvent struct {
 	DataBase64      string `json:"data_base64,omitempty"`
 	Message         string `json:"message,omitempty"`
 	Error           string `json:"error,omitempty"`
+	Code            string `json:"code,omitempty"`
 	Seq             uint64 `json:"seq,omitempty"`
 }
 
@@ -1907,13 +1908,17 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 		return nil
 	}
 	detail := "PTY operation failed"
+	eventCode := ""
 	if req.Method == "pty.write" {
 		detail = "PTY write failed"
 	} else if req.Method == "pty.resize" {
 		detail = "PTY resize failed"
 	}
-	if resp.Error != nil && strings.TrimSpace(resp.Error.Message) != "" {
-		detail = strings.TrimSpace(resp.Error.Message)
+	if resp.Error != nil {
+		eventCode = strings.TrimSpace(resp.Error.Code)
+		if strings.TrimSpace(resp.Error.Message) != "" {
+			detail = strings.TrimSpace(resp.Error.Message)
+		}
 	}
 	s.logPTYEvent(
 		"pty_channel_fault",
@@ -1929,9 +1934,10 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 		AttachmentToken: attachmentToken,
 		Error:           detail,
 		Message:         detail,
+		Code:            eventCode,
 	})
 	if req.Method == "pty.write" && resp.Error != nil && s.ptyHub != nil &&
-		(resp.Error.Code == "pty_input_queue_full" || resp.Error.Code == "pty_input_seq_gap") {
+		(resp.Error.Code == ptyInputQueueFullCode || resp.Error.Code == ptyInputSeqGapCode) {
 		s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
 	}
 	return err
@@ -2602,24 +2608,6 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 	}
 }
 
-func ptyAttachErrorMessage(err error) string {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return "RPC connection closed before PTY attachment completed"
-	}
-	return err.Error()
-}
-
-func ptyAttachErrorCode(err error, requireExisting bool) string {
-	if errors.Is(err, errWSPTYStartOwnersSaturated) ||
-		errors.Is(err, errWSPTYStartWaitersSaturated) {
-		return "unavailable"
-	}
-	if requireExisting {
-		return "pty_session_not_found"
-	}
-	return "pty_start_failed"
-}
-
 func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.write")
 	if badResp != nil {
@@ -2678,7 +2666,7 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
-				Code:    "pty_input_seq_gap",
+				Code:    ptyInputSeqGapCode,
 				Message: fmt.Sprintf("PTY input sequence gap: got %d, want %d", writeResult.got, writeResult.want),
 			},
 		}
@@ -2688,7 +2676,7 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
-				Code:    "pty_input_queue_full",
+				Code:    ptyInputQueueFullCode,
 				Message: "PTY input queue is full",
 			},
 		}

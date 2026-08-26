@@ -59,6 +59,15 @@ import Testing
         )
     }
 
+    @Test func rpcErrorCodeRetainsLegacyMessageFallback() {
+        #expect(
+            SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: "rpc_error",
+                message: "remote connection is not active"
+            ) == SSHPTYAttachExitCode.retryableTransient
+        )
+    }
+
     @Test(arguments: [
         "missing required capability: pty.session",
         "method_not_found",

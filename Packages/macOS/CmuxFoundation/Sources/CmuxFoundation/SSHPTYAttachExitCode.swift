@@ -203,20 +203,38 @@ public enum SSHPTYAttachExitCode: Int32 {
         code: String?,
         message: String
     ) -> SSHPTYAttachExitCode {
-        let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalizedCode == "pty_session_not_found" {
-            return .sessionNotFound
+        let normalizedCode = RemotePTYErrorCode.normalized(code)?.lowercased()
+        guard let normalizedCode else {
+            // A code-less transport failure predates the v2 taxonomy, so retain
+            // the narrow legacy message fallback for older daemon/app pairs.
+            return classifyBridgeEstablishmentFailure(message)
         }
-        if normalizedCode == "pty_lifecycle_closed" {
+
+        switch normalizedCode {
+        case RemotePTYErrorCode.legacy.rawValue, "rpc_error":
+            // Older app builds wrap every PTY failure in this envelope. Keep
+            // their message-based behavior while new subcodes are deployed.
+            return classifyBridgeEstablishmentFailure(message)
+        case RemotePTYErrorCode.sessionNotFound.rawValue:
+            return .sessionNotFound
+        case RemotePTYErrorCode.lifecycleClosed.rawValue,
+             RemotePTYErrorCode.capabilityMissing.rawValue,
+             RemotePTYErrorCode.attachFailed.rawValue,
+             RemotePTYErrorCode.inputSequenceGap.rawValue,
+             RemotePTYErrorCode.startFailed.rawValue,
+             RemotePTYErrorCode.attachmentNotFound.rawValue:
+            return .fatal
+        case RemotePTYErrorCode.unavailable.rawValue:
+            return .retryableWithoutReauthentication
+        case RemotePTYErrorCode.timeout.rawValue,
+             RemotePTYErrorCode.connectionInactive.rawValue,
+             RemotePTYErrorCode.inputQueueFull.rawValue:
+            return .retryableTransient
+        default:
+            // A future structured code must never inherit retry behavior from
+            // a coincidental English message. Unknown codes fail closed.
             return .fatal
         }
-        if normalizedCode == "unavailable" {
-            return .retryableWithoutReauthentication
-        }
-        let rawDescription = [normalizedCode, message]
-            .compactMap { $0 }
-            .joined(separator: " ")
-        return classifyBridgeEstablishmentFailure(rawDescription)
     }
 
     private static func classifyNormalized(_ description: String) -> SSHPTYAttachExitCode {
