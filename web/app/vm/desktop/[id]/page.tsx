@@ -1,5 +1,6 @@
 import { createTranslator } from "next-intl";
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { desktopIframeUrl } from "../../../../services/vms/desktopWrapper";
 import { preferredLocaleFromAcceptLanguage } from "../../../../i18n/accept-language";
 import { loadMessages } from "../../../../i18n/messages";
@@ -15,6 +16,9 @@ export default async function VmDesktopPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  // Token expiry is a wall-clock decision per request; opt the route out of
+  // prerendering so the Date.now() below is legal under Next 16.
+  await connection();
   const { id } = await params;
   const query = await searchParams;
   const token = typeof query.cmux_token === "string" ? query.cmux_token : "";
