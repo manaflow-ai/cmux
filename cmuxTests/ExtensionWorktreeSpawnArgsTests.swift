@@ -28,6 +28,8 @@ struct ExtensionWorktreeSpawnArgsTests {
             createdHead: "0000000000000000000000000000000000000000",
             generatedArtifactRelativePath: "cmux-sample-dev/index.html",
             generatedArtifactContents: Data(),
+            worktreeDeviceID: nil,
+            worktreeFileID: nil,
             setupCommand: setupCommand
         )
     }
@@ -359,7 +361,7 @@ struct ExtensionWorktreeSpawnArgsTests {
         let mutationStatus = await withTaskGroup(of: Int32?.self, returning: Int32?.self) { group in
             group.addTask {
                 var mutationIterator = mutation.stream.makeAsyncIterator()
-                await mutationIterator.next()
+                return await mutationIterator.next()
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(5))
