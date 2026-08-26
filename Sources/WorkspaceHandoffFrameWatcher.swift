@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxTerminal
 
 /// Completes a workspace handoff when every incoming visible terminal is
@@ -24,6 +25,13 @@ final class WorkspaceHandoffFrameWatcher {
     private var kvoObservations: [NSKeyValueObservation] = []
     private var onReady: (() -> Void)?
     private var workspaceId: UUID?
+    private let recheckScheduler = MainActorDeferredActionScheduler()
+
+    /// CALayer contents changes bypass KVO for the core-owned terminal layer,
+    /// so cold reveals (reclaimed renderer republishing its IOSurface) are
+    /// re-checked on a short bounded cadence. The handoff's timeout ends the
+    /// loop; completion or cancel stops it earlier.
+    private static let recheckInterval: Duration = .milliseconds(32)
 
     /// True while incoming terminals are not yet presentable. Focus-driven
     /// handoff completions defer to this so focus arriving ahead of pixels
@@ -79,9 +87,19 @@ final class WorkspaceHandoffFrameWatcher {
         }
         // The reveal may already be complete (cycle-hot warm pair).
         completeIfReady()
+        if isPending { scheduleRecheck() }
+    }
+
+    private func scheduleRecheck() {
+        recheckScheduler.schedule(after: Self.recheckInterval) { [weak self] in
+            guard let self, self.isPending else { return }
+            self.completeIfReady()
+            if self.isPending { self.scheduleRecheck() }
+        }
     }
 
     func cancel() {
+        recheckScheduler.cancel()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         kvoObservations.forEach { $0.invalidate() }
