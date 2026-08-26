@@ -21,7 +21,7 @@ enum MobileSimulatorDiagnostics {
         activeSessions: Int? = nil
     ) {
         let handle = panelID.map(panelHandle)
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             .simulatorStreamLifecycle,
             surface: handle,
             a: state.rawValue,
@@ -41,7 +41,7 @@ enum MobileSimulatorDiagnostics {
     ) {
         let handle = panelID.map(panelHandle)
         let boundedSequence = sequence.map { Int(clamping: $0) }
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             .simulatorFrameLifecycle,
             surface: handle,
             a: state.rawValue,
@@ -73,7 +73,7 @@ enum MobileSimulatorDiagnostics {
         detail: Int? = nil
     ) {
         let handle = panelID.map(panelHandle)
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             .simulatorInputLifecycle,
             surface: handle,
             a: state.rawValue,
@@ -94,7 +94,7 @@ enum MobileSimulatorDiagnostics {
         let handle = panelID.map(panelHandle)
         let normalizedX = normalizedCoordinateUnit(x)
         let normalizedY = normalizedCoordinateUnit(y)
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             .simulatorCoordinateMapped,
             surface: handle,
             a: normalizedX,
@@ -112,7 +112,7 @@ enum MobileSimulatorDiagnostics {
         previousOwnership: DiagnosticSimulatorOwnershipState?
     ) {
         let handle = panelID.map(panelHandle)
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             .simulatorOwnershipChanged,
             surface: handle,
             a: ownership.rawValue,

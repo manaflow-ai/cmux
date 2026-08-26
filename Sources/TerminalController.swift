@@ -1301,12 +1301,6 @@ class TerminalController {
             // the formatting can never run inline on the main thread.
             case "read_screen":
                 return (true, readScreenText(args))
-            // The v1 diagnostic-read family: the host's iroh DiagnosticLog is
-            // actor-owned, so the snapshot await bridges to this worker via
-            // the established semaphore pattern. NOT mainThreadCallable — the
-            // wait must never block the main thread.
-            case "iroh_diag":
-                return (true, irohDiagText())
             // The v1 resolution reads (tranche D): one v2MainSync snapshot
             // hop each, reply lines formatted here on this worker thread.
             // All mainThreadCallable (the hop collapses inline); the bodies
@@ -11693,27 +11687,6 @@ class TerminalController {
     /// base64 encode/decode round-trip — kept verbatim so the reply bytes
     /// match the legacy `readTerminalTextBase64` pipeline exactly — run off
     /// the main actor.
-    /// Serves the v1 `iroh_diag` socket command: the host's Iroh Connection
-    /// Report in the same plain-language format the Settings pane exports,
-    /// read from the same `DiagnosticLog` snapshot path so the two can never
-    /// disagree.
-    private nonisolated func irohDiagText() -> String {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var export = ""
-        Task {
-            // Reads the nonisolated static ring directly: no main-actor hop, so
-            // the verb keeps working when the main thread is wedged (the case
-            // connection diagnostics exist for). The wait blocks only on the
-            // log's own drain actor, and the execution policy keeps this
-            // command off the main thread, so the wait cannot self-deadlock.
-            let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
-            export = String(decoding: report.humanReadableExport(), as: UTF8.self)
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return export
-    }
-
     private nonisolated func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
@@ -14723,13 +14696,6 @@ class TerminalController {
         switch request.method {
         case "mobile.host.status":
             result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
-#if DEBUG
-        case "mobile.rpc.methods":
-            result = .ok([
-                "schema_version": 1,
-                "methods": MobileHostService.irohReleaseGateRPCMethods,
-            ])
-#endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":

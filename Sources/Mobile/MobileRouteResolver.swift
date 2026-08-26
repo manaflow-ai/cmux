@@ -411,31 +411,6 @@ extension CmxAttachRoute {
                 "host": host,
                 "port": port
             ]
-        case let .peer(identity, pathHints):
-            let currentPathHints = pathHints.filter { $0.isUsable(at: now) }
-            let relayHint = currentPathHints.first {
-                $0.kind == .relayIdentifier
-            }?.value
-            let directAddrs = currentPathHints
-                .filter { $0.kind == .directAddress && $0.use == .primary }
-                .map(\.value)
-            let relayURL = currentPathHints.first {
-                $0.kind == .relayURL
-            }?.value
-            endpointPayload = [
-                "type": "peer",
-                "id": identity.endpointID,
-                "relay_hint": relayHint ?? NSNull(),
-            ]
-            if !directAddrs.isEmpty {
-                endpointPayload["direct_addrs"] = directAddrs
-            }
-            if let relayURL {
-                endpointPayload["relay_url"] = relayURL
-            }
-            if !currentPathHints.isEmpty {
-                endpointPayload["path_hints"] = currentPathHints.map(\.mobileHostJSONObject)
-            }
         case let .url(url):
             endpointPayload = [
                 "type": "url",
@@ -449,30 +424,6 @@ extension CmxAttachRoute {
             "endpoint": endpointPayload,
             "priority": priority
         ]
-    }
-}
-
-private extension CmxIrohPathHint {
-    var mobileHostJSONObject: [String: Any] {
-        var payload: [String: Any] = [
-            "kind": kind.rawValue,
-            "value": value,
-            "source": source.rawValue,
-            "privacy_scope": privacyScope.rawValue,
-        ]
-        if let observedAt {
-            payload["observed_at"] = observedAt.timeIntervalSinceReferenceDate
-        }
-        if let expiresAt {
-            payload["expires_at"] = expiresAt.timeIntervalSinceReferenceDate
-        }
-        if let networkProfile {
-            payload["network_profile"] = [
-                "source": networkProfile.source.rawValue,
-                "profile_id": networkProfile.profileID,
-            ]
-        }
-        return payload
     }
 }
 

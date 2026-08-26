@@ -20,18 +20,10 @@ enum MobileAttachTarget: String, Sendable {
         case .ticketOnly:
             selected = routes
         case .simulatorInjection:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            selected = irohRoutes.isEmpty
-                ? routes.filter { route in
-                    route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
-                }
-                : irohRoutes
-        case .physicalDevice:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            guard irohRoutes.isEmpty else {
-                selected = irohRoutes
-                break
+            selected = routes.filter { route in
+                route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
             }
+        case .physicalDevice:
             selected = try Self.canonicalTailscaleRoutes(from: routes)
         }
         guard !selected.isEmpty else {
@@ -44,7 +36,7 @@ enum MobileAttachTarget: String, Sendable {
     /// canonical id/priority sequence the v2 pairing decoder resynthesizes.
     ///
     /// A route-id filter can leave `tailscale_2` as the only route, and mixed
-    /// snapshots interleave Iroh and loopback entries. Reindexing keeps the
+    /// snapshots interleave loopback entries. Reindexing keeps the
     /// disclosed subsequence expressible in the bare `host:port` grammar
     /// (which encodes neither ids nor priorities) without a token-bearing v1
     /// fallback. Shared by the physical-device destination and the pairing
@@ -66,22 +58,6 @@ enum MobileAttachTarget: String, Sendable {
             }
     }
 
-    private static func identityOnlyIrohRoutes(
-        from routes: [CmxAttachRoute]
-    ) throws -> [CmxAttachRoute] {
-        try routes.compactMap { route in
-            guard route.kind == .iroh,
-                  case let .peer(identity, _) = route.endpoint else {
-                return nil
-            }
-            return try CmxAttachRoute(
-                id: route.id,
-                kind: .iroh,
-                endpoint: .peer(identity: identity, pathHints: []),
-                priority: route.priority
-            )
-        }
-    }
 }
 
 extension Optional where Wrapped == MobileAttachTarget {

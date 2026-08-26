@@ -40,7 +40,7 @@ final class MobileBrowserStreamCoordinator {
         }
         sessions[key] = session
         session.start()
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             .browserStreamLifecycle,
             a: replacedExisting ? 2 : 1,
             c: TerminalController.mobileBrowserPanelCorrelation(panel.id)
@@ -71,7 +71,7 @@ final class MobileBrowserStreamCoordinator {
         let key = SessionKey(connectionID: connectionID, panelID: panelID)
         guard let session = sessions.removeValue(forKey: key) else { return false }
         await session.stop(sendClosed: false)
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+        MobileHostDiagnostics.hostDiagnosticLog.record(DiagnosticEvent(
             .browserStreamLifecycle,
             a: 3,
             c: TerminalController.mobileBrowserPanelCorrelation(panelID)

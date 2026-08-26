@@ -158,50 +158,10 @@ extension TerminalController {
         let length = ChatArtifactTransferPolicy.defaultPolicy
             .clampedChunkLength(v2Int(params, "length"))
         do {
-            if v2RawString(params, "transport") == "iroh_artifact_v1" {
-                guard let executionContext else {
-                    return .err(
-                        code: "unsupported_transport",
-                        message: String(
-                            localized: "mobile.chat.artifact.error.irohTransportUnavailable",
-                            defaultValue: "Artifact transfer requires an authenticated session."
-                        ),
-                        data: nil
-                    )
-                }
-                return ChatArtifactWire.result(
-                    try await executionContext.issueArtifactTransfer(
-                        canonicalPath: resolved.canonicalPath
-                    )
-                )
-            }
             let chunk = try await Task.detached {
                 try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
             }.value
             return ChatArtifactWire.result(chunk)
-        } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
-            switch error.issueFailure {
-            case .fileNotFound:
-                debugLogMobileChatArtifactDenial(
-                    code: "file_not_found",
-                    reason: "descriptor-file-invalid",
-                    path: resolved.requestedPath
-                )
-                return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
-            case .permissionDenied:
-                return mobileArtifactReadFailure(.permissionDenied, path: resolved.requestedPath)
-            case .notRegularFile:
-                return mobileArtifactReadFailure(.notRegularFile, path: resolved.requestedPath)
-            case .readFailed:
-                return mobileArtifactReadFailure(.readFailed, path: resolved.requestedPath)
-            case .unavailable:
-                debugLogMobileChatArtifactDenial(
-                    code: "unavailable",
-                    reason: "descriptor-issue-failed",
-                    path: resolved.requestedPath
-                )
-                return mobileChatArtifactError(.unavailable, path: resolved.requestedPath)
-            }
         } catch let error as ArtifactByteReader.Error {
             return mobileArtifactReadFailure(error, path: resolved.requestedPath)
         } catch {

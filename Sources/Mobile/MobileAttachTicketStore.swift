@@ -168,8 +168,7 @@ final class MobileAttachTicketStore {
         // display name, and build metadata into a QR several versions denser
         // (23 vs 8 at ECC M) for fields the phone recovers post-handshake
         // from `mobile.host.status`; fielded clients have decoded v2 since
-        // #5872. Explicit Iroh attach targets still use the EndpointID-only
-        // representation below.
+        // #5872.
         if routeDisclosureMode == .legacyPrivateNetworkCompatibility,
            let url = tailscaleCompatibilityAttachURL(
                for: ticket,
@@ -215,13 +214,6 @@ final class MobileAttachTicketStore {
         case .ticketOnly:
             throw MobileAttachTicketStoreError.invalidAttachURL
         case .simulatorInjection:
-            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
-                return try compactAttachURL(
-                    for: ticket,
-                    routeDisclosureMode: .irohIdentityOnly,
-                    pairingURLScheme: pairingURLScheme
-                )
-            }
             guard ticket.routes.allSatisfy({
                 $0.kind == .debugLoopback && CmxLoopbackHost().matches($0)
             }) else {
@@ -233,24 +225,6 @@ final class MobileAttachTicketStore {
                 pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
-            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
-                guard let pairingURL = CmxPairingQRCode().encode(
-                    ticket,
-                    routeDisclosureMode: .irohIdentityOnly,
-                    pairingURLScheme: pairingURLScheme
-                ),
-                let url = URL(string: pairingURL),
-                let components = URLComponents(
-                    url: url,
-                    resolvingAgainstBaseURL: false
-                ),
-                let decoded = try? CmxPairingQRCode().decode(components),
-                decoded.routes.count == ticket.routes.count,
-                decoded.routes.first?.endpoint == ticket.routes.first?.endpoint else {
-                    throw MobileAttachTicketStoreError.invalidAttachURL
-                }
-                return url
-            }
             guard ticket.routes.allSatisfy({
                 $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
             }),
@@ -300,8 +274,8 @@ final class MobileAttachTicketStore {
     /// The disclosed sub-ticket keeps only the account binding (`ub`) and
     /// compatibility level (`pc`) the phone consults before dialing, drops
     /// the attach token, and reindexes the Tailscale routes to the canonical
-    /// sequence the decoder resynthesizes, so mixed Iroh/loopback snapshots
-    /// stay expressible.
+    /// sequence the decoder resynthesizes, so mixed-route snapshots stay
+    /// expressible.
     private func tailscaleCompatibilityAttachURL(
         for ticket: CmxAttachTicket,
         pairingURLScheme: CmxPairingURLScheme?
@@ -334,16 +308,6 @@ final class MobileAttachTicketStore {
             return nil
         }
         return URL(string: pairingURL)
-    }
-
-    private static func hasOnlyIdentityOnlyIrohRoutes(_ routes: [CmxAttachRoute]) -> Bool {
-        !routes.isEmpty && routes.allSatisfy { route in
-            guard route.kind == .iroh,
-                  case let .peer(_, pathHints) = route.endpoint else {
-                return false
-            }
-            return pathHints.isEmpty
-        }
     }
 
     private func pruneExpired(now: Date) {
