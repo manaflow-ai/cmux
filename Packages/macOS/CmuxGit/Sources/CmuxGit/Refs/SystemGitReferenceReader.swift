@@ -261,7 +261,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             return GitReferenceSnapshot(
                 checkedOutBranch: .unreadable,
                 headSignature: nil,
-                currentCommit: nil
+                currentCommit: nil,
+                usesGitPlumbing: true
             )
         }
         let symbolicReference: String? = if case .value(let value) = symbolicResult {
@@ -283,7 +284,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 return GitReferenceSnapshot(
                     checkedOutBranch: .unreadable,
                     headSignature: nil,
-                    currentCommit: nil
+                    currentCommit: nil,
+                    usesGitPlumbing: true
                 )
             }
             return GitReferenceSnapshot(
@@ -292,7 +294,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 currentCommit: stableReference.currentCommit,
                 storageWatchPaths: includeStorageWatchPaths
                     ? storageWatchPaths(repository: repository, runner: runner, deadline: deadline)
-                    : []
+                    : [],
+                usesGitPlumbing: true
             )
         }
 
@@ -323,7 +326,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             currentCommit: currentCommit,
             storageWatchPaths: includeStorageWatchPaths
                 ? storageWatchPaths(repository: repository, runner: runner, deadline: deadline)
-                : []
+                : [],
+            usesGitPlumbing: true
         )
     }
 
