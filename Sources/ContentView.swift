@@ -8196,6 +8196,7 @@ struct ContentView: View {
             )
         }
         for action in cmuxConfigStore.paletteCustomActions() {
+            guard !action.id.hasPrefix("plugin.") else { continue }
             let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
             let subtitleText = action.subtitle
                 .map { sanitizeCmuxConfigPaletteText($0) }
@@ -9049,6 +9050,7 @@ struct ContentView: View {
             }
         }
         for action in cmuxConfigStore.paletteCustomActions() {
+            guard !action.id.hasPrefix("plugin.") else { continue }
             let captured = action
             registry.register(commandId: action.id) {
                 executeConfiguredAction(captured)

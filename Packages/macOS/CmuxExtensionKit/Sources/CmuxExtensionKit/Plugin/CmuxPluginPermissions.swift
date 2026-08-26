@@ -314,6 +314,9 @@ public actor CmuxPluginPermissionStore {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let envelope = FileEnvelope(schemaVersion: Self.schemaVersion, grants: grants)
         let data = try JSONEncoder().encode(envelope)
+        guard data.count <= Self.maximumStorageBytes else {
+            throw CmuxPluginPermissionStoreLoadFailure.unreadableFile
+        }
         try data.write(to: storageURL, options: [.atomic])
     }
 

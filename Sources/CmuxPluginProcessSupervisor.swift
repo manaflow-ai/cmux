@@ -47,6 +47,8 @@ final class CmuxPluginProcessSupervisor {
     private var launchingPluginIDs: Set<String> = []
     private var pendingReconciliationPluginIDs: Set<String> = []
     private var restartTasks: [String: Task<Void, Never>] = [:]
+    private var restartAttempts: [String: Int] = [:]
+    private var restartFingerprints: [String: String] = [:]
 
     init(snapshotter: CmuxPluginExecutionSnapshotter? = nil) {
         self.snapshotter = snapshotter ?? CmuxPluginExecutionSnapshotter()
@@ -95,7 +97,14 @@ final class CmuxPluginProcessSupervisor {
                 return
             }
             let pluginID = descriptor.plugin.manifest.id
-            restartTasks.removeValue(forKey: pluginID)?.cancel()
+            let fingerprint = descriptor.plugin.manifestFingerprint
+            if let previousFingerprint = restartFingerprints[pluginID],
+               previousFingerprint != fingerprint {
+                restartTasks.removeValue(forKey: pluginID)?.cancel()
+                restartAttempts[pluginID] = nil
+                restartFingerprints[pluginID] = nil
+            }
+            guard restartTasks[pluginID] == nil else { continue }
             guard processes[pluginID] == nil else { continue }
             guard launchingPluginIDs.insert(pluginID).inserted else {
                 pendingReconciliationPluginIDs.insert(pluginID)
@@ -177,6 +186,8 @@ final class CmuxPluginProcessSupervisor {
         pendingReconciliationPluginIDs.removeAll()
         restartTasks.values.forEach { $0.cancel() }
         restartTasks.removeAll()
+        restartAttempts.removeAll()
+        restartFingerprints.removeAll()
     }
 
     private func launch(
@@ -515,7 +526,11 @@ final class CmuxPluginProcessSupervisor {
                 "Plugin \(pluginID, privacy: .public) exited with status \(status)"
             )
         }
-        scheduleRestart(pluginID: pluginID, runtime: runtime)
+        scheduleRestart(
+            pluginID: pluginID,
+            fingerprint: running.fingerprint,
+            runtime: runtime
+        )
     }
 
     private func stop(
@@ -567,10 +582,22 @@ final class CmuxPluginProcessSupervisor {
 
     /// Restarts an unexpectedly exited enabled plugin through the same
     /// authoritative registry/reconciliation path after a bounded backoff.
-    private func scheduleRestart(pluginID: String, runtime: CmuxPluginRuntime) {
+    private func scheduleRestart(
+        pluginID: String,
+        fingerprint: String,
+        runtime: CmuxPluginRuntime
+    ) {
         restartTasks.removeValue(forKey: pluginID)?.cancel()
+        if restartFingerprints[pluginID] != fingerprint {
+            restartAttempts[pluginID] = 0
+            restartFingerprints[pluginID] = fingerprint
+        }
+        let attempt = restartAttempts[pluginID, default: 0]
+        guard attempt < 3 else { return }
+        restartAttempts[pluginID] = attempt + 1
+        let backoffSeconds = 2 << attempt
         restartTasks[pluginID] = Task { @MainActor [weak self, weak runtime] in
-            try? await ContinuousClock().sleep(for: .seconds(2))
+            try? await ContinuousClock().sleep(for: .seconds(backoffSeconds))
             guard !Task.isCancelled, let self, let runtime else { return }
             self.restartTasks[pluginID] = nil
             runtime.reload()

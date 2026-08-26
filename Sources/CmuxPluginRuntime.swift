@@ -53,6 +53,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     private var hasStarted = false
     private var pluginDirectoryWatcher: RecursivePathWatcher?
     private var pluginDirectoryWatchTask: Task<Void, Never>?
+    private var pluginPermissionWatcher: FileWatcher?
+    private var pluginPermissionWatchTask: Task<Void, Never>?
     var pluginReloadContinuation: AsyncStream<Void>.Continuation?
     private var pluginReloadTask: Task<Void, Never>?
     private var socketListenerObserver: NSObjectProtocol?
@@ -78,6 +80,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         shortcutSettingsObserver = nil
         pluginDirectoryWatcher = nil
         pluginDirectoryWatchTask = nil
+        pluginPermissionWatcher = nil
+        pluginPermissionWatchTask = nil
         pluginReloadContinuation = nil
         pluginReloadTask = nil
         registryUpdateTail = nil
@@ -124,10 +128,14 @@ final class CmuxPluginRuntime: @unchecked Sendable {
             NotificationCenter.default.removeObserver(shortcutSettingsObserver)
         }
         pluginDirectoryWatchTask?.cancel()
+        pluginPermissionWatchTask?.cancel()
         pluginReloadContinuation?.finish()
         pluginReloadTask?.cancel()
         if let pluginDirectoryWatcher {
             Task { await pluginDirectoryWatcher.stop() }
+        }
+        if let pluginPermissionWatcher {
+            Task { await pluginPermissionWatcher.stop() }
         }
     }
 
@@ -176,13 +184,25 @@ final class CmuxPluginRuntime: @unchecked Sendable {
                 await self.performPluginReload()
             }
         }
+        let permissionWatcher = CmuxPluginPermissionStore.defaultStorageURL.map {
+            FileWatcher(path: $0.path, throttle: .milliseconds(250))
+        }
         lock.lock()
         pluginDirectoryWatcher = watcher
+        pluginPermissionWatcher = permissionWatcher
         pluginReloadContinuation = reloadContinuation
         pluginReloadTask = reloadTask
         if let watcher {
             pluginDirectoryWatchTask = Task { @MainActor [weak self, watcher] in
                 for await _ in watcher.events {
+                    guard let self, !Task.isCancelled else { return }
+                    self.reload()
+                }
+            }
+        }
+        if let permissionWatcher {
+            pluginPermissionWatchTask = Task { @MainActor [weak self, permissionWatcher] in
+                for await _ in permissionWatcher.events {
                     guard let self, !Task.isCancelled else { return }
                     self.reload()
                 }
@@ -425,12 +445,16 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         processReconciliationTask?.cancel()
         pluginDirectoryWatchTask?.cancel()
         pluginDirectoryWatchTask = nil
+        pluginPermissionWatchTask?.cancel()
+        pluginPermissionWatchTask = nil
         pluginReloadContinuation?.finish()
         pluginReloadContinuation = nil
         pluginReloadTask?.cancel()
         pluginReloadTask = nil
         let pluginDirectoryWatcher = self.pluginDirectoryWatcher
         self.pluginDirectoryWatcher = nil
+        let pluginPermissionWatcher = self.pluginPermissionWatcher
+        self.pluginPermissionWatcher = nil
         let subscriptions = subscriptionsByPluginID.values.flatMap(\.values)
         subscriptionsByPluginID.removeAll()
         actionSubscriptionIDsByPluginID.removeAll()
@@ -443,6 +467,9 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         lock.unlock()
         if let pluginDirectoryWatcher {
             Task { await pluginDirectoryWatcher.stop() }
+        }
+        if let pluginPermissionWatcher {
+            Task { await pluginPermissionWatcher.stop() }
         }
         processSupervisor.stopAll(runtime: self)
         subscriptions.forEach { $0.close() }

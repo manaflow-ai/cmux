@@ -246,6 +246,9 @@ public enum CmuxExtensionEvent: String, Codable, CaseIterable, Equatable, Hashab
     /// Resolves canonical, aliased, and normalized wire spellings in one
     /// place so manifest decoding and runtime authorization cannot diverge.
     fileprivate static func resolveWireName(_ name: String) -> Self? {
+        if let exact = allCases.first(where: { $0.acceptedWireNames.contains(name) }) {
+            return exact
+        }
         let normalized = normalize(name)
         return allCases.first { declaration in
             declaration.acceptedWireNames.contains { wireName in
