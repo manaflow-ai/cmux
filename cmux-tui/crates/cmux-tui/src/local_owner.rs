@@ -188,10 +188,12 @@ fn attempt(
     {
         return Err(EnsureError::UnsupportedProtocol);
     }
+    // Servers on this protocol always report lifecycle readiness, so a
+    // missing or malformed field is a broken identity, never "ready".
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(false)) => return Ok(Attempt::Starting),
-        Some(Value::Bool(true)) | None => {}
-        Some(_) => return Err(EnsureError::InvalidIdentity),
+        Some(Value::Bool(true)) => {}
+        _ => return Err(EnsureError::InvalidIdentity),
     }
     let session = identity["session"].as_str().unwrap_or_default();
     if session.is_empty() {
