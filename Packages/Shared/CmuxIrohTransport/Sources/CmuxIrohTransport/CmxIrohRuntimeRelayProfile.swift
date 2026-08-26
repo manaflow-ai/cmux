@@ -1,8 +1,12 @@
 import Foundation
 
 extension CmxIrohHostRuntimeConfiguration {
-    func resolvedEndpointRelayProfile(now: Date) throws -> CmxIrohEndpointRelayProfile {
-        try resolveEndpointRelayProfile(
+    func resolvedEndpointRelayProfile(
+        now: Date,
+        debugOverride: CmxIrohEndpointRelayProfile? = CmxIrohDebugRelayOverride.activeProfile()
+    ) throws -> CmxIrohEndpointRelayProfile {
+        if let debugOverride { return debugOverride }
+        return try resolveEndpointRelayProfile(
             configured: endpointRelayProfile,
             managedRelayURLs: managedRelayURLs,
             cachedRelayCredential: cachedRelayCredential,
@@ -12,8 +16,12 @@ extension CmxIrohHostRuntimeConfiguration {
 }
 
 extension CmxIrohClientRuntimeConfiguration {
-    func resolvedEndpointRelayProfile(now: Date) throws -> CmxIrohEndpointRelayProfile {
-        try resolveEndpointRelayProfile(
+    func resolvedEndpointRelayProfile(
+        now: Date,
+        debugOverride: CmxIrohEndpointRelayProfile? = CmxIrohDebugRelayOverride.activeProfile()
+    ) throws -> CmxIrohEndpointRelayProfile {
+        if let debugOverride { return debugOverride }
+        return try resolveEndpointRelayProfile(
             configured: endpointRelayProfile,
             managedRelayURLs: managedRelayURLs,
             cachedRelayCredential: cachedRelayCredential,

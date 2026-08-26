@@ -29,6 +29,12 @@ extension CmxIrohHostRuntime {
         managedRelayURLs replacementManagedURLs: Set<String>,
         relayBootstrap: CmxIrohRelayTokenResponse?
     ) async throws {
+        // A debug-only forced relay pins every profile installation, so a
+        // broker policy refresh cannot displace the test relay mid-run.
+        var profile = profile
+        if let debugOverride = CmxIrohDebugRelayOverride.activeProfile() {
+            profile = debugOverride
+        }
         guard lifecyclePhase == .active,
               let connectivityEngine,
               let binding = localBinding else {
