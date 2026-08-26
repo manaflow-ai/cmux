@@ -5232,13 +5232,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux dials only the addresses you add for each computer, with no relay discovery. Add addresses in each computer's settings after pairing."
+            "value": "Dials only the addresses you add for each computer. No relay discovery."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxは各コンピュータに追加したアドレスのみにダイヤルし、リレー探索は行いません。ペアリング後に各コンピュータの設定からアドレスを追加してください。"
+            "value": "各コンピュータに追加したアドレスのみにダイヤルします。リレー探索は行いません。"
           }
         }
       }

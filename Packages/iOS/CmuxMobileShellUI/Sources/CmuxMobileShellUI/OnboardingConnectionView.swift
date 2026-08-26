@@ -108,10 +108,7 @@ struct OnboardingConnectionView: View {
         if connectionMethod == .direct {
             return L10n.string(
                 "mobile.onboarding.connect.directBody",
-                defaultValue: """
-                cmux dials only the addresses you add for each computer, with no relay discovery. \
-                Add addresses in each computer's settings after pairing.
-                """
+                defaultValue: "Dials only the addresses you add for each computer. No relay discovery."
             )
         }
         return L10n.string(
