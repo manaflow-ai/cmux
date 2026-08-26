@@ -64,8 +64,9 @@ production `RESEND_API_KEY` already has full access.
 
 ## Before the first --apply: privacy disclosure
 
-The "cmux Users" source requires an explicit `newsletter_opt_in=true` field
-from Stack Auth; a verified account email alone is never enough. Before the
+The "cmux Users" source requires an explicit `cmuxNewsletterOptIn=true` field
+in Stack Auth user metadata (prefer `server_metadata`; a verified account
+email alone is never enough). Before the
 first apply, update the Resend bullet in the privacy policy (every locale) to
 cover product-update email for opted-in account holders. The CLI also requires
 `--confirm-privacy-disclosure` as a visible acknowledgement before a users/all

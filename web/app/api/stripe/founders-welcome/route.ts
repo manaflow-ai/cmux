@@ -286,7 +286,12 @@ async function upsertFounderBestEffort(
         .map((result) => `${result.segmentName}:${result.outcome}`)
         .join(","),
     });
-    return results.some((result) => result.outcome === "failed")
+    return results.some(
+      (result) =>
+        result.outcome === "failed" ||
+        result.outcome === "skipped_missing_segment" ||
+        result.outcome === "skipped_missing_contact",
+    )
       ? "failed"
       : "completed";
   } catch (segmentError) {

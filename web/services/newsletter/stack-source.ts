@@ -22,15 +22,36 @@ type StackUser = {
   primary_email?: string | null;
   primary_email_verified?: boolean;
   display_name?: string | null;
-  // This field is the consent authority for marketing email. Account
-  // verification alone is not a newsletter opt-in.
-  newsletter_opt_in?: boolean;
+  // Stack exposes custom fields through metadata, not top-level user keys.
+  client_metadata?: Record<string, unknown> | null;
+  client_read_only_metadata?: Record<string, unknown> | null;
+  server_metadata?: Record<string, unknown> | null;
 };
 
 type StackUsersPage = {
   items?: StackUser[];
   pagination?: { next_cursor?: string | null };
 };
+
+export function hasNewsletterOptIn(user: {
+  client_metadata?: Record<string, unknown> | null;
+  client_read_only_metadata?: Record<string, unknown> | null;
+  server_metadata?: Record<string, unknown> | null;
+}): boolean {
+  return [
+    user.server_metadata,
+    user.client_read_only_metadata,
+    user.client_metadata,
+  ].some((metadata) => {
+    if (!metadata) return false;
+    return [
+      metadata.cmuxNewsletterOptIn,
+      metadata.newsletterOptIn,
+      metadata.cmux_newsletter_opt_in,
+      metadata.newsletter_opt_in,
+    ].some((value) => value === true || value === "true");
+  });
+}
 
 export type StackSourceResult = {
   contacts: NewsletterContact[];
@@ -103,7 +124,7 @@ export async function listStackContacts(options: {
         skipped += 1;
         continue;
       }
-      if (options.requireNewsletterOptIn && user.newsletter_opt_in !== true) {
+      if (options.requireNewsletterOptIn && !hasNewsletterOptIn(user)) {
         skippedNotOptedIn += 1;
         continue;
       }

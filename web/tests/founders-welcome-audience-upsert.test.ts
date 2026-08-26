@@ -33,6 +33,7 @@ mock.module("resend", () => ({
 type UpsertCall = { email: string; customerName?: string | null };
 const upsertCalls: UpsertCall[] = [];
 let upsertError: Error | null = null;
+let upsertResult: unknown[] = [];
 const upsertFounderIntoSegments = mock(async (...args: unknown[]) => {
   const options = args[0] as UpsertCall;
   upsertCalls.push({
@@ -42,7 +43,7 @@ const upsertFounderIntoSegments = mock(async (...args: unknown[]) => {
   if (upsertError) {
     throw upsertError;
   }
-  return [];
+  return upsertResult;
 });
 
 mock.module("@/services/newsletter/founder-hook", () => ({
@@ -64,6 +65,7 @@ beforeEach(() => {
   upsertFounderIntoSegments.mockClear();
   upsertCalls.length = 0;
   upsertError = null;
+  upsertResult = [];
 });
 
 afterAll(() => {
@@ -215,6 +217,29 @@ describe("founders welcome segment upsert", () => {
 
     // Still a 200 acknowledgement (best-effort contract), but the body
     // does not claim success.
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, upsert: "failed" });
+  });
+
+  test("reports missing audience resources as a failed upsert", async () => {
+    upsertResult = [
+      { segmentName: "cmux Users", outcome: "skipped_missing_segment" },
+      { segmentName: "cmux Founder's Edition", outcome: "created" },
+    ];
+    const body = JSON.stringify({
+      id: "evt_async_missing_segment",
+      type: "checkout.session.async_payment_succeeded",
+      data: {
+        object: {
+          id: "cs_test_async_missing_segment",
+          metadata: { founders_edition: "true" },
+          payment_status: "paid",
+          customer_details: { email: "customer@example.com" },
+        },
+      },
+    });
+
+    const response = await POST(signedRequest(body));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, upsert: "failed" });
   });
