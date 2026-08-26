@@ -108,6 +108,26 @@ npx cmux machine-agent --session agents
 
 Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ ssh host` on cmux.cloud.
 
+## Troubleshooting npx installs
+
+`npx cmux@latest` can fail inside npm before cmux runs:
+
+```text
+npm error code ENOTEMPTY
+npm error syscall rename
+npm error path ~/.npm/_npx/<hash>/node_modules/cmux-tui-darwin-arm64
+npm error ENOTEMPTY: directory not empty, rename ...
+```
+
+This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits packages with per-platform binary dependencies (cmux ships `cmux-tui-<platform>` optional dependencies) most often. Clear the npx cache and rerun:
+
+```bash
+rm -rf ~/.npm/_npx
+npx cmux@latest
+```
+
+A global install avoids the npx cache entirely: `npm install -g cmux`, then run `cmux` and upgrade with `npm install -g cmux@latest`.
+
 ## Sessions and sockets
 
 The default socket path is:

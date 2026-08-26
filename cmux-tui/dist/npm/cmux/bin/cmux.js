@@ -35,7 +35,9 @@ try {
 } catch {
   console.error(
     `cmux: platform package ${pkg} is not installed. Reinstall cmux, ` +
-      `or set npm to install optional dependencies (--include=optional).`
+      `or set npm to install optional dependencies (--include=optional). ` +
+      `Under npx, a stale cache can also cause this (or an ENOTEMPTY rename ` +
+      `error during install): run \`rm -rf ~/.npm/_npx\` and retry.`
   );
   process.exit(1);
 }
