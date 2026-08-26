@@ -570,6 +570,7 @@ USAGE
   cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
+  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>

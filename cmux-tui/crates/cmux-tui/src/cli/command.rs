@@ -1073,6 +1073,25 @@ fn parse_terminal(
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalHistoryClear, selectors, flags, Map::new())
         }
+        [selector, "output", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(after) = flags.take("after") {
+                validate_decimal("--after", &after)?;
+                params.insert("after".into(), Value::String(after));
+            }
+            if let Some(max_bytes) = flags.take("max-bytes") {
+                insert_bounded_u32(
+                    &mut params,
+                    "max_bytes",
+                    "--max-bytes",
+                    max_bytes,
+                    1,
+                    4_194_304,
+                )?;
+            }
+            request(ResourceOperation::TerminalOutputRead, selectors, flags, params)
+        }
         [selector, "screen", "wait"] => {
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();
@@ -3500,6 +3519,38 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_read_parses_cursor_and_bounded_window() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
+        assert!(plain.params.get("after").is_none());
+        assert!(plain.params.get("max_bytes").is_none());
+
+        let resumed = protocol(&[
+            "terminal",
+            TERMINAL,
+            "output",
+            "read",
+            "--after",
+            "4096",
+            "--max-bytes",
+            "65536",
+        ]);
+        assert_eq!(resumed.params["after"], "4096");
+        assert_eq!(resumed.params["max_bytes"], 65536);
+
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]))
+                .is_err()
+        );
+    }
+
+    #[test]
     fn input_commands_enforce_variant_constraints() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         const BROWSER: &str = "browser_00000000000000000000000000000009";
@@ -4267,6 +4318,19 @@ mod tests {
                 vec![
                     "terminal",
                     TERMINAL,
+                    "output",
+                    "read",
+                    "--after",
+                    "4096",
+                    "--max-bytes",
+                    "65536",
+                ],
+                "terminal.output_read",
+            ),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
                     "screen",
                     "wait",
                     "--pattern",
@@ -4448,9 +4512,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 117);
+        assert_eq!(cases.len(), 118);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 125);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
