@@ -28,6 +28,12 @@ final class GhosttySurfaceArtifactChipHost {
         container.addSubview(view)
     }
 
+    /// The top inset the last layout actually applied. The surface's
+    /// display-link follow compares against this so re-pinning the chip while
+    /// the host slides the render wrapper for the keyboard is a no-op within
+    /// half a point.
+    private(set) var appliedTopInset: CGFloat = 0
+
     // Anchored to the terminal's top edge: pinned above the toolbar it covered
     // the input row, which users type into far more often than they read the
     // first terminal line.
@@ -36,6 +42,7 @@ final class GhosttySurfaceArtifactChipHost {
             container.frame = .zero
             return
         }
+        appliedTopInset = topInset
         let maxWidth = max(44, bounds.width - 32)
         let fitting = content.systemLayoutSizeFitting(
             CGSize(width: maxWidth, height: UIView.layoutFittingCompressedSize.height),
