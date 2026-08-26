@@ -249,6 +249,41 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(paths.contains(fixture.gitDirectory.standardizedFileURL.path))
     }
 
+    @Test func watchesCaseSensitiveExternalFilesReferenceStore() throws {
+        let fixture = try GitRepositoryFixture()
+        let externalRoot = fixture.root.deletingLastPathComponent()
+            .appendingPathComponent("cmuxgit-external-refs-\(UUID().uuidString)", isDirectory: true)
+        let branch = "Feature/CaseSensitive"
+        let branchRef = externalRoot
+            .appendingPathComponent("refs/heads", isDirectory: true)
+            .appendingPathComponent(branch)
+        try FileManager.default.createDirectory(
+            at: branchRef.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: externalRoot) }
+        try String(repeating: "a", count: 40).write(
+            to: branchRef,
+            atomically: true,
+            encoding: .utf8
+        )
+        try fixture.writeBranch(branch)
+        try fixture.writeConfig("""
+        [extensions]
+            refStorage = files:\(externalRoot.path)
+        """)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let result = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .resolved(branch)
+        ).watchPathResult()
+
+        #expect(result.paths.contains(branchRef.standardizedFileURL.path))
+    }
+
     @Test func readsLinkedWorktreeConfigWhenPresent() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

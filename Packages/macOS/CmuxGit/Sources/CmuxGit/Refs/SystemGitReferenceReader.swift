@@ -310,7 +310,12 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 headSignature: "ref: \(stableReference.symbolicReference)\n\(stableReference.currentCommit ?? "")",
                 currentCommit: stableReference.currentCommit,
                 storageWatchPaths: includeStorageWatchPaths
-                    ? storageWatchPaths(repository: repository, runner: runner, deadline: deadline)
+                    ? storageWatchPaths(
+                        repository: repository,
+                        runner: runner,
+                        symbolicReference: stableReference.symbolicReference,
+                        deadline: deadline
+                    )
                     : [],
                 usesGitPlumbing: true
             )
@@ -342,7 +347,12 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             headSignature: headSignature,
             currentCommit: currentCommit,
             storageWatchPaths: includeStorageWatchPaths
-                ? storageWatchPaths(repository: repository, runner: runner, deadline: deadline)
+                ? storageWatchPaths(
+                    repository: repository,
+                    runner: runner,
+                    symbolicReference: symbolicReference,
+                    deadline: deadline
+                )
                 : [],
             usesGitPlumbing: true
         )
@@ -352,10 +362,18 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private func storageWatchPaths(
         repository: ResolvedGitRepository,
         runner: any WorkspaceChangesGitRunning,
+        symbolicReference: String?,
         deadline: DispatchTime
     ) -> [String] {
         var paths: [String] = []
-        for name in ["reftable", "refs", "packed-refs"] {
+        var names = ["reftable", "packed-refs"]
+        if let symbolicReference,
+           symbolicReference.hasPrefix("refs/"),
+           !symbolicReference.contains("..") {
+            names.insert(symbolicReference, at: 0)
+        }
+        for name in names {
+            guard paths.count < 8 else { break }
             guard let value = output(
                 arguments: ["rev-parse", "--git-path", name],
                 repository: repository,
@@ -378,24 +396,37 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                     ? URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
                     : path)
             } else if name == "reftable" {
-                let marker = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
-                switch configReader.read(
-                    at: marker,
-                    maximumByteCount: 1 * 1_024,
+                appendExternalStorageWatchPath(
+                    URL(fileURLWithPath: path).appendingPathComponent("tables.list"),
+                    to: &paths,
                     deadline: deadline
-                ) {
-                case .contents, .oversized:
-                    paths.append(marker.path)
-                case .missing, .unavailable:
-                    break
-                }
-            } else if name == "refs" || name == "packed-refs" {
-                // External file stores are intentionally not recursively
-                // watched; probing an arbitrary mount can block the planner.
-                continue
+                )
+            } else if name == "packed-refs" || name.hasPrefix("refs/") {
+                appendExternalStorageWatchPath(
+                    URL(fileURLWithPath: path),
+                    to: &paths,
+                    deadline: deadline
+                )
             }
         }
         return paths
+    }
+
+    /// Watches an existing external ref file, or a local parent sentinel when
+    /// Git will create that file later. Unavailable mounts are never traversed.
+    private func appendExternalStorageWatchPath(
+        _ targetURL: URL,
+        to paths: inout [String],
+        deadline: DispatchTime
+    ) {
+        let target = targetURL.standardizedFileURL
+        if configReader.isLocalRegularFile(at: target, deadline: deadline) {
+            paths.append(target.path)
+            return
+        }
+        let parent = target.deletingLastPathComponent()
+        guard configReader.isLocalDirectory(at: parent, deadline: deadline) else { return }
+        paths.append(parent.path)
     }
 
     /// Resolves a branch ref and verifies that HEAD still names it afterward.

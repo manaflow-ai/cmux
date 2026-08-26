@@ -153,7 +153,10 @@ extension GitMetadataService {
                     )
                 }
                 guard let submoduleCommit = referenceReader
-                    .snapshot(repository: submoduleRepository)
+                    .snapshot(
+                        repository: submoduleRepository,
+                        deadline: directScanDeadline
+                    )
                     .currentCommit else {
                     return GitTrackedChangesResolution(
                         snapshot: GitTrackedChangesSnapshot(

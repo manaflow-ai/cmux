@@ -228,31 +228,7 @@ public struct GitMetadataService: Sendable {
     ///   repository or no GitHub remote.
     @concurrent
     public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
-        guard let repository = Self.resolveGitRepository(containing: directory) else {
-            return []
-        }
-        let deadline = DispatchTime.now()
-            + max(5, safetyConfiguration.gitStatusWallTime * 8)
-        let branchContext = await gitReferenceBranchContext(
-            repository: repository,
-            deadline: deadline
-        )
-        let traversal = GitConfigBranchTraversal(
-            repository: repository,
-            branchContext: branchContext,
-            deadline: deadline
-        )
-        let traversalResult = traversal.remoteVResult()
-        let output: String?
-        if traversalResult.isComplete {
-            output = traversalResult.output
-        } else if traversalResult.isUnsafe {
-            output = nil
-        } else {
-            output = await gitRemoteVFallback(repository: repository, deadline: deadline)
-        }
-        guard let output else { return [] }
-        return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
+        await repositoryDiscoverySnapshot(forDirectory: directory).repositorySlugs
     }
 
     /// Reads the checked-out branch state for the repository enclosing

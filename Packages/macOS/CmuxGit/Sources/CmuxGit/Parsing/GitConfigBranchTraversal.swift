@@ -18,6 +18,12 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     private let includeConditionalPathsForWatch: Bool
     private let deadline: DispatchTime?
 
+    /// The bounded config roots and whether every reachable include was seen.
+    struct WatchPathResult: Sendable {
+        let paths: [String]
+        let isComplete: Bool
+    }
+
     /// Creates a traversal for one repository and resolved branch context.
     init(
         repository: ResolvedGitRepository,
@@ -44,6 +50,11 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
 
     /// Returns bounded config paths to watch.
     func watchPaths() -> [String] {
+        watchPathResult().paths
+    }
+
+    /// Returns bounded config paths plus completion state for watcher planning.
+    func watchPathResult() -> WatchPathResult {
         let result = traverse()
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
         let rootWatchPaths = GitWorktreeConfigEnablementReader().rootConfigWatchURLs(
@@ -52,7 +63,12 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             branchContext: branchContext
         ).map { $0.standardizedFileURL.path }
         if !result.isComplete {
-            paths = rootWatchPaths + paths
+            // Keep stable repository metadata-directory sentinels ahead of the
+            // path budget. If an include is beyond the cap, any event below a
+            // known Git directory still rebuilds the bounded plan.
+            let metadataSentinels = [repository.gitDirectory, repository.commonDirectory]
+                .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            paths = rootWatchPaths + metadataSentinels + paths
         } else {
             // Keep a parent sentinel when extensions.worktreeConfig is enabled
             // but config.worktree has not been created yet.
@@ -60,9 +76,12 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         }
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
-        return Array(
-            paths.filter { seen.insert($0).inserted }
-                .prefix(Self.maximumIncludedFileCount)
+        return WatchPathResult(
+            paths: Array(
+                paths.filter { seen.insert($0).inserted }
+                    .prefix(Self.maximumIncludedFileCount)
+            ),
+            isComplete: result.isComplete
         )
     }
 
@@ -169,6 +188,9 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             state.referenceStorageName = value.lowercased()
             return
         }
+        let storageName = String(value[..<separator]).lowercased()
+        // Preserve the path-qualified form for backend selection while using
+        // the separately normalized name for path handling below.
         state.referenceStorageName = value.lowercased()
         var payload = String(value[value.index(after: separator)...])
         if payload.hasPrefix("//") {
@@ -184,7 +206,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         }
         if isSafeReferenceStoragePath(
             path,
-            storageName: String(value[..<separator]).lowercased()
+            storageName: storageName
         ) {
             let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
                 .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
@@ -194,13 +216,16 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 state.referenceStoragePaths.append(path)
             } else {
                 let externalRoot = URL(fileURLWithPath: path)
-                if String(value[..<separator]).lowercased() == "reftable" {
-                    state.referenceStoragePaths.append(
-                        externalRoot.appendingPathComponent("tables.list").path
+                if storageName == "reftable" {
+                    appendExternalWatchPath(
+                        externalRoot.appendingPathComponent("tables.list"),
+                        state: &state
                     )
                 } else {
-                    state.referenceStoragePaths.append(externalRoot.appendingPathComponent("refs").path)
-                    state.referenceStoragePaths.append(externalRoot.appendingPathComponent("packed-refs").path)
+                    appendExternalFilesWatchPaths(
+                        root: externalRoot,
+                        state: &state
+                    )
                 }
             }
         }
@@ -216,21 +241,47 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         if isInRepository {
             return true
         }
-        // External stores are accepted only when their bounded marker can be
-        // read; this keeps custom packed-ref stores observable without a
-        // synchronous directory stat on an unavailable mount.
-        guard storageName == "reftable" else { return false }
-        let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
-        switch configReader.read(
-            at: tableList,
-            maximumByteCount: 1 * 1_024,
-            deadline: deadline
-        ) {
-        case .contents, .oversized:
-            return true
-        case .missing, .unavailable:
-            return false
+        guard storageName == "reftable" || storageName == "files" else { return false }
+        let rootURL = URL(fileURLWithPath: path)
+        return configReader.isLocalDirectory(at: rootURL, deadline: deadline)
+    }
+
+    /// Adds a regular external marker or its bounded local parent sentinel.
+    private func appendExternalWatchPath(
+        _ targetURL: URL,
+        state: inout GitConfigTraversalState
+    ) {
+        let target = targetURL.standardizedFileURL
+        if configReader.isLocalRegularFile(at: target, deadline: deadline) {
+            state.referenceStoragePaths.append(target.path)
+            return
         }
+        let parent = target.deletingLastPathComponent()
+        guard configReader.isLocalDirectory(at: parent, deadline: deadline) else { return }
+        state.referenceStoragePaths.append(parent.path)
+    }
+
+    /// Watches only the current loose branch ref plus packed-refs for an
+    /// external files store; never recursively watches the arbitrary store root.
+    private func appendExternalFilesWatchPaths(
+        root: URL,
+        state: inout GitConfigTraversalState
+    ) {
+        if let branch = branchContext.branchName(for: repository, deadline: deadline) {
+            let refRoot = root.appendingPathComponent("refs", isDirectory: true)
+            let branchRef = refRoot
+                .appendingPathComponent("heads", isDirectory: true)
+                .appendingPathComponent(branch, isDirectory: false)
+                .standardizedFileURL
+            let refRootPath = refRoot.standardizedFileURL.path
+            if branchRef.path.hasPrefix(refRootPath + "/") {
+                appendExternalWatchPath(branchRef, state: &state)
+            }
+        }
+        appendExternalWatchPath(
+            root.appendingPathComponent("packed-refs", isDirectory: false),
+            state: &state
+        )
     }
 
     /// Limits watch-mode include discovery to existing repository-local files.

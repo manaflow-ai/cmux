@@ -227,12 +227,16 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
+            // A missing child entry means the aggregate planner exhausted its
+            // deadline/budget. Use only bounded root sentinels here; starting a
+            // fresh include walk would escape that aggregate bound.
             let submoduleConfigPaths = configPathsByRepository?[submoduleRepository.workTreeRoot]
-                ?? GitConfigBranchTraversal(
-                    repository: submoduleRepository,
-                    branchContext: .resolved(nil),
-                    includeConditionalPathsForWatch: true
-                ).watchPaths()
+                ?? [
+                    joinedPath(root: submoduleRepository.commonDirectory, relativePath: "config"),
+                    joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config"),
+                    joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config.worktree"),
+                    submoduleRepository.gitDirectory,
+                ]
             paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
                 repository: submoduleRepository,
                 configPathsByRepository: [submoduleRepository.workTreeRoot: submoduleConfigPaths]

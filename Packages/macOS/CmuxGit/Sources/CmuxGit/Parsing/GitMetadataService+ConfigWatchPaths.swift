@@ -76,15 +76,23 @@ extension GitMetadataService {
         }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
+            pathsByRepository[repository.workTreeRoot] = conservativeRepositoryMetadataPaths(
+                repository: repository,
+                deadline: deadline
+            )
+            forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
-        pathsByRepository[repository.workTreeRoot] = GitConfigBranchTraversal(
+        let configTraversal = GitConfigBranchTraversal(
             repository: repository,
             branchContext: branchContext,
             includeConditionalPathsForWatch: true,
             deadline: deadline
-        ).watchPaths() + references.storageWatchPaths
+        ).watchPathResult()
+        pathsByRepository[repository.workTreeRoot] = configTraversal.paths
+            + references.storageWatchPaths
         guard DispatchTime.now() < deadline else {
+            forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
@@ -171,6 +179,7 @@ extension GitMetadataService {
                     repository: submoduleRepository,
                     deadline: deadline
                 )
+                forceWorkTreeRoots.insert(submoduleRepository.workTreeRoot)
             }
             indexSnapshotsByRepository.merge(
                 childResult.indexSnapshots,
@@ -269,6 +278,8 @@ extension GitMetadataService {
         deadline: DispatchTime
     ) -> [String] {
         [
+            repository.gitDirectory,
+            repository.commonDirectory,
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),

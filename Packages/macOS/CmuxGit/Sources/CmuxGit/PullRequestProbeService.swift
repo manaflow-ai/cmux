@@ -98,28 +98,23 @@ public struct PullRequestProbeService: Sendable {
         candidates.reserveCapacity(seeds.count)
         var candidateBranchesByRepo: [String: Set<String>] = [:]
         var repoDirectoriesBySlug: [String: String] = [:]
-        var repoSlugsByDirectory: [String: [String]] = [:]
-        var checkedOutBranchesByDirectory: [String: GitCheckedOutBranch] = [:]
+        var discoveryByDirectory: [String: GitRepositoryDiscoverySnapshot] = [:]
 
         for seed in seeds {
             let repoSlugs: [String]
             let checkedOutBranch: GitCheckedOutBranch
             if let directory = seed.directory {
-                if let cachedRepoSlugs = repoSlugsByDirectory[directory] {
-                    repoSlugs = cachedRepoSlugs
+                let discovery = if let cached = discoveryByDirectory[directory] {
+                    cached
                 } else {
-                    let resolvedRepoSlugs = await gitMetadata.repositorySlugs(forDirectory: directory)
-                    repoSlugsByDirectory[directory] = resolvedRepoSlugs
-                    repoSlugs = resolvedRepoSlugs
+                    let resolved = await gitMetadata.repositoryDiscoverySnapshot(
+                        forDirectory: directory
+                    )
+                    discoveryByDirectory[directory] = resolved
+                    resolved
                 }
-
-                if let cachedBranch = checkedOutBranchesByDirectory[directory] {
-                    checkedOutBranch = cachedBranch
-                } else {
-                    let resolvedBranch = await gitMetadata.checkedOutBranch(forDirectory: directory)
-                    checkedOutBranchesByDirectory[directory] = resolvedBranch
-                    checkedOutBranch = resolvedBranch
-                }
+                repoSlugs = discovery.repositorySlugs
+                checkedOutBranch = discovery.checkedOutBranch
             } else {
                 repoSlugs = []
                 checkedOutBranch = .notARepository

@@ -23,6 +23,22 @@ nonisolated struct GitConfigFileReader: Sendable {
 
     static let defaultMaximumByteCount = 1 * 1_024 * 1_024
 
+    /// Returns whether `url` is a local regular file without reading its body.
+    func isLocalRegularFile(
+        at url: URL,
+        deadline: DispatchTime? = nil
+    ) -> Bool {
+        probeLocalPath(at: url, deadline: deadline) == mode_t(S_IFREG)
+    }
+
+    /// Returns whether `url` is a local directory without recursively probing it.
+    func isLocalDirectory(
+        at url: URL,
+        deadline: DispatchTime? = nil
+    ) -> Bool {
+        probeLocalPath(at: url, deadline: deadline) == mode_t(S_IFDIR)
+    }
+
     /// Reads one regular UTF-8 config file without following a blocking FIFO.
     func read(
         at url: URL,
@@ -79,5 +95,33 @@ nonisolated struct GitConfigFileReader: Sendable {
             return .unavailable(consumedByteCount: data.count)
         }
         return .contents(contents, consumedByteCount: data.count)
+    }
+
+    /// Performs only bounded descriptor metadata operations for watcher paths.
+    private func probeLocalPath(
+        at url: URL,
+        deadline: DispatchTime?
+    ) -> mode_t? {
+        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
+            return nil
+        }
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0 else { return nil }
+        let kind = metadata.st_mode & mode_t(S_IFMT)
+        guard kind == mode_t(S_IFREG) || kind == mode_t(S_IFDIR) else { return nil }
+
+        var filesystem = statfs()
+        guard Darwin.fstatfs(descriptor, &filesystem) == 0,
+              (UInt64(filesystem.f_flags) & UInt64(MNT_LOCAL)) != 0 else {
+            return nil
+        }
+        return kind
     }
 }
