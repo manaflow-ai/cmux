@@ -136,6 +136,27 @@ extension SystemGitReferenceReader {
         return boundedFileSnapshot(repository: repository, deadline: effectiveDeadline) == nil
     }
 
+    /// Revalidates a normal files checkout without repeating backend discovery.
+    func headSnapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?
+    ) -> GitReferenceSnapshot {
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
+        guard let directSnapshot = boundedFileSnapshot(
+            repository: repository,
+            deadline: effectiveDeadline
+        ) else {
+            return snapshot(repository: repository, deadline: deadline)
+        }
+        // `.invalid` is Git's linked-worktree sentinel; resolve it through
+        // plumbing instead of exposing the transient direct-file projection.
+        guard directSnapshot.branchName != ".invalid" else {
+            return snapshot(repository: repository, deadline: deadline)
+        }
+        return directSnapshot
+    }
+
     /// Accepts only complete SHA-1 or SHA-256 object IDs.
     func normalizedObjectID(_ value: String) -> String? {
         let normalized = value.lowercased()

@@ -7,4 +7,6 @@ nonisolated struct GitConfigTraversalState: Sendable {
     var configURLs: [URL] = []
     var referenceStorageName: String?
     var referenceStoragePaths: [String] = []
+    var worktreeConfigEnabled = false
+    var objectFormatSHA256 = false
 }

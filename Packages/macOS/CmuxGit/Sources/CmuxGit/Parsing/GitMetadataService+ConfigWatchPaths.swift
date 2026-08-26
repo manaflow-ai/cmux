@@ -102,11 +102,7 @@ extension GitMetadataService {
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
-        if repositoryUsesSHA256ObjectIDs(
-            repository: repository,
-            deadline: deadline,
-            branchContext: branchContext
-        ) != false {
+        if configTraversal.objectFormatSHA256 != false {
             var fallbackRemainingRepositoryCount = remainingRepositoryCount
             var fallbackVisitedRoots: Set<String> = []
             var fallbackForcedRoots: Set<String> = []
@@ -123,6 +119,8 @@ extension GitMetadataService {
             )
             forceWorkTreeRoots.insert(repository.workTreeRoot)
             forceWorkTreeRoots.formUnion(fallbackForcedRoots)
+            visitedRoots.formUnion(fallbackVisitedRoots)
+            remainingRepositoryCount = fallbackRemainingRepositoryCount
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 

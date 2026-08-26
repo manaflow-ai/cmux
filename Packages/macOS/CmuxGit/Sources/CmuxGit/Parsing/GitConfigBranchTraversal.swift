@@ -22,6 +22,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     struct WatchPathResult: Sendable {
         let paths: [String]
         let isComplete: Bool
+        let objectFormatSHA256: Bool?
     }
 
     /// Creates a traversal for one repository and resolved branch context.
@@ -57,11 +58,19 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     func watchPathResult() -> WatchPathResult {
         let result = traverse()
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
-        let rootWatchPaths = GitWorktreeConfigEnablementReader().rootConfigWatchURLs(
-            repository: repository,
-            deadline: deadline,
-            branchContext: branchContext
-        ).map { $0.standardizedFileURL.path }
+        let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
+            .appendingPathComponent("config.worktree")
+            .standardizedFileURL
+        var rootWatchPaths = result.configURLs
+            .prefix(2)
+            .map { $0.standardizedFileURL.path }
+        if result.isComplete, result.worktreeConfigEnabled {
+            if result.configURLs.contains(where: { $0.standardizedFileURL == worktreeConfigURL }) {
+                rootWatchPaths.append(worktreeConfigURL.path)
+            } else {
+                rootWatchPaths.append(worktreeConfigURL.deletingLastPathComponent().path)
+            }
+        }
         if !result.isComplete {
             // The caller promotes the repository root to a conservative,
             // throttled watcher when this bounded walk is incomplete.
@@ -78,7 +87,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 paths.filter { seen.insert($0).inserted }
                     .prefix(Self.maximumIncludedFileCount)
             ),
-            isComplete: result.isComplete
+            isComplete: result.isComplete,
+            objectFormatSHA256: result.isComplete ? result.objectFormatSHA256 : nil
         )
     }
 
@@ -96,6 +106,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         referenceStorageName: String?,
         referenceStoragePaths: [String],
         encounteredOversizedFile: Bool,
+        worktreeConfigEnabled: Bool,
+        objectFormatSHA256: Bool?,
         isComplete: Bool
     ) {
         var state = GitConfigTraversalState(budget: GitConfigTraversalBudget(
@@ -106,19 +118,29 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             maximumFileByteCount: maximumFileByteCount,
             deadline: deadline
         ))
-        for configURL in GitWorktreeConfigEnablementReader().rootConfigURLs(
-            repository: repository,
-            deadline: deadline,
-            branchContext: branchContext
-        ) {
+        let rootConfigURLs = [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
+        for configURL in rootConfigURLs {
             processConfig(at: configURL, state: &state)
         }
+        if state.worktreeConfigEnabled {
+            processConfig(
+                at: URL(fileURLWithPath: repository.gitDirectory)
+                    .appendingPathComponent("config.worktree"),
+                state: &state
+            )
+        }
+        let isComplete = !state.budget.didExhaustBudget
         return (
             state.configURLs,
             state.referenceStorageName,
             state.referenceStoragePaths,
             state.budget.didEncounterOversizedFile,
-            !state.budget.didExhaustBudget
+            state.worktreeConfigEnabled,
+            isComplete ? state.objectFormatSHA256 : nil,
+            isComplete
         )
     }
 
@@ -156,6 +178,17 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                     GitMetadataService.gitConfigUnquotedValue(parts[1]),
                     state: &state
                 )
+            }
+            if inExtensionsSection, !parts.isEmpty {
+                let key = parts[0].lowercased()
+                let value = parts.count == 1
+                    ? "true"
+                    : GitMetadataService.gitConfigUnquotedValue(parts[1]).lowercased()
+                if key == "worktreeconfig" {
+                    state.worktreeConfigEnabled = ["true", "yes", "on", "1", "t", "y"].contains(value)
+                } else if key == "objectformat", parts.count == 2 {
+                    state.objectFormatSHA256 = value == "sha256"
+                }
             }
             guard currentSectionAllowsIncludePath,
                   parts.count == 2,

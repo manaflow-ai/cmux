@@ -24,9 +24,9 @@ public protocol GitRepositoryDiscovering: Sendable {
     ) async -> GitRepositoryDiscoverySnapshot
 }
 
-public extension GitRepositoryDiscovering {
+extension GitRepositoryDiscovering {
     /// Default bridge for readers that have not implemented a combined pass.
-    func repositoryDiscoverySnapshot(
+    public func repositoryDiscoverySnapshot(
         forDirectory directory: String
     ) async -> GitRepositoryDiscoverySnapshot {
         async let repositorySlugs = repositorySlugs(forDirectory: directory)

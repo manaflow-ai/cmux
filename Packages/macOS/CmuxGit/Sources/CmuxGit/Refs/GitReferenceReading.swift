@@ -19,6 +19,13 @@ nonisolated protocol GitReferenceReading: Sendable {
         includeStorageWatchPaths: Bool
     ) -> GitReferenceSnapshot
 
+    /// Revalidates the checked-out reference after a concurrent index read.
+    /// File-backed implementations may use their bounded direct path.
+    func headSnapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?
+    ) -> GitReferenceSnapshot
+
     /// Reports whether resolving this repository requires storage-independent Git plumbing.
     func requiresGitPlumbing(repository: ResolvedGitRepository) -> Bool
 
@@ -41,6 +48,13 @@ extension GitReferenceReading {
         repository: ResolvedGitRepository,
         deadline: DispatchTime?,
         includeStorageWatchPaths _: Bool
+    ) -> GitReferenceSnapshot {
+        snapshot(repository: repository, deadline: deadline)
+    }
+
+    func headSnapshot(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime?
     ) -> GitReferenceSnapshot {
         snapshot(repository: repository, deadline: deadline)
     }

@@ -82,7 +82,8 @@ extension GitMetadataService {
     nonisolated func gitReferenceSnapshot(
         repository: ResolvedGitRepository,
         deadline: DispatchTime? = nil,
-        includeStorageWatchPaths: Bool = false
+        includeStorageWatchPaths: Bool = false,
+        revalidateFileBackedHead: Bool = false
     ) async -> GitReferenceSnapshot {
         guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
             return GitReferenceSnapshot(
@@ -116,11 +117,18 @@ extension GitMetadataService {
                                 currentCommit: nil
                             )
                         }
-                        referenceReader.snapshot(
-                            repository: repository,
-                            deadline: deadline,
-                            includeStorageWatchPaths: includeStorageWatchPaths
-                        )
+                        if revalidateFileBackedHead {
+                            referenceReader.headSnapshot(
+                                repository: repository,
+                                deadline: deadline
+                            )
+                        } else {
+                            referenceReader.snapshot(
+                                repository: repository,
+                                deadline: deadline,
+                                includeStorageWatchPaths: includeStorageWatchPaths
+                            )
+                        }
                     }
                     continuation.resume(returning: snapshot)
                 }

@@ -120,19 +120,17 @@ public struct GitMetadataService: Sendable {
         let initialReferences = await initialReferences
         var trackedChanges = await initialTrackedChanges
         // HEAD and index updates are separate filesystem operations. Reconcile
-        // plumbing-backed snapshots after the index scan; direct file-backed
-        // snapshots already have a bounded loose-ref signature and avoid a
-        // second hot-path read.
+        // the reference signature after the index scan for every backend; the
+        // files implementation uses a cheap bounded direct revalidation.
         let resolvedReferences: GitReferenceSnapshot
-        if initialReferences.usesGitPlumbing {
-            let latestReferences = await gitReferenceSnapshot(repository: repository)
-            if latestReferences.headSignature != initialReferences.headSignature {
-                trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
-            }
-            resolvedReferences = latestReferences
-        } else {
-            resolvedReferences = initialReferences
+        let latestReferences = await gitReferenceSnapshot(
+            repository: repository,
+            revalidateFileBackedHead: !initialReferences.usesGitPlumbing
+        )
+        if latestReferences.headSignature != initialReferences.headSignature {
+            trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
         }
+        resolvedReferences = latestReferences
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: resolvedReferences.branchName,
