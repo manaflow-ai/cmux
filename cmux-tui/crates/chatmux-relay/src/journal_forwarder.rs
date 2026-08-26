@@ -1800,6 +1800,7 @@ mod tests {
         url: String,
         cursor_path: PathBuf,
     ) -> (Shared, tokio::sync::mpsc::UnboundedReceiver<FlushWake>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let (flush_wake, cues) = tokio::sync::mpsc::unbounded_channel();
         let shared = Shared {
             events: ManagedEvents { url, token: String::from("test-token") },
