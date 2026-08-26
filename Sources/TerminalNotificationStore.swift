@@ -1973,7 +1973,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
         let liveTabId = AppDelegate.shared?
             .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
-        let ids: [UUID] = notifications.compactMap { notification in
+        let ids: [UUID] = notifications.compactMap { notification -> UUID? in
             guard notification.correlationKey == correlationKey,
                   notification.matchesClear(
                       tabId: tabId,
