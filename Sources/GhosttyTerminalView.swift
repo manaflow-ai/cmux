@@ -3714,6 +3714,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var commandClickReleaseRuntimeOutcome: TerminalCommandClickReleaseRouter.RuntimeOutcome?
     private var terminalPointerStyle = TerminalPointerStyleState()
     fileprivate var pointerStyleIngress: GhosttyPointerStyleIngress?
+    weak var pointerStyleHostedView: GhosttySurfaceScrollView?
     private var pointerStyleRuntimeLifetimeId: UUID?
     private var suppressGhosttyPointerUntilFreshShape = false
     private var rejectStaleGhosttyPointerShapes = false
@@ -5557,7 +5558,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if endsCurrentRuntime {
             suppressGhosttyPointerUntilFreshShape = false
             rejectStaleGhosttyPointerShapes = false
-            terminalSurface?.hostedView.setLinkHoverURL(nil)
+            pointerStyleHostedView?.setLinkHoverURL(nil)
         }
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
@@ -10082,6 +10083,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        surfaceView.pointerStyleHostedView = self
         wantsLayer = true
         layer?.masksToBounds = true
 
