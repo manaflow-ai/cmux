@@ -16,10 +16,12 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         "GIT_WORK_TREE",
         "GIT_REFERENCE_BACKEND",
         "GIT_CONFIG",
-        "GIT_CONFIG_GLOBAL",
-        "GIT_CONFIG_SYSTEM",
         "GIT_CONFIG_PARAMETERS",
         "GIT_CONFIG_COUNT",
+    ]
+    private static let isolationOnlyEnvironmentKeys: Set<String> = [
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
     ]
 
     private let executableURL: URL
@@ -41,14 +43,19 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         self.executableURL = candidates.first ?? URL(fileURLWithPath: "/usr/bin/git")
         self.fallbackExecutableURLs = Array(candidates.dropFirst().prefix(3))
         var scopedEnvironment = environment
+        // Never allow ambient repository-selection or command-injected config
+        // variables to redirect a command away from its explicit directory.
+        for key in Self.repositorySelectionEnvironmentKeys {
+            scopedEnvironment.removeValue(forKey: key)
+        }
+        let commandScopedKeys = scopedEnvironment.keys.filter {
+            $0.hasPrefix("GIT_CONFIG_KEY_") || $0.hasPrefix("GIT_CONFIG_VALUE_")
+        }
+        for key in commandScopedKeys {
+            scopedEnvironment.removeValue(forKey: key)
+        }
         if isolateRepositoryConfig {
-            for key in Self.repositorySelectionEnvironmentKeys {
-                scopedEnvironment.removeValue(forKey: key)
-            }
-            let commandScopedKeys = scopedEnvironment.keys.filter {
-                $0.hasPrefix("GIT_CONFIG_KEY_") || $0.hasPrefix("GIT_CONFIG_VALUE_")
-            }
-            for key in commandScopedKeys {
+            for key in Self.isolationOnlyEnvironmentKeys {
                 scopedEnvironment.removeValue(forKey: key)
             }
             // Reference plumbing must observe only the requested repository's
