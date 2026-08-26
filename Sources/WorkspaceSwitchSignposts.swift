@@ -15,7 +15,8 @@ struct WorkspaceSwitchSignposts {
         _ name: StaticString,
         _ message: @autoclosure () -> String
     ) -> DynamicTracingSignpostInterval? {
-        signposts.begin(name, message())
+        guard signposts.isEnabled else { return nil }
+        return signposts.begin(name, message())
     }
 
     @inline(__always)
