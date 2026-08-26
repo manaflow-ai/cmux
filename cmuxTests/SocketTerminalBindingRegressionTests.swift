@@ -106,6 +106,75 @@ struct SocketTerminalBindingRegressionTests {
         }
     }
 
+    @Test func liveReplacementArtifactScanUsesCanonicalWorkingDirectory() async throws {
+        try await withAppContext { workspace in
+            let originalPanel = try #require(
+                workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
+            )
+            let fileManager = FileManager.default
+            let root = fileManager.temporaryDirectory.appendingPathComponent(
+                "cmux-socket-artifact-cwd-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            let staleDirectory = root.appendingPathComponent("stale", isDirectory: true)
+            let canonicalDirectory = root.appendingPathComponent("canonical", isDirectory: true)
+            let relativePath = "relative/artifact-\(UUID().uuidString).txt"
+            let staleFile = staleDirectory.appendingPathComponent(relativePath)
+            let canonicalFile = canonicalDirectory.appendingPathComponent(relativePath)
+            defer { try? fileManager.removeItem(at: root) }
+
+            for file in [staleFile, canonicalFile] {
+                try fileManager.createDirectory(
+                    at: file.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try Data(file.path.utf8).write(to: file)
+            }
+
+            workspace.panelDirectories[originalPanel.id] = staleDirectory.path
+            originalPanel.updateDirectory(staleDirectory.path)
+            let replacement = TerminalSurface(
+                id: originalPanel.id,
+                tabId: workspace.id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: canonicalDirectory.path,
+                initialCommand: "/bin/cat"
+            )
+            defer {
+                replacement.teardownSurface()
+                GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
+            }
+
+            try await waitForLiveSurface(replacement)
+            let visiblePath = "./\(relativePath)"
+            let sendEnvelope = try socketEnvelope(
+                method: "surface.send_text",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": originalPanel.id.uuidString,
+                    "text": "opened \(visiblePath)\r",
+                ]
+            )
+            try #require(sendEnvelope["ok"] as? Bool == true, "\(sendEnvelope)")
+            try await waitForText(visiblePath, in: replacement)
+
+            let scanResult = await TerminalController.shared.v2MobileTerminalArtifactScan(params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": originalPanel.id.uuidString,
+                "visible_only": true,
+            ])
+            guard case .ok(let rawPayload) = scanResult else {
+                return Issue.record("Expected artifact scan success, got \(scanResult)")
+            }
+            let payload = try #require(rawPayload as? [String: Any])
+            let artifacts = try #require(payload["artifacts"] as? [[String: Any]])
+            let paths = Set(artifacts.compactMap { $0["path"] as? String })
+            #expect(paths.contains(canonicalFile.path))
+            #expect(!paths.contains(staleFile.path))
+        }
+    }
+
     @Test func liveReplacementRebindsLegacySocketInput() async throws {
         try await withAppContext { workspace in
             let originalPanel = try #require(

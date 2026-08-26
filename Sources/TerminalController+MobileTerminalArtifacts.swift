@@ -310,10 +310,21 @@ extension TerminalController {
             let resolvedSurfaceID = resolved.surfaceID
             let terminalTarget = resolved.target
             let terminalPanel = terminalTarget.panel
-            let workingDirectory = resolved.workspace.effectivePanelDirectory(
-                panelId: resolvedSurfaceID,
-                localFallback: mobileNonEmpty(terminalPanel.directory) ?? mobileNonEmpty(terminalPanel.requestedWorkingDirectory)
-            ) ?? resolved.workspace.currentDirectory
+            let workingDirectory: String?
+            if terminalTarget.bindingState == .registryRebound {
+                // Text and relative-path authority must come from the same
+                // runtime during a replacement overlap. Structural workspace
+                // metadata still belongs to the outgoing panel, so fail closed
+                // when the canonical surface has no directory of its own.
+                workingDirectory = mobileNonEmpty(terminalTarget.surface.reportedWorkingDirectory)
+                    ?? mobileNonEmpty(terminalTarget.surface.requestedWorkingDirectory)
+            } else {
+                workingDirectory = resolved.workspace.effectivePanelDirectory(
+                    panelId: resolvedSurfaceID,
+                    localFallback: mobileNonEmpty(terminalPanel.directory)
+                        ?? mobileNonEmpty(terminalPanel.requestedWorkingDirectory)
+                ) ?? resolved.workspace.currentDirectory
+            }
             let terminalText = includeTerminalText
                 ? readTerminalTextForSnapshot(
                     terminalTarget: terminalTarget,
