@@ -250,7 +250,7 @@ extension TerminalController {
             simulators = []
         }
         let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
-            var payload: [String: Any] = [
+            let payload: [String: Any] = [
                 "surface_id": surface.surfaceID,
                 "kind": surface.kind,
                 "title": surface.title,
