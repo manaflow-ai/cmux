@@ -3,14 +3,36 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 const workflowsModule = await import("../services/vms/workflows");
 const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realReconcileVmProviderStatuses = workflowsModule.reconcileVmProviderStatuses;
-const runVmWorkflow = mock(async () => ({
+const realSweepStuckProvisioningVms = workflowsModule.sweepStuckProvisioningVms;
+const realReconcileCreditReservations = workflowsModule.reconcileCreditReservations;
+
+const providerStatusResult = {
   checked: 2,
   updated: 1,
   destroyed: 0,
   skipped: 1,
   skippedNoGetStatus: false,
-}));
+};
+const stuckProvisioningResult = { swept: 1, supported: true };
+const creditReservationResult = {
+  checked: 1,
+  committed: 0,
+  refunded: 1,
+  refundFailed: 0,
+  abandoned: 0,
+  skipped: 0,
+  supported: true,
+};
+
+const runVmWorkflow = mock(async (program: unknown) => {
+  const workflow = (program as { workflow?: string }).workflow;
+  if (workflow === "stuck-provisioning") return stuckProvisioningResult;
+  if (workflow === "credit-reservations") return creditReservationResult;
+  return providerStatusResult;
+});
 const reconcileVmProviderStatuses = mock(() => ({ workflow: "vm-reconcile" }));
+const sweepStuckProvisioningVms = mock(() => ({ workflow: "stuck-provisioning" }));
+const reconcileCreditReservations = mock(() => ({ workflow: "credit-reservations" }));
 let useWorkflowStubs = false;
 
 function callMock(fn: unknown, args: unknown[]) {
@@ -23,6 +45,14 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs
       ? callMock(reconcileVmProviderStatuses, args)
       : realReconcileVmProviderStatuses(...args)) as typeof realReconcileVmProviderStatuses,
+  sweepStuckProvisioningVms: ((...args: Parameters<typeof realSweepStuckProvisioningVms>) =>
+    useWorkflowStubs
+      ? callMock(sweepStuckProvisioningVms, args)
+      : realSweepStuckProvisioningVms(...args)) as typeof realSweepStuckProvisioningVms,
+  reconcileCreditReservations: ((...args: Parameters<typeof realReconcileCreditReservations>) =>
+    useWorkflowStubs
+      ? callMock(reconcileCreditReservations, args)
+      : realReconcileCreditReservations(...args)) as typeof realReconcileCreditReservations,
   runVmWorkflow: ((...args: Parameters<typeof realRunVmWorkflow>) =>
     useWorkflowStubs
       ? callMock(runVmWorkflow, args)
@@ -38,6 +68,8 @@ beforeEach(() => {
   process.env.CRON_SECRET = "cron-secret";
   runVmWorkflow.mockClear();
   reconcileVmProviderStatuses.mockClear();
+  sweepStuckProvisioningVms.mockClear();
+  reconcileCreditReservations.mockClear();
 });
 
 afterEach(() => {
@@ -79,7 +111,7 @@ describe("VM reconcile cron route", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("runs the reconcile workflow for a valid cron bearer secret", async () => {
+  test("runs the reconcile, sweep, and credit workflows for a valid cron bearer secret", async () => {
     const response = await GET(new Request("https://cmux.test/api/cron/vm-reconcile", {
       headers: { authorization: "Bearer cron-secret" },
     }));
@@ -87,13 +119,22 @@ describe("VM reconcile cron route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
-      checked: 2,
-      updated: 1,
-      destroyed: 0,
-      skipped: 1,
-      skippedNoGetStatus: false,
+      ...providerStatusResult,
+      stuckProvisioning: stuckProvisioningResult,
+      creditReservations: creditReservationResult,
     });
     expect(reconcileVmProviderStatuses).toHaveBeenCalledWith();
+    expect(sweepStuckProvisioningVms).toHaveBeenCalledWith();
+    expect(reconcileCreditReservations).toHaveBeenCalledWith();
     expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "vm-reconcile" });
+    expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "stuck-provisioning" });
+    expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "credit-reservations" });
+  });
+
+  test("rejected requests never run the sweep or credit workflows", async () => {
+    const response = await GET(new Request("https://cmux.test/api/cron/vm-reconcile"));
+    expect(response.status).toBe(401);
+    expect(sweepStuckProvisioningVms).not.toHaveBeenCalled();
+    expect(reconcileCreditReservations).not.toHaveBeenCalled();
   });
 });

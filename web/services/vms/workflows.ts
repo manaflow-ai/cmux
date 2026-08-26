@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type {
   AttachEndpoint,
   AttachOptions,
@@ -27,7 +30,6 @@ import {
   VmSnapshotNotFoundError,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
-  vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
@@ -35,6 +37,7 @@ import { maxActiveVmsForPlan } from "./entitlements";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
+  STUCK_PROVISIONING_FAILURE_CODE,
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
@@ -42,12 +45,15 @@ import {
   type CloudVmBaseGenerationRow,
   type CloudVmBaseRow,
   type CloudVmAccessLeaseRow,
+  type CloudVmCreditReservationStatus,
   type CloudVmSessionRow,
   type CloudVmStatus,
   type CloudVmLeaseKind,
   type CloudVmRow,
+  type StaleCreditReservation,
   type VmRepositoryShape,
 } from "./repository";
+import { bestEffort, reportBestEffortFailure, type BestEffortContext } from "./bestEffort";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 
 export type VmEntry = {
@@ -78,6 +84,14 @@ const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
+// A provisioning row without a providerVmId older than this is a crashed
+// create: no live create waits 30 minutes on a provider call.
+const STUCK_PROVISIONING_TTL_MS = 30 * 60 * 1000;
+const STUCK_PROVISIONING_SWEEP_LIMIT = 100;
+// Reservations are only touched by the cron well after any live create
+// finished; the workflow itself resolves them within seconds.
+const CREDIT_RESERVATION_RECONCILE_TTL_MS = 15 * 60 * 1000;
+const CREDIT_RESERVATION_RECONCILE_LIMIT = 100;
 
 type ExistingVmAccessInput = {
   readonly userId: string;
@@ -95,14 +109,39 @@ export type VmProviderStatusReconcileResult = {
   readonly skippedNoGetStatus: boolean;
 };
 
+/** Result of running a VM workflow: success value, or the typed workflow error. */
+export type VmWorkflowResult<A> =
+  | { readonly ok: true; readonly value: A }
+  | { readonly ok: false; readonly error: VmWorkflowError };
+
+/**
+ * The single Effect-to-Promise boundary for VM workflows. Runs the program to
+ * an Exit and matches on its Cause: an expected failure comes back as the
+ * tagged `VmWorkflowError` in a discriminated union; a defect or interruption
+ * (a bug, not a modeled failure) is rethrown raw so the route boundary
+ * returns a 500 and captures it. No FiberFailure ever escapes, so callers
+ * never need to unwrap Effect runtime internals.
+ */
+export async function runVmWorkflowExit<A>(
+  program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
+): Promise<VmWorkflowResult<A>> {
+  const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(VmWorkflowLive)));
+  if (Exit.isSuccess(exit)) return { ok: true, value: exit.value };
+  const failure = Cause.failureOption(exit.cause);
+  if (Option.isSome(failure)) return { ok: false, error: failure.value };
+  throw Cause.squash(exit.cause);
+}
+
+/**
+ * Promise adapter over `runVmWorkflowExit` for route handlers: resolves with
+ * the success value, rejects with the tagged `VmWorkflowError` itself.
+ */
 export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
 ): Promise<A> {
-  try {
-    return await Effect.runPromise(program.pipe(Effect.provide(VmWorkflowLive)));
-  } catch (err) {
-    throw vmWorkflowErrorCause(err) ?? err;
-  }
+  const result = await runVmWorkflowExit(program);
+  if (result.ok) return result.value;
+  throw result.error;
 }
 
 export function listUserVms(userId: string, billingTeamId?: string | null) {
@@ -209,6 +248,223 @@ export function reconcileVmProviderStatuses(input: {
   });
 }
 
+export type VmStuckProvisioningSweepResult = {
+  readonly swept: number;
+  readonly supported: boolean;
+};
+
+/**
+ * Fails provisioning rows that never received a provider VM id within the TTL.
+ * A crash between the provisioning insert and markCreateRunning leaves a row
+ * that counts against the active-VM limit forever while being invisible to
+ * provider-status reconciliation (it has no providerVmId to poll). Each swept
+ * row is reported: the crash may also have leaked an unrecorded provider VM
+ * that only the provider console can confirm.
+ */
+export function sweepStuckProvisioningVms(input: {
+  readonly now?: Date;
+  readonly olderThanMs?: number;
+  readonly limit?: number;
+} = {}): Effect.Effect<VmStuckProvisioningSweepResult, VmWorkflowError, VmRepository> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const sweep = repo.sweepStuckProvisioning;
+    if (!sweep) return { swept: 0, supported: false };
+    const now = input.now ?? new Date();
+    const olderThan = new Date(now.getTime() - (input.olderThanMs ?? STUCK_PROVISIONING_TTL_MS));
+    const swept = yield* sweep({
+      olderThan,
+      limit: Math.max(1, Math.min(input.limit ?? STUCK_PROVISIONING_SWEEP_LIMIT, STUCK_PROVISIONING_SWEEP_LIMIT)),
+    });
+    for (const vm of swept) {
+      reportBestEffortFailure(
+        "stuck_provisioning_swept",
+        new Error("Cloud VM create crashed before provider provisioning was recorded"),
+        { vmId: vm.id, provider: vm.provider, ageMs: now.getTime() - vm.createdAt.getTime() },
+      );
+      yield* repo.recordUsageEvent({
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.create.failed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { operation: STUCK_PROVISIONING_FAILURE_CODE, source: "stuck_provisioning_sweeper" },
+      }).pipe(bestEffort("usage_event.vm.create.failed", { vmId: vm.id, provider: vm.provider }));
+    }
+    return { swept: swept.length, supported: true };
+  });
+}
+
+export type VmCreditReservationReconcileResult = {
+  readonly checked: number;
+  readonly committed: number;
+  readonly refunded: number;
+  readonly refundFailed: number;
+  readonly abandoned: number;
+  readonly skipped: number;
+  readonly supported: boolean;
+};
+
+/**
+ * Resolves credit reservations left behind by a crash. A reservation records
+ * the intent (pending) and the fact (debited) of a Stack create-credit debit;
+ * when the request dies between the debit and the provider outcome, this cron
+ * settles the money: a VM that runs commits the debit, a failed create gets
+ * the credit back, and an unknowable pre-debit crash is reported for manual
+ * review instead of guessed at. Refunds are claimed with an atomic status
+ * transition so the cron and a live request can never both refund one debit.
+ */
+export function reconcileCreditReservations(input: {
+  readonly now?: Date;
+  readonly olderThanMs?: number;
+  readonly limit?: number;
+} = {}): Effect.Effect<VmCreditReservationReconcileResult, VmWorkflowError, VmRepository | VmBillingGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const billing = yield* VmBillingGateway;
+    const stale = repo.staleCreditReservations;
+    const transition = repo.transitionCreditReservation;
+    if (!stale || !transition) {
+      return { checked: 0, committed: 0, refunded: 0, refundFailed: 0, abandoned: 0, skipped: 0, supported: false };
+    }
+    const now = input.now ?? new Date();
+    const olderThan = new Date(now.getTime() - (input.olderThanMs ?? CREDIT_RESERVATION_RECONCILE_TTL_MS));
+    const rows = yield* stale({
+      olderThan,
+      limit: Math.max(1, Math.min(input.limit ?? CREDIT_RESERVATION_RECONCILE_LIMIT, CREDIT_RESERVATION_RECONCILE_LIMIT)),
+    });
+
+    let committed = 0;
+    let refunded = 0;
+    let refundFailed = 0;
+    let abandoned = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      const outcome = yield* reconcileOneCreditReservation(repo, billing, transition, row);
+      if (outcome === "committed") committed += 1;
+      else if (outcome === "refunded") refunded += 1;
+      else if (outcome === "refund_failed") refundFailed += 1;
+      else if (outcome === "abandoned") abandoned += 1;
+      else skipped += 1;
+    }
+    return { checked: rows.length, committed, refunded, refundFailed, abandoned, skipped, supported: true };
+  });
+}
+
+type CreditReservationReconcileOutcome =
+  | "committed"
+  | "refunded"
+  | "refund_failed"
+  | "abandoned"
+  | "skipped";
+
+function reconcileOneCreditReservation(
+  repo: VmRepositoryShape,
+  billing: VmBillingGatewayShape,
+  transition: NonNullable<VmRepositoryShape["transitionCreditReservation"]>,
+  row: StaleCreditReservation,
+): Effect.Effect<CreditReservationReconcileOutcome, never> {
+  return Effect.gen(function* () {
+    const { reservation, vm } = row;
+    const context = {
+      reservationId: reservation.id,
+      vmId: reservation.vmId,
+      itemId: reservation.itemId,
+      amount: reservation.amount,
+      reservationStatus: reservation.status,
+    };
+    const tryTransition = (
+      from: readonly CloudVmCreditReservationStatus[],
+      to: CloudVmCreditReservationStatus,
+    ) =>
+      transition({ id: reservation.id, from, to }).pipe(
+        Effect.catchAll((err) => {
+          reportBestEffortFailure("credit_reservation_reconcile_transition", err, context);
+          return Effect.succeed(false);
+        }),
+      );
+
+    if (!vm) {
+      // The VM row vanished; the debit outcome cannot be tied to anything.
+      yield* tryTransition([reservation.status], "abandoned");
+      reportBestEffortFailure(
+        "credit_reservation_vm_missing",
+        new Error("credit reservation has no VM row; manual review required"),
+        context,
+      );
+      return "abandoned" as const;
+    }
+    if (vm.status === "running" || vm.status === "paused") {
+      // The create ultimately succeeded (the commit write was lost); the
+      // debit is legitimately spent.
+      const did = yield* tryTransition(["pending", "debited"], "committed");
+      return did ? ("committed" as const) : ("skipped" as const);
+    }
+    if (vm.status === "provisioning") {
+      // Still in flight or waiting for the stuck-provisioning sweeper to
+      // declare it dead; never refund a create that may still succeed.
+      return "skipped" as const;
+    }
+
+    // vm.status is failed or destroyed: the create did not produce a usable VM.
+    if (reservation.status === "pending" || reservation.status === "refunding") {
+      // pending: the crash happened around the debit RPC, so whether money
+      // moved is unknowable (Stack debits are not idempotent or queryable
+      // per-request). refunding: a refund was in flight with an unknown
+      // outcome. Refunding either could hand out a free credit; report for
+      // manual review instead.
+      const did = yield* tryTransition([reservation.status], "abandoned");
+      if (did) {
+        reportBestEffortFailure(
+          "credit_reservation_uncertain",
+          new Error(`credit reservation outcome uncertain (was ${reservation.status}); manual review required`),
+          context,
+        );
+      }
+      return did ? ("abandoned" as const) : ("skipped" as const);
+    }
+
+    // debited or refund_failed: the debit definitely happened and no usable VM
+    // exists. Claim it, then refund.
+    const claimed = yield* tryTransition([reservation.status], "refunding");
+    if (!claimed) return "skipped" as const;
+    const refundOutcome = yield* billing.refundCreate({
+      kind: "stack_item",
+      itemId: reservation.itemId,
+      customerType: reservation.billingCustomerType === "team" ? "team" : "user",
+      customerId: reservation.billingCustomerId,
+      amount: reservation.amount,
+    }).pipe(
+      Effect.as("refunded" as const),
+      Effect.catchAll((err) => {
+        reportBestEffortFailure("billing.refund_create", err, context);
+        return Effect.succeed("refund_failed" as const);
+      }),
+    );
+    yield* tryTransition(["refunding"], refundOutcome);
+    if (refundOutcome === "refunded") {
+      yield* repo.recordUsageEvent({
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.create.credit.refunded",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: {
+          itemId: reservation.itemId,
+          amount: reservation.amount,
+          customerType: reservation.billingCustomerType,
+          source: "credit_reservation_reconcile",
+        },
+      }).pipe(bestEffort("usage_event.vm.create.credit.refunded", context));
+    }
+    return refundOutcome;
+  });
+}
+
 /** Stable per-user home volume name; the volume, not the sandbox, is the durable machine. */
 export function homeVolumeNameForUser(userId: string): string {
   const digest = createHash("sha256").update(userId).digest("hex").slice(0, 12);
@@ -276,78 +532,48 @@ export function createVm(input: {
       return vmEntryFromRow(existing);
     }
 
-    const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
-    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
+    const credit = yield* reserveCreateCredit(billing, repo, input, create.vm);
+    yield* recordCreateRequestedEvents(repo, input, create.vm, credit.reservation);
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-        homeVolume: input.perMachineHome
-          ? homeVolumeTemplateForUser(input.userId)
-          : input.persistentHome
-            ? homeVolumeNameForUser(input.userId)
-            : undefined,
-        memoryMb: input.memoryMb,
-      }),
-    ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markCreateFailed({
-            id: create.vm.id,
-            code: err.operation,
-            message: errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
-            userId: input.userId,
-            billingTeamId: input.billingTeamId,
-            billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.create.failed",
-            provider: input.provider,
-            imageId: input.image,
-            metadata: { operation: err.operation, message: errorMessage(err.cause) },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
-
-    const running = yield* measureVmEffect(
-      input.timing,
-      "mark_running",
-      repo.markCreateRunning({
-        id: create.vm.id,
-        providerVmId: handle.providerVmId,
-        image: handle.image,
-        imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
-      }),
-    ).pipe(
-      Effect.catchAll((err) =>
-        Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
-          yield* refundCredit(billing, repo, create.vm, creditReservation);
-          yield* repo.markCreateFailed({
-            id: create.vm.id,
-            code: "database_finalize_failed",
-            message: "Cloud VM state update failed.",
-          }).pipe(Effect.catchAll(() => Effect.void));
-          yield* recordCreateFailureEvent(
-            repo,
-            input,
-            create.vm,
-            "database_finalize_failed",
-            errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
-          return yield* Effect.fail(err);
+    const running = yield* compensated({
+      createHandle: measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+          homeVolume: input.perMachineHome
+            ? homeVolumeTemplateForUser(input.userId)
+            : input.persistentHome
+              ? homeVolumeNameForUser(input.userId)
+              : undefined,
+          memoryMb: input.memoryMb,
         }),
       ),
-    );
+      finalize: (handle) =>
+        measureVmEffect(
+          input.timing,
+          "mark_running",
+          repo.markCreateRunning({
+            id: create.vm.id,
+            providerVmId: handle.providerVmId,
+            image: handle.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+          }),
+        ),
+      destroyOrphan: (handle) => providers.destroy(input.provider, handle.providerVmId),
+      refund: refundCredit(billing, repo, create.vm, credit),
+      markFailed: (failure) =>
+        repo.markCreateFailed({ id: create.vm.id, code: failure.code, message: failure.message }),
+      createFailureEvent: (failure) =>
+        recordCreateFailureEvent(repo, input, create.vm, failure.code, failure.message),
+      finalizeFailureMessage: "Cloud VM state update failed.",
+      context: { vmId: create.vm.id, provider: input.provider },
+    });
 
+    yield* commitCreditReservation(repo, credit, { vmId: running.id, provider: input.provider });
     yield* recordCreateSuccessEvents(repo, input, running);
 
     return vmEntryFromRow(running);
@@ -458,93 +684,81 @@ function finishBaseCreate(
     }
 
     const idempotencyKey = create.vm.idempotencyKey ?? undefined;
-    const creditReservation = yield* reserveCreateCredit(billing, repo, {
+    const credit = yield* reserveCreateCredit(billing, repo, {
       ...input,
       idempotencyKey,
     }, create.vm);
     yield* recordCreateRequestedEvents(repo, {
       ...input,
       idempotencyKey,
-    }, create.vm, creditReservation);
+    }, create.vm, credit.reservation);
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-      }),
-    ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markBaseCreateFailed({
+    const running = yield* compensated({
+      createHandle: measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        }),
+      ),
+      finalize: (handle) =>
+        measureVmEffect(
+          input.timing,
+          "mark_base_running",
+          repo.markBaseCreateRunning({
             baseId: create.base.id,
             generation: create.generation.generation,
             vmId: create.vm.id,
+            providerVmId: handle.providerVmId,
+            image: handle.image,
+            imageVersion: input.imageVersion ?? null,
+            providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
             userId: input.userId,
-            code: err.operation,
-            message: errorMessage(err.cause),
           }),
-          repo.recordUsageEvent({
+        ),
+      destroyOrphan: (handle) => providers.destroy(input.provider, handle.providerVmId),
+      refund: refundCredit(billing, repo, create.vm, credit),
+      markFailed: (failure) =>
+        repo.markBaseCreateFailed({
+          baseId: create.base.id,
+          generation: create.generation.generation,
+          vmId: create.vm.id,
+          userId: input.userId,
+          code: failure.code,
+          message: failure.message,
+        }),
+      createFailureEvent: (failure) =>
+        repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId,
+          billingPlanId: input.billingPlanId,
+          vmId: create.vm.id,
+          eventType: "vm.base.create.failed",
+          provider: input.provider,
+          imageId: input.image,
+          metadata: { operation: failure.code, message: failure.message, baseName: input.baseName ?? "base" },
+        }),
+      finalizeFailureEvent: (failure) =>
+        recordCreateFailureEvent(
+          repo,
+          {
             userId: input.userId,
             billingTeamId: input.billingTeamId,
             billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.base.create.failed",
             provider: input.provider,
-            imageId: input.image,
-            metadata: { operation: err.operation, message: errorMessage(err.cause), baseName: input.baseName ?? "base" },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
+            image: input.image,
+          },
+          create.vm,
+          failure.code,
+          failure.message,
+        ),
+      finalizeFailureMessage: "Cloud VM Base state update failed.",
+      context: { vmId: create.vm.id, provider: input.provider },
+    });
 
-    const running = yield* measureVmEffect(
-      input.timing,
-      "mark_base_running",
-      repo.markBaseCreateRunning({
-        baseId: create.base.id,
-        generation: create.generation.generation,
-        vmId: create.vm.id,
-        providerVmId: handle.providerVmId,
-        image: handle.image,
-        imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
-        userId: input.userId,
-      }),
-    ).pipe(
-      Effect.catchAll((err) =>
-        Effect.gen(function* () {
-          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
-          yield* refundCredit(billing, repo, create.vm, creditReservation);
-          yield* repo.markBaseCreateFailed({
-            baseId: create.base.id,
-            generation: create.generation.generation,
-            vmId: create.vm.id,
-            userId: input.userId,
-            code: "database_finalize_failed",
-            message: "Cloud VM Base state update failed.",
-          }).pipe(Effect.catchAll(() => Effect.void));
-          yield* recordCreateFailureEvent(
-            repo,
-            {
-              userId: input.userId,
-              billingTeamId: input.billingTeamId,
-              billingPlanId: input.billingPlanId,
-              provider: input.provider,
-              image: input.image,
-            },
-            create.vm,
-            "database_finalize_failed",
-            errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
-          return yield* Effect.fail(err);
-        }),
-      ),
-    );
-
+    yield* commitCreditReservation(repo, credit, { vmId: running.id, provider: input.provider });
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey }, running);
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -559,7 +773,7 @@ function finishBaseCreate(
         generation: create.generation.generation,
         retainedProviderVmId: create.previousVm?.providerVmId ?? null,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.base.lifecycle", { vmId: running.id, provider: input.provider }));
 
     return baseVmEntryFromRows(
       create.base,
@@ -606,7 +820,7 @@ function reopenBaseIfProviderDeleted(
               baseName: input.baseName ?? "base",
               generation: create.generation.generation,
             },
-          }).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(bestEffort("usage_event.vm.destroyed", { vmId: existing.id, provider: existing.provider }));
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
@@ -739,7 +953,7 @@ export function forkVm(input: {
         return { snapshot: null, fork: vmEntryFromRow(existing) };
       }
 
-      const creditReservation = yield* reserveCreateCredit(billing, repo, {
+      const credit = yield* reserveCreateCredit(billing, repo, {
         userId: input.userId,
         billingCustomerType: input.billingCustomerType,
         billingTeamId: input.billingTeamId,
@@ -759,73 +973,60 @@ export function forkVm(input: {
         imageVersion: source.imageVersion,
         idempotencyKey: input.idempotencyKey,
         timing: input.timing,
-      }, create.vm, creditReservation);
+      }, create.vm, credit.reservation);
 
-      const handle = yield* measureVmEffect(
-        input.timing,
-        "provider_create",
-        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
-      ).pipe(
-        Effect.tapError((err) =>
-          Effect.all([
-            refundCredit(billing, repo, create.vm, creditReservation),
-            repo.markCreateFailed({
+      const running = yield* compensated({
+        createHandle: measureVmEffect(
+          input.timing,
+          "provider_create",
+          providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
+        ),
+        finalize: (handle) =>
+          measureVmEffect(
+            input.timing,
+            "mark_running",
+            repo.markCreateRunning({
               id: create.vm.id,
-              code: err.operation,
-              message: errorMessage(err.cause),
+              providerVmId: handle.providerVmId,
+              image: source.imageId,
+              imageVersion: source.imageVersion,
+              providerMetadata: handle.providerMetadata ?? source.providerMetadata,
             }),
-            repo.recordUsageEvent({
+          ),
+        destroyOrphan: (handle) => providers.destroy(source.provider, handle.providerVmId),
+        refund: refundCredit(billing, repo, create.vm, credit),
+        markFailed: (failure) =>
+          repo.markCreateFailed({ id: create.vm.id, code: failure.code, message: failure.message }),
+        createFailureEvent: (failure) =>
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.create.failed",
+            provider: source.provider,
+            imageId: source.imageId,
+            metadata: { operation: failure.code, message: failure.message, sourceProviderVmId: source.providerVmId },
+          }),
+        finalizeFailureEvent: (failure) =>
+          recordCreateFailureEvent(
+            repo,
+            {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,
-              vmId: create.vm.id,
-              eventType: "vm.create.failed",
               provider: source.provider,
-              imageId: source.imageId,
-              metadata: { operation: err.operation, message: errorMessage(err.cause), sourceProviderVmId: source.providerVmId },
-            }),
-          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-        ),
-      );
+              image: source.imageId,
+            },
+            create.vm,
+            failure.code,
+            failure.message,
+          ),
+        finalizeFailureMessage: "Cloud VM fork state update failed.",
+        context: { vmId: create.vm.id, provider: source.provider },
+      });
 
-      const running = yield* measureVmEffect(
-        input.timing,
-        "mark_running",
-        repo.markCreateRunning({
-          id: create.vm.id,
-          providerVmId: handle.providerVmId,
-          image: source.imageId,
-          imageVersion: source.imageVersion,
-          providerMetadata: handle.providerMetadata ?? source.providerMetadata,
-        }),
-      ).pipe(
-        Effect.catchAll((err) =>
-          Effect.gen(function* () {
-            yield* providers.destroy(source.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
-            yield* refundCredit(billing, repo, create.vm, creditReservation);
-            yield* repo.markCreateFailed({
-              id: create.vm.id,
-              code: "database_finalize_failed",
-              message: "Cloud VM fork state update failed.",
-            }).pipe(Effect.catchAll(() => Effect.void));
-            yield* recordCreateFailureEvent(
-              repo,
-              {
-                userId: input.userId,
-                billingTeamId: input.billingTeamId,
-                billingPlanId: input.billingPlanId,
-                provider: source.provider,
-                image: source.imageId,
-              },
-              create.vm,
-              "database_finalize_failed",
-              errorMessage(err.cause),
-            ).pipe(Effect.catchAll(() => Effect.void));
-            return yield* Effect.fail(err);
-          }),
-        ),
-      );
-
+      yield* commitCreditReservation(repo, credit, { vmId: running.id, provider: source.provider });
       yield* recordCreateSuccessEvents(repo, input, running);
       const fork = vmEntryFromRow(running);
       yield* repo.recordUsageEvent({
@@ -842,7 +1043,7 @@ export function forkVm(input: {
           forkProviderVmId: fork.providerVmId,
           idempotencyKeySet: !!input.idempotencyKey,
         },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(bestEffort("usage_event.vm.forked", { vmId: source.id, provider: source.provider }));
       return { snapshot: null, fork };
     }
 
@@ -878,7 +1079,7 @@ export function forkVm(input: {
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.forked", { vmId: source.id, provider: source.provider }));
     return { snapshot, fork };
   });
 }
@@ -900,7 +1101,7 @@ function beginCreateWithLazyProviderRefresh(
           input.timing,
           "limit_reconcile",
           refreshActiveLimitProviderStatuses(repo, providers, input),
-        ).pipe(Effect.catchAll(() => Effect.void));
+        ).pipe(bestEffort("active_limit_provider_refresh", { userId: input.userId, billingTeamId: input.billingTeamId }));
         return yield* measureVmEffect(input.timing, "begin_create", repo.beginCreate(input));
       });
     }),
@@ -988,7 +1189,7 @@ function reconcileObservedProviderStatus(
         provider: vm.provider,
         imageId: vm.imageId,
         metadata: { source: usageEventSource },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(bestEffort("usage_event.vm.destroyed", { vmId: vm.id, provider: vm.provider }));
       return "destroyed" as const;
     }
     return "updated" as const;
@@ -1044,7 +1245,9 @@ function bestEffortPause(
 ): Effect.Effect<void, never> {
   const pause = providers.pause;
   if (!pause) return Effect.void;
-  return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+  return pause(vm.provider, providerVmId).pipe(
+    bestEffort("provider_pause_rollback", { vmId: vm.id, provider: vm.provider }),
+  );
 }
 
 function resumeUntilRunning(
@@ -1113,7 +1316,7 @@ function rollbackPausedResumeReservation(
     id: vm.id,
     providerVmId,
     status: "paused",
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(bestEffort("resume_reservation_rollback", { vmId: vm.id, provider: vm.provider }));
 }
 
 function recordResumeUsageEvent(
@@ -1130,7 +1333,7 @@ function recordResumeUsageEvent(
     provider: vm.provider,
     imageId: vm.imageId,
     metadata: { source: resumeSource },
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(bestEffort("usage_event.vm.resumed", { vmId: vm.id, provider: vm.provider }));
 }
 
 // Active-limit note: the control-plane-owned paused-row resume path is
@@ -1298,7 +1501,9 @@ function recordRunningTransition<E extends VmWorkflowError>(
   const rollbackPause = (): Effect.Effect<void, never> => {
     const pause = providers.pause;
     if (!pause) return Effect.void;
-    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+    return pause(vm.provider, providerVmId).pipe(
+      bestEffort("provider_pause_rollback", { vmId: vm.id, provider: vm.provider }),
+    );
   };
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
@@ -1347,7 +1552,7 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.destroyed", { vmId: vm.id, provider: vm.provider }));
   });
 }
 
@@ -1374,7 +1579,7 @@ export function revokeExpiredIdentityLeases(input: {
         id: lease.id,
         retryAfter,
         error: "revoke pending",
-      }) ?? Effect.void).pipe(Effect.catchAll(() => Effect.void));
+      }) ?? Effect.void).pipe(bestEffort("lease_revocation_retry_mark", { provider: lease.provider }));
       const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
         Effect.as(true),
         Effect.catchAll((err) => {
@@ -1417,7 +1622,7 @@ export function revokeUserIdentityLeasesForAccountDeletion(
           Effect.catchAll((err) => {
             if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
             return repo.markLeasesRevoked(revokedIds).pipe(
-              Effect.catchAll(() => Effect.void),
+              bestEffort("account_deletion.mark_leases_revoked", { userId }),
               Effect.andThen(Effect.fail(new VmAccountDeletionIdentityRevocationError({ cause: err }))),
             );
           }),
@@ -1484,7 +1689,7 @@ export function execVm(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.exec", { vmId: vm.id, provider: vm.provider }));
     return result satisfies ExecResult;
   });
 }
@@ -1554,7 +1759,9 @@ export function openVmPort(input: {
     }).pipe(
       Effect.catchAll((err) => {
         const cleanup = providers.revokeEndpointLeases
-          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(
+            bestEffort("endpoint_lease_rollback", { vmId: vm.id, provider: vm.provider }),
+          )
           : Effect.void;
         return cleanup.pipe(Effect.andThen(Effect.fail(err)));
       }),
@@ -1568,7 +1775,7 @@ export function openVmPort(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { port: input.port },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.open_port", { vmId: vm.id, provider: vm.provider }));
     return endpoint;
   });
 }
@@ -1721,7 +1928,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.attach", { vmId: vm.id, provider: vm.provider }));
     const session = endpoint.transport === "websocket"
       ? yield* repo.upsertVmSession({
         vmId: vm.id,
@@ -1777,7 +1984,7 @@ export function openSshEndpoint(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.ssh_endpoint", { vmId: vm.id, provider: vm.provider }));
     return endpoint;
   });
 }
@@ -1931,6 +2138,16 @@ function recordCreditEvent(
   });
 }
 
+/**
+ * A create-credit reservation together with the durable ledger row that
+ * tracks it. `reservationId` is null when nothing was (or will be) debited,
+ * or when the repository does not support the reservation ledger.
+ */
+type CreateCreditReservationRecord = {
+  readonly reservation: VmCreateCreditReservation;
+  readonly reservationId: string | null;
+};
+
 function reserveCreateCredit(
   billing: VmBillingGatewayShape,
   repo: VmRepositoryShape,
@@ -1946,7 +2163,34 @@ function reserveCreateCredit(
     readonly timing?: VmTimingSink;
   },
   vm: CloudVmRow,
-) {
+): Effect.Effect<CreateCreditReservationRecord, VmWorkflowError> {
+  const recordBillingFailure = (err: unknown) =>
+    Effect.all([
+      bestEffort("mark_create_failed", { vmId: vm.id, provider: input.provider })(repo.markCreateFailed({
+        id: vm.id,
+        code: isVmCreateCreditsInsufficientError(err)
+          ? "billing_credits_insufficient"
+          : "billing_reserve_failed",
+        message: errorMessage(err),
+      })),
+      bestEffort("usage_event.vm.create.billing_failed", { vmId: vm.id, provider: input.provider })(repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.create.billing_failed",
+        provider: input.provider,
+        imageId: input.image,
+        metadata: {
+          idempotencyKeySet: !!input.idempotencyKey,
+          imageVersion: input.imageVersion ?? null,
+          errorTag: typeof err === "object" && err !== null && "_tag" in err
+            ? String((err as { _tag?: unknown })._tag)
+            : null,
+        },
+      })),
+    ], { discard: true });
+
   return measureVmEffect(
     input.timing,
     "billing",
@@ -1966,8 +2210,16 @@ function reserveCreateCredit(
               imageVersion: input.imageVersion ?? null,
               message: errorMessage(err),
             },
-          }).pipe(Effect.catchAll(() => Effect.void))
+          }).pipe(bestEffort("usage_event.vm.create.credit.grant_failed", { vmId: vm.id, provider: input.provider }))
         ),
+      );
+
+      // Write the intent-to-debit BEFORE the debit RPC. A crash after the
+      // Stack debit but before any later write leaves this row pending or
+      // debited, which the reservation reconcile cron can resolve; without
+      // it the credit is silently burned.
+      const reservationId = yield* recordPlannedCreditReservation(billing, repo, input, vm).pipe(
+        Effect.tapError(recordBillingFailure),
       );
 
       const creditReservation = yield* billing.reserveCreate({
@@ -1983,34 +2235,109 @@ function reserveCreateCredit(
       }).pipe(
         Effect.tapError((err) =>
           Effect.all([
-            repo.markCreateFailed({
-              id: vm.id,
-              code: isVmCreateCreditsInsufficientError(err)
-                ? "billing_credits_insufficient"
-                : "billing_reserve_failed",
-              message: errorMessage(err),
-            }),
-            repo.recordUsageEvent({
-              userId: input.userId,
-              billingTeamId: input.billingTeamId,
-              billingPlanId: input.billingPlanId,
-              vmId: vm.id,
-              eventType: "vm.create.billing_failed",
-              provider: input.provider,
-              imageId: input.image,
-              metadata: {
-                idempotencyKeySet: !!input.idempotencyKey,
-                imageVersion: input.imageVersion ?? null,
-                errorTag: typeof err === "object" && err !== null && "_tag" in err
-                  ? String((err as { _tag?: unknown })._tag)
-                  : null,
-              },
-            }),
-          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+            // Insufficient credits is the one failure where we KNOW no money
+            // moved (tryDecreaseQuantity returned false), so the planned
+            // reservation can be released. Any other billing error leaves it
+            // pending: the debit outcome is unknown and the reconcile cron
+            // reports it instead of guessing.
+            isVmCreateCreditsInsufficientError(err)
+              ? transitionCreditReservationBestEffort(repo, reservationId, ["pending"], "aborted", {
+                vmId: vm.id,
+                provider: input.provider,
+              })
+              : Effect.void,
+            recordBillingFailure(err),
+          ], { discard: true })
         ),
       );
-      return creditReservation;
+
+      if (creditReservation.kind === "stack_item") {
+        yield* transitionCreditReservationBestEffort(repo, reservationId, ["pending"], "debited", {
+          vmId: vm.id,
+          provider: input.provider,
+        });
+      } else {
+        // The resolver planned a debit but the debit path resolved to none
+        // (env changed mid-request); release the planned row.
+        yield* transitionCreditReservationBestEffort(repo, reservationId, ["pending"], "aborted", {
+          vmId: vm.id,
+          provider: input.provider,
+        });
+      }
+      return {
+        reservation: creditReservation,
+        reservationId: creditReservation.kind === "stack_item" ? reservationId : null,
+      };
     }),
+  );
+}
+
+function recordPlannedCreditReservation(
+  billing: VmBillingGatewayShape,
+  repo: VmRepositoryShape,
+  input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+  },
+  vm: CloudVmRow,
+): Effect.Effect<string | null, VmWorkflowError> {
+  const insert = repo.insertCreditReservation;
+  const resolve = billing.resolveCreateCredit;
+  if (!insert || !resolve) return Effect.succeed(null);
+  return Effect.gen(function* () {
+    const plan = yield* Effect.try({
+      try: () => resolve({
+        userId: input.userId,
+        billingCustomerType: input.billingCustomerType,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: input.provider,
+      }),
+      catch: (cause) => new VmBillingError({ operation: "resolveCreateCredit", cause }),
+    });
+    if (plan.kind !== "stack_item") return null;
+    const inserted = yield* insert({
+      vmId: vm.id,
+      billingCustomerType: plan.customerType,
+      billingCustomerId: plan.customerId,
+      itemId: plan.itemId,
+      amount: plan.amount,
+    });
+    return inserted.id;
+  });
+}
+
+function transitionCreditReservationBestEffort(
+  repo: VmRepositoryShape,
+  reservationId: string | null,
+  from: readonly CloudVmCreditReservationStatus[],
+  to: CloudVmCreditReservationStatus,
+  context: BestEffortContext,
+): Effect.Effect<void, never> {
+  const transition = repo.transitionCreditReservation;
+  if (!reservationId || !transition) return Effect.void;
+  return transition({ id: reservationId, from, to }).pipe(
+    Effect.asVoid,
+    bestEffort(`credit_reservation_${to}`, context),
+  );
+}
+
+/** Marks the reservation as spent once the VM create durably succeeded. A lost
+ * write self-heals: the reconcile cron commits reservations whose VM runs. */
+function commitCreditReservation(
+  repo: VmRepositoryShape,
+  credit: CreateCreditReservationRecord,
+  context: BestEffortContext,
+): Effect.Effect<void, never> {
+  return transitionCreditReservationBestEffort(
+    repo,
+    credit.reservationId,
+    ["pending", "debited"],
+    "committed",
+    context,
   );
 }
 
@@ -2049,7 +2376,7 @@ function recordCreateRequestedEvents(
           imageVersion: input.imageVersion ?? null,
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ]).pipe(bestEffort("usage_event.vm.create.requested", { vmId: requestedVm.id, provider: input.provider })),
   );
 }
 
@@ -2078,7 +2405,7 @@ function recordCreateSuccessEvents(
           imageVersion: running.imageVersion,
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ]).pipe(bestEffort("usage_event.vm.created", { vmId: running.id, provider: running.provider })),
   );
 }
 
@@ -2160,12 +2487,16 @@ function seedInitialCreateCredits(
 
     yield* billing.applyCreateCreditGrant(grant).pipe(
       Effect.tapError(() =>
-        repo.deleteBillingGrant(claim.grantId).pipe(Effect.catchAll(() => Effect.void))
+        repo.deleteBillingGrant(claim.grantId).pipe(
+          bestEffort("billing_grant_rollback", { vmId: vm.id, provider: input.provider }),
+        )
       ),
     );
-    yield* repo.markBillingGrantApplied(claim.grantId).pipe(Effect.catchAll(() => Effect.void));
+    yield* repo.markBillingGrantApplied(claim.grantId).pipe(
+      bestEffort("billing_grant_mark_applied", { vmId: vm.id, provider: input.provider }),
+    );
     yield* recordGrantEvent(repo, vm, "vm.create.credit.granted", grant)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(bestEffort("usage_event.vm.create.credit.granted", { vmId: vm.id, provider: vm.provider }));
   });
 }
 
@@ -2194,15 +2525,128 @@ function recordGrantEvent(
   });
 }
 
+type CreateCompensationFailure = {
+  readonly code: string;
+  readonly message: string;
+};
+
+type CompensatedCreateInput<H> = {
+  /** Provider-side create (or fork) that allocates the paid VM. */
+  readonly createHandle: Effect.Effect<H, VmProviderOperationError>;
+  /** Durable finalize write; failing it orphans the provider VM. */
+  readonly finalize: (handle: H) => Effect.Effect<CloudVmRow, VmDatabaseError>;
+  /** Destroys the provider VM that finalize failed to record. */
+  readonly destroyOrphan: (handle: H) => Effect.Effect<void, VmProviderOperationError>;
+  /** Refund of the reserved create credit (already best-effort). */
+  readonly refund: Effect.Effect<void, never>;
+  readonly markFailed: (
+    failure: CreateCompensationFailure,
+  ) => Effect.Effect<unknown, VmWorkflowError>;
+  readonly createFailureEvent: (
+    failure: CreateCompensationFailure,
+  ) => Effect.Effect<unknown, VmWorkflowError>;
+  /** Base records a different event type per stage; defaults to createFailureEvent. */
+  readonly finalizeFailureEvent?: (
+    failure: CreateCompensationFailure,
+  ) => Effect.Effect<unknown, VmWorkflowError>;
+  /** Durable failure message when the finalize write fails (user-facing). */
+  readonly finalizeFailureMessage: string;
+  readonly context: BestEffortContext;
+};
+
+/**
+ * The shared create-fail-refund-markFailed-usage-event compensation used by
+ * createVm, finishBaseCreate, and forkVm. Every compensation step is
+ * best-effort (reported, never masking the original failure) and the
+ * original error always propagates to the caller.
+ */
+function compensated<H>(
+  input: CompensatedCreateInput<H>,
+): Effect.Effect<CloudVmRow, VmProviderOperationError | VmDatabaseError> {
+  const compensate = (
+    markFailure: CreateCompensationFailure,
+    eventFailure: CreateCompensationFailure,
+    eventFor: (failure: CreateCompensationFailure) => Effect.Effect<unknown, VmWorkflowError>,
+    orphanedHandle?: H,
+  ): Effect.Effect<void, never> =>
+    Effect.gen(function* () {
+      if (orphanedHandle !== undefined) {
+        yield* input.destroyOrphan(orphanedHandle).pipe(
+          bestEffort("provider_destroy_rollback", input.context),
+        );
+      }
+      yield* input.refund;
+      yield* input.markFailed(markFailure).pipe(bestEffort("mark_create_failed", input.context));
+      yield* eventFor(eventFailure).pipe(
+        bestEffort("usage_event.vm.create.failed", input.context),
+      );
+    });
+
+  return Effect.gen(function* () {
+    const handle = yield* input.createHandle.pipe(
+      Effect.tapError((err) => {
+        const failure = { code: err.operation, message: errorMessage(err.cause) };
+        return compensate(failure, failure, input.createFailureEvent);
+      }),
+    );
+    return yield* input.finalize(handle).pipe(
+      Effect.tapError((err) =>
+        compensate(
+          { code: "database_finalize_failed", message: input.finalizeFailureMessage },
+          { code: "database_finalize_failed", message: errorMessage(err.cause) },
+          input.finalizeFailureEvent ?? input.createFailureEvent,
+          handle,
+        )
+      ),
+    );
+  });
+}
+
 function refundCredit(
   billing: VmBillingGatewayShape,
   repo: VmRepositoryShape,
   vm: CloudVmRow,
-  reservation: VmCreateCreditReservation,
-) {
-  return billing.refundCreate(reservation).pipe(
-    Effect.andThen(recordCreditEvent(repo, vm, "vm.create.credit.refunded", reservation)),
-    Effect.catchAll(() => Effect.void),
+  credit: CreateCreditReservationRecord,
+): Effect.Effect<void, never> {
+  const { reservation, reservationId } = credit;
+  if (reservation.kind === "none") return Effect.void;
+  const context = { vmId: vm.id, provider: vm.provider };
+
+  const doRefund = billing.refundCreate(reservation).pipe(
+    Effect.andThen(
+      Effect.all([
+        transitionCreditReservationBestEffort(repo, reservationId, ["refunding"], "refunded", context),
+        recordCreditEvent(repo, vm, "vm.create.credit.refunded", reservation).pipe(
+          bestEffort("usage_event.vm.create.credit.refunded", context),
+        ),
+      ], { discard: true }),
+    ),
+    Effect.catchAll((refundError) =>
+      Effect.gen(function* () {
+        reportBestEffortFailure("billing.refund_create", refundError, context);
+        // The durable refund_failed state is what the reconcile cron retries;
+        // the usage event keeps the lost refund visible in the billing ledger.
+        yield* transitionCreditReservationBestEffort(repo, reservationId, ["refunding"], "refund_failed", context);
+        yield* recordCreditEvent(repo, vm, "vm.create.credit.refund_failed", reservation).pipe(
+          bestEffort("usage_event.vm.create.credit.refund_failed", context),
+        );
+      })
+    ),
+  );
+
+  const transition = repo.transitionCreditReservation;
+  if (!reservationId || !transition) return doRefund;
+  // Claim the reservation before touching money so this request and the
+  // reconcile cron can never both refund the same debit. "pending" is
+  // included because the debited-mark write is best-effort and may be lost.
+  return transition({ id: reservationId, from: ["pending", "debited"], to: "refunding" }).pipe(
+    Effect.catchAll((err) => {
+      // Unable to claim (database down): do not refund blindly. The row still
+      // says debited, so the reconcile cron will refund once the DB is back.
+      reportBestEffortFailure("credit_reservation_claim", err, context);
+      return Effect.succeed(false);
+    }),
+    Effect.flatMap((claimed) => (claimed ? doRefund : Effect.void)),
   );
 }
 
@@ -2238,7 +2682,9 @@ function revokeEndpointIdentity(provider: ProviderId, endpoint: AttachEndpoint |
   return Effect.gen(function* () {
     if (endpoint.transport !== "ssh" || !endpoint.identityHandle) return;
     const providers = yield* VmProviderGateway;
-    yield* providers.revokeSSHIdentity(provider, endpoint.identityHandle).pipe(Effect.catchAll(() => Effect.void));
+    yield* providers.revokeSSHIdentity(provider, endpoint.identityHandle).pipe(
+      bestEffort("ssh_identity_rollback", { provider }),
+    );
   });
 }
 

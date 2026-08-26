@@ -9,6 +9,7 @@ import {
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
+  cloudVmCreditReservations,
   cloudVmLeases,
   cloudVmSessions,
   cloudVms,
@@ -72,6 +73,15 @@ export type BillingGrantClaim =
   | { readonly kind: "inserted"; readonly grantId: string }
   | { readonly kind: "already_claimed" };
 
+export type CloudVmCreditReservationRow = typeof cloudVmCreditReservations.$inferSelect;
+export type CloudVmCreditReservationStatus = CloudVmCreditReservationRow["status"];
+/** A stale reservation together with the VM row it reserved for (null if the
+ * VM row vanished, which should not happen but must not crash the sweep). */
+export type StaleCreditReservation = {
+  readonly reservation: CloudVmCreditReservationRow;
+  readonly vm: CloudVmRow | null;
+};
+
 export type VmRepositoryShape = {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   readonly claimBillingGrant: (input: {
@@ -84,6 +94,33 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<BillingGrantClaim, VmDatabaseError>;
   readonly markBillingGrantApplied: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly deleteBillingGrant: (id: string) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Records the intent to debit one create credit for a VM row, before the
+   * billing RPC runs. Idempotent per VM row (returns the existing reservation
+   * id on conflict).
+   */
+  readonly insertCreditReservation?: (input: {
+    readonly vmId: string;
+    readonly billingCustomerType: string;
+    readonly billingCustomerId: string;
+    readonly itemId: string;
+    readonly amount: number;
+  }) => Effect.Effect<{ readonly id: string }, VmDatabaseError>;
+  /**
+   * Atomic status transition guard for a credit reservation. Returns false
+   * when the row is not in one of the `from` states, so two actors (the
+   * request and the reconcile cron) can never both win a refund.
+   */
+  readonly transitionCreditReservation?: (input: {
+    readonly id: string;
+    readonly from: readonly CloudVmCreditReservationStatus[];
+    readonly to: CloudVmCreditReservationStatus;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Unresolved reservations older than the TTL, with their VM row for triage. */
+  readonly staleCreditReservations?: (input: {
+    readonly olderThan: Date;
+    readonly limit: number;
+  }) => Effect.Effect<StaleCreditReservation[], VmDatabaseError>;
   readonly beginCreate: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -147,6 +184,16 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
   readonly reconciliationCandidates: (input: {
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /**
+   * Fails provisioning rows that never received a providerVmId within the TTL.
+   * A crash between the provisioning insert and markCreateRunning leaves a row
+   * that is invisible to provider-status reconciliation (no providerVmId) but
+   * still counts against the active-VM limit forever. Returns the swept rows.
+   */
+  readonly sweepStuckProvisioning?: (input: {
+    readonly olderThan: Date;
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
@@ -315,9 +362,16 @@ async function findByIdempotencyKey(
 
 export const FAILED_CREATE_RETRY_WINDOW_MS = 15 * 60 * 1000;
 
+/** Failure code stamped by the stuck-provisioning sweeper (crash between the
+ * provisioning insert and the provider finalize write). */
+export const STUCK_PROVISIONING_FAILURE_CODE = "provisioning_stuck";
+
 const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
   "billing_reserve_failed",
+  // The sweeper stamps updatedAt when it fails the row; without this entry an
+  // idempotent retry would be blocked for another retry window.
+  STUCK_PROVISIONING_FAILURE_CODE,
 ]);
 
 function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {
@@ -450,6 +504,70 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       await db
         .delete(cloudVmBillingGrants)
         .where(and(eq(cloudVmBillingGrants.id, id), isNull(cloudVmBillingGrants.appliedAt)));
+    }),
+
+  insertCreditReservation: (input) =>
+    dbEffect("insertCreditReservation", async () => {
+      const db = cloudDb();
+      const [inserted] = await db
+        .insert(cloudVmCreditReservations)
+        .values({
+          vmId: input.vmId,
+          billingCustomerType: input.billingCustomerType,
+          billingCustomerId: input.billingCustomerId,
+          itemId: input.itemId,
+          amount: input.amount,
+          status: "pending",
+        })
+        .onConflictDoNothing({ target: [cloudVmCreditReservations.vmId] })
+        .returning({ id: cloudVmCreditReservations.id });
+      if (inserted) return { id: inserted.id };
+      const [existing] = await db
+        .select({ id: cloudVmCreditReservations.id })
+        .from(cloudVmCreditReservations)
+        .where(eq(cloudVmCreditReservations.vmId, input.vmId))
+        .limit(1);
+      if (!existing) throw new Error(`credit reservation conflict row missing: ${input.vmId}`);
+      return { id: existing.id };
+    }),
+
+  transitionCreditReservation: (input) =>
+    dbEffect("transitionCreditReservation", async () => {
+      const db = cloudDb();
+      const updated = await db
+        .update(cloudVmCreditReservations)
+        .set({ status: input.to, updatedAt: new Date() })
+        .where(
+          and(
+            eq(cloudVmCreditReservations.id, input.id),
+            inArray(cloudVmCreditReservations.status, [...input.from]),
+          ),
+        )
+        .returning({ id: cloudVmCreditReservations.id });
+      return updated.length > 0;
+    }),
+
+  staleCreditReservations: (input) =>
+    dbEffect("staleCreditReservations", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select({ reservation: cloudVmCreditReservations, vm: cloudVms })
+        .from(cloudVmCreditReservations)
+        .leftJoin(cloudVms, eq(cloudVmCreditReservations.vmId, cloudVms.id))
+        .where(
+          and(
+            inArray(cloudVmCreditReservations.status, [
+              "pending",
+              "debited",
+              "refunding",
+              "refund_failed",
+            ]),
+            lt(cloudVmCreditReservations.updatedAt, input.olderThan),
+          ),
+        )
+        .orderBy(asc(cloudVmCreditReservations.updatedAt))
+        .limit(input.limit);
+      return rows.map((row) => ({ reservation: row.reservation, vm: row.vm ?? null }));
     }),
 
   beginCreate: (input) =>
@@ -928,9 +1046,13 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             failureMessage: null,
             updatedAt: now,
           })
-          .where(eq(cloudVms.id, input.vmId))
+          .where(and(eq(cloudVms.id, input.vmId), eq(cloudVms.status, "provisioning")))
           .returning();
-        if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
+        if (!vm) {
+          throw new Error(
+            `vm row missing or no longer provisioning during base finalization: ${input.vmId}`,
+          );
+        }
 
         await tx
           .update(cloudVmBaseGenerations)
@@ -1142,6 +1264,47 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .limit(input.limit);
     }),
 
+  sweepStuckProvisioning: (input) =>
+    dbEffect("sweepStuckProvisioning", async () => {
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        // Postgres UPDATE has no LIMIT; pick victims first with SKIP LOCKED so
+        // concurrent cron runs and in-flight creates (which hold no row lock
+        // while waiting on the provider) don't fight over the same rows.
+        const victims = await tx
+          .select({ id: cloudVms.id })
+          .from(cloudVms)
+          .where(
+            and(
+              eq(cloudVms.status, "provisioning"),
+              isNull(cloudVms.providerVmId),
+              lt(cloudVms.updatedAt, input.olderThan),
+            ),
+          )
+          .orderBy(asc(cloudVms.updatedAt))
+          .limit(input.limit)
+          .for("update", { skipLocked: true });
+        if (victims.length === 0) return [];
+        return await tx
+          .update(cloudVms)
+          .set({
+            status: "failed",
+            failureCode: STUCK_PROVISIONING_FAILURE_CODE,
+            failureMessage:
+              "Cloud VM create was interrupted before provider provisioning completed.",
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              inArray(cloudVms.id, victims.map((row) => row.id)),
+              eq(cloudVms.status, "provisioning"),
+              isNull(cloudVms.providerVmId),
+            ),
+          )
+          .returning();
+      });
+    }),
+
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
@@ -1177,6 +1340,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markCreateRunning: (input) =>
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
+      // Status guard: only a row still provisioning may transition to
+      // running. Without it, a slow create could resurrect a row the
+      // reconcile cron (or a concurrent destroy) already marked destroyed,
+      // leaving a phantom active VM that counts against the plan limit.
       const [vm] = await db
         .update(cloudVms)
         .set({
@@ -1189,15 +1356,21 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           failureMessage: null,
           updatedAt: new Date(),
         })
-        .where(eq(cloudVms.id, input.id))
+        .where(and(eq(cloudVms.id, input.id), eq(cloudVms.status, "provisioning")))
         .returning();
-      if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
+      if (!vm) {
+        throw new Error(
+          `vm row missing or no longer provisioning during create finalization: ${input.id}`,
+        );
+      }
       return vm;
     }),
 
   markCreateFailed: (input) =>
     dbEffect("markCreateFailed", async () => {
       const db = cloudDb();
+      // A destroyed row stays destroyed: flipping it to failed would make it
+      // block idempotent retries and hide it from destroy accounting.
       await db
         .update(cloudVms)
         .set({
@@ -1206,7 +1379,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           failureMessage: input.message,
           updatedAt: new Date(),
         })
-        .where(eq(cloudVms.id, input.id));
+        .where(and(eq(cloudVms.id, input.id), ne(cloudVms.status, "destroyed")));
     }),
 
   hasOwnedSnapshot: (input) =>
@@ -1284,7 +1457,11 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           !existing ||
           existing.vmId !== input.vmId ||
           existing.userId !== input.userId ||
-          existing.kind !== input.kind
+          existing.kind !== input.kind ||
+          // A revoked lease must never be resurrected by a token-hash
+          // collision: sign-out revocation is a security boundary, and
+          // un-revoking here would silently re-arm the old credential.
+          existing.revokedAt !== null
         ) {
           throw err;
         }
@@ -1296,9 +1473,8 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             transport: input.transport,
             metadata: input.metadata ?? {},
             expiresAt: input.expiresAt,
-            revokedAt: null,
           })
-          .where(eq(cloudVmLeases.tokenHash, input.tokenHash));
+          .where(and(eq(cloudVmLeases.tokenHash, input.tokenHash), isNull(cloudVmLeases.revokedAt)));
       }
     }),
 

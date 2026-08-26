@@ -1,21 +1,19 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId } from "../../../../services/vms/drivers";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmActiveLimitExceededResponse,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
+import { isVmSnapshotNotFoundError } from "../../../../services/vms/errors";
 import {
-  isVmCreateCreditsInsufficientError,
-  isVmCreateFailedError,
-  isVmCreateInProgressError,
-  isVmLimitExceededError,
-  isVmSnapshotNotFoundError,
-} from "../../../../services/vms/errors";
+  parseVmProviderOverrideField,
+  vmOptionalTrimmedString,
+} from "../../../../services/vms/requestSchemas";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -47,7 +45,8 @@ export async function POST(request: Request): Promise<Response> {
           action: "Send `{ \"snapshotId\": \"...\" }`.",
         });
       }
-      const snapshotId = stringField(body, "snapshotId") ?? stringField(body, "snapshot_id");
+      const snapshotId = vmOptionalTrimmedString(body.snapshotId) ??
+        vmOptionalTrimmedString(body.snapshot_id);
       if (!snapshotId) {
         return vmErrorResponse({
           error: "vm_invalid_request",
@@ -57,11 +56,13 @@ export async function POST(request: Request): Promise<Response> {
           details: { field: "snapshotId" },
         });
       }
-      const providerResult = providerField(body);
+      const providerResult = parseVmProviderOverrideField(body.provider);
       if (!providerResult.ok) return providerResult.response;
       const provider = providerResult.provider ?? defaultProviderId();
       let user: AuthedUser = initialUser;
-      const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
+      const requestedBillingTeamId = vmOptionalTrimmedString(body.billingTeamId) ??
+        vmOptionalTrimmedString(body.teamId) ??
+        requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
         let refreshedUser: AuthedUser | null;
         try {
@@ -153,60 +154,12 @@ async function requiredObjectBody(request: Request): Promise<ParsedObjectBody> {
   return { ok: true, body: parsed as Record<string, unknown> };
 }
 
-function stringField(body: Record<string, unknown>, key: string): string | undefined {
-  const value = body[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-type ProviderFieldResult = { ok: true; provider?: ProviderId } | { ok: false; response: Response };
-
-function providerField(body: Record<string, unknown>): ProviderFieldResult {
-  const value = stringField(body, "provider");
-  if (!value) return { ok: true };
-  if (value === "e2b" || value === "freestyle" || value === "daytona" || value === "blaxel") return { ok: true, provider: value };
-  return {
-    ok: false,
-    response: vmErrorResponse({
-      error: "vm_invalid_provider",
-      status: 400,
-      message: "Unsupported Cloud VM service override.",
-      action: "Use the default Cloud VM service, or pass a supported provider.",
-      details: { field: "provider" },
-    }),
-  };
-}
-
 function idempotencyKeyFromRequest(request: Request): string | undefined {
   const raw = (request.headers.get("idempotency-key") || request.headers.get("x-cmux-idempotency-key") || "").trim();
   return raw ? raw.slice(0, 128) : undefined;
 }
 
 function createLikeErrorResponse(err: unknown, planId: string): Response | null {
-  if (isVmCreateInProgressError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_in_progress",
-      status: 409,
-      message: "A Cloud VM create is already running for this request.",
-      action: "Wait for the first restore to finish, then retry the same command.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmCreateFailedError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_failed",
-      status: 500,
-      message: "The Cloud VM restore create attempt failed.",
-      action: "Retry with a fresh restore. If it fails again, copy the details and contact support.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmLimitExceededError(err)) {
-    return vmActiveLimitExceededResponse({
-      limit: err.limit,
-      planId,
-      retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
-    });
-  }
   if (isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
       error: "vm_snapshot_not_found",
@@ -216,17 +169,17 @@ function createLikeErrorResponse(err: unknown, planId: string): Response | null 
       details: { snapshotId: err.snapshotId },
     });
   }
-  if (isVmCreateCreditsInsufficientError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_credits_insufficient",
-      status: 402,
-      message: "This team has no Cloud VM create credits left.",
-      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-      extra: { amount: err.amount },
-      details: { amount: err.amount },
-    });
-  }
-  return null;
+  return vmCreateWorkflowErrorResponse(err, {
+    planId,
+    limitRetryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
+    inProgress: {
+      action: "Wait for the first restore to finish, then retry the same command.",
+    },
+    failed: {
+      message: "The Cloud VM restore create attempt failed.",
+      action: "Retry with a fresh restore. If it fails again, copy the details and contact support.",
+    },
+  });
 }
 
 function billingTeamErrorResponse(err: {

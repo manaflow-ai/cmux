@@ -3,19 +3,14 @@ import {
   jsonResponse,
   notFoundVm,
   requestedVmTeamIdFromRequest,
-  vmActiveLimitExceededResponse,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmRequiresProResponse,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import {
-  isVmCreateCreditsInsufficientError,
-  isVmCreateFailedError,
-  isVmCreateInProgressError,
-  isVmLimitExceededError,
-  isVmNotFoundError,
-} from "../../../../../services/vms/errors";
+import { isVmNotFoundError } from "../../../../../services/vms/errors";
+import { vmOptionalTrimmedString } from "../../../../../services/vms/requestSchemas";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -44,7 +39,9 @@ export async function POST(
       const body = parsedBody.body;
       const { id } = await params;
       let user: AuthedUser = initialUser;
-      const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
+      const requestedBillingTeamId = vmOptionalTrimmedString(body.billingTeamId) ??
+        vmOptionalTrimmedString(body.teamId) ??
+        requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
         let refreshedUser: AuthedUser | null;
         try {
@@ -69,7 +66,7 @@ export async function POST(
         return vmRequiresProResponse();
       }
       const idempotencyKey = idempotencyKeyFromRequest(request);
-      const name = stringField(body, "name");
+      const name = vmOptionalTrimmedString(body.name);
       setSpanAttributes(span, {
         "cmux.vm.id": id,
         "cmux.billing.team_id_set": !!entitlements.billingTeamId,
@@ -140,53 +137,23 @@ async function optionalObjectBody(request: Request): Promise<ParsedObjectBody> {
   return { ok: true, body: parsed as Record<string, unknown> };
 }
 
-function stringField(body: Record<string, unknown>, key: string): string | undefined {
-  const value = body[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
 function idempotencyKeyFromRequest(request: Request): string | undefined {
   const raw = (request.headers.get("idempotency-key") || request.headers.get("x-cmux-idempotency-key") || "").trim();
   return raw ? raw.slice(0, 128) : undefined;
 }
 
 function createLikeErrorResponse(err: unknown, planId: string): Response | null {
-  if (isVmCreateInProgressError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_in_progress",
-      status: 409,
-      message: "A Cloud VM create is already running for this request.",
+  return vmCreateWorkflowErrorResponse(err, {
+    planId,
+    limitRetryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
+    inProgress: {
       action: "Wait for the first fork to finish, then retry the same command.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmCreateFailedError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_failed",
-      status: 500,
+    },
+    failed: {
       message: "The Cloud VM fork create attempt failed.",
       action: "Retry with a fresh fork. If it fails again, copy the details and contact support.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmLimitExceededError(err)) {
-    return vmActiveLimitExceededResponse({
-      limit: err.limit,
-      planId,
-      retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
-    });
-  }
-  if (isVmCreateCreditsInsufficientError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_credits_insufficient",
-      status: 402,
-      message: "This team has no Cloud VM create credits left.",
-      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-      extra: { amount: err.amount },
-      details: { amount: err.amount },
-    });
-  }
-  return null;
+    },
+  });
 }
 
 function billingTeamErrorResponse(err: {

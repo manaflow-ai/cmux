@@ -6,18 +6,11 @@ import {
   verifyRequest,
   type AuthedUser,
 } from "../../../services/vms/auth";
-import {
-  defaultProviderId,
-  type ProviderId,
-} from "../../../services/vms/drivers";
+import { defaultProviderId } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
 import {
   isVmCreateDisabledError,
-  isVmCreateFailedError,
-  isVmCreateCreditsInsufficientError,
-  isVmCreateInProgressError,
   isVmImageConfigError,
-  isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
@@ -35,12 +28,16 @@ import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
-  vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
+import {
+  parseVmCreateBody,
+  vmInvalidTeamIdResponse,
+} from "../../../services/vms/requestSchemas";
 import {
   createVm,
   listUserVms,
@@ -165,81 +162,12 @@ export async function POST(request: Request): Promise<Response> {
             action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
           });
         }
-        const candidate = (raw ?? {}) as Record<string, unknown>;
-        if (candidate.image !== undefined && typeof candidate.image !== "string") {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`image` must be a string when provided.",
-            action: "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
-            details: { field: "image" },
-          });
-        }
-        if (candidate.provider !== undefined) {
-          if (typeof candidate.provider !== "string") {
-            return vmErrorResponse({
-              error: "vm_invalid_request",
-              status: 400,
-              message: "Cloud VM service override must be a string when provided.",
-              action: "Remove the override to use the default Cloud VM service.",
-              details: { field: "provider" },
-            });
-          }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona" && candidate.provider !== "blaxel") {
-            return vmErrorResponse({
-              error: "vm_invalid_provider",
-              status: 400,
-              message: "Unsupported Cloud VM service override.",
-              action: "Remove the override to use the default Cloud VM service.",
-              details: { field: "provider" },
-            });
-          }
-        }
-        const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
-        if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
-          return invalidTeamIdResponse();
-        }
-        if (candidate.persistentHome !== undefined && typeof candidate.persistentHome !== "boolean") {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`persistentHome` must be a boolean when provided.",
-            action: "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
-            details: { field: "persistentHome" },
-          });
-        }
-        if (candidate.perMachineHome !== undefined && typeof candidate.perMachineHome !== "boolean") {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`perMachineHome` must be a boolean when provided.",
-            action: "Omit `perMachineHome`, or send `true` to give the new machine its own persistent home volume.",
-            details: { field: "perMachineHome" },
-          });
-        }
-        if (
-          candidate.memoryMb !== undefined &&
-          (!Number.isSafeInteger(candidate.memoryMb) || (candidate.memoryMb as number) < 512)
-        ) {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`memoryMb` must be an integer of at least 512 when provided.",
-            action: "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
-            details: { field: "memoryMb", minimumMemoryMb: 512 },
-          });
-        }
-        if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
-          return invalidTeamIdResponse();
-        }
+        const parsed = parseVmCreateBody((raw ?? {}) as Record<string, unknown>);
+        if (!parsed.ok) return parsed.response;
         if (requestHasBlankVmTeamId(request)) {
-          return invalidTeamIdResponse();
+          return vmInvalidTeamIdResponse();
         }
-        const body: { image?: string; provider?: ProviderId; billingTeamId?: string } = {
-          image: typeof candidate.image === "string" ? candidate.image : undefined,
-          provider: candidate.provider as ProviderId | undefined,
-          billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
-        };
+        const body = parsed.body;
         const provider = body.provider ?? defaultProviderId();
         let imageSelection;
         try {
@@ -348,9 +276,9 @@ export async function POST(request: Request): Promise<Response> {
 
         const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
         const memoryMb =
-          candidate.memoryMb === undefined
+          body.memoryMb === undefined
             ? defaultMemoryMbForPlan(entitlements.planId, process.env)
-            : candidate.memoryMb as number;
+            : body.memoryMb;
         if (memoryMb > maxMemoryMb) {
           return vmErrorResponse({
             error: "vm_memory_exceeds_plan",
@@ -378,51 +306,25 @@ export async function POST(request: Request): Promise<Response> {
             provider,
             idempotencyKey,
             bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
-            persistentHome: candidate.persistentHome === true,
-            perMachineHome: candidate.perMachineHome === true,
+            persistentHome: body.persistentHome,
+            perMachineHome: body.perMachineHome,
             memoryMb,
             timing,
           }));
         } catch (err) {
-          if (isVmCreateInProgressError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_in_progress",
-              status: 409,
-              message: "A Cloud VM create is already running for this request.",
+          const createError = vmCreateWorkflowErrorResponse(err, {
+            planId: entitlements.planId,
+            limitRetryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
+            inProgress: {
               action: "Wait for the first `cmux vm new` to finish. If your terminal was interrupted, retry the same command and cmux will reuse the in-flight request.",
-              details: { idempotencyKeySet: !!err.idempotencyKey },
-            });
-          }
-          if (isVmCreateFailedError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_failed",
-              status: 500,
+            },
+            failed: {
               message: "The previous Cloud VM create attempt failed.",
               action: "Retry with a fresh `cmux vm new`. If it fails again, copy the details and contact support.",
-              details: {
-                idempotencyKeySet: !!err.idempotencyKey,
-                failureCode: err.code,
-                failureMessage: err.message,
-              },
-            });
-          }
-          if (isVmLimitExceededError(err)) {
-            return vmActiveLimitExceededResponse({
-              limit: err.limit,
-              planId: entitlements.planId,
-              retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
-            });
-          }
-          if (isVmCreateCreditsInsufficientError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_credits_insufficient",
-              status: 402,
-              message: "This team has no Cloud VM create credits left.",
-              action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-              extra: { amount: err.amount },
-              details: { amount: err.amount },
-            });
-          }
+              includeFailureCause: true,
+            },
+          });
+          if (createError) return createError;
           const workflowError = vmWorkflowErrorResponse(err);
           if (workflowError) return workflowError;
           throw err;
@@ -463,16 +365,6 @@ export async function withBillingReconcileDeadline(
   } finally {
     clearTimeout(timer);
   }
-}
-
-function invalidTeamIdResponse(): Response {
-  return vmErrorResponse({
-    error: "vm_invalid_request",
-    status: 400,
-    message: "`teamId` must be a non-empty string when provided.",
-    action: "Use a team id from `cmux auth status`, or omit `teamId` when the signed-in account has one team.",
-    details: { field: "teamId" },
-  });
 }
 
 function requestHasBlankVmTeamId(request: Request): boolean {

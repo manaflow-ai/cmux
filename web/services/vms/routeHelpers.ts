@@ -15,11 +15,16 @@ import {
 import {
   isVmBillingError,
   isVmAccountDeletionInProgressError,
+  isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
+  isVmCreateFailedError,
+  isVmCreateInProgressError,
   isVmDatabaseError,
+  isVmLimitExceededError,
   isVmProviderOperationError,
-  vmWorkflowErrorCause,
+  isVmWorkflowError,
 } from "./errors";
+import { reportError } from "../observability/report";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 
@@ -65,6 +70,7 @@ export async function withAuthedVmApiRoute(
         return response;
       };
 
+      let authedUserId: string | null = null;
       try {
         const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
@@ -78,6 +84,7 @@ export async function withAuthedVmApiRoute(
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
+        authedUserId = user.id;
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return mutationForbidden;
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
@@ -85,7 +92,42 @@ export async function withAuthedVmApiRoute(
         recordSpanError(span, err);
         console.error(failureLog, err);
         const workflowError = vmWorkflowErrorResponse(err);
-        if (workflowError) return finalize(workflowError);
+        if (workflowError) {
+          if (workflowError.status >= 500) {
+            // A modeled workflow failure that still surfaces as a 5xx
+            // (provider outage, database outage) must reach Sentry too, with
+            // its tag so alerts can group by failure mode.
+            reportError(err, {
+              subsystem: "vm-cloud",
+              boundary: "withAuthedVmApiRoute",
+              route,
+              method: request.method,
+              operation: vmOperationFromAttributes(attributes),
+              path: requestPathname(request),
+              userId: authedUserId,
+              errorTag: vmErrorTag(err),
+              httpStatus: workflowError.status,
+            });
+          }
+          return finalize(workflowError);
+        }
+        if (!isVmWorkflowError(err)) {
+          // An unmodeled failure (a bug or an unexpected dependency error)
+          // is about to be flattened into a generic 5xx. Capture it with
+          // enough context to debug — ids only, never tokens or lease
+          // material; the path segment carries the provider VM id for
+          // /api/vm/[id]/* routes.
+          reportError(err, {
+            subsystem: "vm-cloud",
+            boundary: "withAuthedVmApiRoute",
+            route,
+            method: request.method,
+            operation: vmOperationFromAttributes(attributes),
+            path: requestPathname(request),
+            userId: authedUserId,
+            requestedTeamId: requestedVmTeamIdFromRequest(request),
+          });
+        }
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
           status: 500,
@@ -96,6 +138,25 @@ export async function withAuthedVmApiRoute(
       }
     },
   );
+}
+
+function vmOperationFromAttributes(attributes: MaybeAttributes): string | null {
+  const operation = attributes["cmux.vm.operation"];
+  return typeof operation === "string" ? operation : null;
+}
+
+function vmErrorTag(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const tag = (err as { _tag?: unknown })._tag;
+  return typeof tag === "string" ? tag : null;
+}
+
+function requestPathname(request: Request): string | null {
+  try {
+    return new URL(request.url).pathname;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -301,8 +362,114 @@ export function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/**
+ * Per-verb copy for the create-like failure map below. Every provisioning
+ * verb (create, restore, fork, Base open/reset) hits the same four workflow
+ * failures; only the user-facing wording and a few envelope extras differ.
+ */
+export type VmCreateLikeErrorCopy = {
+  readonly planId: string;
+  /** retryAction for the active-VM limit response. */
+  readonly limitRetryAction: string;
+  readonly limitPhase?: VmLifecyclePhase;
+  readonly inProgress: {
+    readonly error?: string;
+    readonly message?: string;
+    readonly action: string;
+    readonly phase?: VmLifecyclePhase;
+    readonly retryable?: boolean;
+    readonly retryAfterSeconds?: number;
+  };
+  readonly failed: {
+    readonly error?: string;
+    readonly message: string;
+    readonly action: string;
+    /** Include the stored failureCode/failureMessage in `details` (create only). */
+    readonly includeFailureCause?: boolean;
+    readonly phase?: VmLifecyclePhase;
+    readonly retryable?: boolean;
+  };
+  readonly credits?: {
+    readonly action?: string;
+    readonly phase?: VmLifecyclePhase;
+  };
+};
+
+/**
+ * One HTTP mapping for the create-like workflow failures
+ * (409 in-progress / 500 create-failed / 402 limit / 402 credits).
+ * The envelope shape is parsed by hand in VMClient.swift — field names and
+ * semantics must stay wire-compatible.
+ */
+export function vmCreateWorkflowErrorResponse(
+  err: unknown,
+  copy: VmCreateLikeErrorCopy,
+): Response | null {
+  if (isVmCreateInProgressError(err)) {
+    return vmErrorResponse({
+      error: copy.inProgress.error ?? "vm_create_in_progress",
+      status: 409,
+      message: copy.inProgress.message ?? "A Cloud VM create is already running for this request.",
+      action: copy.inProgress.action,
+      details: { idempotencyKeySet: !!err.idempotencyKey },
+      ...(copy.inProgress.phase ? { phase: copy.inProgress.phase } : {}),
+      ...(copy.inProgress.retryable !== undefined ? { retryable: copy.inProgress.retryable } : {}),
+      ...(copy.inProgress.retryAfterSeconds !== undefined
+        ? { retryAfterSeconds: copy.inProgress.retryAfterSeconds }
+        : {}),
+    });
+  }
+  if (isVmCreateFailedError(err)) {
+    // This 500 is returned from inside the handler, so the boundary's 5xx
+    // capture never sees it; report it here instead.
+    reportError(err, {
+      subsystem: "vm-cloud",
+      boundary: "vmCreateWorkflowErrorResponse",
+      errorTag: "VmCreateFailedError",
+      failureCode: err.code,
+      httpStatus: 500,
+    });
+    return vmErrorResponse({
+      error: copy.failed.error ?? "vm_create_failed",
+      status: 500,
+      message: copy.failed.message,
+      action: copy.failed.action,
+      details: {
+        idempotencyKeySet: !!err.idempotencyKey,
+        ...(copy.failed.includeFailureCause
+          ? { failureCode: err.code, failureMessage: err.message }
+          : {}),
+      },
+      ...(copy.failed.phase ? { phase: copy.failed.phase } : {}),
+      ...(copy.failed.retryable !== undefined ? { retryable: copy.failed.retryable } : {}),
+    });
+  }
+  if (isVmLimitExceededError(err)) {
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId: copy.planId,
+      retryAction: copy.limitRetryAction,
+      ...(copy.limitPhase ? { phase: copy.limitPhase } : {}),
+    });
+  }
+  if (isVmCreateCreditsInsufficientError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_credits_insufficient",
+      status: 402,
+      message: "This team has no Cloud VM create credits left.",
+      action: copy.credits?.action ??
+        "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+      extra: { amount: err.amount },
+      details: { amount: err.amount },
+      ...(copy.credits?.phase ? { phase: copy.credits.phase } : {}),
+    });
+  }
+  return null;
+}
+
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
-  const workflowError = vmWorkflowErrorCause(err) ?? err;
+  // runVmWorkflow rejects with the tagged error itself; no unwrapping needed.
+  const workflowError = err;
   if (isVmAccountDeletionInProgressError(workflowError)) {
     return vmErrorResponse({
       error: "account_deletion_in_progress",

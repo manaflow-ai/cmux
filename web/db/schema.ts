@@ -824,6 +824,46 @@ export const vaultCliAuthRequests = pgTable(
   ],
 );
 
+/**
+ * Durable ledger of Stack Auth create-credit debits, one row per VM create
+ * attempt. The row is inserted before the debit RPC and advanced through
+ * pending -> debited -> committed/refunding/refunded, so a crash between the
+ * credit decrement and the provider outcome leaves a reconcilable record
+ * instead of a silently burned credit. `refund_failed` rows are retried by the
+ * reconcile cron; `abandoned` marks a pre-debit row whose debit outcome is
+ * unknowable and needs manual review.
+ */
+export const cloudVmCreditReservations = pgTable(
+  "cloud_vm_credit_reservations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vmId: uuid("vm_id").notNull(),
+    billingCustomerType: text("billing_customer_type").notNull(),
+    billingCustomerId: text("billing_customer_id").notNull(),
+    itemId: text("item_id").notNull(),
+    amount: integer("amount").notNull(),
+    status: text("status")
+      .$type<
+        | "pending"
+        | "debited"
+        | "committed"
+        | "refunding"
+        | "refunded"
+        | "refund_failed"
+        | "aborted"
+        | "abandoned"
+      >()
+      .notNull()
+      .default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_credit_reservations_vm_unique").on(table.vmId),
+    index("cloud_vm_credit_reservations_status_updated_idx").on(table.status, table.updatedAt),
+  ],
+);
+
 export const cloudVmBillingGrants = pgTable(
   "cloud_vm_billing_grants",
   {

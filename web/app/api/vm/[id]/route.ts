@@ -6,6 +6,10 @@ import {
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../services/vms/errors";
+import {
+  normalizeVmDisplayName,
+  VM_DISPLAY_NAME_MAX_LENGTH,
+} from "../../../../services/vms/requestSchemas";
 import { destroyVm, getVm, renameVm, runVmWorkflow } from "../../../../services/vms/workflows";
 
 
@@ -47,21 +51,6 @@ export async function GET(
   );
 }
 
-const DISPLAY_NAME_MAX_LENGTH = 64;
-
-/** Validates a requested display name: null clears the label; a non-empty
- * printable string up to 64 chars sets it. Returns undefined on invalid. */
-function normalizedDisplayName(raw: unknown): string | null | undefined {
-  if (raw === null) return null;
-  if (typeof raw !== "string") return undefined;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  if (trimmed.length > DISPLAY_NAME_MAX_LENGTH) return undefined;
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return undefined;
-  return trimmed;
-}
-
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -85,10 +74,10 @@ export async function PATCH(
       if (typeof body !== "object" || body === null || !("displayName" in body)) {
         return jsonResponse({ error: "body must include `displayName`" }, 400);
       }
-      const displayName = normalizedDisplayName((body as { displayName: unknown }).displayName);
+      const displayName = normalizeVmDisplayName((body as { displayName: unknown }).displayName);
       if (displayName === undefined) {
         return jsonResponse(
-          { error: `displayName must be a printable string of at most ${DISPLAY_NAME_MAX_LENGTH} characters, or null to clear` },
+          { error: `displayName must be a printable string of at most ${VM_DISPLAY_NAME_MAX_LENGTH} characters, or null to clear` },
           400,
         );
       }

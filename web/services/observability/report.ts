@@ -18,6 +18,10 @@ export function reportError(error: unknown, context: Record<string, unknown>): v
     .then((Sentry) => {
       Sentry.withScope((scope) => {
         scope.setContext("cmux", safeContext);
+        for (const key of TAGGED_CONTEXT_KEYS) {
+          const value = safeContext[key];
+          if (typeof value === "string" && value) scope.setTag(key, value.slice(0, 200));
+        }
         Sentry.captureException(error);
       });
     })
@@ -25,6 +29,18 @@ export function reportError(error: unknown, context: Record<string, unknown>): v
       // Reporting must never change the caller's control flow.
     });
 }
+
+// Promoted to Sentry tags (indexed, filterable in alerts); everything else
+// stays in the cmux context blob. Keys here must never carry secrets.
+const TAGGED_CONTEXT_KEYS = [
+  "subsystem",
+  "route",
+  "operation",
+  "provider",
+  "errorTag",
+  "bestEffortOperation",
+  "vmId",
+] as const;
 
 function scrubContext(context: Record<string, unknown>): Record<string, unknown> {
   const scrubbed: Record<string, unknown> = {};

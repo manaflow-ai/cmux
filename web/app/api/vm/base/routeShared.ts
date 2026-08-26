@@ -7,12 +7,8 @@ import {
   resolveVmEntitlements,
 } from "../../../../services/vms/entitlements";
 import {
-  isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
-  isVmCreateFailedError,
-  isVmCreateInProgressError,
   isVmImageConfigError,
-  isVmLimitExceededError,
 } from "../../../../services/vms/errors";
 import {
   imageUsesBakedFreestyleSignedAdmin,
@@ -22,11 +18,12 @@ import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmBillingTeamErrorResponse,
-  vmActiveLimitExceededResponse,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
+import { parseVmBaseBody } from "../../../../services/vms/requestSchemas";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import {
   openBaseVm,
@@ -137,52 +134,35 @@ export async function runBaseRoute(input: {
 }
 
 function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string): Response | null {
-  if (isVmCreateInProgressError(err)) {
-    return vmErrorResponse({
+  const createError = vmCreateWorkflowErrorResponse(err, {
+    planId,
+    limitRetryAction: operation === "reset"
+      ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
+      : "Stop or delete another active Cloud VM, then retry opening Base.",
+    limitPhase: "create",
+    inProgress: {
       error: "vm_base_create_in_progress",
-      status: 409,
       message: "Base is already opening.",
       action: "Wait for the existing Base operation to finish. Retrying is safe and will attach to the same Base.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
       phase: "create",
       retryable: true,
       retryAfterSeconds: 2,
-    });
-  }
-  if (isVmCreateFailedError(err)) {
-    return vmErrorResponse({
+    },
+    failed: {
       error: "vm_base_create_failed",
-      status: 500,
       message: "Base could not be opened.",
       action: "Retry Base. If it keeps failing, contact support so we can inspect the retained Base state.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
       phase: "create",
       retryable: true,
-    });
-  }
-  if (isVmLimitExceededError(err)) {
-    return vmActiveLimitExceededResponse({
-      limit: err.limit,
-      planId,
-      retryAction: operation === "reset"
-        ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
-        : "Stop or delete another active Cloud VM, then retry opening Base.",
-      phase: "create",
-    });
-  }
-  if (isVmCreateCreditsInsufficientError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_credits_insufficient",
-      status: 402,
-      message: "This team has no Cloud VM create credits left.",
+    },
+    credits: {
       action: operation === "reset"
         ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
         : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
-      extra: { amount: err.amount },
-      details: { amount: err.amount },
       phase: "billing",
-    });
-  }
+    },
+  });
+  if (createError) return createError;
   return vmWorkflowErrorResponse(err);
 }
 
@@ -223,53 +203,7 @@ async function parseBaseRequest(
       }),
     };
   }
-  const candidate = raw as Record<string, unknown>;
-  const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
-  for (const [field, value] of Object.entries({
-    name: candidate.name,
-    image: candidate.image,
-    provider: candidate.provider,
-    billingTeamId: bodyBillingTeamId,
-    reason: candidate.reason,
-  })) {
-    if (value !== undefined && value !== null && typeof value !== "string") {
-      return {
-        ok: false,
-        response: vmErrorResponse({
-          error: "vm_invalid_request",
-          status: 400,
-          message: `\`${field}\` must be a string when provided.`,
-          action: "Remove the invalid field and retry.",
-          details: { field },
-        }),
-      };
-    }
-  }
-  const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona" && provider !== "blaxel") {
-    return {
-      ok: false,
-      response: vmErrorResponse({
-        error: "vm_invalid_provider",
-        status: 400,
-        message: "Unsupported Cloud VM service override.",
-        action: "Remove the override to use the default Cloud VM service.",
-        details: { field: "provider" },
-      }),
-    };
-  }
-  return {
-    ok: true,
-    body: {
-      name: stringValue(candidate.name),
-      image: stringValue(candidate.image),
-      provider: provider as ProviderId | undefined,
-      billingTeamId: stringValue(bodyBillingTeamId),
-      reason: stringValue(candidate.reason) ?? null,
-    },
-  };
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const parsed = parseVmBaseBody(raw as Record<string, unknown>);
+  if (!parsed.ok) return parsed;
+  return { ok: true, body: parsed.body };
 }
