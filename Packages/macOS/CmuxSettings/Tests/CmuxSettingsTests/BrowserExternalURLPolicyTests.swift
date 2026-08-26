@@ -56,7 +56,7 @@ struct BrowserExternalURLPolicyTests {
         )
         let arrayPolicy = BrowserExternalURLPolicy(defaults: defaults)
 
-        #expect(arrayPolicy == stringPolicy)
+        #expect(arrayPolicy.patterns == stringPolicy.patterns)
         #expect(arrayPolicy.matches(try #require(URL(string: "https://example.com"))))
         #expect(arrayPolicy.matches(try #require(URL(string: "https://other.test"))))
     }
@@ -95,6 +95,11 @@ struct BrowserExternalURLPolicyTests {
     @Test func pathologicalRegexShapesAndLongTargetsFailClosed() {
         let policy = BrowserExternalURLPolicy(patterns: ["re:(a+)+$"])
         #expect(!policy.matches("https://\(String(repeating: "a", count: 8_192))b"))
+
+        let adjacentQuantifiers = BrowserExternalURLPolicy(
+            patterns: ["re:a*a*a*a*a*a*a*a*b"]
+        )
+        #expect(!adjacentQuantifiers.matches("https://\(String(repeating: "a", count: 8_192))"))
 
         let ordinaryPolicy = BrowserExternalURLPolicy(patterns: ["example.com"])
         #expect(ordinaryPolicy.matches("https://example.com/\(String(repeating: "x", count: 16_384))"))
