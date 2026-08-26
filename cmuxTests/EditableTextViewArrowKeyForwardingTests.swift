@@ -97,4 +97,124 @@ struct EditableTextViewArrowKeyForwardingTests {
             )
         )
     }
+
+    @Test(arguments: [123, 124, 125, 126] as [UInt16])
+    func routesWorkspaceDescriptionArrowWhenEditorIsActive(keyCode: UInt16) {
+        #expect(
+            shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+                keyCode: keyCode,
+                firstResponderIsWorkspaceDescriptionEditor: true,
+                flags: []
+            ),
+            "The active workspace-description editor must own arrow keyCode \(keyCode)"
+        )
+    }
+
+    @Test
+    func routesWorkspaceDescriptionSelectionAndBoundaryModifiers() {
+        let flagSets: [NSEvent.ModifierFlags] = [
+            [.shift], [.option], [.option, .shift], [.command], [.command, .shift],
+        ]
+        for flags in flagSets {
+            for keyCode in [123, 124, 125, 126] as [UInt16] {
+                #expect(
+                    shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+                        keyCode: keyCode,
+                        firstResponderIsWorkspaceDescriptionEditor: true,
+                        flags: flags
+                    ),
+                    "Workspace-description editor must retain text navigation for keyCode \(keyCode) flags \(flags.rawValue)"
+                )
+            }
+        }
+    }
+
+    @Test
+    func workspaceDescriptionArrowRoutingPreservesImeAndPaneGuards() {
+        #expect(
+            !shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+                keyCode: 125,
+                firstResponderIsWorkspaceDescriptionEditor: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            ),
+            "Marked-text composition must remain owned by the input method"
+        )
+        #expect(
+            !shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+                keyCode: 125,
+                firstResponderIsWorkspaceDescriptionEditor: true,
+                flags: [.command, .option]
+            ),
+            "Cmd+Option+Arrow must remain available for pane focus"
+        )
+        #expect(
+            !shouldDispatchCommandPaletteWorkspaceDescriptionArrowViaFirstResponderKeyDown(
+                keyCode: 125,
+                firstResponderIsWorkspaceDescriptionEditor: false,
+                flags: []
+            )
+        )
+    }
+
+    @Test
+    func workspaceDescriptionModeKeepsPaletteSelectionOutOfInlineEditorDuringFocusReentry() {
+        #expect(
+            shouldUseCommandPaletteInlineTextHandling(
+                mode: "workspace_description_input",
+                isInteractive: true,
+                firstResponderIsMultilineTextResponder: false
+            ),
+            "The authoritative mode snapshot must cover the async first-responder handoff"
+        )
+        #expect(
+            !shouldUseCommandPaletteInlineTextHandling(
+                mode: "workspace_description_input",
+                isInteractive: false,
+                firstResponderIsMultilineTextResponder: false
+            )
+        )
+        #expect(
+            shouldUseCommandPaletteInlineTextHandling(
+                mode: "commands",
+                isInteractive: true,
+                firstResponderIsMultilineTextResponder: true
+            )
+        )
+        #expect(
+            !shouldUseCommandPaletteInlineTextHandling(
+                mode: "rename_input",
+                isInteractive: true,
+                firstResponderIsMultilineTextResponder: false
+            )
+        )
+    }
+
+    @Test
+    func inlineWorkspaceDescriptionEditorDoesNotLetPaletteConsumeBoundaryArrows() {
+        for keyCode in [123, 124, 125, 126] as [UInt16] {
+            for flags in [[.command], [.command, .shift]] as [NSEvent.ModifierFlags] {
+                #expect(
+                    !shouldConsumeShortcutWhileCommandPaletteVisible(
+                        isCommandPaletteVisible: true,
+                        normalizedFlags: flags,
+                        chars: "",
+                        keyCode: keyCode,
+                        allowsInlineTextNavigation: true
+                    ),
+                    "Inline workspace-description text must retain Cmd-arrow keyCode \(keyCode) flags \(flags.rawValue)"
+                )
+            }
+        }
+        #expect(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command, .option],
+                chars: "",
+                keyCode: 125,
+                allowsInlineTextNavigation: true
+            ),
+            "Cmd+Option+Arrow remains a cmux pane shortcut"
+        )
+    }
 }

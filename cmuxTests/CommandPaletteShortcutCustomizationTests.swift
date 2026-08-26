@@ -406,6 +406,106 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testWindowPerformKeyEquivalentRoutesAllArrowsToWorkspaceDescriptionEditor() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withVisibleCommandPaletteOverlay(appDelegate: appDelegate) { window, overlayContainer in
+            let editor = CommandPaletteWorkspaceDescriptionArrowProbe(
+                frame: NSRect(x: 0, y: 0, width: 240, height: 96)
+            )
+            editor.isEditable = true
+            editor.isFieldEditor = true
+            editor.setAccessibilityIdentifier(commandPaletteWorkspaceDescriptionEditorAccessibilityIdentifier)
+            overlayContainer.addSubview(editor)
+            defer { editor.removeFromSuperview() }
+
+            appDelegate.setCommandPaletteSnapshot(
+                CommandPaletteDebugSnapshot(
+                    query: "",
+                    mode: commandPaletteWorkspaceDescriptionInputMode,
+                    results: []
+                ),
+                for: window
+            )
+            XCTAssertTrue(window.makeFirstResponder(editor))
+
+            let arrows: [(UInt16, String)] = [
+                (123, String(UnicodeScalar(NSLeftArrowFunctionKey)!)),
+                (124, String(UnicodeScalar(NSRightArrowFunctionKey)!)),
+                (125, String(UnicodeScalar(NSDownArrowFunctionKey)!)),
+                (126, String(UnicodeScalar(NSUpArrowFunctionKey)!)),
+            ]
+            for (keyCode, characters) in arrows {
+                guard let event = makeKeyDownEvent(
+                    key: characters,
+                    modifiers: [],
+                    keyCode: keyCode,
+                    windowNumber: window.windowNumber
+                ) else {
+                    XCTFail("Failed to construct workspace-description arrow event \(keyCode)")
+                    return
+                }
+                XCTAssertTrue(window.performKeyEquivalent(with: event))
+            }
+
+            XCTAssertEqual(
+                editor.keyDownKeyCodes,
+                [123, 124, 125, 126],
+                "The window hook must forward every arrow to the active workspace-description editor"
+            )
+        }
+    }
+
+    func testWorkspaceDescriptionArrowForwardingUsesTheReplayGuard() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withVisibleCommandPaletteOverlay(appDelegate: appDelegate) { window, overlayContainer in
+            let editor = CommandPaletteWorkspaceDescriptionArrowProbe(
+                frame: NSRect(x: 0, y: 0, width: 240, height: 96)
+            )
+            editor.isEditable = true
+            editor.isFieldEditor = true
+            editor.setAccessibilityIdentifier(commandPaletteWorkspaceDescriptionEditorAccessibilityIdentifier)
+            editor.replayWindow = window
+            editor.replayNextKeyDown = true
+            overlayContainer.addSubview(editor)
+            defer { editor.removeFromSuperview() }
+
+            appDelegate.setCommandPaletteSnapshot(
+                CommandPaletteDebugSnapshot(
+                    query: "",
+                    mode: commandPaletteWorkspaceDescriptionInputMode,
+                    results: []
+                ),
+                for: window
+            )
+            XCTAssertTrue(window.makeFirstResponder(editor))
+
+            guard let event = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 126,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct workspace-description Up Arrow event")
+                return
+            }
+
+            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertEqual(
+                editor.keyDownKeyCodes,
+                [126],
+                "A re-entered event must not be dispatched into the editor twice"
+            )
+        }
+    }
+
     func testWindowPerformKeyEquivalentDoesNotRouteHorizontalArrowsWhenPaletteOverlayIsTransparent() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -584,5 +684,22 @@ private final class CommandPaletteShortcutFieldEditor: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         keyDownKeyCodes.append(event.keyCode)
+    }
+}
+
+private final class CommandPaletteWorkspaceDescriptionArrowProbe: NSTextView {
+    var keyDownKeyCodes: [UInt16] = []
+    var replayWindow: NSWindow?
+    var replayNextKeyDown = false
+
+    override func hasMarkedText() -> Bool {
+        false
+    }
+
+    override func keyDown(with event: NSEvent) {
+        keyDownKeyCodes.append(event.keyCode)
+        guard replayNextKeyDown, let replayWindow else { return }
+        replayNextKeyDown = false
+        _ = replayWindow.performKeyEquivalent(with: event)
     }
 }
