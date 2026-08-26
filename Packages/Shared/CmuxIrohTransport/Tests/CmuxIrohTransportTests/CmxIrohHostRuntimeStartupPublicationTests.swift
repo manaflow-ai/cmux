@@ -13,6 +13,21 @@ extension CmxIrohHostRuntime {
             await task.value
         }
     }
+
+    /// Awaits only the ready gate task, without draining refresh rounds, so a
+    /// test can observe the gate handing its deferred publication to an
+    /// in-flight round that is deliberately parked at the broker.
+    func waitForInitialPublicationGateForTesting() async {
+        await initialPublicationTask?.value
+    }
+
+    /// Awaits every scheduled refresh round, including coalesced replays,
+    /// without touching the ready gate.
+    func waitForRegistrationRefreshRoundsForTesting() async {
+        while let task = registrationRefreshTask {
+            await task.value
+        }
+    }
 }
 
 extension TestIrohEndpoint {
@@ -336,6 +351,98 @@ extension CmxIrohHostRuntimeTests {
         #expect(await broker.observedRegistrationCount() == 2)
         #expect(await bindings.count() == 0)
         #expect(await routes.values().isEmpty)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    /// A refresh round that observes the deferred first publication while the
+    /// relay is unusable must re-arm the ready gate. The gate consumes itself
+    /// by handing the publication to an in-flight round; when that round then
+    /// finds readiness lost (relay profile rotation un-latches it without a
+    /// health event) and the binding is too stale to arm a renewal deadline,
+    /// no owner remains: a relay that silently becomes usable again (a
+    /// reconnect iroh does not re-announce) would never publish the binding.
+    @Test("a not-ready refresh re-arms the ready gate for the deferred first publication")
+    func notReadyRefreshReArmsTheReadyGateForTheDeferredFirstPublication() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        // Stale enough that neither binding freshness nor hint expiry can arm
+        // a registration renewal deadline.
+        let staleBinding = try HostRuntimeFixture.binding(
+            endpointID: fixture.endpointID.endpointID,
+            lastSeenAt: now.addingTimeInterval(-24 * 60 * 60)
+        )
+        let staleDiscovery = try HostRuntimeFixture.discovery(
+            binding: staleBinding,
+            relays: HostRuntimeFixture.relayURLs
+        )
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let registrationGate = HostRuntimeRegistrationGate()
+        let broker = TestIrohHostBroker(
+            registrationBinding: staleBinding,
+            discovery: staleDiscovery,
+            subsequentRegistrationHook: { await registrationGate.waitOnce() }
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let bindings = HostRuntimeBindingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            relayReadinessTimeout: .milliseconds(20),
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
+        )
+
+        try await runtime.start()
+        #expect(await bindings.count() == 0)
+        // The activation ready gate times out its first readiness wait and
+        // parks in its backoff on the injected clock.
+        await clock.waitUntilSleepCount(1)
+
+        // The home relay comes up. The network-change refresh starts and
+        // parks at the broker; the woken gate hands its deferred publication
+        // to that in-flight round and consumes itself.
+        await endpoint.emit(.online)
+        #expect(await broker.waitForRegistrationCount(2, timeout: .seconds(5)))
+        clock.advance(to: try #require(clock.observedSleepDeadlines().last))
+        await runtime.waitForInitialPublicationGateForTesting()
+
+        // A relay profile rotation un-latches readiness. The endpoint address
+        // is unchanged, so no network-change round is published: the parked
+        // round is the last owner of the deferred first publication.
+        try await runtime.replaceRelayProfile(
+            fixture.configuration.resolvedEndpointRelayProfile(debugOverride: nil)
+        )
+
+        // The parked round resumes and correctly refuses to publish while the
+        // relay is unusable.
+        await registrationGate.open()
+        await runtime.waitForRegistrationRefreshRoundsForTesting()
+        #expect(await bindings.count() == 0)
+
+        // The relay becomes usable again with no health event. Only the
+        // re-armed ready gate can observe this; drive its readiness backoff
+        // on the injected clock until the publication lands.
+        await endpoint.setPathHints([try HostRuntimeFixture.usableRelayHint()])
+        var advancedDeadlineCount = clock.observedSleepDeadlines().count
+        var published = false
+        for _ in 0 ..< 10 {
+            if await bindings.waitForCount(1, timeout: .milliseconds(500)) {
+                published = true
+                break
+            }
+            let deadlines = clock.observedSleepDeadlines()
+            if deadlines.count > advancedDeadlineCount, let last = deadlines.last {
+                advancedDeadlineCount = deadlines.count
+                clock.advance(to: last)
+            }
+        }
+        #expect(published)
         #expect(await runtime.snapshot().state == .active)
         await runtime.stop()
     }
