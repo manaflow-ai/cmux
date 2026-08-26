@@ -12109,8 +12109,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 dragState.setDropIndicator(indicator)
             }
         )
-        actions.workspaceIdForDrag = { [weak tabManager] rowId, fallbackId in
-            guard case .group(let groupId) = rowId else { return fallbackId }
+        actions.workspaceIdForDrag = { [weak tabManager] groupId, fallbackId in
+            guard let groupId else { return fallbackId }
             return tabManager?.workspaceGroupAnchor(for: groupId)?.id ?? fallbackId
         }
         return actions
