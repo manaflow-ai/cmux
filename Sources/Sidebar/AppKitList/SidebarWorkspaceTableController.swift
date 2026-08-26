@@ -860,6 +860,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Only the group-header row represents the anchor. A grouped member
         // carries the same groupId but must remain independently draggable.
         guard let workspaceId = workspaceIdForDrag(rowConfiguration, actions: actions) else {
+            // No native drag session was created, so the per-session map has
+            // no end callback that could retire it. Let the next attempt
+            // resolve a newly-promoted anchor instead of reusing this failed
+            // snapshot.
+            dragWorkspaceGroupAnchorIds = nil
             return nil
         }
         actions.beginWorkspaceDrag(workspaceId)
