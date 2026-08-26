@@ -140,6 +140,71 @@ struct AgentStateScannerTests {
         )
     }
 
+    /// The real screen from a spend-limited pane. The notice renders as the
+    /// result of a shell command, not as the assistant's message, so the Stop
+    /// hook's `last_assistant_message` never carries it - the screen is the
+    /// only place it exists.
+    @Test func aSettledScreenShowingABudgetBannerIsAnErrorNotAFinishedTurn() {
+        let screen = """
+        Ran 1 shell command
+          You've hit your monthly spend limit · your session limit resets 3pm (Europe/Ljubljana)
+          /usage-credits to adjust your monthly spend limit.
+        ✳ Cooked for 34m 42s · done 1:43 PM
+        """
+        #expect(AgentStateScanner.screenShowsLimitBanner(screen))
+        #expect(AgentStateScanner.settledPhase(screen: screen) == .error)
+
+        let draft = AgentStateScanner.staleRunningEvent(
+            agentKey: "claude_code",
+            sessionId: nil,
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            occurredAtMs: 1,
+            eventId: "event-1",
+            phase: .error
+        )
+        #expect(draft.declaredPhase == .error)
+
+        // And it reduces to error, so the pane goes red rather than green.
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+        reducer.apply(
+            AgentJournalEvent(sequence: 1, committedAtMs: 1, draft: draft),
+            to: &state
+        )
+        #expect(
+            state.combinedPhase(surfaceId: draft.surfaceId ?? "", agentKey: "claude_code") == .error
+        )
+    }
+
+    /// An ordinarily finished turn still settles to idle - the banner check must
+    /// not turn every completed pane red.
+    @Test func aSettledScreenWithoutABannerIsStillIdle() {
+        let screen = """
+        TL;DR: Created the design-system project and pushed all 23 cards.
+        ✳ Cogitated for 1m 7s
+        ❯
+        """
+        #expect(!AgentStateScanner.screenShowsLimitBanner(screen))
+        #expect(AgentStateScanner.settledPhase(screen: screen) == .idle)
+    }
+
+    /// Only budget phrases, never the shared error cue: this reads agent
+    /// screens, and agents discuss errors, failures and exceptions constantly.
+    @Test func ordinaryErrorProseIsNotABudgetBanner() {
+        for prose in [
+            "Fixed the error in the parser and all tests pass",
+            "The build failed with exception NullPointer",
+            "Raised the rate limit in the config",
+            "Investigating why the request errored",
+        ] {
+            #expect(
+                !AgentStateScanner.screenShowsLimitBanner(prose),
+                "\"\(prose)\" must not read as a budget banner"
+            )
+        }
+    }
+
     /// The retirement is journaled as an explicit idle assertion, which is the
     /// only kind the reducer honours a declared phase for. A different kind
     /// would be recorded and then silently ignored.

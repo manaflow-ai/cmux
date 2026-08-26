@@ -105,12 +105,19 @@ final class AgentStateScannerRunner {
                     continue
                 }
                 retired.insert(key)
+                // A settled screen showing a budget banner is not a finished
+                // turn: the agent stopped because it cannot continue. The hooks
+                // cannot see this - the notice is rendered as command output,
+                // not as the assistant's message - so the screen is the only
+                // place it exists.
+                let phase = AgentStateScanner.settledPhase(screen: screen)
                 for agentKey in correctableKeys.sorted() {
                     emitStale(
                         workspace: workspace,
                         panelId: panelId,
                         agentKey: agentKey,
-                        now: now
+                        now: now,
+                        phase: phase
                     )
                 }
             }
@@ -126,7 +133,8 @@ final class AgentStateScannerRunner {
         workspace: Workspace,
         panelId: UUID,
         agentKey: String,
-        now: TimeInterval
+        now: TimeInterval,
+        phase: AgentLifecyclePhase
     ) {
         let draft = AgentStateScanner.staleRunningEvent(
             agentKey: agentKey,
@@ -134,14 +142,15 @@ final class AgentStateScannerRunner {
             workspaceId: workspace.id.uuidString,
             surfaceId: panelId.uuidString,
             occurredAtMs: Int64(now * 1000),
-            eventId: UUID().uuidString
+            eventId: UUID().uuidString,
+            phase: phase
         )
         guard let data = try? JSONEncoder().encode(draft),
               let json = String(data: data, encoding: .utf8) else { return }
         _ = AgentJournalLifecycleCenter.shared.handleAppendCommand(json)
 #if DEBUG
         cmuxDebugLog(
-            "agentScan.staleRunning surface=\(panelId.uuidString.prefix(8)) key=\(agentKey)"
+            "agentScan.settled surface=\(panelId.uuidString.prefix(8)) key=\(agentKey) phase=\(phase.rawValue)"
         )
 #endif
     }

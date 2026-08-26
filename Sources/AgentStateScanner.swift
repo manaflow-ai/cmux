@@ -99,6 +99,36 @@ enum AgentStateScanner {
         return keys.sorted()
     }
 
+    /// Phrases an agent prints when it stops because the account is out of
+    /// budget.
+    ///
+    /// Whole phrases, and only budget ones. The shared error/quota cue would be
+    /// disastrous here: agents discuss errors, failures and exceptions
+    /// constantly, and this reads their screen. Even so these are only consulted
+    /// once a screen has gone still, so an agent *writing* about spend limits
+    /// while working is never flagged — its screen is still moving.
+    static let limitBannerPhrases = [
+        "monthly spend limit",
+        "spend limit reached",
+        "usage limit reached",
+        "hit your usage limit",
+        "out of credits",
+    ]
+
+    /// Whether a settled screen is showing a budget banner rather than a
+    /// finished turn.
+    static func screenShowsLimitBanner(_ screen: String) -> Bool {
+        let lowered = screen.lowercased()
+        return limitBannerPhrases.contains { lowered.contains($0) }
+    }
+
+    /// The phase a settled screen resolves to: an agent stopped by its budget
+    /// has not finished its work, it cannot continue, so it reads as an error
+    /// rather than as ready.
+    static func settledPhase(screen: String) -> AgentLifecyclePhase {
+        screenShowsLimitBanner(screen) ? .error : .idle
+    }
+
     /// The journal event that retires a stale `running`.
     ///
     /// A `stateChanged` asserting `idle`, which is the one kind the reducer
@@ -112,7 +142,8 @@ enum AgentStateScanner {
         workspaceId: String,
         surfaceId: String,
         occurredAtMs: Int64,
-        eventId: String
+        eventId: String,
+        phase: AgentLifecyclePhase = .idle
     ) -> AgentJournalEventDraft {
         AgentJournalEventDraft(
             eventId: eventId,
@@ -123,8 +154,8 @@ enum AgentStateScanner {
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            declaredPhase: .idle,
-            detail: "stale-running-screen-still"
+            declaredPhase: phase,
+            detail: phase == .error ? "screen-shows-limit-banner" : "stale-running-screen-still"
         )
     }
 }
