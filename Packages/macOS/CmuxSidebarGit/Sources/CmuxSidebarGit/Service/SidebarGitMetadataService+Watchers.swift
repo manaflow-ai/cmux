@@ -351,7 +351,10 @@ extension SidebarGitMetadataService {
                 isDirectory: &isDirectory
             ),
                isDirectory.boolValue {
-                return candidate.standardizedFileURL.path
+                return candidate
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
+                    .path
             }
             candidate.deleteLastPathComponent()
         }

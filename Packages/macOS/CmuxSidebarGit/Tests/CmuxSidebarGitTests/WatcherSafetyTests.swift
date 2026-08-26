@@ -126,7 +126,12 @@ import CmuxGit
         )
         #expect(appliedLog.contains("workspace.gitWatch.degraded"))
         #expect(installedWatcherKey.eventFilterIdentity == "fresh")
-        #expect(service.workspaceGitMetadataCreationWatchersByAncestor["/tmp"] != nil)
+        let creationWatchAncestor = URL(fileURLWithPath: "/tmp")
+            .resolvingSymlinksInPath()
+            .path
+        #expect(
+            service.workspaceGitMetadataCreationWatchersByAncestor[creationWatchAncestor] != nil
+        )
         #expect(await descriptorReader.requestCount == 2)
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
@@ -198,8 +203,11 @@ import CmuxGit
         _ = try #require(await logIterator.next())
 
         #expect(service.workspaceGitMetadataCreationWatchersByAncestor.count == 1)
+        let creationWatchAncestor = configDirectory
+            .resolvingSymlinksInPath()
+            .path
         #expect(
-            service.workspaceGitMetadataCreationWatchTargetsByAncestor[configDirectory.path]
+            service.workspaceGitMetadataCreationWatchTargetsByAncestor[creationWatchAncestor]
                 == Set([firstPath, secondPath])
         )
         service.stopWorkspaceGitMetadataWatcher(for: key)
