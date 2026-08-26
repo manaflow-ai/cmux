@@ -35,6 +35,93 @@ struct CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    /// A fresh Mac host (no verified cached policy) must not dial a managed,
+    /// admission-gated relay before its broker registration is acknowledged:
+    /// the relay's allow hook denies an unregistered endpoint and negatively
+    /// caches the deny, costing the whole first activation. The endpoint
+    /// binds relay-less and the managed relays are installed only after
+    /// registration returns.
+    @Test
+    func freshHostWithholdsManagedRelaysUntilRegistrationIsAcknowledged() async throws {
+        let fixture = try HostRuntimeFixture()
+        let registrationGate = HostRuntimeRegistrationGate()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationHook: {
+                await registrationGate.waitOnce()
+                return true
+            }
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        let start = Task { try await runtime.start() }
+        #expect(await broker.waitForRegistrationCount(1, timeout: .seconds(5)))
+        // The endpoint is bound and its registration is held in flight: no
+        // managed relay may be active at bind or installed yet.
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(boundConfigurations.first?.relayProfile.activeRelays.isEmpty == true)
+        #expect(boundConfigurations.first?.relayProfile.allowedRelayURLs.isEmpty == true)
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+
+        await registrationGate.open()
+        try await start.value
+
+        let updates = await endpoint.observedRelayProfileUpdates()
+        #expect(updates.count == 1)
+        #expect(updates.first?.allowedRelayURLs == fixture.managedRelays)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    /// A verified cached policy proves the broker already acknowledged this
+    /// endpoint, so cache-first activation keeps the managed relays installed
+    /// at bind and performs no post-registration relay swap. This pins the
+    /// warm ~20ms start path of the cache-first design.
+    @Test
+    func cachedPolicyKeepsManagedRelaysInstalledAtBind() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let cachedPolicy = try cachedFixture.policy()
+        let endpoint = try fixture.relayReadyEndpoint()
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
+
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(
+            boundConfigurations.first?.relayProfile.allowedRelayURLs
+                == fixture.managedRelays
+        )
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
     @Test("direct-only startup does not wait for relay readiness")
     func directOnlyStartupSkipsRelayReadiness() async throws {
         let fixture = try HostRuntimeFixture()
@@ -777,12 +864,21 @@ actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
     private var closed = false
     private var closeCallCount = 0
+    private var relayProfileUpdates: [CmxIrohEndpointRelayProfile] = []
 
     init(identity: CmxIrohPeerIdentity) {
         peerIdentity = identity
         let stream = AsyncStream<CmxIrohEndpointHealthEvent>.makeStream()
         health = stream.stream
         healthContinuation = stream.continuation
+    }
+
+    func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) {
+        relayProfileUpdates.append(profile)
+    }
+
+    func observedRelayProfileUpdates() -> [CmxIrohEndpointRelayProfile] {
+        relayProfileUpdates
     }
 
     func identity() -> CmxIrohPeerIdentity { peerIdentity }
