@@ -35,6 +35,11 @@ extension CMUXCLI {
         /// Base — the single persistent cloud workspace — is pinned to the top and
         /// bound as base so the sidebar cloud button reuses it.
         var pinAsBase: Bool = false
+        /// `vm tui` only: the pane execs the full cmux-tui client (its own workspaces and
+        /// panes). Every other open lands a plain terminal on the machine — the app
+        /// creates one in the machine's session and attaches just that terminal, like an
+        /// ssh session — so nothing here needs a local client.
+        var fullClient: Bool = false
     }
 
     struct VMTuiDeviceRecord: Codable {
@@ -49,10 +54,12 @@ extension CMUXCLI {
         """
         Usage: cmux vm tui <id> [--window <id|ref|index>]
 
-        Open a workspace attached to the machine's cmux-tui remote daemon. The pane
-        runs the local cmux-tui client against the machine's authenticated link; the
-        first attach from this Mac enrolls the device (approved by cmux), later
-        attaches reconnect with the stored device key.
+        Open the FULL cmux-tui client for a machine (its own workspaces, panes and
+        tabs) in a pane. `cmux vm shell <id>` and every other open give you a plain
+        terminal on the machine instead; use this when you want the client itself.
+        The pane runs the local cmux-tui client against the machine's authenticated
+        link; the first attach from this Mac enrolls the device (approved by cmux),
+        later attaches reconnect with the stored device key.
 
         The client binary is found via CMUX_TUI_CLIENT, then ~/.cmux/bin/cmux, then
         `cmux-tui` on PATH. Install one with:
@@ -214,7 +221,16 @@ extension CMUXCLI {
         let terminalSurfaceId: String?
         let session: String
         let enrolling: Bool
+        /// The machine-side terminal the pane shows (`term_…`) and its cmux-tui
+        /// workspace (`ws_…`); nil for `vm tui`, whose pane is the whole client.
+        let terminalId: String?
+        let remoteWorkspaceId: String?
     }
+
+    /// What the placeholder pane runs while the app opens the machine's terminal beside
+    /// it: `vm.terminal_new` splits the workspace's focused pane, so the placeholder has to
+    /// stay alive until that split lands; it is closed right after.
+    static let vmPlainTerminalPlaceholderCommand = "sleep 60"
 
     /// The shared cloud open path (`vmOpenShell`) calls this first for every entrypoint.
     /// Returns nil only when the control plane says the machine's deployment does not
@@ -261,7 +277,12 @@ extension CMUXCLI {
         guard let vmId = rest.first(where: { !$0.hasPrefix("-") }), !vmId.isEmpty else {
             throw CLIError(message: Self.vmTuiUsage)
         }
-        let opened = try openVMTuiWorkspace(vmId: vmId, windowRaw: windowRaw, client: client)
+        let opened = try openVMTuiWorkspace(
+            vmId: vmId,
+            windowRaw: windowRaw,
+            options: VMTuiOpenOptions(fullClient: true),
+            client: client
+        )
         if jsonOutput {
             print(jsonString([
                 "ok": true,
@@ -307,7 +328,9 @@ extension CMUXCLI {
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }
-        guard let clientPath, let clientProbe else {
+        // The plain-terminal path runs the app's bundled client, so a missing local
+        // client only matters for `vm tui` (the pane execs it).
+        if options.fullClient, clientPath == nil || clientProbe == nil {
             let searched = cmuxTuiClientCandidates().joined(separator: ", ")
             let template = CMUXDiffViewerLocalization.string(
                 "cli.vm.tui.clientMissingSearched",
@@ -316,31 +339,37 @@ extension CMUXCLI {
             throw CLIError(message: String(format: template, searched))
         }
         logVMTiming("cmux_remote_info", vmID: vmId, transport: "cmux-remote", startedAt: startedAt)
-        try Self.checkCmuxTuiCompatibility(client: clientProbe, daemon: info["daemon_build"] as? [String: Any])
+        if let clientProbe {
+            try Self.checkCmuxTuiCompatibility(client: clientProbe, daemon: info["daemon_build"] as? [String: Any])
+        }
         let session = (info["session"] as? String) ?? "cloud"
         let invitation = info["invitation"] as? [String: Any]
         let invitationUri = invitation?["uri"] as? String
         let invitationId = invitation?["invitation_id"] as? String
 
-        let stateDir = Self.vmTuiClientStateDir()
-        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let config = VMTuiConnectConfig(
-            vmId: vmId,
-            route: route,
-            session: session,
-            invitationUri: invitationUri,
-            invitationId: invitationId,
-            clientPath: clientPath,
-            stateDir: stateDir.path,
-            deviceName: Self.vmTuiDeviceName()
-        )
-        let configURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vm-tui-\(UUID().uuidString.lowercased()).json")
-        try JSONEncoder().encode(config).write(to: configURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-
-        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let initialCommand = "\(shellQuote(executablePath)) vm-tui-connect --config \(shellQuote(configURL.path))"
+        let initialCommand: String
+        if options.fullClient, let clientPath {
+            let stateDir = Self.vmTuiClientStateDir()
+            try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let config = VMTuiConnectConfig(
+                vmId: vmId,
+                route: route,
+                session: session,
+                invitationUri: invitationUri,
+                invitationId: invitationId,
+                clientPath: clientPath,
+                stateDir: stateDir.path,
+                deviceName: Self.vmTuiDeviceName()
+            )
+            let configURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-vm-tui-\(UUID().uuidString.lowercased()).json")
+            try JSONEncoder().encode(config).write(to: configURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
+            let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+            initialCommand = "\(shellQuote(executablePath)) vm-tui-connect --config \(shellQuote(configURL.path))"
+        } else {
+            initialCommand = Self.vmPlainTerminalPlaceholderCommand
+        }
         let workspaceId: String
         let workspaceRef: String?
         let windowId: String?
@@ -391,6 +420,36 @@ extension CMUXCLI {
             }
             throw error
         }
+        var paneSurfaceId = terminalSurfaceId
+        var terminalId: String?
+        var remoteWorkspaceId: String?
+        if !options.fullClient {
+            // The pane is a plain terminal on the machine: the app creates one in the
+            // machine's cmux-tui session over its headless link and attaches just that
+            // terminal (`attach --terminal`) beside the placeholder, which is then closed.
+            // Same path the Cloud tree uses, so the terminal shows up there as open.
+            let terminalStartedAt = Date()
+            do {
+                let opened = try client.sendV2(
+                    method: "vm.terminal_new",
+                    params: ["id": vmId, "open": true, "local_workspace_id": workspaceId, "focus": true, "name": "shell"],
+                    responseTimeout: 180
+                )
+                terminalId = opened["terminal_id"] as? String
+                remoteWorkspaceId = opened["workspace_id"] as? String
+                let newSurface = (opened["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                if let placeholder = terminalSurfaceId, !placeholder.isEmpty, placeholder != newSurface {
+                    _ = try? client.sendV2(method: "surface.close", params: ["workspace_id": workspaceId, "surface_id": placeholder])
+                }
+                paneSurfaceId = newSurface ?? terminalSurfaceId
+            } catch {
+                if didCreateWorkspace {
+                    _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                }
+                throw error
+            }
+            logVMTiming("terminal_new", vmID: vmId, transport: "cmux-remote", startedAt: terminalStartedAt)
+        }
         var selectParams: [String: Any] = ["workspace_id": workspaceId]
         if let windowId, !windowId.isEmpty {
             selectParams["window_id"] = windowId
@@ -407,9 +466,11 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             workspaceRef: workspaceRef,
             windowId: windowId,
-            terminalSurfaceId: terminalSurfaceId,
+            terminalSurfaceId: paneSurfaceId,
             session: session,
-            enrolling: invitationUri != nil
+            enrolling: invitationUri != nil,
+            terminalId: terminalId,
+            remoteWorkspaceId: remoteWorkspaceId
         )
     }
 
@@ -722,21 +783,44 @@ extension CMUXCLI {
         if let diskMb = vmTreeNumber(machine["disk_mb"]), diskMb > 0 {
             facts.append(String(format: String(localized: "cli.vm.tree.disk", defaultValue: "%.0f GB disk"), diskMb / 1024))
         }
-        if let link = machine["link"] as? [String: Any], let state = link["state"] as? String, !state.isEmpty {
-            facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@"), state))
-            if let error = link["error"] as? String, !error.isEmpty {
-                facts.append(error)
-            }
+        let link = machine["link"] as? [String: Any]
+        let linkState = (link?["state"] as? String) ?? ""
+        let linkError = (link?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if !linkState.isEmpty {
+            facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@"), linkState))
         }
         lines.append(facts.isEmpty ? "\(id)  \(status)" : "\(id)  \(status)  · " + facts.joined(separator: " · "))
 
         lines.append("  " + String(localized: "cli.vm.tree.workspaces", defaultValue: "workspaces/"))
         let workspaces = (machine["workspaces"] as? [[String: Any]]) ?? []
-        if workspaces.isEmpty {
+        // The link state decides what an empty workspace list means: a machine that is
+        // asleep, still connecting, or whose link failed has workspaces the tree simply
+        // cannot see yet, and hiding that behind "none yet" hides the failure.
+        switch linkState {
+        case "connecting":
+            lines.append("    " + String(localized: "cli.vm.tree.link.connecting", defaultValue: "connecting…"))
+        case "asleep":
             lines.append("    " + String(
-                format: String(localized: "cli.vm.tree.noWorkspaces", defaultValue: "(none yet — cmux vm open %@ starts one)"),
+                format: String(localized: "cli.vm.tree.link.asleep", defaultValue: "asleep — cmux vm open %@ wakes it"),
                 id
             ))
+        case "error", "unavailable":
+            lines.append("    " + String(
+                format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@"),
+                linkState,
+                linkError ?? linkState
+            ))
+            lines.append("    " + String(
+                format: String(localized: "cli.vm.tree.link.retry", defaultValue: "retry: cmux vm tree %@ --refresh"),
+                id
+            ))
+        default:
+            if workspaces.isEmpty {
+                lines.append("    " + String(
+                    format: String(localized: "cli.vm.tree.noWorkspaces", defaultValue: "(none yet — cmux vm open %@ starts one)"),
+                    id
+                ))
+            }
         }
         for workspace in workspaces {
             let workspaceId = (workspace["id"] as? String) ?? "?"

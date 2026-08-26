@@ -12723,7 +12723,7 @@ struct CMUXCLI {
             client: client
         ) {
             logVMTiming("attach_info", vmID: id, transport: "cmux-remote", startedAt: attachInfoStartedAt)
-            var payload: [String: Any] = [
+            let payload: [String: Any] = [
                 "ok": true,
                 "vm_id": id,
                 "workspace_id": opened.workspaceId,
@@ -33520,7 +33520,7 @@ export default CMUXSessionRestore;
         } else {
             Self.subcommandActions[subcommand] ?? .noop
         }
-        var hookResponse = cursorShellNeedsApproval
+        let hookResponse = cursorShellNeedsApproval
             ? AgentHookNotificationPolicy.cursorNativeApprovalResponse
             : "{}"
 #if DEBUG
@@ -36115,7 +36115,7 @@ export default CMUXSessionRestore;
             event["tool_input"] = source == "cursor"
                 ? sanitizedCursorFeedToolInput(toolInput)
                 : toolInput
-        } else if let cursorShellCommand {
+        } else if cursorShellCommand != nil {
             event["tool_input"] = [
                 "command": "<redacted>"
             ]
