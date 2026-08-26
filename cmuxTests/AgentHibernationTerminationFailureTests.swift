@@ -351,5 +351,6 @@ struct AgentHibernationTerminationFailureTests {
         )
 
         #expect(record.hasPressureSafeProcessEvidence == false)
+        #expect(record.processSafetyAllowsHibernation(for: .systemMemoryPressure))
     }
 }
