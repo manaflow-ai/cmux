@@ -702,6 +702,8 @@ final class WindowTerminalPortal: NSObject {
     private var rootBackdropExclusionRectsByHostedId: [ObjectIdentifier: NSRect] = [:]
     /// Coalesces aggregate root-mask publication while many pane callbacks arrive in one turn.
     private let rootBackdropExclusionScheduler = MainActorDeferredActionScheduler()
+    /// Suppresses per-pane root-mask publication while the portal detaches all entries.
+    private var isTearingDown = false
     /// Hosted views arrive from SwiftUI hosting with a flexible autoresizing
     /// mask; adoption clears it (see bind) and detach restores this saved
     /// value so the view resumes its normal AppKit life.
@@ -1532,7 +1534,11 @@ final class WindowTerminalPortal: NSObject {
         } else {
             preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId)
         }
-        reconcileRootBackdropExclusion(forHostedId: hostedId)
+        if isTearingDown {
+            rootBackdropExclusionRectsByHostedId.removeValue(forKey: hostedId)
+        } else {
+            reconcileRootBackdropExclusion(forHostedId: hostedId)
+        }
     }
 
     /// Hide a portal entry for permanent workspace unmounts without detaching it.
@@ -2384,9 +2390,16 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func tearDown() {
+        guard !isTearingDown else { return }
+        isTearingDown = true
         removeGeometryObservers()
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
+        }
+        isTearingDown = false
+        rootBackdropExclusionScheduler.cancel()
+        if updateRootBackdropExclusionCache() {
+            publishRootBackdropExclusions()
         }
         hostView.removeFromSuperview()
         installedContainerView = nil

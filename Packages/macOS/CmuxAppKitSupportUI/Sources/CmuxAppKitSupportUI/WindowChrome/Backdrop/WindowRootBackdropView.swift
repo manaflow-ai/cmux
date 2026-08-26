@@ -10,6 +10,14 @@ final class WindowRootBackdropView: NSView {
     private var exclusionRectsInWindow: [NSRect] = []
     private var backdropColorIsOpaque = false
     private var hasVisibleExclusions = false
+    /// Changes whenever exclusion or installation geometry inputs change, so
+    /// repeated AppKit layout callbacks can skip rebuilding the mask path.
+    private var maskInputGeneration: UInt64 = 0
+    private var lastBuiltMaskInputGeneration: UInt64?
+    private var lastMaskBounds: NSRect?
+    private var lastMaskLayerBounds: CGRect?
+    private var lastMaskFrameInWindow: NSRect?
+    private var lastMaskWindowID: ObjectIdentifier?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -76,6 +84,7 @@ final class WindowRootBackdropView: NSView {
         }
 
         guard didChangeInstallation else { return }
+        maskInputGeneration &+= 1
         needsLayout = true
         rebuildExclusionMask()
     }
@@ -113,11 +122,24 @@ final class WindowRootBackdropView: NSView {
             .sorted(by: rectSortsBefore)
         guard normalized != exclusionRectsInWindow else { return }
         exclusionRectsInWindow = normalized
+        maskInputGeneration &+= 1
         rebuildExclusionMask()
     }
 
     private func rebuildExclusionMask() {
         guard let rootLayer = layer else { return }
+        let currentWindowID = window.map(ObjectIdentifier.init)
+        let currentFrameInWindow: NSRect? = window == nil
+            ? nil
+            : convert(bounds, to: nil).standardized
+        let inputsUnchanged =
+            lastBuiltMaskInputGeneration == maskInputGeneration &&
+            lastMaskBounds == bounds &&
+            lastMaskLayerBounds == rootLayer.bounds &&
+            lastMaskFrameInWindow == currentFrameInWindow &&
+            lastMaskWindowID == currentWindowID
+        guard !inputsUnchanged else { return }
+
         let localRects: [NSRect]
         if window == nil {
             localRects = []
@@ -147,6 +169,12 @@ final class WindowRootBackdropView: NSView {
         exclusionMaskLayer.path = path
         rootLayer.isOpaque = isOpaque
         CATransaction.commit()
+
+        lastBuiltMaskInputGeneration = maskInputGeneration
+        lastMaskBounds = bounds
+        lastMaskLayerBounds = rootLayer.bounds
+        lastMaskFrameInWindow = currentFrameInWindow
+        lastMaskWindowID = currentWindowID
     }
 
     private func isFiniteVisibleRect(_ rect: NSRect) -> Bool {
