@@ -2,58 +2,6 @@ import CmuxTerminalCore
 import Foundation
 import Observation
 
-enum WorkspaceCapturedLinkOrigin: String, Codable, Hashable, Sendable {
-    case osc8
-    case detected
-
-    init(_ source: TerminalCapturedLink.Source) {
-        switch source {
-        case .osc8: self = .osc8
-        case .detected: self = .detected
-        }
-    }
-}
-
-enum WorkspaceLinkTitleFetchState: Hashable, Sendable {
-    case idle
-    case inFlight
-    case failed
-}
-
-struct WorkspaceCapturedLink: Identifiable, Equatable, Hashable, Sendable {
-    var id: UUID
-    var url: String
-    var hostKey: String?
-    var firstSeen: Date
-    var lastSeen: Date
-    var count: Int
-    var sourcePanelId: UUID?
-    var sourceSurfaceTitle: String?
-    var origin: WorkspaceCapturedLinkOrigin
-    var fetchedTitle: String?
-    var titleFetchState: WorkspaceLinkTitleFetchState = .idle
-}
-
-struct WorkspaceLinksIngestConfiguration: Equatable, Sendable {
-    var includeFilePaths: Bool
-    var ignoreHosts: [String]
-    var retentionLimit: Int
-
-    init(
-        includeFilePaths: Bool = false,
-        ignoreHosts: [String] = ["localhost:31034"],
-        retentionLimit: Int = 500
-    ) {
-        self.includeFilePaths = includeFilePaths
-        self.ignoreHosts = ignoreHosts
-        self.retentionLimit = Self.clampedRetentionLimit(retentionLimit)
-    }
-
-    static func clampedRetentionLimit(_ value: Int) -> Int {
-        min(max(value, 10), 10_000)
-    }
-}
-
 /// The workspace-owned URL capture state, isolated from unrelated workspace churn.
 @MainActor
 @Observable

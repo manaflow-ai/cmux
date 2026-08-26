@@ -68,14 +68,16 @@ end https://end.example/c
 
     @Test
     func stripsTrailingPunctuation() {
-        #expect(TerminalEmittedLinkScanner.detectURLs(in: "Go https://a.b/c, next") == ["https://a.b/c"])
-        #expect(TerminalEmittedLinkScanner.detectURLs(in: "Go https://a.b/c!?") == ["https://a.b/c"])
+        let scanner = TerminalEmittedLinkScanner()
+        #expect(scanner.detectURLs(in: "Go https://a.b/c, next") == ["https://a.b/c"])
+        #expect(scanner.detectURLs(in: "Go https://a.b/c!?") == ["https://a.b/c"])
     }
 
     @Test
     func balancesParentheses() {
-        #expect(TerminalEmittedLinkScanner.detectURLs(in: "(https://a.b/c)") == ["https://a.b/c"])
-        #expect(TerminalEmittedLinkScanner.detectURLs(in: "https://a.b/c_(d)") == ["https://a.b/c_(d)"])
+        let scanner = TerminalEmittedLinkScanner()
+        #expect(scanner.detectURLs(in: "(https://a.b/c)") == ["https://a.b/c"])
+        #expect(scanner.detectURLs(in: "https://a.b/c_(d)") == ["https://a.b/c_(d)"])
     }
 
     @Test
@@ -125,9 +127,10 @@ end https://end.example/c
 
     @Test
     func requiresPlausibleHostForDetectedURLs() {
-        #expect(TerminalEmittedLinkScanner.detectURLs(in: "http://example/path").isEmpty)
-        #expect(TerminalEmittedLinkScanner.detectURLs(in: "http://localhost:8080/path") == ["http://localhost:8080/path"])
-        #expect(TerminalEmittedLinkScanner.detectURLs(in: "http://127.0.0.1/path") == ["http://127.0.0.1/path"])
+        let scanner = TerminalEmittedLinkScanner()
+        #expect(scanner.detectURLs(in: "http://example/path").isEmpty)
+        #expect(scanner.detectURLs(in: "http://localhost:8080/path") == ["http://localhost:8080/path"])
+        #expect(scanner.detectURLs(in: "http://127.0.0.1/path") == ["http://127.0.0.1/path"])
     }
 
     private func bytes(_ string: String) -> [UInt8] {

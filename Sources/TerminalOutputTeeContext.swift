@@ -36,34 +36,20 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         var draining = false
     }
 
-    private struct QueuedCapturedLink: Sendable {
-        let link: TerminalCapturedLink
-        let settings: LinkCaptureSettingsSnapshot
-    }
-
-    private struct LinkForwardQueue {
-        var pending: [QueuedCapturedLink] = []
-        var draining = false
-        var released = false
-    }
-
     /// Confirmed turns arrive at most once per confirmation delay, so this
     /// cap can only trim a drain task that has been starved for many
     /// seconds; the newest completions win.
     private static let maximumBufferedLocalConfirmations = 8
-    private static let maximumBufferedCapturedLinks = 512
-
     let workspaceID: UUID
     let surfaceID: UUID
     let linkCaptureSettingsGate: TerminalLinkCaptureSettingsGate
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
-    private let linkCaptureIngress: TerminalLinkCaptureIngress
+    private let linkForwarder: TerminalCapturedLinkForwarder
     private var detectors: [DetectorBinding]
     private var linkScanner = TerminalEmittedLinkScanner()
     private var linkScannerNeedsReset = false
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
-    private let linkForwardQueue = OSAllocatedUnfairLock(initialState: LinkForwardQueue())
 
     init(
         workspaceID: UUID,
@@ -75,7 +61,11 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.linkCaptureSettingsGate = linkCaptureSettingsGate
-        self.linkCaptureIngress = linkCaptureIngress
+        self.linkForwarder = TerminalCapturedLinkForwarder(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            ingress: linkCaptureIngress
+        )
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -119,7 +109,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             noteLinkCaptureDisabled()
             return
         }
-        enqueueLinks(captured, settings: settings)
+        linkForwarder.enqueue(captured, settings: settings)
     }
 
     func noteLinkCaptureDisabled() {
@@ -127,10 +117,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func prepareForRelease() {
-        linkForwardQueue.withLock { state in
-            state.released = true
-            state.pending.removeAll()
-        }
+        linkForwarder.finish()
     }
 
     private func forwardDetectorChangeIfNeeded(
@@ -215,51 +202,4 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
     }
 
-    /// Bounds captured-link handoff work and keeps one MainActor drain task in
-    /// flight per surface, preserving capture order while avoiding task fanout.
-    private func enqueueLinks(
-        _ links: [TerminalCapturedLink],
-        settings: LinkCaptureSettingsSnapshot
-    ) {
-        let startDrain = linkForwardQueue.withLock { state in
-            guard !state.released else { return false }
-            for link in links {
-                state.pending.append(QueuedCapturedLink(link: link, settings: settings))
-            }
-            if state.pending.count > Self.maximumBufferedCapturedLinks {
-                state.pending.removeFirst(state.pending.count - Self.maximumBufferedCapturedLinks)
-            }
-            guard !state.draining else { return false }
-            state.draining = true
-            return true
-        }
-        guard startDrain else { return }
-        let workspaceID = workspaceID
-        let surfaceID = surfaceID
-        let linkForwardQueue = linkForwardQueue
-        let linkCaptureIngress = linkCaptureIngress
-        Task {
-            while true {
-                let next: QueuedCapturedLink? = linkForwardQueue.withLock { state in
-                    guard !state.released else {
-                        state.pending.removeAll()
-                        state.draining = false
-                        return nil
-                    }
-                    guard !state.pending.isEmpty else {
-                        state.draining = false
-                        return nil
-                    }
-                    return state.pending.removeFirst()
-                }
-                guard let next else { return }
-                await linkCaptureIngress.ingest(
-                    [next.link],
-                    workspaceID: workspaceID,
-                    sourcePanelId: surfaceID,
-                    settings: next.settings
-                )
-            }
-        }
-    }
 }

@@ -1,31 +1,5 @@
 public import Foundation
 
-/// A URL emitted by terminal output before terminal layout wrapping is applied.
-public struct TerminalCapturedLink: Equatable, Sendable {
-    /// The full URL string observed in the output stream.
-    public var url: String
-    /// The capture path that found the URL.
-    public var source: Source
-
-    /// Creates a captured terminal link.
-    ///
-    /// - Parameters:
-    ///   - url: The full URL string observed in terminal output.
-    ///   - source: The capture path that found the URL.
-    public init(url: String, source: Source) {
-        self.url = url
-        self.source = source
-    }
-
-    /// The capture path that found a URL.
-    public enum Source: String, Codable, Sendable {
-        /// An OSC-8 hyperlink URI from the raw byte stream.
-        case osc8
-        /// A plain URL detected in the reassembled logical output line.
-        case detected
-    }
-}
-
 /// Incrementally captures OSC-8 and plain URLs from raw terminal output bytes.
 ///
 /// The scanner is designed for Ghostty's synchronous PTY tee callback. It keeps
@@ -235,7 +209,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         }
         guard !overflowed, !osc8URIBuffer.isEmpty,
               let url = String(bytes: osc8URIBuffer, encoding: .utf8),
-              Self.isAllowedScheme(url) else {
+              isAllowedScheme(url) else {
             return
         }
         captured.append(TerminalCapturedLink(url: url, source: .osc8))
@@ -355,7 +329,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
               let line = String(bytes: logicalLine, encoding: .utf8) else {
             return
         }
-        for url in Self.detectURLs(in: line) {
+        for url in detectURLs(in: line) {
             captured.append(TerminalCapturedLink(url: url, source: .detected))
         }
     }
@@ -371,7 +345,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
     ///
     /// - Parameter line: One control-stripped terminal logical line.
     /// - Returns: URL substrings in encounter order.
-    public static func detectURLs(in line: String) -> [String] {
+    public func detectURLs(in line: String) -> [String] {
         guard !line.isEmpty else { return [] }
         var results: [String] = []
         var searchStart = line.startIndex
@@ -388,7 +362,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         return results
     }
 
-    private static func nextSchemeMatch(in line: String, from start: String.Index) -> String.Index? {
+    private func nextSchemeMatch(in line: String, from start: String.Index) -> String.Index? {
         let schemes = ["https://", "http://", "file://"]
         var best: String.Index?
         for scheme in schemes {
@@ -400,7 +374,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         return best
     }
 
-    private static func urlEnd(in line: String, from start: String.Index) -> String.Index {
+    private func urlEnd(in line: String, from start: String.Index) -> String.Index {
         var index = start
         var parenBalance = 0
         var bracketBalance = 0
@@ -426,7 +400,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         return index
     }
 
-    private static func trimTrailingPunctuation(_ raw: String) -> String {
+    private func trimTrailingPunctuation(_ raw: String) -> String {
         var result = raw
         while let last = result.last,
               ".,;:!?\"'".contains(last) {
@@ -441,7 +415,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         return result
     }
 
-    private static func closingCharacterIsUnbalanced(_ closing: Character, in string: String) -> Bool {
+    private func closingCharacterIsUnbalanced(_ closing: Character, in string: String) -> Bool {
         let opening: Character = closing == ")" ? "(" : "["
         var balance = 0
         for character in string {
@@ -451,7 +425,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         return balance < 0
     }
 
-    private static func isAcceptedDetectedURL(_ candidate: String) -> Bool {
+    private func isAcceptedDetectedURL(_ candidate: String) -> Bool {
         guard isAllowedScheme(candidate) else { return false }
         if candidate.lowercased().hasPrefix("file://") {
             return candidate.count > "file://".count
@@ -466,7 +440,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
             hostKey.contains(":")
     }
 
-    private static func isAllowedScheme(_ raw: String) -> Bool {
+    private func isAllowedScheme(_ raw: String) -> Bool {
         let lower = raw.lowercased()
         return lower.hasPrefix("https://") || lower.hasPrefix("http://") || lower.hasPrefix("file://")
     }

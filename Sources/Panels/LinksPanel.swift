@@ -1,14 +1,15 @@
 import AppKit
-import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class LinksPanel: Panel, ObservableObject {
+@Observable
+final class LinksPanel: Panel {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .links
 
-    private(set) weak var workspace: Workspace?
+    @ObservationIgnored private(set) weak var workspace: Workspace?
     let workspaceId: UUID
     let titleFetcher: LinkTitleFetcher
 
@@ -18,7 +19,7 @@ final class LinksPanel: Panel, ObservableObject {
 
     var displayIcon: String? { "link" }
 
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
     init(workspace: Workspace, titleFetcher: LinkTitleFetcher) {
         self.id = UUID()

@@ -1523,7 +1523,13 @@
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		C0DE10166000000000000015 /* LinkCaptureSettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000016 /* LinkCaptureSettingsSnapshot.swift */; };
 		C0DE10166000000000000017 /* LinksCaptureSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000018 /* LinksCaptureSettings.swift */; };
+		C0DE1016600000000000001B /* LinksPaneContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000001C /* LinksPaneContent.swift */; };
 		C0DE10166000000000000005 /* LinksPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000006 /* LinksPanel.swift */; };
+		C0DE10166000000000000021 /* LinksPanelDayBucket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000022 /* LinksPanelDayBucket.swift */; };
+		C0DE1016600000000000001D /* LinksPanelProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000001E /* LinksPanelProjection.swift */; };
+		C0DE10166000000000000025 /* LinksPanelRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000026 /* LinksPanelRow.swift */; };
+		C0DE10166000000000000023 /* LinksPanelRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000024 /* LinksPanelRowActions.swift */; };
+		C0DE1016600000000000001F /* LinksPanelSourceOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000020 /* LinksPanelSourceOption.swift */; };
 		C0DE10166000000000000007 /* LinksPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000008 /* LinksPanelView.swift */; };
 		C0DE1016600000000000000D /* LinkTitleFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000000E /* LinkTitleFetcher.swift */; };
 		D10799020000000000000001 /* LiveTabDragCapabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */; };
@@ -2178,6 +2184,7 @@
 		850000000000000000000002 /* SessionIndexTableViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000001 /* SessionIndexTableViewportTests.swift */; };
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
 		8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */; };
+		C0DE10166000000000000033 /* SessionLinksPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000034 /* SessionLinksPanelSnapshot.swift */; };
 		A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000010 /* SessionNotificationSnapshot.swift */; };
 		0A1208090000000000000001 /* SessionPersistedVaultAgentRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */; };
 		C0DE1016600000000000000B /* SessionPersistence+Links.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000000C /* SessionPersistence+Links.swift */; };
@@ -2586,6 +2593,8 @@
 		8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362A0040000000000000004 /* TerminalCallerTTYBinding.swift */; };
 		8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */; };
 		8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */; };
+		C0DE10166000000000000031 /* TerminalCapturedLinkForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000032 /* TerminalCapturedLinkForwarder.swift */; };
+		C0DE1016600000000000002F /* TerminalCapturedLinkForwardRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000030 /* TerminalCapturedLinkForwardRequest.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000002 /* TerminalClipboardInputSequencer+State.swift */; };
 		B88357000000000000000005 /* TerminalClipboardInputSequencer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000006 /* TerminalClipboardInputSequencer.swift */; };
@@ -3047,6 +3056,8 @@
 		A85630010000000000000002 /* WorkspaceAttentionColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85630010000000000000001 /* WorkspaceAttentionColor.swift */; };
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
 		CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */; };
+		C0DE1016600000000000002B /* WorkspaceCapturedLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000002C /* WorkspaceCapturedLink.swift */; };
+		C0DE10166000000000000027 /* WorkspaceCapturedLinkOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000028 /* WorkspaceCapturedLinkOrigin.swift */; };
 		B2929B53F4CC4C9D972771EC /* WorkspaceChecklistAttachmentQuickLookController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */; };
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
 		D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */; };
@@ -3080,8 +3091,10 @@
 		A17C0A110000000000000001 /* WorkspaceInitialCommandLoginShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0A110000000000000002 /* WorkspaceInitialCommandLoginShell.swift */; };
 		B63E1257BB174740A44F458C /* WorkspaceIsStaleAgentHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */; };
 		CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */; };
+		C0DE1016600000000000002D /* WorkspaceLinksIngestConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000002E /* WorkspaceLinksIngestConfiguration.swift */; };
 		C0DE10166000000000000001 /* WorkspaceLinksState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000002 /* WorkspaceLinksState.swift */; };
 		C0DE10166000000000000011 /* WorkspaceLinksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10166000000000000012 /* WorkspaceLinksTests.swift */; };
+		C0DE10166000000000000029 /* WorkspaceLinkTitleFetchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1016600000000000002A /* WorkspaceLinkTitleFetchState.swift */; };
 		A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */; };
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
 		E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */; };
@@ -4671,7 +4684,13 @@
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
 		C0DE10166000000000000016 /* LinkCaptureSettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/LinkCaptureSettingsSnapshot.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000018 /* LinksCaptureSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/LinksCaptureSettings.swift; sourceTree = "<group>"; };
+		C0DE1016600000000000001C /* LinksPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPaneContent.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000006 /* LinksPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/LinksPanel.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000022 /* LinksPanelDayBucket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelDayBucket.swift; sourceTree = "<group>"; };
+		C0DE1016600000000000001E /* LinksPanelProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelProjection.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000026 /* LinksPanelRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelRow.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000024 /* LinksPanelRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelRowActions.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000020 /* LinksPanelSourceOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/UI/LinksPanelSourceOption.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000008 /* LinksPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/LinksPanelView.swift; sourceTree = "<group>"; };
 		C0DE1016600000000000000E /* LinkTitleFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkTitleFetcher.swift; sourceTree = "<group>"; };
 		D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTabDragCapabilityResolver.swift; sourceTree = "<group>"; };
@@ -5320,6 +5339,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		850000000000000000000001 /* SessionIndexTableViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableViewportTests.swift; sourceTree = "<group>"; };
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexViewTests.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000034 /* SessionLinksPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLinksPanelSnapshot.swift; sourceTree = "<group>"; };
 		A5F100000000000000000010 /* SessionNotificationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionNotificationSnapshot.swift; sourceTree = "<group>"; };
 		0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistedVaultAgentRegistration.swift; sourceTree = "<group>"; };
 		C0DE1016600000000000000C /* SessionPersistence+Links.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistence+Links.swift"; sourceTree = "<group>"; };
@@ -5720,6 +5740,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		8362A0040000000000000004 /* TerminalCallerTTYBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYBinding.swift; sourceTree = "<group>"; };
 		8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYResolver.swift; sourceTree = "<group>"; };
 		8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYResolverTests.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000032 /* TerminalCapturedLinkForwarder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Capture/TerminalCapturedLinkForwarder.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000030 /* TerminalCapturedLinkForwardRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Capture/TerminalCapturedLinkForwardRequest.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		B8835A000000000000000002 /* TerminalClipboardInputSequencer+State.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalClipboardInputSequencer+State.swift"; sourceTree = "<group>"; };
 		B88357000000000000000006 /* TerminalClipboardInputSequencer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardInputSequencer.swift; sourceTree = "<group>"; };
@@ -6180,6 +6202,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A85630010000000000000001 /* WorkspaceAttentionColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionColor.swift; sourceTree = "<group>"; };
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
 		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCanvasHostView.swift"; sourceTree = "<group>"; };
+		C0DE1016600000000000002C /* WorkspaceCapturedLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceCapturedLink.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000028 /* WorkspaceCapturedLinkOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceCapturedLinkOrigin.swift; sourceTree = "<group>"; };
 		3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChecklistAttachmentQuickLookController.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
@@ -6213,8 +6237,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A17C0A110000000000000002 /* WorkspaceInitialCommandLoginShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceInitialCommandLoginShell.swift; sourceTree = "<group>"; };
 		B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceIsStaleAgentHookBindingTests.swift; sourceTree = "<group>"; };
 		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceLayoutMode.swift"; sourceTree = "<group>"; };
+		C0DE1016600000000000002E /* WorkspaceLinksIngestConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceLinksIngestConfiguration.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000002 /* WorkspaceLinksState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLinksState.swift; sourceTree = "<group>"; };
 		C0DE10166000000000000012 /* WorkspaceLinksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLinksTests.swift; sourceTree = "<group>"; };
+		C0DE1016600000000000002A /* WorkspaceLinkTitleFetchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/WorkspaceLinkTitleFetchState.swift; sourceTree = "<group>"; };
 		A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingArguments.swift; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
@@ -7559,6 +7585,19 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE1016600000000000000A /* TerminalLinkCaptureIngress.swift */,
 				C0DE1016600000000000001A /* TerminalLinkCaptureSettingsGate.swift */,
 				C0DE1016600000000000000E /* LinkTitleFetcher.swift */,
+				C0DE1016600000000000001C /* LinksPaneContent.swift */,
+				C0DE1016600000000000001E /* LinksPanelProjection.swift */,
+				C0DE10166000000000000020 /* LinksPanelSourceOption.swift */,
+				C0DE10166000000000000022 /* LinksPanelDayBucket.swift */,
+				C0DE10166000000000000024 /* LinksPanelRowActions.swift */,
+				C0DE10166000000000000026 /* LinksPanelRow.swift */,
+				C0DE10166000000000000028 /* WorkspaceCapturedLinkOrigin.swift */,
+				C0DE1016600000000000002A /* WorkspaceLinkTitleFetchState.swift */,
+				C0DE1016600000000000002C /* WorkspaceCapturedLink.swift */,
+				C0DE1016600000000000002E /* WorkspaceLinksIngestConfiguration.swift */,
+				C0DE10166000000000000030 /* TerminalCapturedLinkForwardRequest.swift */,
+				C0DE10166000000000000032 /* TerminalCapturedLinkForwarder.swift */,
+				C0DE10166000000000000034 /* SessionLinksPanelSnapshot.swift */,
 				0A1107110000000000000021 /* VaultAgentProcessScanner+Ollama.swift */,
 				0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */,
 				0A1107110000000000000023 /* SessionRestorableAgentSnapshot+Commands.swift */,
@@ -10987,7 +11026,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				8561C0128561C0128561C012 /* KeyboardShortcutSettingsObserver.swift in Sources */,
 				C0DE10166000000000000015 /* LinkCaptureSettingsSnapshot.swift in Sources */,
 				C0DE10166000000000000017 /* LinksCaptureSettings.swift in Sources */,
+				C0DE1016600000000000001B /* LinksPaneContent.swift in Sources */,
 				C0DE10166000000000000005 /* LinksPanel.swift in Sources */,
+				C0DE10166000000000000021 /* LinksPanelDayBucket.swift in Sources */,
+				C0DE1016600000000000001D /* LinksPanelProjection.swift in Sources */,
+				C0DE10166000000000000025 /* LinksPanelRow.swift in Sources */,
+				C0DE10166000000000000023 /* LinksPanelRowActions.swift in Sources */,
+				C0DE1016600000000000001F /* LinksPanelSourceOption.swift in Sources */,
 				C0DE10166000000000000007 /* LinksPanelView.swift in Sources */,
 				C0DE1016600000000000000D /* LinkTitleFetcher.swift in Sources */,
 				D10799020000000000000001 /* LiveTabDragCapabilityResolver.swift in Sources */,
@@ -11447,6 +11492,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				850000000000000000000025 /* SessionIndexTableRowID.swift in Sources */,
 				850000000000000000000026 /* SessionIndexTableView.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
+				C0DE10166000000000000033 /* SessionLinksPanelSnapshot.swift in Sources */,
 		A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */,
 				0A1208090000000000000001 /* SessionPersistedVaultAgentRegistration.swift in Sources */,
 				C0DE1016600000000000000B /* SessionPersistence+Links.swift in Sources */,
@@ -11718,6 +11764,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
 				8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */,
+				C0DE10166000000000000031 /* TerminalCapturedLinkForwarder.swift in Sources */,
+				C0DE1016600000000000002F /* TerminalCapturedLinkForwardRequest.swift in Sources */,
 				B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */,
 				B88357000000000000000005 /* TerminalClipboardInputSequencer.swift in Sources */,
 				B88357000000000000000013 /* TerminalClipboardRequestSurfaceIdentity.swift in Sources */,
@@ -12091,6 +12139,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A85630010000000000000002 /* WorkspaceAttentionColor.swift in Sources */,
 				A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */,
 				CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */,
+				C0DE1016600000000000002B /* WorkspaceCapturedLink.swift in Sources */,
+				C0DE10166000000000000027 /* WorkspaceCapturedLinkOrigin.swift in Sources */,
 				B2929B53F4CC4C9D972771EC /* WorkspaceChecklistAttachmentQuickLookController.swift in Sources */,
 				D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
 				A5FB1203 /* WorkspaceConfigActionCapture.swift in Sources */,
@@ -12103,7 +12153,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */,
 				A17C0A110000000000000001 /* WorkspaceInitialCommandLoginShell.swift in Sources */,
 				CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */,
+				C0DE1016600000000000002D /* WorkspaceLinksIngestConfiguration.swift in Sources */,
 				C0DE10166000000000000001 /* WorkspaceLinksState.swift in Sources */,
+				C0DE10166000000000000029 /* WorkspaceLinkTitleFetchState.swift in Sources */,
 				E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,
 					5732A0055732A0055732A005 /* WorkspacePresentationModeChangeObserver.swift in Sources */,
