@@ -368,18 +368,10 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 case .missing, .unavailable:
                     break
                 }
-            } else if name == "refs" {
-                // The configured external loose-ref store is authoritative;
-                // let the descriptor discard an absent path without probing it
-                // synchronously on this blocking lane.
-                paths.append(path)
-            } else if name == "packed-refs",
-                      configReader.read(
-                          at: URL(fileURLWithPath: path),
-                          maximumByteCount: 1,
-                          deadline: deadline
-                      ).isAvailable {
-                paths.append(path)
+            } else if name == "refs" || name == "packed-refs" {
+                // External file stores are intentionally not recursively
+                // watched; probing an arbitrary mount can block the planner.
+                continue
             }
         }
         return paths

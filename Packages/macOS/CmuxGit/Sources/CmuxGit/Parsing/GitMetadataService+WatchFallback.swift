@@ -16,21 +16,18 @@ extension GitMetadataService {
             watchedPaths.insert(root)
         }
         let rootIsForced = existingRoots.contains(descriptor.repositoryRoot)
-        let forcedChildRoots = existingRoots.filter { $0 != descriptor.repositoryRoot }
-        let trackedEntryPaths = rootIsForced
-            ? []
-            : Set(descriptor.trackedEntryPaths).union(forcedChildRoots).sorted()
+        let anyForcedRoot = !existingRoots.isEmpty
         return GitWorkspaceMetadataWatchDescriptor(
             repositoryRoot: descriptor.repositoryRoot,
             watchedPaths: watchedPaths.sorted(),
             gitMetadataPaths: descriptor.gitMetadataPaths,
-            trackedEntryPaths: trackedEntryPaths,
-            acceptsAllWorkTreeEvents: rootIsForced || descriptor.acceptsAllWorkTreeEvents,
-            eventCoalescingInterval: rootIsForced
+            trackedEntryPaths: anyForcedRoot ? [] : descriptor.trackedEntryPaths,
+            acceptsAllWorkTreeEvents: anyForcedRoot || descriptor.acceptsAllWorkTreeEvents,
+            eventCoalescingInterval: anyForcedRoot
                 ? safetyConfiguration.unfilteredWorkTreeEventThrottle
                 : descriptor.eventCoalescingInterval,
-            eventFilterIdentity: rootIsForced ? nil : descriptor.eventFilterIdentity,
-            degradation: rootIsForced
+            eventFilterIdentity: anyForcedRoot ? nil : descriptor.eventFilterIdentity,
+            degradation: anyForcedRoot
                 ? .unreadableIndex
                 : descriptor.degradation
         )

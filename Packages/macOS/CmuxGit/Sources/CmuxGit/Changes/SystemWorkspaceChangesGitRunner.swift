@@ -41,16 +41,16 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         self.executableURL = candidates.first ?? URL(fileURLWithPath: "/usr/bin/git")
         self.fallbackExecutableURLs = Array(candidates.dropFirst().prefix(3))
         var scopedEnvironment = environment
-        for key in Self.repositorySelectionEnvironmentKeys {
-            scopedEnvironment.removeValue(forKey: key)
-        }
-        let commandScopedKeys = scopedEnvironment.keys.filter {
-            $0.hasPrefix("GIT_CONFIG_KEY_") || $0.hasPrefix("GIT_CONFIG_VALUE_")
-        }
-        for key in commandScopedKeys {
-            scopedEnvironment.removeValue(forKey: key)
-        }
         if isolateRepositoryConfig {
+            for key in Self.repositorySelectionEnvironmentKeys {
+                scopedEnvironment.removeValue(forKey: key)
+            }
+            let commandScopedKeys = scopedEnvironment.keys.filter {
+                $0.hasPrefix("GIT_CONFIG_KEY_") || $0.hasPrefix("GIT_CONFIG_VALUE_")
+            }
+            for key in commandScopedKeys {
+                scopedEnvironment.removeValue(forKey: key)
+            }
             // Reference plumbing must observe only the requested repository's
             // local config. Global/system includes can inject unrelated remotes.
             scopedEnvironment["GIT_CONFIG_NOSYSTEM"] = "1"

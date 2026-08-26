@@ -207,7 +207,7 @@ actor CmxConnectivityPeerSession {
             if let pendingConnection {
                 pending = pendingConnection
             } else {
-                pruneRetiredDialCleanupTasksIfNeeded()
+                makeRetiredDialCapacity()
                 connectionGeneration &+= 1
                 failure = .none
                 let buildSession = buildSession
@@ -661,6 +661,19 @@ actor CmxConnectivityPeerSession {
             retiredDialCleanupTasks[oldestID]?.cancel()
             retiredDialPendingTasks.removeValue(forKey: oldestID)
             retiredDialCleanupTasks.removeValue(forKey: oldestID)
+        }
+    }
+
+    private func makeRetiredDialCapacity() {
+        let total = retiredDialDrains.count + retiredDialCleanupTasks.count
+        guard total >= Self.maximumRetiredDialCleanupCount else { return }
+        if let id = retiredDialDrains.keys.first {
+            retiredDialPendingTasks[id]?.cancel()
+            retiredDialDrains[id]?.cancel()
+            retiredDialPendingTasks.removeValue(forKey: id)
+            retiredDialDrains.removeValue(forKey: id)
+        } else {
+            pruneRetiredDialCleanupTasksIfNeeded()
         }
     }
 
