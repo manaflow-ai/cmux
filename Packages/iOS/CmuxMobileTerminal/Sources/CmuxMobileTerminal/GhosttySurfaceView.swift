@@ -3373,6 +3373,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         artifactChipAccessibilityObserverTokens.removeAll()
         prepareForReuseAfterDetach()
+        // SwiftUI's dismantle callback is the ownership boundary for this
+        // UIKit view. Retire the libghostty surface here rather than waiting
+        // for deinit: the strong bridge back-reference intentionally keeps
+        // deinit from being reached while a live surface still owns the raw
+        // UIView pointer.
+        disposeSurface()
     }
 
     /// Quiesces the surface on window detach: resigns input, stops the display
@@ -3598,7 +3604,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the surface concurrently. `processOutput`'s main-actor guard stops new
         // work from being enqueued once `surface` is nil, so only the bounded
         // backlog drains before the free. The host-owned bridge retain stays
-        // alive until synchronous libghostty teardown has stopped callbacks.
+        // alive until synchronous libghostty teardown has stopped callbacks;
+        // `enqueueSurfaceFree` separately retains the raw UIKit view through
+        // that same boundary before the bridge cycle is broken.
         enqueueSurfaceFree(surface, generation: surfaceGeneration, on: currentQueue)
     }
 
@@ -3607,12 +3615,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
+        // `makeSurface` gives libghostty an unretained raw UIView pointer. The
+        // bridge back-reference is detached before this operation is queued so
+        // late callbacks cannot re-enter a dismantled view; retain the view
+        // independently until `ghostty_surface_free` has synchronously drained
+        // every queued operation and callback.
+        let viewRetention = GhosttySurfaceFreeRetention(object: self)
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
-        queue.async { [weak self] in
+        queue.async { [weak self, viewRetention] in
             let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
             GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
-            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
+            // The C free has returned, so the raw UIKit pointer is no longer
+            // reachable from libghostty. Run recovery bookkeeping and the
+            // caller's completion while the explicit view retain is still
+            // held, then release it on MainActor so UIKit deinitialization
+            // cannot happen on the surface queue.
+            Task { @MainActor [weak self, viewRetention] in
+                self?.surfaceFreeDrainWatchdog.cancel(generation: generation)
+                completion?()
+                _ = viewRetention.releaseAfterSurfaceFree()
+            }
         }
     }
 
