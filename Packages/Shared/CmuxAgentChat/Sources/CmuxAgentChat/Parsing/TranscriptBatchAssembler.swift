@@ -33,6 +33,11 @@ struct TranscriptBatchAssembler {
     static let maxArtifactMutationPathBytes = 4_096
     static let maxArtifactReferenceCount = 4_096
     static let maxArtifactReferenceBytes = 512 * 1_024
+    /// Bound the path payload retained by unresolved ordinary tool calls. The
+    /// per-message extractor limit is smaller than the cross-call budget so a
+    /// burst of malformed calls cannot retain megabytes in `pendingToolUses`.
+    static let maxPendingToolUsePathBytes = 256 * 1_024
+    static let maxPendingToolUseKeyBytes = 4_096
 
     /// Creates an assembler seeded with carried-over pending tool uses.
     ///
@@ -45,6 +50,7 @@ struct TranscriptBatchAssembler {
         self.budget = budget
         // Sanitize persisted carry-over before the next parse line can add
         // more state; malformed state must never exist unbounded in memory.
+        self.pending = bounded(self.pending)
         self.pendingArtifactMutations = bounded(self.pendingArtifactMutations)
     }
 
@@ -56,6 +62,7 @@ struct TranscriptBatchAssembler {
     ///   - pendingKey: The tool call identifier to pair a later result by,
     ///     or `nil` for messages that never receive results.
     mutating func append(_ message: ChatMessage, pendingKey: String? = nil) {
+        let message = bounded(message)
         if let pendingKey {
             // A single tool call can register multiple messages (a
             // multi-question AskUserQuestion emits one card per question);
@@ -184,15 +191,71 @@ struct TranscriptBatchAssembler {
     }
 
     /// Caps carried pending tool uses to the most-recent ``maxPendingToolUses``
-    /// by their newest message seq, evicting the oldest unresolved calls.
+    /// by their newest message seq, evicting the oldest unresolved calls, and
+    /// caps the aggregate referenced-path bytes retained across those calls.
     private func bounded(_ pending: [String: [ChatMessage]]) -> [String: [ChatMessage]] {
-        guard pending.count > Self.maxPendingToolUses else { return pending }
-        let newestFirst = pending.sorted { lhs, rhs in
+        let newestFirst = pending.filter {
+            !$0.key.isEmpty && $0.key.utf8.count <= Self.maxPendingToolUseKeyBytes
+        }.sorted { lhs, rhs in
             (lhs.value.map(\.seq).max() ?? 0) > (rhs.value.map(\.seq).max() ?? 0)
         }
-        return Dictionary(
-            uniqueKeysWithValues: newestFirst.prefix(Self.maxPendingToolUses).map { ($0.key, $0.value) }
+        var retainedPending: [String: [ChatMessage]] = [:]
+        retainedPending.reserveCapacity(min(newestFirst.count, Self.maxPendingToolUses))
+        var retainedPathBytes = 0
+        for (key, messages) in newestFirst {
+            guard retainedPending.count < Self.maxPendingToolUses else { break }
+            var retainedMessages: [ChatMessage] = []
+            retainedMessages.reserveCapacity(messages.count)
+            for message in messages {
+                let remainingPathBytes = max(
+                    0,
+                    Self.maxPendingToolUsePathBytes - retainedPathBytes
+                )
+                let sanitized = bounded(
+                    message,
+                    maximumPathBytes: remainingPathBytes
+                )
+                retainedMessages.append(sanitized)
+                retainedPathBytes += referencedPathBytes(in: sanitized)
+            }
+            retainedPending[key] = retainedMessages
+        }
+        return retainedPending
+    }
+
+    /// Clamps one tool-use path payload before it enters either the visible
+    /// message batch or unresolved carry-over state.
+    private func bounded(
+        _ message: ChatMessage,
+        maximumPathBytes: Int = ChatToolReferencedPathExtractor.maximumAggregatePathBytes
+    ) -> ChatMessage {
+        guard case .toolUse(let toolUse) = message.kind else { return message }
+        let paths = ChatToolReferencedPathExtractor().boundedPaths(
+            toolUse.referencedPaths,
+            maximumBytes: maximumPathBytes
         )
+        guard paths != toolUse.referencedPaths else { return message }
+        let boundedToolUse = ChatToolUse(
+            toolName: toolUse.toolName,
+            summary: toolUse.summary,
+            inputDetail: toolUse.inputDetail,
+            output: toolUse.output,
+            status: toolUse.status,
+            referencedPaths: paths,
+            artifactMutationAuthorized: toolUse.artifactMutationAuthorized
+        )
+        return ChatMessage(
+            id: message.id,
+            seq: message.seq,
+            role: message.role,
+            timestamp: message.timestamp,
+            kind: .toolUse(boundedToolUse)
+        )
+    }
+
+    private func referencedPathBytes(in message: ChatMessage) -> Int {
+        guard case .toolUse(let toolUse) = message.kind else { return 0 }
+        return toolUse.referencedPaths?.reduce(0) { $0 + $1.utf8.count } ?? 0
     }
 
     private func bounded(

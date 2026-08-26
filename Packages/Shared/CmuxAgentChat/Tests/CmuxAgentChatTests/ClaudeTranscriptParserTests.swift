@@ -384,6 +384,33 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.referencedPaths?.last == paths[ChatToolReferencedPathExtractor.maximumPathCount - 1])
     }
 
+    @Test("Structured tool path extraction rejects oversized paths and caps aggregate bytes")
+    func structuredToolPathsRespectByteBounds() {
+        let oversized = "/repo/" + String(repeating: "x", count: ChatToolReferencedPathExtractor.maximumPathBytes)
+            + "-too-long"
+        let paths = [oversized] + (0..<200).map {
+            "/repo/byte-bound-\($0)-" + String(repeating: "y", count: 500)
+        }
+        let line = assistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_byte_bound", "name": "Read",
+             "input": ["path": paths]],
+        ])
+        let result = parser.parse(lines: [line], startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        let retained = tool.referencedPaths ?? []
+        #expect(!retained.contains(oversized))
+        #expect(retained.allSatisfy {
+            $0.utf8.count <= ChatToolReferencedPathExtractor.maximumPathBytes
+        })
+        #expect(
+            retained.reduce(0) { $0 + $1.utf8.count }
+                <= ChatToolReferencedPathExtractor.maximumAggregatePathBytes
+        )
+    }
+
     @Test("ChatToolUse wire coding preserves optional referenced paths and decodes legacy payloads")
     func toolReferencedPathsWireCoding() throws {
         let coding = ChatWireCoding()

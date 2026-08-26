@@ -4,13 +4,23 @@ import Testing
 @testable import CmuxAgentChat
 
 @Suite struct TranscriptBatchAssemblerTests {
-    private static func toolUse(seq: Int) -> ChatMessage {
+    private static func toolUse(
+        seq: Int,
+        referencedPaths: [String]? = nil
+    ) -> ChatMessage {
         ChatMessage(
             id: "m\(seq)",
             seq: seq,
             role: .agent,
             timestamp: Date(timeIntervalSince1970: 1_781_000_000 + Double(seq)),
-            kind: .toolUse(ChatToolUse(toolName: "Read", summary: "s\(seq)", status: .running))
+            kind: .toolUse(
+                ChatToolUse(
+                    toolName: "Read",
+                    summary: "s\(seq)",
+                    status: .running,
+                    referencedPaths: referencedPaths
+                )
+            )
         )
     }
 
@@ -44,6 +54,38 @@ import Testing
         }
         let state = assembler.result(lastTimestamp: nil).state
         #expect(state.pendingToolUses.count == 10)
+    }
+
+    @Test("pending tool-use paths are bounded by per-path and aggregate UTF-8 bytes")
+    func pendingToolUsePathBytesBounded() {
+        var assembler = TranscriptBatchAssembler(
+            state: ChatTranscriptParseState(),
+            budget: TranscriptTextBudget()
+        )
+        let oversized = "/tmp/" + String(repeating: "x", count: 5_000)
+        for seq in 0..<300 {
+            let paths = [oversized] + (0..<8).map { "/tmp/kept-\(seq)-\($0)-" + String(repeating: "y", count: 1_000) }
+            assembler.append(
+                Self.toolUse(seq: seq, referencedPaths: paths),
+                pendingKey: "call-\(seq)"
+            )
+        }
+
+        let pending = assembler.result(lastTimestamp: nil).state.pendingToolUses
+        let pathValues = pending.values.flatMap { messages in
+            messages.compactMap { message -> [String]? in
+                guard case .toolUse(let toolUse) = message.kind else { return nil }
+                return toolUse.referencedPaths
+            }.flatMap { $0 }
+        }
+        let pathBytes = pathValues.reduce(0) { $0 + $1.utf8.count }
+
+        #expect(pathBytes <= TranscriptBatchAssembler.maxPendingToolUsePathBytes)
+        #expect(pathValues.allSatisfy {
+            $0.utf8.count <= ChatToolReferencedPathExtractor.maximumPathBytes
+        })
+        #expect(!pathValues.contains(oversized))
+        #expect(pending.count == TranscriptBatchAssembler.maxPendingToolUses)
     }
 
     @Test("pending artifact mutation references are bounded by count")
