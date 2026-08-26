@@ -231,6 +231,12 @@ struct WorkstreamTaskToolTodos: Sendable {
     mutating func seed(with restored: [WorkstreamTaskTodo]) {
         pendingPreOperations.removeAll(keepingCapacity: true)
         pendingPostOperations.removeAll(keepingCapacity: true)
+        completedRequestIDs.removeAll(keepingCapacity: true)
+        provisionalIDsBySubject.removeAll(keepingCapacity: true)
+        provisionalIDsInOrder.removeAll(keepingCapacity: true)
+        ownedIDsInOrder.removeAll(keepingCapacity: true)
+        ownedIdSet.removeAll(keepingCapacity: true)
+        nextProvisionalID = 0
         todos = restored
         hasEvictedTodos = true
         hasCompleteTaskList = false
