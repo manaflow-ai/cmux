@@ -81,9 +81,13 @@ import Testing
         #expect(filter.filter(crash) != nil)
     }
 
-    @Test func preservesListenerStartFailureForCooldownAdmission() {
+    @Test(arguments: [
+        "socket.listener.start.failed",
+        "socket.listener.path.missing",
+    ])
+    func preservesAdmittedListenerFailuresForCooldownAdmission(_ message: String) {
         let event = Event(level: .error)
-        event.message = SentryMessage(formatted: "socket.listener.start.failed")
+        event.message = SentryMessage(formatted: message)
         #expect(filter.filter(event) != nil)
     }
 }
