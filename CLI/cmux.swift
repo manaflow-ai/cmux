@@ -426,9 +426,9 @@ final class ClaudeHookSessionStore {
         var retiredClaudeTaskLists: [String: TimeInterval] = [:]
         var claudeTaskSyncLatestTokens: [String: String] = [:]
         var claudeTaskSyncGeneration: UInt64 = 0
-        var pendingLegacyClaudeTaskOwnerCleanup: [String: LegacyClaudeTaskOwnerCleanupRecord] = [:]
-        var pendingLegacyClaudeTaskOwnerCleanupOverflowEntries: [String: LegacyClaudeTaskOwnerCleanupRecord] = [:]
-        var pendingLegacyClaudeTaskOwnerCleanupSpill: [String: LegacyClaudeTaskOwnerCleanupRecord] = [:]
+        var pendingLegacyClaudeTaskOwnerCleanup: [String: ClaudeHookSessionStoreFile.LegacyClaudeTaskOwnerCleanupRecord] = [:]
+        var pendingLegacyClaudeTaskOwnerCleanupOverflowEntries: [String: ClaudeHookSessionStoreFile.LegacyClaudeTaskOwnerCleanupRecord] = [:]
+        var pendingLegacyClaudeTaskOwnerCleanupSpill: [String: ClaudeHookSessionStoreFile.LegacyClaudeTaskOwnerCleanupRecord] = [:]
         var pendingLegacyClaudeTaskOwnerCleanupOverflowCursor: String?
         var pendingLegacyClaudeTaskOwnerCleanupOverflow = false
         var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
