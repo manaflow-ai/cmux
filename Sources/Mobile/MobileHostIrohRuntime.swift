@@ -4,6 +4,7 @@ import CmuxIrohTransport
 import CryptoKit
 import Foundation
 import Observation
+import os
 import OSLog
 
 let mobileHostIrohLog = Logger(
@@ -108,7 +109,19 @@ final class MobileHostIrohRuntime {
     var transitionTask: Task<Void, Never>?
     var runtime: CmxIrohHostRuntime?
     var relayPolicyService: CmxIrohRelayPolicyService?
-    var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
+    var relayPolicyEffective: CmxIrohEffectiveRelayPolicy? {
+        didSet {
+            Self.relayDiagMirror.withLock { [relayPolicyEffective] state in
+                state = relayPolicyEffective.map {
+                    RelayDiagState(
+                        source: $0.source,
+                        usedCachedPolicy: $0.usedCachedPolicy,
+                        relayURLs: $0.endpointRelayProfile.allowedRelayURLs.sorted()
+                    )
+                }
+            }
+        }
+    }
     var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
     var relayPolicyObservationTask: Task<Void, Never>?
@@ -233,6 +246,72 @@ final class MobileHostIrohRuntime {
         buildStamp: MobileHostIrohRuntime.diagnosticBuildStamp,
         role: .macHost
     )
+
+    /// The relay policy fields the `iroh_diag` socket verb reports.
+    ///
+    /// Relay URLs are deliberately kept out of ``DiagnosticLog`` and its
+    /// report, which stay privacy-safe for Settings exports; the local debug
+    /// socket appends these lines itself.
+    struct RelayDiagState: Equatable, Sendable {
+        let source: CmxIrohRelayPolicySource
+        let usedCachedPolicy: Bool
+        let relayURLs: [String]
+    }
+
+    /// Nonisolated mirror of the relay policy most recently installed by the
+    /// account pipeline, written from the main-actor `relayPolicyEffective`
+    /// funnel and readable (like ``hostDiagnosticLog``) without a main-actor
+    /// hop so `iroh_diag` keeps working when the main thread is wedged.
+    nonisolated static let relayDiagMirror = OSAllocatedUnfairLock<RelayDiagState?>(
+        initialState: nil
+    )
+
+    /// The relay section appended to `iroh_diag` output: the profile the
+    /// endpoint is actually using, and whether it came from the managed
+    /// catalog, a custom profile, or the debug override. The override is
+    /// consulted first because every profile installation funnel replaces
+    /// the installed profile with it while it is active.
+    nonisolated static func relayDiagReportText() -> String {
+        relayDiagReport(
+            policy: relayDiagMirror.withLock { $0 },
+            debugOverrideRelayURL: CmxIrohDebugRelayOverride.diagnosticsActiveRelayURL
+        )
+    }
+
+    nonisolated static func relayDiagReport(
+        policy: RelayDiagState?,
+        debugOverrideRelayURL: String?
+    ) -> String {
+        var lines = ["Active relay profile"]
+        if let debugOverrideRelayURL {
+            lines.append("Source: debug override (\(CmxIrohDebugRelayOverride.key))")
+            lines.append("Relays: \(debugOverrideRelayURL)")
+            return lines.joined(separator: "\n")
+        }
+        guard let policy else {
+            lines.append("Source: none installed (no relay policy this launch)")
+            return lines.joined(separator: "\n")
+        }
+        let source = switch policy.source {
+        case .inactive:
+            "inactive (no account policy restored)"
+        case .managed:
+            policy.usedCachedPolicy ? "managed catalog (cached)" : "managed catalog"
+        case .custom:
+            "custom"
+        case .managedUnavailable:
+            "managed selection unavailable (relays disabled)"
+        case .customUnavailable:
+            "custom selection unavailable (relays disabled)"
+        }
+        lines.append("Source: \(source)")
+        if policy.relayURLs.isEmpty {
+            lines.append("Relays: (none)")
+        } else {
+            lines.append("Relays: \(policy.relayURLs.joined(separator: ", "))")
+        }
+        return lines.joined(separator: "\n")
+    }
 
     private nonisolated static var diagnosticBuildStamp: String {
         DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
