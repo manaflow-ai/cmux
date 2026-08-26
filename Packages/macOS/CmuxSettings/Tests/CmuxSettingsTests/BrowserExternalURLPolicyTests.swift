@@ -14,6 +14,7 @@ struct BrowserExternalURLPolicyTests {
         ("http*://example.com/*", "http://example.com/path", true),
         ("https://example.com/?ath", "https://example.com/path", true),
         ("foo?bar", "https://example.com/fooxbar", true),
+        ("foo\\?bar", "https://example.com/foo?bar", true),
         ("https://example.com/foo?bar+baz", "https://example.com/fooXbar+baz", true),
         ("https://example\\.com/foo?bar+baz", "https://example.com/fooXbar+baz", true),
         ("foo+bar", "https://example.com/foo+bar", true),
@@ -100,6 +101,16 @@ struct BrowserExternalURLPolicyTests {
             patterns: ["re:a*a*a*a*a*a*a*a*b"]
         )
         #expect(!adjacentQuantifiers.matches("https://\(String(repeating: "a", count: 8_192))"))
+
+        let countedQuantifiers = BrowserExternalURLPolicy(
+            patterns: ["re:^a{1,}a{1,}a{1,}a{1,}$"]
+        )
+        #expect(!countedQuantifiers.matches("https://\(String(repeating: "a", count: 8_192))"))
+
+        let multiStarGlob = BrowserExternalURLPolicy(
+            patterns: ["*a*a*a*a*a*a*b*a"]
+        )
+        #expect(!multiStarGlob.matches("https://\(String(repeating: "a", count: 8_192))c"))
 
         let ordinaryPolicy = BrowserExternalURLPolicy(patterns: ["example.com"])
         #expect(ordinaryPolicy.matches("https://example.com/\(String(repeating: "x", count: 16_384))"))
