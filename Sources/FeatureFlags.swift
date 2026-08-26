@@ -46,9 +46,9 @@ final class CmuxFeatureFlags {
     private static let sidebarAccountButtonDefault = true
 
     #if DEBUG
-    private static let cloudVMUIDefault = true
+    private nonisolated static let cloudVMUIDefault = true
     #else
-    private static let cloudVMUIDefault = false
+    private nonisolated static let cloudVMUIDefault = false
     #endif
     private static let agentChatUIDefault = false
     #if DEBUG
@@ -57,9 +57,11 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileWorkspaceChangesDefault = false
     #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
-    private static let simulatorDefault = true
+    private nonisolated static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
+    private static let mobileTerminalFilesChipDefault = true
+    private nonisolated static let mobileTaskComposerDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -107,6 +109,82 @@ final class CmuxFeatureFlags {
             defaultValue: "Serves workspace diffs to paired phones: the iOS changes chip, toolbar button, and Changes sheet."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
+    )
+
+    // FLAG(key: ios-artifact-chip-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2027-02-01, defaultWhenUnavailable: true)
+    // Controls the fully integrated terminal Files chip on iOS. The enabled
+    // fallback preserves the shipping behavior when PostHog is unavailable;
+    // a remote false value is the emergency kill switch.
+    static let mobileTerminalFilesChipFlag = CmuxFeatureFlagDefinition(
+        key: "ios-artifact-chip-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTerminalFilesChip.title",
+            defaultValue: "Mobile terminal Files chip"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTerminalFilesChip.description",
+            defaultValue: "Shows the Files chip over iOS terminals and runs its visible-path count scan."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTerminalFilesChipDefault
+    )
+
+    // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls every Simulator entrypoint and active pane. The enabled
+    // fallback preserves access when PostHog is unavailable, while the
+    // remote value provides a release kill switch. Declared nonisolated so
+    // the mobile host's off-main capability list can gate the advertised
+    // simulator capabilities on the same flag as RPC dispatch.
+    // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // Shows the Cloud VM entrypoints: the new-workspace dropdown section
+    // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
+    // VM menu, the command-palette Cloud VM commands, and the right-sidebar
+    // Machines tab. Release builds hide them until the PostHog flag is
+    // enabled; DEBUG keeps them visible for dogfood. Declared nonisolated so
+    // off-main readers (right-sidebar mode availability) can consult the
+    // published snapshot.
+    nonisolated static let cloudVMUIFlag = CmuxFeatureFlagDefinition(
+        key: "cloud-vm-ui-enabled-release",
+        title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
+        flagDescription: String(
+            localized: "featureFlags.cloudVM.description",
+            defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
+    )
+
+    nonisolated static let simulatorFlag = CmuxFeatureFlagDefinition(
+        key: "simulator-enabled-release",
+        title: String(
+            localized: "featureFlags.simulator.title",
+            defaultValue: "Simulator"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.simulator.description",
+            defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
+    )
+
+    // FLAG(key: mobile-task-composer-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls the iOS Task Composer from the Mac host. When off, the Mac stops
+    // advertising task-create/model/directory/attachment capabilities and
+    // task-specific RPCs fail with capability_disabled, so paired phones hide
+    // the composer without needing a user-visible Beta toggle.
+    nonisolated static let mobileTaskComposerFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-task-composer-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTaskComposer.title",
+            defaultValue: "Mobile Task Composer"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTaskComposer.description",
+            defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -158,22 +236,7 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
             ),
 
-            // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the Cloud VM entrypoints: the new-workspace dropdown section
-            // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
-            // VM menu, and the command-palette Cloud VM commands. Release builds
-            // hide them until the PostHog flag is enabled; DEBUG keeps them
-            // visible for dogfood.
-            CmuxFeatureFlagDefinition(
-                key: "cloud-vm-ui-enabled-release",
-                title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
-                flagDescription: String(
-                    localized: "featureFlags.cloudVM.description",
-                    defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
-            ),
+            CmuxFeatureFlags.cloudVMUIFlag,
 
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -207,23 +270,7 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
 
-            // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
-            // Controls every Simulator entrypoint and active pane. The enabled
-            // fallback preserves access when PostHog is unavailable, while the
-            // remote value provides a release kill switch.
-            CmuxFeatureFlagDefinition(
-                key: "simulator-enabled-release",
-                title: String(
-                    localized: "featureFlags.simulator.title",
-                    defaultValue: "Simulator"
-                ),
-                flagDescription: String(
-                    localized: "featureFlags.simulator.description",
-                    defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
-            ),
+            CmuxFeatureFlags.simulatorFlag,
 
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
@@ -246,6 +293,9 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.appKitSidebarListFlag,
 
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
+
+            CmuxFeatureFlags.mobileTerminalFilesChipFlag,
+            CmuxFeatureFlags.mobileTaskComposerFlag,
         ]
     }()
 
@@ -258,7 +308,14 @@ final class CmuxFeatureFlags {
     }
 
     var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[3])
+        effectiveValue(for: Self.cloudVMUIFlag)
+    }
+
+    /// Mirror of ``isCloudVMUIEnabled`` for nonisolated readers (right-sidebar
+    /// mode availability). Reads the published off-main snapshot; before the
+    /// shared instance publishes, it falls back to the compile-time default.
+    nonisolated static var offMainIsCloudVMUIEnabled: Bool {
+        offMainEffectiveValue(for: cloudVMUIFlag)
     }
 
     var isAgentChatUIEnabled: Bool {
@@ -274,7 +331,7 @@ final class CmuxFeatureFlags {
     }
 
     var isSimulatorEnabled: Bool {
-        effectiveValue(for: Self.allFlags[6])
+        effectiveValue(for: Self.simulatorFlag)
     }
 
     var isWorkspaceTodoControlsEnabled: Bool {
@@ -287,6 +344,14 @@ final class CmuxFeatureFlags {
 
     var isMobileWorkspaceChangesEnabled: Bool {
         effectiveValue(for: Self.mobileWorkspaceChangesFlag)
+    }
+
+    var isMobileTerminalFilesChipEnabled: Bool {
+        effectiveValue(for: Self.mobileTerminalFilesChipFlag)
+    }
+
+    var isMobileTaskComposerEnabled: Bool {
+        effectiveValue(for: Self.mobileTaskComposerFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
@@ -369,7 +434,7 @@ final class CmuxFeatureFlags {
     func start() {
         guard refreshTimer == nil else { return }
         refreshRemoteFlags()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshRemoteFlags() }
         }
     }

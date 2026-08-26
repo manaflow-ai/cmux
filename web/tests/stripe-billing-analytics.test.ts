@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type Stripe from "stripe";
 
-import { captureStripeBillingEvent } from "../services/analytics/stripeBilling";
+import {
+  captureBillingCheckoutStarted,
+  captureStripeBillingEvent,
+} from "../services/analytics/stripeBilling";
 
 describe("Stripe billing analytics", () => {
   test("joins paid checkout events to the Stack PostHog identity", async () => {
@@ -97,7 +100,9 @@ describe("Stripe billing analytics", () => {
   });
 
   test("does not make billing fail when PostHog is unavailable", async () => {
+    let attempts = 0;
     const postHogFetch = (async () => {
+      attempts += 1;
       throw new Error("offline");
     }) as typeof fetch;
     const event = {
@@ -119,5 +124,66 @@ describe("Stripe billing analytics", () => {
       { scope: "user", stackUserId: "stack-user-1", isActive: false },
       postHogFetch,
     )).resolves.toBeUndefined();
+    expect(attempts).toBe(2);
+  });
+
+  test("captures checkout start with a stable deduplication id and no email", async () => {
+    let payload: Record<string, unknown> = {};
+    await captureBillingCheckoutStarted({
+      sessionId: "cs_started",
+      subject: { scope: "user", stackUserId: "stack-user-1" },
+      plan: "pro",
+      billingInterval: "year",
+    }, (async (_input, init) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch);
+
+    expect(payload).toMatchObject({
+      event: "cmux_billing_checkout_started",
+      properties: {
+        distinct_id: "stack-user-1",
+        $insert_id: "checkout-started:cs_started",
+        plan: "pro",
+        billing_interval: "year",
+      },
+    });
+    expect(JSON.stringify(payload)).not.toContain("email");
+  });
+
+  test("captures refunds without payment method details", async () => {
+    let payload: Record<string, unknown> = {};
+    await captureStripeBillingEvent({
+      id: "evt_refund",
+      type: "charge.refunded",
+      data: {
+        object: {
+          id: "ch_1",
+          amount: 3000,
+          amount_refunded: 3000,
+          currency: "usd",
+          refunded: true,
+          customer: "cus_1",
+        },
+      },
+    } as unknown as Stripe.Event, {
+      scope: "user",
+      stackUserId: "stack-user-1",
+      isActive: false,
+      status: "canceled",
+    }, (async (_input, init) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch);
+
+    expect(payload).toMatchObject({
+      event: "cmux_billing_charge_refunded",
+      properties: {
+        distinct_id: "stack-user-1",
+        amount_refunded: 3000,
+        fully_refunded: true,
+      },
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/card|payment_method|receipt_url/);
   });
 });

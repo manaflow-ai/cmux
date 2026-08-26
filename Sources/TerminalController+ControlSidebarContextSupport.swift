@@ -1,4 +1,6 @@
 import CmuxControlSocket
+import CmuxTerminal
+import CmuxWorkspaces
 import Foundation
 
 /// Shared resolution/scheduling twins for the `ControlSidebarContext`
@@ -160,7 +162,8 @@ extension TerminalController {
     nonisolated func controlSidebarScheduleGuardedNotificationClear(
         target: ControlSidebarTabTarget,
         panelID: UUID,
-        guardValue: ControlSidebarAgentMutationGuard
+        guardValue: ControlSidebarAgentMutationGuard,
+        correlationKey: String? = nil
     ) {
         let mutationBus = TerminalMutationBus.shared
         mutationBus.enqueueGuardedNotificationClear { [weak self] clearBoundary in
@@ -172,17 +175,92 @@ extension TerminalController {
                   owner.acceptsAgentMutationGuard(guardValue, panelId: panelID) else {
                 return
             }
-            mutationBus.discardPendingNotifications(
-                forSurfaceId: panelID,
-                through: clearBoundary
-            )
-            TerminalNotificationStore.shared.clearNotifications(
-                forTabId: owner.id,
-                surfaceId: panelID,
-                discardQueuedNotifications: false,
-                throughNotificationGeneration: clearBoundary
-            )
+            if let correlationKey {
+                mutationBus.discardPendingNotifications(
+                    forSurfaceId: panelID,
+                    correlationKey: correlationKey,
+                    through: clearBoundary
+                )
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: owner.id,
+                    surfaceId: panelID,
+                    correlationKey: correlationKey,
+                    throughNotificationGeneration: clearBoundary
+                )
+            } else {
+                mutationBus.discardPendingNotifications(
+                    forSurfaceId: panelID,
+                    through: clearBoundary
+                )
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: owner.id,
+                    surfaceId: panelID,
+                    discardQueuedNotifications: false,
+                    throughNotificationGeneration: clearBoundary
+                )
+            }
         }
+    }
+
+    /// Applies one scoped shell-state report to its current Dock or workspace
+    /// owner after validating the terminal process generation at delivery.
+    ///
+    /// Generation validation deliberately lives here, on the main actor, so a
+    /// report that was already queued before a closed panel ID was reused
+    /// cannot mutate the replacement terminal. Callers without a lifecycle ID
+    /// retain the legacy behavior for compatibility.
+    @discardableResult
+    func controlApplyScopedShellActivityState(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID?,
+        state: PanelShellActivityState
+    ) -> Bool {
+        let registry = GhosttyApp.terminalSurfaceRegistry
+        let registeredSurface: TerminalSurface?
+        if let terminalLifecycleID {
+            guard let currentSurface = registry.surface(
+                      id: surfaceID,
+                      terminalLifecycleID: terminalLifecycleID
+                  ) as? TerminalSurface else {
+                return false
+            }
+            registeredSurface = currentSurface
+        } else {
+            registeredSurface = registry.surface(id: surfaceID)
+                as? TerminalSurface
+        }
+        // A live surface keeps its registry workspace binding current when it
+        // moves, while the already-running child process cannot rewrite the
+        // CMUX_WORKSPACE_ID it inherited at launch. Route by the authoritative
+        // live binding so telemetry follows Dock/workspace transfers.
+        let ownerID = registeredSurface?.tabId ?? workspaceID
+        let routingManager = AppDelegate.shared?.tabManagerFor(tabId: ownerID)
+            ?? AppDelegate.shared?.tabManagerFor(windowId: ownerID)
+            ?? tabManager
+
+        if registeredSurface?.focusPlacement == .rightSidebarDock,
+           let dock = routingManager?.dockSplitStore(
+               ownerID: ownerID,
+               containingPanel: surfaceID
+           ) {
+            dock.updatePanelShellActivityState(panelId: surfaceID, state: state)
+            return true
+        }
+
+        guard let routingManager,
+              let workspace = routingManager.tabs.first(where: {
+                  $0.id == ownerID
+              }),
+              workspace.panels[surfaceID] != nil else {
+            return false
+        }
+        routingManager.updateSurfaceShellActivity(
+            tabId: ownerID,
+            surfaceId: surfaceID,
+            state: state
+        )
+        return true
     }
 
     /// Resolves a UUID-addressed panel's owner inside the deferred mutation so
@@ -246,7 +324,7 @@ extension TerminalController {
 
     nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
+            replaceKey: TerminalMutationReplaceKey.scoped(
                 tabId: scope.workspaceID,
                 surfaceId: scope.panelID,
                 kind: .directory

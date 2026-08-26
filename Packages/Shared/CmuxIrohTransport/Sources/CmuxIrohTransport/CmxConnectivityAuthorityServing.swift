@@ -36,7 +36,7 @@ struct CmxAuthoritativeDiscoveryResolver: Sendable {
             knownRevision: cached?.revision
         )
         if let snapshot = response.snapshot,
-           response.snapshotComplete == true {
+           response.snapshotIsComplete {
             try Self.requireRevision(snapshot, atLeast: minimumRevision)
             if !response.reset {
                 try Self.requireRevision(snapshot, atLeast: cached?.revision)

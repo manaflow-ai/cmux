@@ -3,7 +3,10 @@ import * as Effect from "effect/Effect";
 import {
   makeConnectivityAuthority,
 } from "../services/connectivity/authority";
-import { handleConnectivitySync } from "../services/connectivity/routeHandler";
+import {
+  handleConnectivitySync,
+  handleScopedConnectivitySync,
+} from "../services/connectivity/routeHandler";
 import type { AuthedUser } from "../services/vms/auth";
 
 const USER: AuthedUser = {
@@ -29,11 +32,44 @@ const snapshot = {
   bindings: [{ binding_id: "binding-a" }],
 };
 
+const scope = {
+  localBinding: {
+    deviceId: "123e4567-e89b-42d3-a456-426614174000",
+    appInstanceId: "223e4567-e89b-42d3-a456-426614174000",
+    tag: "stable",
+    platform: "ios" as const,
+  },
+  peerBindings: {
+    platform: "mac" as const,
+    tags: ["default", "nightly"],
+    pairingEnabled: true,
+  },
+};
+
+const scopeWire = {
+  local_binding: {
+    device_id: scope.localBinding.deviceId,
+    app_instance_id: scope.localBinding.appInstanceId,
+    tag: scope.localBinding.tag,
+    platform: scope.localBinding.platform,
+  },
+  peer_bindings: {
+    platform: scope.peerBindings.platform,
+    tags: scope.peerBindings.tags,
+    pairing_enabled: true,
+  },
+};
+
+function snapshotBroker() {
+  return {
+    discoverComplete: () => Effect.succeed(snapshot),
+    discoverScoped: () => Effect.succeed(snapshot),
+  };
+}
+
 describe("Connectivity authority", () => {
   test("returns a complete snapshot on initial sync", async () => {
-    const authority = makeConnectivityAuthority({
-      discoverComplete: () => Effect.succeed(snapshot),
-    });
+    const authority = makeConnectivityAuthority(snapshotBroker());
 
     const response = await Effect.runPromise(authority.sync("user-a", {
       protocol_version: 2,
@@ -69,6 +105,7 @@ describe("Connectivity authority", () => {
         completeCalls += 1;
         return Effect.succeed({ ...snapshot, bindings });
       },
+      discoverScoped: () => Effect.succeed({ ...snapshot, bindings }),
     };
     const authority = makeConnectivityAuthority(broker);
 
@@ -84,9 +121,7 @@ describe("Connectivity authority", () => {
   });
 
   test("omits an unchanged snapshot and identifies backend revision reset", async () => {
-    const authority = makeConnectivityAuthority({
-      discoverComplete: () => Effect.succeed(snapshot),
-    });
+    const authority = makeConnectivityAuthority(snapshotBroker());
 
     expect(await Effect.runPromise(authority.sync("user-a", {
       protocol_version: 2,
@@ -125,6 +160,7 @@ describe("Connectivity authority", () => {
             reset: false,
           });
         },
+        syncScoped: () => Effect.die(new Error("unexpected scoped sync")),
       },
     });
 
@@ -133,9 +169,7 @@ describe("Connectivity authority", () => {
   });
 
   test("serves an authenticated no-store sync response", async () => {
-    const authority = makeConnectivityAuthority({
-      discoverComplete: () => Effect.succeed(snapshot),
-    });
+    const authority = makeConnectivityAuthority(snapshotBroker());
     const response = await handleConnectivitySync(syncRequest(null), {
       verify: async () => USER,
       authority,
@@ -157,6 +191,7 @@ describe("Connectivity authority", () => {
         calls += 1;
         return Effect.succeed(snapshot);
       },
+      discoverScoped: () => Effect.succeed(snapshot),
     });
     const malformed = await handleConnectivitySync(new Request(
       "https://cmux.test/api/connectivity/v2/sync",
@@ -189,6 +224,60 @@ describe("Connectivity authority", () => {
     expect(oversized.status).toBe(413);
     expect(calls).toBe(0);
   });
+
+  test("returns completeness only for the echoed v3 discovery scope", async () => {
+    let receivedScope: unknown;
+    const authority = makeConnectivityAuthority({
+      discoverComplete: () => Effect.succeed(snapshot),
+      discoverScoped: (_userId, requestedScope) => {
+        receivedScope = requestedScope;
+        return Effect.succeed(snapshot);
+      },
+    });
+
+    const response = await Effect.runPromise(authority.syncScoped("user-a", {
+      protocol_version: 3,
+      known_revision: null,
+      discovery_scope: scopeWire,
+    }));
+
+    expect(receivedScope).toEqual(scope);
+    expect(response).toEqual({
+      protocol_version: 3,
+      revision: 7,
+      changed: true,
+      reset: false,
+      discovery_scope: scopeWire,
+      snapshot,
+      snapshot_scope_complete: true,
+    });
+    expect("snapshot_complete" in response).toBe(false);
+  });
+
+  test("serves authenticated v3 sync and rejects malformed scopes", async () => {
+    const authority = makeConnectivityAuthority(snapshotBroker());
+    const response = await handleScopedConnectivitySync(
+      scopedSyncRequest(scopeWire),
+      { verify: async () => USER, authority },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({
+      protocol_version: 3,
+      discovery_scope: scopeWire,
+      snapshot_scope_complete: true,
+    });
+
+    const malformed = await handleScopedConnectivitySync(scopedSyncRequest({
+      ...scopeWire,
+      peer_bindings: {
+        ...scopeWire.peer_bindings,
+        platform: "ios",
+      },
+    }), { verify: async () => USER, authority });
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: "invalid_discovery_scope" });
+  });
 });
 
 function syncRequest(knownRevision: number | null): Request {
@@ -202,6 +291,22 @@ function syncRequest(knownRevision: number | null): Request {
     body: JSON.stringify({
       protocol_version: 2,
       known_revision: knownRevision,
+    }),
+  });
+}
+
+function scopedSyncRequest(discoveryScope: unknown): Request {
+  return new Request("https://cmux.test/api/connectivity/v3/sync", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-access",
+      "x-stack-refresh-token": "test-refresh",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      protocol_version: 3,
+      known_revision: null,
+      discovery_scope: discoveryScope,
     }),
   });
 }

@@ -152,7 +152,10 @@ class BrowserServer {
       case "browser.attach": {
         this.attachAttempts += 1;
         const streamId = String(params.stream_id);
-        transport.respond(request, { stream_id: streamId });
+        transport.respond(request, {
+          stream_id: streamId,
+          attachment_lease: `browser-lease-${this.attachAttempts}`,
+        });
         if (this.attachmentMode === "hold") {
           transport.stream(streamId, "1", {
             kind: "snapshot",

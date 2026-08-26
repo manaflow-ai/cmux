@@ -97,8 +97,8 @@ struct OnboardingConnectionView: View {
             return L10n.string(
                 "mobile.onboarding.connect.tailscaleBody",
                 defaultValue: """
-                Connect only over Tailscale. Install it on both devices, join the same network, then scan the \
-                pairing code shown by cmux on your Mac.
+                Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. \
+                On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once.
                 """
             )
         }

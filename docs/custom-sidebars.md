@@ -6,6 +6,16 @@ native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
 for you or a coding agent.
 
+This guide covers interpreted custom sidebars, which cannot import frameworks
+or start child processes. For compiled Swift in an ExtensionKit sidebar, start
+with the
+[sample app](../Examples/SampleSidebarExtensionApp/README.md) and the
+[CmuxExtensionKit authoring guide](../Packages/macOS/CmuxExtensionKit/README.md).
+Compiled extensions run inside the macOS App Sandbox; if yours launches `git`
+or another external tool, read
+[Running external tools](../Packages/macOS/CmuxExtensionKit/README.md#running-external-tools)
+before choosing an executable or opening a repository.
+
 It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
 

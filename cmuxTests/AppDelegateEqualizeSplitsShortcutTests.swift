@@ -367,6 +367,25 @@ private func waitWhileSuspended(
     }
 }
 
+@MainActor
+private extension TabManager {
+    @discardableResult
+    func requiredAddTabForTesting(
+        select: Bool = true,
+        eagerLoadTerminal: Bool = false
+    ) -> Workspace {
+        guard let workspace = addTab(
+            select: select,
+            eagerLoadTerminal: eagerLoadTerminal
+        ) else {
+            preconditionFailure(
+                "Test fixture cannot add a workspace to a finalized manager"
+            )
+        }
+        return workspace
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests {
@@ -908,6 +927,59 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
+    func testWorkspaceTerminalFontSizeResetRepeatDoesNotAcceptTerminalInput() {
+        withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let panel = workspace.terminalPanel(for: panelId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .control],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected a terminal and repeated Cmd+Ctrl+0 event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            XCTAssertTrue(window.makeFirstResponder(panel.hostedView.surfaceView))
+            var acceptedInputCount = 0
+            let previousOnExplicitInput = panel.surface.onExplicitInput
+            panel.surface.onExplicitInput = {
+                acceptedInputCount += 1
+                previousOnExplicitInput?()
+            }
+            defer { panel.surface.onExplicitInput = previousOnExplicitInput }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+#else
+            XCTFail("Workspace font-size shortcut hooks require DEBUG")
+            return
+#endif
+
+            XCTAssertEqual(
+                acceptedInputCount,
+                0,
+                "A consumed reset key-repeat must not masquerade as accepted terminal input"
+            )
+        }
+    }
+
+    @Test
     func testWorkspaceTerminalFontSizeRepeatDrainBoundsOneTurn() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -1267,7 +1339,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
                 XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
 
-                let secondWorkspace = manager.addTab(select: true)
+                let secondWorkspace = manager.requiredAddTabForTesting(select: true)
                 XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: decreaseEvent))
 
                 manager.selectTab(firstWorkspace)
@@ -1492,7 +1564,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected an initial workspace")
             return
         }
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = manager.requiredAddTabForTesting(select: false)
         let scheduler = ManualWorkspaceFontSizeDrainScheduler()
         let coordinator = WorkspaceTerminalFontSizeCoordinator(
             tabManager: manager,
@@ -2090,6 +2162,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             appDelegate.unregisterMainWindowContextForTesting(
                 windowId: windowId
             )
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             ClosedItemHistoryStore.shared.removeAll()
             AppDelegate.shared = previousAppDelegate
         }
@@ -2799,6 +2872,12 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             appDelegate.unregisterMainWindowContextForTesting(
                 windowId: closingWindowId
             )
+            appDelegate.forgetRecoverableMainWindowRoute(
+                windowId: activeWindowId
+            )
+            appDelegate.forgetRecoverableMainWindowRoute(
+                windowId: closingWindowId
+            )
             ClosedItemHistoryStore.shared.removeAll()
             AppDelegate.shared = previousAppDelegate
         }
@@ -3154,7 +3233,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected source and destination workspaces")
             return
         }
-        let sourceOtherWorkspace = sourceManager.addTab(select: false)
+        let sourceOtherWorkspace = sourceManager.requiredAddTabForTesting(select: false)
         for panel in movedWorkspace.panels.values.compactMap({
             $0 as? TerminalPanel
         }) {
@@ -3658,8 +3737,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected an initial workspace")
             return
         }
-        let secondWorkspace = manager.addTab(select: false)
-        let thirdWorkspace = manager.addTab(select: false)
+        let secondWorkspace = manager.requiredAddTabForTesting(select: false)
+        let thirdWorkspace = manager.requiredAddTabForTesting(select: false)
         let windowDock = manager.makeWindowDockStore(windowId: UUID())
         let dockPanel = TerminalPanel(
             workspaceId: windowDock.workspaceId,
@@ -4133,7 +4212,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected a source workspace pane")
             return
         }
-        let destinationWorkspace = manager.addTab(select: false)
+        let destinationWorkspace = manager.requiredAddTabForTesting(select: false)
         guard let destinationPane =
                 destinationWorkspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected a destination workspace pane")
@@ -4222,7 +4301,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected a source workspace pane")
             return
         }
-        let destinationWorkspace = manager.addTab(select: false)
+        let destinationWorkspace = manager.requiredAddTabForTesting(select: false)
         guard let destinationPane =
                 destinationWorkspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected a destination workspace pane")
@@ -4321,7 +4400,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected a source workspace pane")
             return
         }
-        let destinationWorkspace = manager.addTab(select: false)
+        let destinationWorkspace = manager.requiredAddTabForTesting(select: false)
         guard let destinationPane =
                 destinationWorkspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected a destination workspace pane")
@@ -4920,7 +4999,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected an unvisited terminal")
             return
         }
-        weak let weakRemovablePanel = removablePanel
+        weak var weakRemovablePanel = removablePanel
         workspace.panels.removeValue(forKey: removablePanelId)
         removablePanel = nil
 
@@ -6698,7 +6777,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected a requested workspace")
             return
         }
-        let sourceWorkspace = manager.addTab(select: false)
+        let sourceWorkspace = manager.requiredAddTabForTesting(select: false)
         guard let sourcePane =
                 sourceWorkspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected an unrelated source workspace pane")
@@ -6924,7 +7003,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected an initial workspace terminal")
             return
         }
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = manager.requiredAddTabForTesting(select: false)
         let windowDock = manager.makeWindowDockStore(windowId: UUID())
         guard let dockPane =
                 windowDock.bonsplitController.focusedPaneId else {

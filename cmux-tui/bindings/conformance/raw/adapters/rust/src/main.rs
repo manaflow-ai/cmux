@@ -146,7 +146,7 @@ fn nullable_literal(request: &Request) -> Result<Value, CmuxError> {
         key: Optional::Value("workspace-key".into()),
         ..CreateTerminalRequest::default()
     })?;
-    Ok(json!({"lifecycle": placement.lifecycle.into_option()}))
+    Ok(json!({"lifecycle": placement.lifecycle}))
 }
 
 fn optional_non_null_response(request: &Request) -> Result<Value, CmuxError> {
@@ -466,7 +466,7 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
                 .all(|pair| pair[0].is_some_and(|left| pair[1].is_some_and(|right| left < right)));
 
         Ok(json!({
-            "identified": identity.protocol == 10,
+            "identified": identity.protocol == 12,
             "workspace_created": workspace > 0,
             "terminal_created": terminal_created,
             "marker_sent": true,

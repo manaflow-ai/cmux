@@ -29,6 +29,7 @@ const { DELETE, GET, POST } = await import("../app/api/devices/route");
 const { hostIsLoopback, hostIsTailscaleAttachable, manualRoutesAreValid } = await import(
   "../app/api/devices/route-classification"
 );
+const { clearNativeAuthCacheForTests } = await import("../services/vms/auth");
 
 let sql: Sql | null = null;
 
@@ -68,10 +69,15 @@ const publicIrohRoute = {
   },
 };
 
+// Tokens are per simulated user. `verifyRequest` caches successful native
+// verifications keyed by the exact access/refresh pair, and in production two
+// users can never present the same Stack token pair, so impersonating user 2
+// under user 1's literal tokens is unrealizable and would replay user 1's
+// cached identity, silently bypassing the ownership guards under test.
 function authHeaders(teamId?: string): Record<string, string> {
   const base: Record<string, string> = {
-    authorization: "Bearer access-token",
-    "x-stack-refresh-token": "refresh-token",
+    authorization: `Bearer access-token-${currentUserId}`,
+    "x-stack-refresh-token": `refresh-token-${currentUserId}`,
     "content-type": "application/json",
   };
   if (teamId) base["x-cmux-team-id"] = teamId;
@@ -101,13 +107,35 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  clearNativeAuthCacheForTests();
+  currentUserId = "registry-user-1";
+  getUser.mockClear();
   if (!sql) return;
   await sql`truncate devices, device_app_instances, account_deletion_tombstones restart identity cascade`;
-  getUser.mockClear();
-  currentUserId = "registry-user-1";
 });
 
 describe("device registry route", () => {
+  test("maps Stack Auth throttles instead of returning a platform 500", async () => {
+    (getUser as unknown as {
+      mockImplementationOnce(implementation: () => Promise<never>): void;
+    }).mockImplementationOnce(async () => {
+      throw new AggregateError([
+        new Error("Rate limited, no retry-after header received"),
+      ]);
+    });
+
+    const response = await GET(
+      new Request("https://cmux.test/api/devices", {
+        method: "GET",
+        headers: authHeaders(),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+  });
+
   dbTest("blocks registration while account deletion is in progress", async () => {
     if (!sql) throw new Error("test database not initialized");
 

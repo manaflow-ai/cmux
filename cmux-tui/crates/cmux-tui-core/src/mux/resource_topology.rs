@@ -15,6 +15,7 @@ use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
+    TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -83,6 +84,10 @@ struct ResourceCloseEffects {
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
     empty_revision: Option<u64>,
+}
+
+fn terminal_close_state_error(detail: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::msg(detail.into()).context("terminal close state is unavailable")
 }
 
 enum ResourceCloseTreePublication {
@@ -2211,6 +2216,194 @@ impl Mux {
         Ok(self.finish_resource_close(committed))
     }
 
+    /// Route the legacy host close through the same projected topology owner
+    /// as `terminal.close`. `None` means the host has no live public resource,
+    /// so the caller may use the host-only compatibility path.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn commit_legacy_terminal_close(
+        &self,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_terminal_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<Option<TerminalCloseResult>> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let notifications = self.surface_notifications();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(terminal) =
+            registry.replay_terminal_close(mutation, terminal_id, expected_incarnation)?
+        {
+            let result = TerminalCloseResult {
+                surface: None,
+                terminal_id: terminal_id.to_string(),
+                terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
+                already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                terminal_revision: terminal.revision,
+            };
+            drop(registry);
+            drop(_creation_fence);
+            drop(_creation_handoff);
+            return Ok(Some(result));
+        }
+        let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+            return Ok(None);
+        };
+        let mut state = self.state.lock().unwrap();
+        let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
+            terminal_close_state_error(format!("terminal {public_id} has no durable host"))
+        })?;
+        if durable_host != terminal_id {
+            return Err(terminal_close_state_error("terminal resource changed hosts"));
+        }
+        let content_id = ContentPublicId::Terminal(public_id.clone());
+        let (target, mut plan) = if let Some(runtime) =
+            state.terminal_catalog.get(&public_id).cloned()
+        {
+            let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
+                terminal_close_state_error("terminal runtime omitted its durable host identity")
+            })?;
+            if host.terminal_id != terminal_id {
+                return Err(terminal_close_state_error("terminal resource changed hosts"));
+            }
+            if let Some(expected) = expected_incarnation {
+                anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+            }
+            let target = state.placements_of_content(&content_id).first().copied();
+            let plan = self.resource_close_plan_locked(
+                ResourceOperation::TerminalClose,
+                EffectSlots { workspace: None, screen: None, pane: None, tab: Some(runtime.id) },
+                &registry,
+                &state,
+                &notifications,
+            )?;
+            (target, plan)
+        } else {
+            if !state.placements_of_content(&content_id).is_empty() {
+                return Err(terminal_close_state_error(format!(
+                    "live terminal resource {public_id} has views but no runtime owner"
+                )));
+            }
+            (
+                None,
+                ResourceClosePlan {
+                    state: state.clone(),
+                    removed: Vec::new(),
+                    terminal_runtime: None,
+                    closed_terminal_public_id: Some(public_id.clone()),
+                    terminal_batch: Vec::new(),
+                    workspace_close: None,
+                    delta: None,
+                    changed_screens: Vec::new(),
+                    selection_resync: false,
+                },
+            )
+        };
+        let mut projection =
+            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        if !projection.patch.changes.iter().any(|change| {
+            matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id: closing, .. }
+                    if closing == &public_id
+            )
+        }) {
+            let incarnation = registry
+                .terminal_record(terminal_id)?
+                .ok_or_else(|| {
+                    terminal_close_state_error(format!(
+                        "terminal close projection omitted host {terminal_id}"
+                    ))
+                })?
+                .incarnation;
+            projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: public_id.clone(),
+                expected_incarnation: incarnation,
+            });
+            let changes = projection.changes.as_array_mut().ok_or_else(|| {
+                terminal_close_state_error("terminal close projection changes are not an array")
+            })?;
+            changes.push(json!({
+                "kind":"delete",
+                "sequence":changes.len(),
+                "resource":"terminal",
+                "id":public_id,
+            }));
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+            hook();
+        }
+        let committed = registry.close_terminal_with_resource_patch(
+            mutation,
+            expected_generation,
+            expected_terminal_revision,
+            state.resource_revision,
+            terminal_id,
+            expected_incarnation,
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
+        )?;
+        let (terminal, resource) = match committed {
+            TerminalResourceCloseCommit::TerminalReplay(terminal) => {
+                let result = TerminalCloseResult {
+                    surface: None,
+                    terminal_id: terminal_id.to_string(),
+                    terminal_incarnation: terminal.result["incarnation"]
+                        .as_str()
+                        .map(str::to_string),
+                    already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                    terminal_revision: terminal.revision,
+                };
+                drop(state);
+                drop(registry);
+                drop(_creation_fence);
+                drop(_creation_handoff);
+                return Ok(Some(result));
+            }
+            TerminalResourceCloseCommit::ResourceReplay { terminal, resource } => {
+                state.resource_revision = state.resource_revision.max(resource.revision);
+                let result = TerminalCloseResult {
+                    surface: None,
+                    terminal_id: terminal_id.to_string(),
+                    terminal_incarnation: terminal.result["incarnation"]
+                        .as_str()
+                        .map(str::to_string),
+                    already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                    terminal_revision: terminal.revision,
+                };
+                drop(state);
+                drop(registry);
+                drop(_creation_fence);
+                drop(_creation_handoff);
+                return Ok(Some(result));
+            }
+            TerminalResourceCloseCommit::Committed { terminal, resource } => (terminal, resource),
+        };
+        #[cfg(test)]
+        if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
+            hook();
+        }
+        if !terminal.replayed && !terminal.result["already_closed"].as_bool().unwrap_or(false) {
+            self.emit_terminal_registry_changed(&registry, terminal.revision);
+        }
+        let effects = plan.install(&mut state, resource.revision, None);
+        drop(state);
+        drop(registry);
+        drop(_creation_fence);
+        drop(_creation_handoff);
+        self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
+        Ok(Some(TerminalCloseResult {
+            surface: target,
+            terminal_id: terminal_id.to_string(),
+            terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
+            already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+            terminal_revision: terminal.revision,
+        }))
+    }
+
     pub(super) fn terminal_exit_detach_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -2288,7 +2481,7 @@ impl Mux {
             .changes
             .iter()
             .filter_map(|change| match change {
-                ResourceChange::TombstoneTab { tab_id } => Some(tab_id),
+                ResourceChange::TombstoneTab { tab_id, .. } => Some(tab_id),
                 _ => None,
             })
             .collect::<HashSet<_>>();
@@ -2468,7 +2661,6 @@ impl Mux {
         drop(workspace_lifecycle);
         Ok(CommittedResourceClose { commit: close.resource, effects })
     }
-
     fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
         let effects = committed.effects;
         if let Some(terminal_id) = effects.closed_terminal_public_id {
@@ -2744,46 +2936,58 @@ impl Mux {
         let effect_fields = semantic_creation_fields(&fields);
         let preparation = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            if let Some(preparation) = registry.lookup_resource_creation(
+            match registry.lookup_resource_creation(
                 correlation_key,
                 &mutation.id,
                 &operation_name,
                 fingerprint,
                 true,
             )? {
-                preparation
-            } else {
-                let mut state = self.state.lock().unwrap();
-                let selectors = self.select_live_creation_selectors(
-                    operation,
-                    &selector_candidates,
-                    &state,
-                    &registry,
-                )?;
-                let intent = self.resource_topology_effect_intent(
-                    operation,
-                    selectors,
-                    &effect_fields,
-                    ResourceEffectIntentContext {
+                Some(ResourceCreationPreparation::Execute { intent, .. }) => registry
+                    .prepare_resource_creation(
+                        correlation_key,
+                        &mutation.id,
+                        &operation_name,
+                        fingerprint,
+                        &intent,
+                        true,
+                        None,
                         expected_revision,
-                        mutation_origin: &mutation.origin,
-                    },
-                    &mut state,
-                    &registry,
-                )?;
-                registry.prepare_resource_creation(
-                    correlation_key,
-                    &mutation.id,
-                    &operation_name,
-                    fingerprint,
-                    &intent,
-                    true,
-                    None,
-                    expected_revision,
-                )?
+                    )?,
+                Some(preparation) => preparation,
+                None => {
+                    let mut state = self.state.lock().unwrap();
+                    let selectors = self.select_live_creation_selectors(
+                        operation,
+                        &selector_candidates,
+                        &state,
+                        &registry,
+                    )?;
+                    let intent = self.resource_topology_effect_intent(
+                        operation,
+                        selectors,
+                        &effect_fields,
+                        ResourceEffectIntentContext {
+                            expected_revision,
+                            mutation_origin: &mutation.origin,
+                        },
+                        &mut state,
+                        &registry,
+                    )?;
+                    registry.prepare_resource_creation(
+                        correlation_key,
+                        &mutation.id,
+                        &operation_name,
+                        fingerprint,
+                        &intent,
+                        true,
+                        None,
+                        expected_revision,
+                    )?
+                }
             }
         };
-        match preparation {
+        let commit = match preparation {
             ResourceCreationPreparation::Created { created_path, revision, .. } => {
                 Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
             }
@@ -2838,7 +3042,30 @@ impl Mux {
                     }
                 }
             }
+        }?;
+        self.activate_created_terminal_launch(&commit.result)?;
+        Ok(commit)
+    }
+
+    fn activate_created_terminal_launch(&self, result: &Value) -> anyhow::Result<()> {
+        if result.get("terminal_id").and_then(Value::as_str).is_none() {
+            return Ok(());
         }
+        let Some(tab_id) = result.get("tab_id").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let tab_id = TabPublicId::parse(tab_id.to_string()).map_err(anyhow::Error::new)?;
+        let Some(surface_id) =
+            self.state.lock().unwrap().resource_indexes.tabs.get(&tab_id).copied()
+        else {
+            // A replay can outlive its detached terminal view. There is no
+            // launch barrier to release in that case.
+            return Ok(());
+        };
+        if let Some(surface) = self.surface(surface_id) {
+            surface.activate_hosted_launch_stream()?;
+        }
+        Ok(())
     }
 
     fn select_live_creation_selectors<'a>(
@@ -5911,6 +6138,70 @@ fn set_node_split_ratios(node: &mut Node, ratios: &std::collections::BTreeMap<Sp
 #[cfg(test)]
 mod creation_recovery_tests {
     use super::*;
+
+    #[test]
+    fn resumed_correlated_creation_rechecks_its_resource_revision() {
+        let registry = WorkspaceRegistry::in_memory("creation-resume-precondition").unwrap();
+        let mux = Mux::from_workspace_registry(
+            "creation-resume-precondition".into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let operation = ResourceOperation::TabCreateBrowser;
+        let operation_name = operation_name(operation);
+        let correlation_key = "correlation";
+        let mutation = WorkspaceMutation::new("attempt-one", "test").unwrap();
+        let fingerprint = json!({"operation":operation_name});
+        let intent = json!({
+            "browser_reservation":{
+                "tab_id":TabPublicId::random().unwrap(),
+                "browser_id":BrowserPublicId::random().unwrap(),
+            },
+        });
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .prepare_resource_creation(
+                correlation_key,
+                &mutation.id,
+                &operation_name,
+                &fingerprint,
+                &intent,
+                true,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        mux.resource_create_empty_workspace(
+            None,
+            None,
+            None,
+            &WorkspaceMutation::local("concurrent-test"),
+        )
+        .unwrap();
+
+        let error = mux
+            .resource_correlated_creation_operation(
+                operation,
+                vec![ResourceSelectors::default()],
+                json!({
+                    "correlation_key":correlation_key,
+                    "url":"https://example.test",
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+                Some(0),
+                &mutation,
+                &fingerprint,
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "resource revision conflict: expected 0, current 1");
+        mux.shutdown();
+    }
 
     #[test]
     fn restart_reconciles_absent_effects_for_every_created_path_operation() {

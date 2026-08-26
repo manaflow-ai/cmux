@@ -1,7 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
-import CryptoKit
 import Foundation
 
 @MainActor
@@ -20,6 +19,11 @@ extension MobileHostIrohRuntime {
             throw CmxIrohHostRuntimeError.inactive
         }
         let tag = Self.currentTag()
+        guard let clientNamespace = CmxIrohMacBundleNamespace(
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        ) else {
+            throw CmxIrohHostRuntimeError.invalidLocalBinding
+        }
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
             tag: tag
@@ -39,6 +43,7 @@ extension MobileHostIrohRuntime {
         let bindingMatches = cachedBinding.map {
             $0.deviceID == deviceID
                 && $0.appInstanceID == appInstanceID
+                && $0.clientNamespace == clientNamespace.rawValue
                 && $0.tag == tag
                 && $0.platform == .mac
                 && derivedEndpointID == $0.endpointID
@@ -72,10 +77,14 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
+            clientNamespace: clientNamespace.rawValue,
             tag: tag,
             endpointID: derivedEndpointID,
             identityGeneration: identity.generation,
-            pairingEnabled: true,
+            // Under a managed remote-control disable the runtime should never
+            // activate at all; reporting pairingEnabled=false is defense in
+            // depth so the trust broker also refuses to mint pair grants.
+            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities
         )
         let cachedHostPolicy: CmxIrohCachedHostPolicy?
@@ -142,6 +151,14 @@ extension MobileHostIrohRuntime {
                     guard let auth else { return }
                     _ = try await auth.forceRefreshAccessToken()
                 }
+            ),
+            clientNamespace: clientNamespace.rawValue,
+            discoveryScope: try CmxConnectivityDiscoveryScope(
+                deviceID: deviceID,
+                appInstanceID: appInstanceID,
+                tag: tag,
+                platform: .mac,
+                peerPlatform: .ios
             ),
             backpressureMode: .callerOwned
         )
@@ -239,10 +256,14 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
+            clientNamespace: clientNamespace,
             tag: tag,
             displayName: MobileHostIdentity.instanceDisplayName(),
             identity: identity,
-            pairingEnabled: true,
+            // Under a managed remote-control disable the runtime should never
+            // activate at all; reporting pairingEnabled=false is defense in
+            // depth so the trust broker also refuses to mint pair grants.
+            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities,
             bindPolicy: .preferred(
                 try CmxIrohBindAddress(
@@ -308,7 +329,8 @@ extension MobileHostIrohRuntime {
                     session: session,
                     artifactHandler: MobileHostIrohArtifactLaneHandler(
                         registry: artifactTransfers
-                    )
+                    ),
+                    simulatorStreamHandler: MobileHostIrohSimulatorStreamLaneHandler()
                 )
                 let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
                     runControl: {
@@ -627,17 +649,5 @@ extension MobileHostIrohRuntime {
             && !signOutIntentActive
             && desiredActive
             && observedAccountID == accountID
-    }
-}
-
-private extension CmxIrohIdentityMaterial {
-    var peerIdentity: CmxIrohPeerIdentity? {
-        guard let privateKey = try? Curve25519.Signing.PrivateKey(
-            rawRepresentation: secretKey.bytes
-        ) else { return nil }
-        let endpointID = privateKey.publicKey.rawRepresentation
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return try? CmxIrohPeerIdentity(endpointID: endpointID)
     }
 }

@@ -86,6 +86,7 @@ public final class SocketControlServer {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
+        let listenerReadSourceSuspended: Bool
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
@@ -278,6 +279,7 @@ public final class SocketControlServer {
             acceptLoopAlive: state.acceptLoopAlive,
             activeGeneration: state.activeAcceptLoopGeneration,
             pendingRearmGeneration: state.pendingAcceptLoopRearmGeneration,
+            listenerReadSourceSuspended: state.listenerReadSourceSuspended,
             reservedStartupSocketPath: state.reservedStartupSocketPath,
             listenerStartInProgress: state.listenerStartInProgress,
             socketPathLockHeld: state.socketPathLockFD >= 0,
@@ -338,6 +340,8 @@ public final class SocketControlServer {
     public nonisolated func currentSocketPathForRemoteRestore() -> String? {
         let snapshot = listenerStateSnapshot()
         if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress
+            || snapshot.pendingRearmGeneration != nil
+            || snapshot.socketPathLockHeld
             || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
         }
@@ -435,6 +439,23 @@ public final class SocketControlServer {
         if let errnoCode {
             data["errno"] = Int(errnoCode)
             data["errnoDescription"] = String(cString: strerror(errnoCode))
+        }
+        let listenerState: String
+        if snapshot.pendingRearmGeneration != nil {
+            listenerState = "rearming"
+        } else if snapshot.listenerStartInProgress {
+            listenerState = "starting"
+        } else if snapshot.isRunning && snapshot.acceptLoopAlive {
+            listenerState = "running"
+        } else if snapshot.isRunning {
+            listenerState = "accept_source_starting"
+        } else {
+            listenerState = "stopped"
+        }
+        data["listenerState"] = listenerState
+        data["acceptSourceSuspended"] = snapshot.listenerReadSourceSuspended ? 1 : 0
+        if let pendingRearmGeneration = snapshot.pendingRearmGeneration {
+            data["pendingRearmGeneration"] = pendingRearmGeneration
         }
         for (key, value) in extra {
             data[key] = value

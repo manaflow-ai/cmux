@@ -217,6 +217,11 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             forwardingToggle.waitForExistence(timeout: 9.0),
             "Expected the popover entrypoint to reveal the actual phone-forwarding controls"
         )
+        let notificationsTab = app.buttons["Notifications"]
+        XCTAssertTrue(
+            notificationsTab.waitForExistence(timeout: 3.0) && notificationsTab.isHittable,
+            "Expected Notifications to open as a selectable pane tab"
+        )
     }
 
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {

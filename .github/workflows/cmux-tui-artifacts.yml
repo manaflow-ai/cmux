@@ -1,11 +1,12 @@
 name: cmux-tui artifacts
 
-# Publishes raw cmux-tui (the Rust TUI multiplexer) and cmux-relay binaries to the
-# cmux-binaries R2 bucket (public under https://files.cmux.com/cmux-tui/... and
-# https://files.cmux.com/cmux-relay/...) so cloud VM snapshot builders and install
-# scripts can curl a binary directly, without npm or PyPI. Binary building is
-# shared with the npm/uvx distribution lane (cmux-tui-build-package.yml); this
-# workflow only adds the R2 raw-binary publish.
+# Publishes raw cmux-tui (the Rust TUI multiplexer), cmux-relay, and
+# chatmux-relay (the machine agent) binaries to the cmux-binaries R2 bucket
+# (public under https://files.cmux.com/<prefix>/...) so cloud VM snapshot
+# builders and install scripts can curl a binary directly, without npm or
+# PyPI. Binary building is shared with the npm/uvx distribution lane
+# (cmux-tui-build-package.yml); this workflow only adds the R2 raw-binary
+# publish.
 #
 # Layout in R2:
 #   cmux-tui/<commit-sha>/cmux-tui-<rust-target>   immutable, commit-addressed
@@ -16,6 +17,13 @@ name: cmux-tui artifacts
 #   cmux-relay/<commit-sha>/manifest.json
 #   cmux-relay/latest/cmux-relay-<rust-target>       rolling, manual publishes only
 #   cmux-relay/latest/manifest.json
+#   chatmux-relay/<commit-sha>/chatmux-relay-<rust-target> immutable, commit-addressed
+#   chatmux-relay/<commit-sha>/manifest.json
+# The chatmux-relay manifest also records immutable URLs and SHA-256 values for
+# the matching cmux-tui runtime binaries. Consumers must install both; a
+# relay-only install is not a supported PTY configuration.
+#   chatmux-relay/latest/chatmux-relay-<rust-target>       rolling, manual publishes only
+#   chatmux-relay/latest/manifest.json
 
 on:
   # Temporarily manual-only beginning 2026-07-13 to pause automatic CI/CD.
@@ -23,7 +31,9 @@ on:
 
 concurrency:
   group: cmux-tui-artifacts-${{ github.ref }}
-  cancel-in-progress: true
+  # Raw immutable objects are write-once. Queue a second dispatch instead of
+  # cancelling the first half-written publication.
+  cancel-in-progress: false
 
 permissions: {}
 
@@ -31,14 +41,22 @@ jobs:
   build:
     permissions:
       contents: read
+      # The reusable package workflow declares an optional attestation job.
+      # Grant its permission ceiling even though this R2 lane disables npm
+      # package attestations.
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
       # Raw R2 artifacts are not npm releases and must never claim that an
       # older published package can reproduce their source contents.
-      version: 0.0.0-r2.${{ github.sha }}
+      version: 0.0.0-r2.sha-${{ github.sha }}
       package_npm: false
       package_pypi: false
-      include_windows: true
+      # The Rust machine relay has no Windows PTY backend yet. Keep Windows on
+      # the Node rollback lane until a tested backend exists; do not publish a
+      # misleading Rust machine package or manifest entry.
+      include_windows: false
 
   publish:
     name: publish to R2
@@ -50,6 +68,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -69,38 +89,269 @@ jobs:
           path: assets/cmux-relay
           merge-multiple: true
 
+      - name: Download chatmux-relay binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: chatmux-relay-*
+          path: assets/chatmux-relay
+          merge-multiple: true
+
       - name: Build manifest and checksums
         run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "checkout HEAD does not match the requested source commit" >&2
+            exit 1
+          }
           build_manifest() {
             local directory="$1"
             local binary_prefix="$2"
             local checksums="$3"
+            local dependency_manifest="${4:-}"
+            local commit_time
+            if [[ -n "$dependency_manifest" ]]; then
+              # The manifest builder changes directory before Python opens the
+              # dependency. Canonicalize now so the machine manifest does not
+              # accidentally look below assets/chatmux-relay/assets/.
+              dependency_manifest="$(cd "$(dirname "$dependency_manifest")" && pwd)/$(basename "$dependency_manifest")"
+            fi
+            commit_time="$(git show -s --format=%cI "$GITHUB_SHA")"
+            release_url=""
+            if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+              release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+            fi
             (
               cd "$directory"
               chmod 0755 "${binary_prefix}"*
               sha256sum "${binary_prefix}"* > "$checksums"
-              python3 - "$GITHUB_SHA" "$binary_prefix" <<'PY'
+              python3 - "$GITHUB_SHA" "$binary_prefix" "$commit_time" "$dependency_manifest" \
+                "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$release_url" <<'PY'
           import hashlib, json, os, sys
-          from datetime import datetime, timezone
+          from datetime import datetime
           files = sorted(
               f for f in os.listdir(".")
               if f.startswith(sys.argv[2]) and not f.endswith(".txt")
           )
+          def runtime_for(filename):
+              """Describe the runtime of this exact published binary.
+
+              Linux compatibility-name copies still contain the musl-linked
+              binary, so infer libc from the build artifact set rather than
+              the target name alone.
+              """
+              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removesuffix(".exe")
+              if "apple-darwin" in target:
+                  return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
+              if "windows" in target:
+                  return {"os": "windows", "architecture": "x86_64", "libc": "none"}
+              return {
+                  "os": "linux",
+                  "architecture": "arm64" if target.startswith("aarch64") else "x86_64",
+                  "libc": "musl",
+              }
+
+          server_url, repository, run_id, release_url = sys.argv[5:9]
+          if not server_url or not repository or not run_id:
+              raise SystemExit("GitHub provenance context is incomplete")
+          source_repository = f"{server_url.rstrip('/')}/{repository}"
           manifest = {
               "commit": sys.argv[1],
-              "builtAt": datetime.now(timezone.utc).isoformat(),
+              # Keep immutable SHA uploads byte-identical across a safe rerun.
+              "builtAt": datetime.fromisoformat(sys.argv[3]).isoformat(),
+              "sourceRepository": source_repository,
+              "sourceCommit": sys.argv[1],
+              "attestationUrl": f"{source_repository}/actions/runs/{run_id}",
+              # A manual SHA publication is not a GitHub Release. Stable tag
+              # runs fill this URL; null is explicit and prevents consumers
+              # from mistaking a branch artifact for a release.
+              "releaseUrl": release_url or None,
+              # Keep distribution metadata next to the digest map. Consumers
+              # can reject an artifact whose runtime contract they cannot
+              # satisfy without guessing from the filename.
+              "license": "MIT",
+              # Runtime constraints are per binary. Some GNU target-named
+              # files are compatibility-name copies of musl-linked binaries.
+              # `libc` is explicit for every runtime. `none` marks platforms
+              # where a C library does not constrain compatibility.
+              "runtimeByBinary": {f: runtime_for(f) for f in files},
               "binaries": {
                   f: hashlib.sha256(open(f, "rb").read()).hexdigest() for f in files
               },
           }
+          dependency_manifest_path = sys.argv[4]
+          if dependency_manifest_path:
+              with open(dependency_manifest_path) as dependency_file:
+                  dependency = json.load(dependency_file)
+              required_dependency_files = [
+                  "cmux-tui-aarch64-apple-darwin",
+                  "cmux-tui-x86_64-apple-darwin",
+                  "cmux-tui-x86_64-unknown-linux-musl",
+                  "cmux-tui-aarch64-unknown-linux-musl",
+              ]
+              dependency_binaries = dependency.get("binaries", {})
+              missing = [
+                  name for name in required_dependency_files
+                  if not isinstance(dependency_binaries, dict)
+                  or name not in dependency_binaries
+              ]
+              if missing:
+                  raise SystemExit(
+                      "cmux-tui dependency manifest is missing: " + ", ".join(missing)
+                  )
+              dependency_commit = dependency.get("commit")
+              if dependency_commit != sys.argv[1]:
+                  raise SystemExit(
+                      f"cmux-tui dependency commit {dependency_commit!r} "
+                      f"does not match {sys.argv[1]!r}"
+                  )
+              dependency_base = f"https://files.cmux.com/cmux-tui/{sys.argv[1]}"
+              manifest["dependencies"] = {
+                  "cmux-tui": {
+                      "commit": dependency_commit,
+                      "manifest": f"{dependency_base}/manifest.json",
+                      "binaries": {
+                          name: {
+                              "url": f"{dependency_base}/{name}",
+                              "sha256": dependency_binaries[name],
+                          }
+                          for name in required_dependency_files
+                      },
+                  }
+              }
           with open("manifest.json", "w") as out:
               json.dump(manifest, out, indent=2)
           print(json.dumps(manifest, indent=2))
           PY
             )
           }
+
+          build_machine_manifest() {
+            local directory="$1"
+            local dependency_directory="$2"
+            directory="$(cd "$directory" && pwd)"
+            dependency_directory="$(cd "$dependency_directory" && pwd)"
+            local version="0.0.0-r2.sha-${GITHUB_SHA}"
+            local release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/chatmux-relay-r2-${GITHUB_SHA}"
+            local workflow_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            python3 - "$directory" "$dependency_directory" "$GITHUB_SHA" "$version" \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$release_url" "$workflow_run_url" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          from typing import Any
+
+          directory = pathlib.Path(sys.argv[1])
+          dependency_directory = pathlib.Path(sys.argv[2])
+          source_commit = sys.argv[3]
+          version = sys.argv[4]
+          server_url = sys.argv[5].rstrip("/")
+          repository = sys.argv[6]
+          run_id = sys.argv[7]
+          release_url = sys.argv[8]
+          workflow_run_url = sys.argv[9]
+          if not source_commit or not run_id:
+              raise SystemExit("source commit and workflow run are required")
+          source_repository = f"{server_url}/{repository}"
+          if not source_repository.startswith("https://github.com/"):
+              raise SystemExit("machine manifest requires a GitHub source repository")
+          targets = (
+              "aarch64-apple-darwin",
+              "x86_64-apple-darwin",
+              "x86_64-unknown-linux-musl",
+              "aarch64-unknown-linux-musl",
+          )
+
+          def record(path: pathlib.Path, name: str, prefix: str) -> dict[str, Any]:
+              if path.name != name or not path.is_file():
+                  raise SystemExit(f"missing machine artifact: {path}")
+              return {
+                  "name": name,
+                  "url": f"https://files.cmux.com/{prefix}/{source_commit}/{name}",
+                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  "size": path.stat().st_size,
+              }
+
+          artifacts: dict[str, dict[str, dict[str, Any]]] = {}
+          for target in targets:
+              relay_name = f"chatmux-relay-{target}"
+              tui_name = f"cmux-tui-{target}"
+              artifacts[target] = {
+                  "chatmux-relay": record(directory / relay_name, relay_name, "chatmux-relay"),
+                  "cmux-tui": record(dependency_directory / tui_name, tui_name, "chatmux-relay"),
+              }
+
+          manifest = {
+              "schemaVersion": 1,
+              "sourceRepository": source_repository,
+              "sourceCommit": source_commit,
+              "version": version,
+              "workflowRunUrl": workflow_run_url,
+              "releaseUrl": release_url,
+              "artifacts": artifacts,
+          }
+          (directory / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print(json.dumps(manifest, indent=2))
+          PY
+          }
+
+          machine_targets=(
+            aarch64-apple-darwin
+            x86_64-apple-darwin
+            x86_64-unknown-linux-musl
+            aarch64-unknown-linux-musl
+          )
+          for target in "${machine_targets[@]}"; do
+            cp "assets/cmux-tui/cmux-tui-${target}" "assets/chatmux-relay/cmux-tui-${target}"
+          done
           build_manifest assets/cmux-tui cmux-tui- cmux-tui-checksums.txt
           build_manifest assets/cmux-relay cmux-relay- cmux-relay-checksums.txt
+          build_machine_manifest assets/chatmux-relay assets/cmux-tui
+
+      - name: Verify Unix manifests before upload
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/cmux-tui/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-tui-aarch64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --artifact-directory assets/cmux-tui
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/cmux-relay/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-relay-aarch64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-unknown-linux-musl \
+            --require-artifact cmux-relay-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
+            --artifact-directory assets/cmux-relay
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/chatmux-relay/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --machine-manifest \
+            --artifact-directory assets/chatmux-relay
+
+      - name: Attest raw binary subjects
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            assets/cmux-tui/cmux-tui-*
+            assets/cmux-tui/manifest.json
+            assets/cmux-relay/cmux-relay-*
+            assets/cmux-relay/manifest.json
+            assets/chatmux-relay/chatmux-relay-*
+            assets/chatmux-relay/cmux-tui-*
+            assets/chatmux-relay/manifest.json
+          # These are file subjects, not OCI images. No artifact-metadata
+          # storage records are created for this R2 publication.
+          push-to-registry: false
 
       - name: Upload to R2
         env:
@@ -114,8 +365,13 @@ jobs:
             local directory="$1"
             local prefix="$2"
             local cache="$3"
+            local write_once="$4"
             for file in "$directory"/*; do
-              python3 scripts/ci/upload-r2-object.py \
+              upload_args=()
+              if [[ "$write_once" == "true" ]]; then
+                upload_args+=(--write-once)
+              fi
+              python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
@@ -123,14 +379,12 @@ jobs:
                 --cache-control "$cache"
             done
           }
-          publish_prefix assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable"
-          publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable"
-          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            publish_prefix assets/cmux-tui "cmux-tui/latest" "no-cache, no-store, must-revalidate"
-            publish_prefix assets/cmux-relay "cmux-relay/latest" "no-cache, no-store, must-revalidate"
-          fi
+          publish_prefix assets/cmux-tui "cmux-tui/$GITHUB_SHA" "public, max-age=31536000, immutable" true
+          publish_prefix assets/cmux-relay "cmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
+          publish_prefix assets/chatmux-relay "chatmux-relay/$GITHUB_SHA" "public, max-age=31536000, immutable" true
           echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json"
           echo "Published: https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json"
+          echo "Published: https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json"
 
           # Transitional double-publish under the pre-rename prefix and binary
           # names: out-of-repo consumers (cmux-cloud bootstrap/install-mux.sh
@@ -140,14 +394,49 @@ jobs:
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
           for file in assets/cmux-tui/cmux-tui-*; do
+            if [[ "$(basename "$file")" == cmux-tui-hook-* ]]; then
+              continue
+            fi
             cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
           done
-          cp assets/cmux-tui/manifest.json "$legacy_assets/manifest.json"
+          commit_time="$(git show -s --format=%cI "$GITHUB_SHA")"
+          python3 - "$GITHUB_SHA" "$legacy_assets" "$commit_time" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          from datetime import datetime
+
+          root = pathlib.Path(sys.argv[2])
+          files = sorted(path for path in root.glob("cmux-mux-*") if path.is_file())
+          def runtime_for(filename):
+              target = filename.removeprefix("cmux-mux-").removeprefix("hook-").removesuffix(".exe")
+              if "apple-darwin" in target:
+                  return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
+              if "windows" in target:
+                  return {"os": "windows", "architecture": "x86_64", "libc": "none"}
+              return {
+                  "os": "linux",
+                  "architecture": "arm64" if target.startswith("aarch64") else "x86_64",
+                  "libc": "musl",
+              }
+
+          manifest = {
+              "commit": sys.argv[1],
+              "builtAt": datetime.fromisoformat(sys.argv[3]).isoformat(),
+              "license": "MIT",
+              "runtimeByBinary": {path.name: runtime_for(path.name) for path in files},
+              "binaries": {
+                  path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files
+              },
+          }
+          (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
           publish_legacy_prefix() {
             local prefix="$1"
             local cache="$2"
             for file in "$legacy_assets"/*; do
-              python3 scripts/ci/upload-r2-object.py \
+              python3 scripts/ci/upload-r2-object.py --write-once \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
@@ -156,6 +445,136 @@ jobs:
             done
           }
           publish_legacy_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
+
+      - name: Verify immutable Unix manifests before latest publish
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-tui-aarch64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-relay-aarch64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-unknown-linux-musl \
+            --require-artifact cmux-relay-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
+            --artifact-base-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA"
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --machine-manifest \
+            --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
+
+      - name: Publish rolling latest artifacts
+        if: github.ref == 'refs/heads/main'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          publish_prefix() {
+            local directory="$1"
+            local prefix="$2"
+            local cache="$3"
+            local write_once="${4:-false}"
+            for file in "$directory"/*; do
+              upload_args=()
+              if [[ "$write_once" == "true" ]]; then
+                upload_args+=(--write-once)
+              fi
+              python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
+                --file "$file" \
+                --endpoint-url "$R2_ENDPOINT" \
+                --bucket cmux-binaries \
+                --key "$prefix/$(basename "$file")" \
+                --cache-control "$cache"
+            done
+          }
+          publish_prefix assets/cmux-tui "cmux-tui/latest" "no-cache, no-store, must-revalidate" false
+          publish_prefix assets/cmux-relay "cmux-relay/latest" "no-cache, no-store, must-revalidate" false
+          publish_prefix assets/chatmux-relay "chatmux-relay/latest" "no-cache, no-store, must-revalidate" false
+
+          publish_legacy_prefix() {
+            local prefix="$1"
+            local cache="$2"
+            for file in assets-legacy/*; do
+              python3 scripts/ci/upload-r2-object.py \
+                --file "$file" \
+                --endpoint-url "$R2_ENDPOINT" \
+                --bucket cmux-binaries \
+                --key "$prefix/$(basename "$file")" \
+                --cache-control "$cache"
+            done
+          }
+          publish_legacy_prefix "mux/latest" "no-cache, no-store, must-revalidate"
+
+      - name: Verify published Unix manifests
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-tui-aarch64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-relay-aarch64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-unknown-linux-musl \
+            --require-artifact cmux-relay-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
+            --artifact-base-url "https://files.cmux.com/cmux-relay/$GITHUB_SHA"
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json" \
+            --expected-commit "$GITHUB_SHA" \
+            --machine-manifest \
+            --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            publish_legacy_prefix "mux/latest" "no-cache, no-store, must-revalidate"
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/cmux-tui/latest/manifest.json?verify=$GITHUB_SHA" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-tui-aarch64-apple-darwin \
+              --require-artifact cmux-tui-x86_64-apple-darwin \
+              --require-artifact cmux-tui-x86_64-unknown-linux-musl \
+              --require-artifact cmux-tui-aarch64-unknown-linux-musl \
+              --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+              --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
+              --expected-commit "$GITHUB_SHA" \
+              --require-provenance \
+              --require-artifact cmux-relay-aarch64-apple-darwin \
+              --require-artifact cmux-relay-x86_64-apple-darwin \
+              --require-artifact cmux-relay-x86_64-unknown-linux-musl \
+              --require-artifact cmux-relay-aarch64-unknown-linux-musl \
+              --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
+              --artifact-base-url "https://files.cmux.com/cmux-relay/latest"
+            python3 cmux-tui/scripts/verify_published_manifest.py \
+              --manifest-url "https://files.cmux.com/chatmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
+              --expected-commit "$GITHUB_SHA" \
+              --machine-manifest \
+              --artifact-base-url "https://files.cmux.com/chatmux-relay/latest"
           fi

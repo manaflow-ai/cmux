@@ -86,18 +86,13 @@ describe("Stripe catalog provisioning", () => {
     ).toBe(true);
   });
 
-  test("finds a canonical product on a later product-list page", async () => {
+  test("finds a canonical product on a later product-search page", async () => {
     const result = await runProvision("test", "canonical-product-second-page");
 
     expect(result.exitCode).toBe(0);
     expect(
-      result.calls.some((call) => call.args.includes("starting_after=prod_attacker")),
+      result.calls.some((call) => call.args.includes("page=page_two")),
     ).toBe(true);
-    expect(
-      result.calls.some((call) =>
-        call.args.includes("https://api.stripe.com/v1/products/search")
-      ),
-    ).toBe(false);
     expect(
       result.calls.some(
         (call) =>
@@ -271,6 +266,7 @@ const valueFor = (prefix) => {
 };
 const lookupKey = valueFor("lookup_keys[]=");
 const startingAfter = valueFor("starting_after=");
+const searchPage = valueFor("page=");
 const expandedProduct = args.includes("expand[]=data.product");
 const dataValue = valueFor("name=");
 const respond = (value) => {
@@ -369,18 +365,18 @@ if (url.endsWith("/prices") && !isPost) {
   } else {
     respond({ data: [] });
   }
-} else if (url.endsWith("/products") && !isPost) {
+} else if (url.endsWith("/products/search") && !isPost) {
   const attacker = {
     id: "prod_attacker",
     name: "cmux Pro",
     active: true,
     metadata: { app: "other", plan: "pro" },
   };
-  if (scenario === "canonical-product-second-page" && !startingAfter) {
-    respond({ data: [attacker], has_more: true });
+  if (scenario === "canonical-product-second-page" && !searchPage) {
+    respond({ data: [attacker], has_more: true, next_page: "page_two" });
   } else if (
     scenario === "canonical-product-second-page" &&
-    startingAfter === "prod_attacker"
+    searchPage === "page_two"
   ) {
     respond({ data: [products.pro], has_more: false });
   } else {

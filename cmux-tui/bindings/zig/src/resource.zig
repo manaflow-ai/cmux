@@ -42,6 +42,7 @@ pub const Operation = enum {
     session_snapshot,
     session_creation_resolve,
     session_events,
+    session_journal_subscribe,
     session_ping,
     session_shutdown,
     session_reload_config,
@@ -158,6 +159,7 @@ pub const Operation = enum {
             .session_snapshot => "session.snapshot",
             .session_creation_resolve => "session.creation.resolve",
             .session_events => "session.events",
+            .session_journal_subscribe => "session.journal.subscribe",
             .session_ping => "session.ping",
             .session_shutdown => "session.shutdown",
             .session_reload_config => "session.reload_config",
@@ -269,6 +271,7 @@ pub const Operation = enum {
     pub fn class(self: Operation) OperationClass {
         return switch (self) {
             .session_events,
+            .session_journal_subscribe,
             .terminal_attach,
             .browser_attach,
             .sidebar_view_attach,
@@ -350,10 +353,7 @@ pub const Operation = enum {
     }
 
     fn supportsExpectedRevision(self: Operation) bool {
-        return self.class() == .mutation and switch (self) {
-            .workspace_create => false,
-            else => true,
-        };
+        return self.class() == .mutation;
     }
 
     fn facadeBinding(self: Operation) FacadeBinding {
@@ -366,6 +366,7 @@ pub const Operation = enum {
             .session_snapshot => .{ .owner = .session, .method = "fullSnapshot" },
             .session_creation_resolve => .{ .owner = .session, .method = "resolveCreation" },
             .session_events => .{ .owner = .session, .method = "eventsFrom" },
+            .session_journal_subscribe => .{ .owner = .session, .method = "journal" },
             .session_ping => .{ .owner = .session, .method = "ping" },
             .session_shutdown => .{ .owner = .session, .method = "shutdown" },
             .session_reload_config => .{ .owner = .session, .method = "reloadConfig" },
@@ -809,6 +810,115 @@ pub const InitialContent = enum {
 pub const Cursor = struct {
     generation: []const u8,
     revision: u64,
+};
+
+pub const JournalStart = enum {
+    tail,
+    beginning,
+
+    pub fn wireName(self: JournalStart) []const u8 {
+        return @tagName(self);
+    }
+};
+
+pub const JournalClass = enum {
+    state,
+    observation,
+    effect,
+    checkpoint,
+
+    pub fn wireName(self: JournalClass) []const u8 {
+        return @tagName(self);
+    }
+};
+
+pub const JournalReplayPolicy = enum {
+    required,
+    advisory,
+    never,
+};
+
+pub const JournalSensitivity = enum {
+    public,
+    metadata,
+    sensitive,
+    secret,
+
+    pub fn wireName(self: JournalSensitivity) []const u8 {
+        return @tagName(self);
+    }
+};
+
+pub const JournalSubjectFilter = struct {
+    kind: ?[]const u8 = null,
+    id: ?[]const u8 = null,
+};
+
+pub const JournalRegexField = enum {
+    kind,
+    subjects,
+    payload,
+    record,
+    terminal_output,
+};
+
+pub const JournalRegexFilter = struct {
+    pattern: []const u8,
+    field: JournalRegexField = .record,
+    case_sensitive: bool = true,
+};
+
+pub const JournalFilter = struct {
+    kinds: []const []const u8 = &.{},
+    classes: []const JournalClass = &.{},
+    subjects: []const JournalSubjectFilter = &.{},
+    max_sensitivity: ?JournalSensitivity = null,
+    regex: ?JournalRegexFilter = null,
+};
+
+pub const SessionJournalOptions = struct {
+    cursor: ?Cursor = null,
+    start: ?JournalStart = null,
+    follow: ?bool = null,
+    filter: JournalFilter = .{},
+};
+
+pub const JournalProducer = struct {
+    kind: []const u8,
+    id: []const u8,
+};
+
+pub const JournalAuthority = struct {
+    principal_id: []const u8,
+    lease_id: []const u8,
+    generation: []const u8,
+    role: []const u8,
+};
+
+pub const JournalSubject = struct {
+    kind: []const u8,
+    id: []const u8,
+};
+
+pub const SessionJournalRecord = struct {
+    sequence: u64,
+    event_id: []const u8,
+    schema_version: u32,
+    kind: []const u8,
+    journal_class: JournalClass,
+    replay: JournalReplayPolicy,
+    occurred_at_ms: u64,
+    committed_at_ms: u64,
+    producer: JournalProducer,
+    authority: ?JournalAuthority,
+    causation_id: ?[]const u8,
+    correlation_id: ?[]const u8,
+    causation_depth: u16,
+    subjects: []const JournalSubject,
+    sensitivity: JournalSensitivity,
+    payload: raw.wire.Value,
+    resource_revision: ?u64,
+    previous_resource_revision: ?u64,
 };
 
 pub const CreatedWorkspaceOnly = struct {
@@ -2048,15 +2158,30 @@ pub const Client = struct {
             options.socket_path,
             options.session,
         );
-        errdefer allocator.free(path);
-        var connection = try raw.transport.connectUnixWithTimeout(
-            allocator,
-            path,
-            options.timeout_ms,
-        );
+        defer allocator.free(path);
+        const Resolved = struct {
+            connection: raw.transport.Connection,
+            path: []u8,
+        };
+        const resolved: Resolved = if (options.socket_path == null and !(try raw.transport.hasSocketOverride())) blk: {
+            const fallback = try raw.transport.connectResolvedWithLegacyFallback(
+                allocator,
+                path,
+                options.session,
+                options.timeout_ms,
+            );
+            break :blk .{ .connection = fallback.connection, .path = fallback.path };
+        } else blk: {
+            var connection = try raw.transport.connectUnixWithTimeout(allocator, path, options.timeout_ms);
+            errdefer connection.deinit();
+            const owned_path = try allocator.dupe(u8, path);
+            break :blk .{ .connection = connection, .path = owned_path };
+        };
+        var connection = resolved.connection;
+        const effective_path = resolved.path;
         errdefer connection.deinit();
         var result = init(allocator, connection, options);
-        result.owned_socket_path = path;
+        result.owned_socket_path = effective_path;
         return result;
     }
 
@@ -2885,6 +3010,23 @@ pub const Client = struct {
         ) };
     }
 
+    fn openSessionJournal(
+        self: *Client,
+        params: raw.wire.Value,
+    ) !SessionJournalStream {
+        var deadline = try TimeoutDeadline.start(self.timeout_ms);
+        const connection = try self.streamConnection(&deadline);
+        return .{ .raw_stream = try RawStream.open(
+            SessionJournalRecord,
+            self.allocator,
+            connection,
+            self.streamOptions(),
+            .session_journal_subscribe,
+            params,
+            &deadline,
+        ) };
+    }
+
     fn openTerminalAttachment(
         self: *Client,
         params: raw.wire.Value,
@@ -3648,6 +3790,196 @@ fn decodeSessionEvent(
     } };
 }
 
+fn journalBoundedString(
+    object: raw.wire.Object,
+    name: []const u8,
+    maximum: usize,
+) ![]const u8 {
+    const value = try objectString(object, name);
+    if (value.len == 0 or value.len > maximum) {
+        return error.InvalidJournalString;
+    }
+    return value;
+}
+
+fn journalNullableString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    return switch (object.get(name) orelse return error.MissingField) {
+        .null => null,
+        .string => |value| if (value.len == 0 or value.len > 512)
+            error.InvalidJournalString
+        else
+            value,
+        else => error.ExpectedString,
+    };
+}
+
+fn decodeJournalClass(value: []const u8) !JournalClass {
+    if (std.mem.eql(u8, value, "state")) return .state;
+    if (std.mem.eql(u8, value, "observation")) return .observation;
+    if (std.mem.eql(u8, value, "effect")) return .effect;
+    if (std.mem.eql(u8, value, "checkpoint")) return .checkpoint;
+    return error.InvalidJournalClass;
+}
+
+fn decodeJournalReplayPolicy(value: []const u8) !JournalReplayPolicy {
+    if (std.mem.eql(u8, value, "required")) return .required;
+    if (std.mem.eql(u8, value, "advisory")) return .advisory;
+    if (std.mem.eql(u8, value, "never")) return .never;
+    return error.InvalidJournalReplayPolicy;
+}
+
+fn decodeJournalSensitivity(value: []const u8) !JournalSensitivity {
+    if (std.mem.eql(u8, value, "public")) return .public;
+    if (std.mem.eql(u8, value, "metadata")) return .metadata;
+    if (std.mem.eql(u8, value, "sensitive")) return .sensitive;
+    if (std.mem.eql(u8, value, "secret")) return .secret;
+    return error.InvalidJournalSensitivity;
+}
+
+fn decodeJournalProducer(value: raw.wire.Value) !JournalProducer {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "kind", "id" });
+    return .{
+        .kind = try journalBoundedString(object, "kind", 128),
+        .id = try journalBoundedString(object, "id", 512),
+    };
+}
+
+fn decodeJournalAuthority(value: raw.wire.Value) !?JournalAuthority {
+    return switch (value) {
+        .null => null,
+        .object => |object| blk: {
+            try ensureOnlyFields(
+                object,
+                &.{ "principal_id", "lease_id", "generation", "role" },
+            );
+            break :blk .{
+                .principal_id = try journalBoundedString(
+                    object,
+                    "principal_id",
+                    512,
+                ),
+                .lease_id = try journalBoundedString(
+                    object,
+                    "lease_id",
+                    512,
+                ),
+                .generation = try journalBoundedString(
+                    object,
+                    "generation",
+                    128,
+                ),
+                .role = try journalBoundedString(object, "role", 128),
+            };
+        },
+        else => error.ExpectedObject,
+    };
+}
+
+fn decodeSessionJournalRecord(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+    envelope_cursor: ?Cursor,
+) !SessionJournalRecord {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{
+        "sequence",
+        "event_id",
+        "schema_version",
+        "kind",
+        "class",
+        "replay",
+        "occurred_at_ms",
+        "committed_at_ms",
+        "producer",
+        "authority",
+        "causation_id",
+        "correlation_id",
+        "causation_depth",
+        "subjects",
+        "sensitivity",
+        "payload",
+        "resource_revision",
+        "previous_resource_revision",
+    });
+    const sequence = try decimalU64(
+        object.get("sequence") orelse return error.MissingField,
+    );
+    const cursor = envelope_cursor orelse return error.MissingStreamCursor;
+    if (cursor.revision != sequence) return error.StreamCursorMismatch;
+    const raw_subjects = switch (object.get("subjects") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    if (raw_subjects.len > 256) return error.TooManyJournalSubjects;
+    const subjects = try allocator.alloc(JournalSubject, raw_subjects.len);
+    for (raw_subjects, 0..) |raw_subject, index| {
+        const subject = try detailObject(raw_subject);
+        try ensureOnlyFields(subject, &.{ "kind", "id" });
+        subjects[index] = .{
+            .kind = try journalBoundedString(subject, "kind", 128),
+            .id = try journalBoundedString(subject, "id", 512),
+        };
+    }
+    return .{
+        .sequence = sequence,
+        .event_id = try journalBoundedString(object, "event_id", 512),
+        .schema_version = try objectUnsigned(
+            u32,
+            object,
+            "schema_version",
+            1,
+        ),
+        .kind = try journalBoundedString(object, "kind", 128),
+        .journal_class = try decodeJournalClass(
+            try objectString(object, "class"),
+        ),
+        .replay = try decodeJournalReplayPolicy(
+            try objectString(object, "replay"),
+        ),
+        .occurred_at_ms = try decimalU64(
+            object.get("occurred_at_ms") orelse return error.MissingField,
+        ),
+        .committed_at_ms = try decimalU64(
+            object.get("committed_at_ms") orelse return error.MissingField,
+        ),
+        .producer = try decodeJournalProducer(
+            object.get("producer") orelse return error.MissingField,
+        ),
+        .authority = try decodeJournalAuthority(
+            object.get("authority") orelse return error.MissingField,
+        ),
+        .causation_id = try journalNullableString(object, "causation_id"),
+        .correlation_id = try journalNullableString(
+            object,
+            "correlation_id",
+        ),
+        .causation_depth = try objectUnsigned(
+            u16,
+            object,
+            "causation_depth",
+            0,
+        ),
+        .subjects = subjects,
+        .sensitivity = try decodeJournalSensitivity(
+            try objectString(object, "sensitivity"),
+        ),
+        .payload = object.get("payload") orelse return error.MissingField,
+        .resource_revision = try requiredNullableDecimalU64(
+            object,
+            "resource_revision",
+        ),
+        .previous_resource_revision = try requiredNullableDecimalU64(
+            object,
+            "previous_resource_revision",
+        ),
+    };
+}
+
 fn decodeRenderCursorStyle(value: []const u8) RenderCursorStyle {
     if (std.mem.eql(u8, value, "block")) return .block;
     if (std.mem.eql(u8, value, "underline")) return .underline;
@@ -4035,6 +4367,9 @@ fn domainItem(
     if (comptime Item == SessionEvent) {
         return decodeSessionEvent(allocator, value, cursor);
     }
+    if (comptime Item == SessionJournalRecord) {
+        return decodeSessionJournalRecord(allocator, value, cursor);
+    }
     if (comptime Item == TerminalAttachmentItem) {
         return decodeTerminalAttachmentItem(allocator, value);
     }
@@ -4169,6 +4504,7 @@ const RawStream = struct {
     machine_selector: []u8,
     session_selector: []u8,
     attachment: AttachmentSelector = .none,
+    attachment_lease: ?[]u8 = null,
     pending: std.ArrayList(raw.wire.OwnedValue) = .empty,
     pending_sizes: std.ArrayList(usize) = .empty,
     pending_bytes: usize = 0,
@@ -4274,14 +4610,25 @@ const RawStream = struct {
     }
 
     fn validateOpenResult(
-        self: *const RawStream,
+        self: *RawStream,
         value: raw.wire.Value,
     ) !void {
         const open_result = switch (value) {
             .object => |item| item,
             else => return error.ExpectedObject,
         };
-        try ensureOnlyFields(open_result, &.{ "stream_id", "cursor" });
+        const view_attachment = switch (self.attachment) {
+            .terminal, .browser => true,
+            .none => false,
+        };
+        if (view_attachment) {
+            try ensureOnlyFields(
+                open_result,
+                &.{ "stream_id", "attachment_lease" },
+            );
+        } else {
+            try ensureOnlyFields(open_result, &.{ "stream_id", "cursor" });
+        }
         const acknowledged_stream_id = try objectString(
             open_result,
             "stream_id",
@@ -4293,7 +4640,13 @@ const RawStream = struct {
         )) {
             return error.StreamIdMismatch;
         }
-        if (open_result.get("cursor")) |cursor| {
+        if (view_attachment) {
+            const lease = try objectString(open_result, "attachment_lease");
+            if (lease.len < 1 or lease.len > 128) {
+                return error.InvalidAttachmentLease;
+            }
+            self.attachment_lease = try self.client.allocator.dupe(u8, lease);
+        } else if (open_result.get("cursor")) |cursor| {
             _ = try parseStrictCursor(cursor);
         }
     }
@@ -4393,6 +4746,9 @@ const RawStream = struct {
             .terminal => |selector| self.client.allocator.free(selector),
             .browser => |selector| self.client.allocator.free(selector),
             .none => {},
+        }
+        if (self.attachment_lease) |lease| {
+            self.client.allocator.free(lease);
         }
         self.client.deinit();
         self.* = undefined;
@@ -4861,17 +5217,18 @@ fn nextTypedStreamItem(
         else => return error.ExpectedObject,
     };
     const envelope = try raw_stream.parseItemEnvelope(object);
+    const value = try domainItem(
+        Item,
+        decoded.allocator(),
+        envelope.item,
+        envelope.cursor,
+    );
     return .{
         .owned = message,
         .decoded = decoded,
         .sequence = envelope.sequence,
         .cursor = envelope.cursor,
-        .value = try domainItem(
-            Item,
-            decoded.allocator(),
-            envelope.item,
-            envelope.cursor,
-        ),
+        .value = value,
     };
 }
 
@@ -4902,6 +5259,7 @@ fn TypedStream(comptime Item: type) type {
 }
 
 pub const SessionEventStream = TypedStream(SessionEvent);
+pub const SessionJournalStream = TypedStream(SessionJournalRecord);
 pub const SidebarViewStream = TypedStream(SidebarViewItem);
 
 pub const TerminalAttachmentStream = struct {
@@ -4958,6 +5316,12 @@ pub const TerminalAttachmentStream = struct {
             "terminal",
             .{ .string = try allocator.dupe(u8, terminal) },
         );
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
         try params.put("cols", .{ .integer = cols });
         try params.put("rows", .{ .integer = rows });
         return decodeOwnedSimpleResult(
@@ -4971,7 +5335,7 @@ pub const TerminalAttachmentStream = struct {
 
     pub fn releaseTerminalViewer(
         self: *Self,
-    ) !OwnedEmptyResult {
+    ) !OwnedViewerReleaseResult {
         var arena = std.heap.ArenaAllocator.init(
             self.raw_stream.client.allocator,
         );
@@ -5000,7 +5364,14 @@ pub const TerminalAttachmentStream = struct {
             "terminal",
             .{ .string = try allocator.dupe(u8, terminal) },
         );
-        return decodeEmptyResult(
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
+        return decodeOwnedSimpleResult(
+            ViewerReleaseResult,
             try self.raw_stream.control(
                 .terminal_viewer_release,
                 .{ .object = params },
@@ -5071,6 +5442,12 @@ pub const BrowserAttachmentStream = struct {
             "browser",
             .{ .string = try allocator.dupe(u8, browser) },
         );
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
         try params.put("width_px", .{ .integer = width_px });
         try params.put("height_px", .{ .integer = height_px });
         return decodeOwnedSimpleResult(
@@ -5084,7 +5461,7 @@ pub const BrowserAttachmentStream = struct {
 
     pub fn releaseBrowserViewer(
         self: *Self,
-    ) !OwnedEmptyResult {
+    ) !OwnedViewerReleaseResult {
         var arena = std.heap.ArenaAllocator.init(
             self.raw_stream.client.allocator,
         );
@@ -5113,7 +5490,14 @@ pub const BrowserAttachmentStream = struct {
             "browser",
             .{ .string = try allocator.dupe(u8, browser) },
         );
-        return decodeEmptyResult(
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
+        return decodeOwnedSimpleResult(
+            ViewerReleaseResult,
             try self.raw_stream.control(
                 .browser_viewer_release,
                 .{ .object = params },
@@ -5202,6 +5586,7 @@ pub const Direction = union(enum) {
 pub const SplitOptions = struct {
     direction: Direction,
     ratio: ?f64 = null,
+    viewport_width: ?f64 = null,
     cwd: ?[]const u8 = null,
     cols: ?u16 = null,
     rows: ?u16 = null,
@@ -5502,6 +5887,140 @@ fn Params(comptime Id: type) type {
             self.* = undefined;
         }
     };
+}
+
+fn encodeSessionJournalOptions(
+    comptime Id: type,
+    params: *Params(Id),
+    options: SessionJournalOptions,
+) !void {
+    if (options.cursor != null and options.start != null) {
+        return error.ConflictingJournalStart;
+    }
+    const allocator = params.arena.allocator();
+    if (options.cursor) |cursor| {
+        if (cursor.generation.len == 0 or cursor.generation.len > 128) {
+            return error.InvalidCursorGeneration;
+        }
+        var encoded = raw.wire.Object.init(allocator);
+        try encoded.put(
+            "generation",
+            .{ .string = try allocator.dupe(u8, cursor.generation) },
+        );
+        try encoded.put(
+            "revision",
+            .{ .string = try std.fmt.allocPrint(
+                allocator,
+                "{d}",
+                .{cursor.revision},
+            ) },
+        );
+        try params.putValue("cursor", .{ .object = encoded });
+    }
+    if (options.start) |start| {
+        try params.putString("start", start.wireName());
+    }
+    if (options.follow) |follow| {
+        try params.putValue("follow", .{ .bool = follow });
+    }
+
+    const filter = options.filter;
+    if (filter.kinds.len > 64 or
+        filter.classes.len > 4 or
+        filter.subjects.len > 64)
+    {
+        return error.TooManyJournalFilters;
+    }
+    if (filter.max_sensitivity == .secret) {
+        return error.SecretJournalRecordsUnavailable;
+    }
+    var encoded_filter = raw.wire.Object.init(allocator);
+    if (filter.kinds.len > 0) {
+        var values = std.json.Array.init(allocator);
+        for (filter.kinds) |kind| {
+            if (kind.len == 0 or kind.len > 128) {
+                return error.InvalidJournalFilter;
+            }
+            try values.append(.{
+                .string = try allocator.dupe(u8, kind),
+            });
+        }
+        try encoded_filter.put("kinds", .{ .array = values });
+    }
+    if (filter.classes.len > 0) {
+        var values = std.json.Array.init(allocator);
+        for (filter.classes) |journal_class| {
+            try values.append(.{
+                .string = try allocator.dupe(
+                    u8,
+                    journal_class.wireName(),
+                ),
+            });
+        }
+        try encoded_filter.put("classes", .{ .array = values });
+    }
+    if (filter.subjects.len > 0) {
+        var values = std.json.Array.init(allocator);
+        for (filter.subjects) |subject| {
+            if (subject.kind == null and subject.id == null) {
+                return error.EmptyJournalSubjectFilter;
+            }
+            var encoded = raw.wire.Object.init(allocator);
+            if (subject.kind) |kind| {
+                if (kind.len == 0 or kind.len > 128) {
+                    return error.InvalidJournalFilter;
+                }
+                try encoded.put(
+                    "kind",
+                    .{ .string = try allocator.dupe(u8, kind) },
+                );
+            }
+            if (subject.id) |id| {
+                if (id.len == 0 or id.len > 512) {
+                    return error.InvalidJournalFilter;
+                }
+                try encoded.put(
+                    "id",
+                    .{ .string = try allocator.dupe(u8, id) },
+                );
+            }
+            try values.append(.{ .object = encoded });
+        }
+        try encoded_filter.put("subjects", .{ .array = values });
+    }
+    if (filter.max_sensitivity) |sensitivity| {
+        try encoded_filter.put(
+            "max_sensitivity",
+            .{
+                .string = try allocator.dupe(
+                    u8,
+                    sensitivity.wireName(),
+                ),
+            },
+        );
+    }
+    if (filter.regex) |regex_filter| {
+        if (regex_filter.pattern.len == 0 or regex_filter.pattern.len > 1024) {
+            return error.InvalidJournalFilter;
+        }
+        var encoded = raw.wire.Object.init(allocator);
+        try encoded.put(
+            try allocator.dupe(u8, "pattern"),
+            .{ .string = try allocator.dupe(u8, regex_filter.pattern) },
+        );
+        try encoded.put(
+            try allocator.dupe(u8, "field"),
+            .{ .string = try allocator.dupe(u8, @tagName(regex_filter.field)) },
+        );
+        try encoded.put(
+            try allocator.dupe(u8, "case_sensitive"),
+            .{ .bool = regex_filter.case_sensitive },
+        );
+        try encoded_filter.put("regex", .{ .object = encoded });
+    }
+    if (encoded_filter.count() > 0) {
+        try params.putValue("filter", .{ .object = encoded_filter });
+    }
 }
 
 fn encodeRun(
@@ -6013,7 +6532,6 @@ pub const TerminalLifecycle = union(enum) {
 
 pub const TerminalSnapshot = struct {
     id: TerminalId,
-    tab_id: ?TabId,
     tab_ids: []const TabId,
     title: []const u8,
     cwd: ?[]const u8,
@@ -6135,8 +6653,20 @@ pub const PairingResolutionResult = struct {
 pub const FrontendProjectionSnapshot = struct {
     id: FrontendProjectionId,
     session_id: SessionId,
+    frontend_id: []const u8,
+    window_id: []const u8,
+    generation: []const u8,
     projection: raw.wire.Value,
+    projection_revision: u64,
     extra: ?raw.wire.Object,
+};
+
+pub const ProjectionPutOptions = struct {
+    frontend_id: []const u8,
+    window_id: []const u8,
+    generation: []const u8,
+    projection: raw.wire.Value,
+    expected_projection_revision: ?u64 = null,
 };
 
 pub const SidebarViewSnapshot = struct {
@@ -6283,6 +6813,7 @@ pub const PixelSize = struct {
 pub const BrowserViewerResizeResult = struct {
     accepted: bool,
     size: PixelSize,
+    outcome: ViewAttachmentOutcome,
 };
 
 pub const CellPixelFailure = struct {
@@ -6541,6 +7072,10 @@ pub const ProcessInfoResult = struct {
     executable: ?[]const u8,
     argv: []const []const u8,
     cwd: ?[]const u8,
+    /// Working directory of the process group that owns the PTY, read at
+    /// request time. Null when the lookup fails or when an older server
+    /// omits the field.
+    foreground_cwd: ?[]const u8,
     children: []const u32,
 };
 
@@ -6552,6 +7087,17 @@ pub const Size = struct {
 pub const ViewerResizeResult = struct {
     accepted: bool,
     size: Size,
+    outcome: ViewAttachmentOutcome,
+};
+
+pub const ViewAttachmentOutcome = enum {
+    applied,
+    passive,
+    superseded,
+};
+
+pub const ViewerReleaseResult = struct {
+    outcome: ViewAttachmentOutcome,
 };
 
 pub const PaneNeighborResult = struct {
@@ -6716,6 +7262,7 @@ pub const OwnedTerminalWaitExitResult =
 pub const OwnedTerminalCopyResult = OwnedValue(TerminalCopyResult);
 pub const OwnedProcessInfoResult = OwnedDecodedValue(ProcessInfoResult);
 pub const OwnedViewerResizeResult = OwnedValue(ViewerResizeResult);
+pub const OwnedViewerReleaseResult = OwnedValue(ViewerReleaseResult);
 pub const OwnedBrowserViewerResizeResult =
     OwnedValue(BrowserViewerResizeResult);
 pub const OwnedCellPixelsResult = OwnedDecodedValue(CellPixelsResult);
@@ -6861,6 +7408,18 @@ fn requiredNullableString(
     name: []const u8,
 ) !?[]const u8 {
     const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .null => null,
+        .string => |text| text,
+        else => error.ExpectedString,
+    };
+}
+
+fn optionalNullableString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    const value = object.get(name) orelse return null;
     return switch (value) {
         .null => null,
         .string => |text| text,
@@ -7222,11 +7781,14 @@ fn decodeBrowserViewerResizeResult(
     value: raw.wire.Value,
 ) !BrowserViewerResizeResult {
     const object = try detailObject(value);
-    try ensureOnlyFields(object, &.{ "accepted", "size" });
+    try ensureOnlyFields(object, &.{ "accepted", "size", "outcome" });
     return .{
         .accepted = try objectBool(object, "accepted"),
         .size = try decodePixelSize(
             object.get("size") orelse return error.MissingField,
+        ),
+        .outcome = try decodeViewAttachmentOutcome(
+            try objectString(object, "outcome"),
         ),
     };
 }
@@ -7836,7 +8398,7 @@ fn decodeProcessInfoResult(
     const object = try detailObject(value);
     try ensureOnlyFields(
         object,
-        &.{ "pid", "executable", "argv", "cwd", "children" },
+        &.{ "pid", "executable", "argv", "cwd", "foreground_cwd", "children" },
     );
     const raw_argv = switch (object.get("argv") orelse
         return error.MissingField) {
@@ -7864,6 +8426,7 @@ fn decodeProcessInfoResult(
         .executable = try strictOptionalString(object, "executable"),
         .argv = argv,
         .cwd = try strictOptionalString(object, "cwd"),
+        .foreground_cwd = try optionalNullableString(object, "foreground_cwd"),
         .children = children,
     };
 }
@@ -7872,7 +8435,7 @@ fn decodeViewerResizeResult(
     value: raw.wire.Value,
 ) !ViewerResizeResult {
     const object = try detailObject(value);
-    try ensureOnlyFields(object, &.{ "accepted", "size" });
+    try ensureOnlyFields(object, &.{ "accepted", "size", "outcome" });
     const size = try detailObject(
         object.get("size") orelse return error.MissingField,
     );
@@ -7883,6 +8446,30 @@ fn decodeViewerResizeResult(
             .cols = try objectUnsigned(u16, size, "cols", 1),
             .rows = try objectUnsigned(u16, size, "rows", 1),
         },
+        .outcome = try decodeViewAttachmentOutcome(
+            try objectString(object, "outcome"),
+        ),
+    };
+}
+
+fn decodeViewAttachmentOutcome(
+    value: []const u8,
+) !ViewAttachmentOutcome {
+    if (std.mem.eql(u8, value, "applied")) return .applied;
+    if (std.mem.eql(u8, value, "passive")) return .passive;
+    if (std.mem.eql(u8, value, "superseded")) return .superseded;
+    return error.InvalidViewAttachmentOutcome;
+}
+
+fn decodeViewerReleaseResult(
+    value: raw.wire.Value,
+) !ViewerReleaseResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{"outcome"});
+    return .{
+        .outcome = try decodeViewAttachmentOutcome(
+            try objectString(object, "outcome"),
+        ),
     };
 }
 
@@ -8204,7 +8791,11 @@ fn decodeTerminalSnapshot(
     {
         return error.InvalidTerminalState;
     }
-    const tab_id = try requiredNullableId(TabId, object, "tab_id");
+    const legacy_field = object.get("tab_id");
+    const legacy_tab_id: ?TabId = if (legacy_field != null)
+        try requiredNullableId(TabId, object, "tab_id")
+    else
+        null;
     const raw_tab_ids: ?[]const raw.wire.Value = if (object.get("tab_ids")) |raw_value|
         switch (raw_value) {
             .array => |items| items.items,
@@ -8212,9 +8803,10 @@ fn decodeTerminalSnapshot(
         }
     else
         null;
+    if (legacy_field == null and raw_tab_ids == null) return error.MissingField;
     const tab_ids = try allocator.alloc(
         TabId,
-        if (raw_tab_ids) |items| items.len else if (tab_id != null) 1 else 0,
+        if (raw_tab_ids) |items| items.len else if (legacy_tab_id != null) 1 else 0,
     );
     errdefer allocator.free(tab_ids);
     if (raw_tab_ids) |items| {
@@ -8224,17 +8816,17 @@ fn decodeTerminalSnapshot(
                 else => return error.ExpectedString,
             };
         }
-    } else if (tab_id) |legacy_tab_id| {
-        tab_ids[0] = legacy_tab_id;
+    } else if (legacy_tab_id) |tab_id| {
+        tab_ids[0] = tab_id;
     }
-    if ((tab_id == null) != (tab_ids.len == 0) or
-        (tab_id != null and !std.meta.eql(tab_id.?, tab_ids[0])))
+    if (legacy_field != null and
+        ((legacy_tab_id == null) != (tab_ids.len == 0) or
+            (legacy_tab_id != null and !std.meta.eql(legacy_tab_id.?, tab_ids[0]))))
     {
         return error.InvalidTerminalPlacement;
     }
     return .{
         .id = try parseRequiredId(TerminalId, object, "id"),
-        .tab_id = tab_id,
         .tab_ids = tab_ids,
         .title = try objectString(object, "title"),
         .cwd = try strictOptionalString(object, "cwd"),
@@ -8372,7 +8964,10 @@ fn decodeFrontendProjectionSnapshot(
     const object = try detailObject(value);
     try ensureOnlyFields(
         object,
-        &.{ "id", "session_id", "projection", "extra" },
+        &.{
+            "id",         "session_id",          "frontend_id", "window_id", "generation",
+            "projection", "projection_revision", "extra",
+        },
     );
     return .{
         .id = try parseRequiredId(
@@ -8385,8 +8980,15 @@ fn decodeFrontendProjectionSnapshot(
             object,
             "session_id",
         ),
+        .frontend_id = try objectString(object, "frontend_id"),
+        .window_id = try objectString(object, "window_id"),
+        .generation = try objectString(object, "generation"),
         .projection = object.get("projection") orelse
             return error.MissingField,
+        .projection_revision = try decimalU64(
+            object.get("projection_revision") orelse
+                return error.MissingField,
+        ),
         .extra = try optionalExtra(object),
     };
 }
@@ -8829,6 +9431,8 @@ fn decodeOwnedSimpleResult(
         try decodeViewerResizeResult(owned_result.value)
     else if (comptime Result == BrowserViewerResizeResult)
         try decodeBrowserViewerResizeResult(owned_result.value)
+    else if (comptime Result == ViewerReleaseResult)
+        try decodeViewerReleaseResult(owned_result.value)
     else
         @compileError("unsupported simple result");
     const decoded = OwnedValue(Result){
@@ -10245,6 +10849,14 @@ fn HandleImpl(
                     return error.InvalidSplitRatio;
                 }
             }
+            if (split.viewport_width) |width| {
+                if (std.meta.activeTag(split.direction) != .right or
+                    !std.math.isFinite(width) or
+                    width < 0.1 or width > 1.0)
+                {
+                    return error.InvalidViewportWidth;
+                }
+            }
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
@@ -10258,6 +10870,9 @@ fn HandleImpl(
             );
             if (split.ratio) |ratio| {
                 try params.putValue("ratio", .{ .float = ratio });
+            }
+            if (split.viewport_width) |width| {
+                try params.putValue("viewport_width", .{ .float = width });
             }
             if (split.cwd) |cwd| try params.putString("cwd", cwd);
             try encodeTerminalSize(
@@ -11476,6 +12091,24 @@ fn HandleImpl(
             return self.client.openSessionEvents(params.asValue());
         }
 
+        pub fn journal(
+            self: Self,
+            options: SessionJournalOptions,
+        ) !SessionJournalStream {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try encodeSessionJournalOptions(Id, &params, options);
+            return self.client.openSessionJournal(params.asValue());
+        }
+
         pub fn attachTerminal(self: Self) !TerminalAttachmentStream {
             return self.attachTerminalWith(.{});
         }
@@ -11603,7 +12236,7 @@ fn HandleImpl(
 
         pub fn putProjection(
             self: Self,
-            projection: raw.wire.Value,
+            projection: ProjectionPutOptions,
             mutation: MutationOptions,
         ) !FrontendProjectionMutationResult {
             if (comptime !std.mem.eql(
@@ -11620,7 +12253,22 @@ fn HandleImpl(
                 null,
             );
             defer params.deinit();
-            try params.putValue("projection", projection);
+            if (projection.frontend_id.len < 1 or projection.frontend_id.len > 128 or
+                projection.window_id.len < 1 or projection.window_id.len > 128 or
+                projection.generation.len < 1 or projection.generation.len > 128)
+            {
+                return error.InvalidProjectionIdentity;
+            }
+            try params.putString("frontend_id", projection.frontend_id);
+            try params.putString("window_id", projection.window_id);
+            try params.putString("generation", projection.generation);
+            try params.putValue("projection", projection.projection);
+            if (projection.expected_projection_revision) |revision| {
+                try params.putDecimal(
+                    "expected_projection_revision",
+                    revision,
+                );
+            }
             return decodeTypedMutation(
                 FrontendProjectionSnapshot,
                 try self.client.mutate(
@@ -12118,6 +12766,13 @@ pub const Session = struct {
         cursor: ?Cursor,
     ) !SessionEventStream {
         return self.impl().eventsFrom(cursor);
+    }
+
+    pub fn journal(
+        self: Self,
+        options: SessionJournalOptions,
+    ) !SessionJournalStream {
+        return self.impl().journal(options);
     }
 };
 
@@ -13182,7 +13837,7 @@ pub const FrontendProjection = struct {
 
     pub fn putProjection(
         self: Self,
-        projection: raw.wire.Value,
+        projection: ProjectionPutOptions,
         mutation: MutationOptions,
     ) !FrontendProjectionMutationResult {
         return self.impl().putProjection(projection, mutation);
@@ -13421,7 +14076,10 @@ const fake_pairing_snapshot_json =
 const fake_projection_snapshot_json =
     "{\"id\":\"projection_dddddddddddddddddddddddddddddddd\"," ++
     "\"session_id\":\"session_22222222222222222222222222222222\"," ++
+    "\"frontend_id\":\"swift-frontend\",\"window_id\":\"window-1\"," ++
+    "\"generation\":\"window-generation-1\"," ++
     "\"projection\":{\"sidebar\":\"compact\"}," ++
+    "\"projection_revision\":\"3\"," ++
     "\"extra\":{\"projection_future\":true}}";
 
 const fake_sidebar_snapshot_json =
@@ -13515,6 +14173,34 @@ const FakeShared = struct {
         try self.appendInput(item);
     }
 
+    fn appendJournalStreamItem(
+        self: *FakeShared,
+        stream_id: []const u8,
+    ) !void {
+        const item = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                "\"sequence\":\"1\",\"cursor\":{{\"generation\":" ++
+                "\"session_11111111111111111111111111111111\"," ++
+                "\"revision\":\"1\"}},\"item\":{{" ++
+                "\"sequence\":\"1\",\"event_id\":\"evt_1\"," ++
+                "\"schema_version\":1,\"kind\":\"workspace.focus\"," ++
+                "\"class\":\"state\",\"replay\":\"required\"," ++
+                "\"occurred_at_ms\":\"10\",\"committed_at_ms\":\"11\"," ++
+                "\"producer\":{{\"kind\":\"resource_api\",\"id\":\"client_1\"}}," ++
+                "\"authority\":null,\"causation_id\":null," ++
+                "\"correlation_id\":null,\"causation_depth\":0," ++
+                "\"subjects\":[{{\"kind\":\"workspace\",\"id\":\"ws_1\"}}]," ++
+                "\"sensitivity\":\"public\",\"payload\":{{\"focused\":true}}," ++
+                "\"resource_revision\":\"4\"," ++
+                "\"previous_resource_revision\":\"3\"}}}}",
+            .{stream_id},
+        );
+        defer self.allocator.free(item);
+        try self.appendInput(item);
+    }
+
     fn appendCompletedStreamEnd(
         self: *FakeShared,
         stream_id: []const u8,
@@ -13602,6 +14288,7 @@ const FakeShared = struct {
         self: *FakeShared,
         request_id: []const u8,
         stream_id: []const u8,
+        is_attachment: bool,
     ) !void {
         if (self.stream_open_ack == .missing_result) {
             const response = try std.fmt.allocPrint(
@@ -13616,11 +14303,19 @@ const FakeShared = struct {
         }
         const oversized_generation = "g" ** 129;
         const result = switch (self.stream_open_ack) {
-            .matching => try std.fmt.allocPrint(
-                self.allocator,
-                "{{\"stream_id\":\"{s}\"}}",
-                .{stream_id},
-            ),
+            .matching => if (is_attachment)
+                try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"stream_id\":\"{s}\"," ++
+                        "\"attachment_lease\":\"attachment-lease\"}}",
+                    .{stream_id},
+                )
+            else
+                try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"stream_id\":\"{s}\"}}",
+                    .{stream_id},
+                ),
             .matching_with_cursor => try std.fmt.allocPrint(
                 self.allocator,
                 "{{\"stream_id\":\"{s}\",\"cursor\":{{" ++
@@ -14051,6 +14746,7 @@ const FakeShared = struct {
                     ))
                         "{\"pid\":123,\"executable\":\"/bin/zsh\"," ++
                             "\"argv\":[\"zsh\",\"-l\"],\"cwd\":\"/tmp\"," ++
+                            "\"foreground_cwd\":\"/tmp/subshell\"," ++
                             "\"children\":[124,125]}"
                     else if (std.mem.eql(
                         u8,
@@ -14058,13 +14754,14 @@ const FakeShared = struct {
                         "terminal.viewer.resize",
                     ))
                         "{\"accepted\":true,\"size\":{" ++
-                            "\"cols\":100,\"rows\":30}}"
+                            "\"cols\":100,\"rows\":30}," ++
+                            "\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
                         "terminal.viewer.release",
                     ))
-                        "{}"
+                        "{\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
@@ -14077,13 +14774,14 @@ const FakeShared = struct {
                         "browser.viewer.resize",
                     ))
                         "{\"accepted\":true,\"size\":{" ++
-                            "\"width_px\":1440,\"height_px\":900}}"
+                            "\"width_px\":1440,\"height_px\":900}," ++
+                            "\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
                         "browser.viewer.release",
                     ))
-                        "{}"
+                        "{\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
@@ -14308,6 +15006,7 @@ const FakeShared = struct {
                 try self.appendStreamOpenResponse(
                     id,
                     try objectString(params, "stream_id"),
+                    !std.mem.eql(u8, operation, "sidebar_view.attach"),
                 );
                 continue;
             }
@@ -14318,7 +15017,7 @@ const FakeShared = struct {
                 };
                 const stream_id = try objectString(params, "stream_id");
                 try self.appendStreamOpenPreamble(stream_id);
-                try self.appendStreamOpenResponse(id, stream_id);
+                try self.appendStreamOpenResponse(id, stream_id, false);
                 if (self.mode == .delayed_stream_item) {
                     self.delayed_stream_id = try self.allocator.dupe(
                         u8,
@@ -14329,6 +15028,20 @@ const FakeShared = struct {
                 } else if (self.stream_open_preamble == .item_before_ack) {
                     try self.appendSessionStreamItemAt(stream_id, 2);
                 }
+                continue;
+            }
+            if (std.mem.eql(
+                u8,
+                operation,
+                "session.journal.subscribe",
+            )) {
+                const params = switch (object.get("params").?) {
+                    .object => |item| item,
+                    else => return error.ExpectedObject,
+                };
+                const stream_id = try objectString(params, "stream_id");
+                try self.appendStreamOpenResponse(id, stream_id, false);
+                try self.appendJournalStreamItem(stream_id);
                 continue;
             }
             if (std.mem.eql(u8, operation, "stream.cancel")) {
@@ -15178,7 +15891,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 113), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 114), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -15238,6 +15951,7 @@ test "public facades expose only valid resource and stream capabilities" {
         "createWorkspace",
         "events",
         "eventsFrom",
+        "journal",
     });
     try expectHandleCapabilities(Workspace, &.{
         "screen",
@@ -15365,6 +16079,7 @@ test "public facades expose only valid resource and stream capabilities" {
     });
 
     try expectStreamCapabilities(SessionEventStream, &.{});
+    try expectStreamCapabilities(SessionJournalStream, &.{});
     try expectStreamCapabilities(SidebarViewStream, &.{});
     try expectStreamCapabilities(TerminalAttachmentStream, &.{
         "resizeTerminalViewer",
@@ -15725,7 +16440,7 @@ test "workspace create writes exact route and correlation key bytes" {
             .initial_content = .empty,
             .correlation_key = "create:key/01",
         },
-        try MutationOptions.withKey("session-selector-key"),
+        (try MutationOptions.withKey("session-selector-key")).expecting(7),
     );
     created.deinit();
     try std.testing.expectEqualStrings(
@@ -15734,7 +16449,8 @@ test "workspace create writes exact route and correlation key bytes" {
             "\"workspace.create\",\"params\":{" ++
             "\"machine\":\"current\",\"session\":\"name:release\"," ++
             "\"name\":\"sdk-tests\",\"initial_content\":\"empty\"," ++
-            "\"correlation_key\":\"create:key/01\"}," ++
+            "\"correlation_key\":\"create:key/01\"," ++
+            "\"expected_revision\":\"7\"}," ++
             "\"idempotency_key\":\"session-selector-key\"}\n",
         shared.output.items,
     );
@@ -16897,6 +17613,10 @@ test "typed terminal reads controls and empty mutation receipts decode" {
     try std.testing.expectEqual(@as(u32, 123), process.value.pid);
     try std.testing.expectEqualStrings("/bin/zsh", process.value.executable.?);
     try std.testing.expectEqualStrings("zsh", process.value.argv[0]);
+    try std.testing.expectEqualStrings(
+        "/tmp/subshell",
+        process.value.foreground_cwd.?,
+    );
     try std.testing.expectEqual(@as(u32, 125), process.value.children[1]);
 
     var cleared = try terminal.clearHistory(
@@ -16988,7 +17708,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var running = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"shell\",\"cols\":120,\"rows\":40," ++
             "\"running\":true,\"lifecycle\":\"running\"," ++
@@ -17021,15 +17740,11 @@ test "terminal lifecycle and durable exit constraints are strict" {
         legacy_attached.value,
     );
     try std.testing.expectEqual(@as(usize, 1), legacy_attached_snapshot.tab_ids.len);
-    try std.testing.expectEqual(
-        legacy_attached_snapshot.tab_id.?,
-        legacy_attached_snapshot.tab_ids[0],
-    );
 
     var legacy_detached = try raw.wire.parse(
         std.testing.allocator,
-        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":null,\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\",\"tab_id\":null," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
             "\"running\":true,\"lifecycle\":\"running\"}",
         .{},
     );
@@ -17038,13 +17753,45 @@ test "terminal lifecycle and durable exit constraints are strict" {
         decoded_arena.allocator(),
         legacy_detached.value,
     );
-    try std.testing.expect(legacy_detached_snapshot.tab_id == null);
     try std.testing.expectEqual(@as(usize, 0), legacy_detached_snapshot.tab_ids.len);
+
+    var consistent_alias = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer consistent_alias.deinit();
+    const consistent_alias_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        consistent_alias.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), consistent_alias_snapshot.tab_ids.len);
+
+    var inconsistent_alias = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\",\"tab_ids\":[]," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer inconsistent_alias.deinit();
+    try std.testing.expectError(
+        error.InvalidTerminalPlacement,
+        decodeTerminalSnapshot(
+            decoded_arena.allocator(),
+            inconsistent_alias.value,
+        ),
+    );
 
     var exited = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":null,\"tab_ids\":[]," ++
+            "\"tab_ids\":[]," ++
             "\"title\":\"done\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"exited\",\"exit\":{" ++
             "\"outcome\":{\"kind\":\"exit\",\"code\":-7}," ++
@@ -17057,7 +17804,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
         decoded_arena.allocator(),
         exited.value,
     );
-    try std.testing.expect(exited_snapshot.tab_id == null);
     try std.testing.expectEqual(@as(usize, 0), exited_snapshot.tab_ids.len);
     try std.testing.expectEqual(
         std.math.maxInt(u64),
@@ -17078,7 +17824,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var future = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"future\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"suspended\"}",
@@ -17100,7 +17845,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var inconsistent = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"bad\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"running\"}",
@@ -18774,13 +19518,10 @@ test "acknowledged public stream survives beyond request timeout" {
     try std.testing.expect(
         stream_shared.delayed_stream_open_read_observed,
     );
-    const stream_open_timeout_ms =
-        stream_shared.delayed_stream_open_timeout_ms orelse
-        return error.MissingStreamOpenDeadline;
-    try std.testing.expect(stream_open_timeout_ms > 0);
-    try std.testing.expect(
-        stream_open_timeout_ms <= request_timeout_ms,
-    );
+    const open_timeout_ms = stream_shared.delayed_stream_open_timeout_ms orelse
+        return error.MissingDelayedStreamOpenTimeout;
+    try std.testing.expect(open_timeout_ms > 0);
+    try std.testing.expect(open_timeout_ms <= request_timeout_ms);
     try std.testing.expect(stream_shared.delayed_stream_read_started);
     try std.testing.expect(
         !stream_shared.delayed_stream_read_had_deadline,
@@ -18896,6 +19637,102 @@ test "typed session stream preserves unknown payload and cancel end order" {
         ),
     );
     try std.testing.expect(stream_shared.closed);
+}
+
+test "session journal encodes filters and decodes typed records" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).journal(.{
+        .start = .beginning,
+        .follow = false,
+        .filter = .{
+            .kinds = &.{ "workspace.*", "tab.focus" },
+            .classes = &.{.state},
+            .subjects = &.{.{ .kind = "workspace", .id = "ws_1" }},
+            .max_sensitivity = .metadata,
+            .regex = .{
+                .pattern = "error|failed",
+                .field = .terminal_output,
+                .case_sensitive = false,
+            },
+        },
+    });
+    defer stream.deinit();
+    var item = (try stream.next()).?;
+    defer item.deinit();
+    try std.testing.expectEqual(@as(u64, 1), item.value.sequence);
+    try std.testing.expectEqualStrings(
+        "workspace.focus",
+        item.value.kind,
+    );
+    try std.testing.expectEqual(
+        JournalClass.state,
+        item.value.journal_class,
+    );
+    try std.testing.expectEqual(@as(usize, 1), item.value.subjects.len);
+    try std.testing.expectEqualStrings(
+        "ws_1",
+        item.value.subjects[0].id,
+    );
+
+    const request_line = std.mem.sliceTo(stream_shared.output.items, '\n');
+    var request = try raw.wire.parse(
+        std.testing.allocator,
+        request_line,
+        .{},
+    );
+    defer request.deinit();
+    const request_object = try detailObject(request.value);
+    try std.testing.expectEqualStrings(
+        "session.journal.subscribe",
+        try objectString(request_object, "operation"),
+    );
+    const params = try detailObject(
+        request_object.get("params") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "beginning",
+        try objectString(params, "start"),
+    );
+    try std.testing.expectEqual(false, try objectBool(params, "follow"));
+    const filter = try detailObject(
+        params.get("filter") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "metadata",
+        try objectString(filter, "max_sensitivity"),
+    );
+    const regex = try detailObject(
+        filter.get("regex") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "terminal_output",
+        try objectString(regex, "field"),
+    );
+    try std.testing.expectEqual(false, try objectBool(regex, "case_sensitive"));
 }
 
 test "cancel failures preserve their error fail closed and never resend" {
@@ -19445,7 +20282,12 @@ test "auxiliary resource facades are typed and fully routed" {
     var projection = try session
         .frontendProjection(projection_id)
         .putProjection(
-        .{ .object = projection_object },
+        .{
+            .frontend_id = "swift-frontend",
+            .window_id = "window-1",
+            .generation = "window-generation-1",
+            .projection = .{ .object = projection_object },
+        },
         try MutationOptions.withKey("projection-put"),
     );
     defer projection.deinit();

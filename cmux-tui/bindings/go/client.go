@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -37,8 +38,12 @@ type DialContextFunc func(context.Context, string, string) (net.Conn, error)
 type IdempotencyKeyFunc func() (string, error)
 
 type ClientOptions struct {
-	SocketPath       string
-	Session          string
+	SocketPath string
+	Session    string
+	// SessionSet distinguishes an explicitly supplied Session from omission.
+	// When false, an empty Session selects "main". When true, an empty Session
+	// is invalid if socket discovery needs a session name.
+	SessionSet       bool
 	Timeout          time.Duration
 	DialContext      DialContextFunc
 	IdempotencyKey   IdempotencyKeyFunc
@@ -128,7 +133,7 @@ type streamRoute struct {
 	openDispatched   bool
 	openAcknowledged bool
 	cleanupStarted   bool
-	cancelItem       func(json.RawMessage) error
+	cancelItem       func(streamEnvelope) error
 	cancelSignal     chan struct{}
 	cancelEnd        *streamEnvelope
 	cancelErr        error
@@ -189,8 +194,16 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 		return nil, fmt.Errorf("%w: message limits must be positive", ErrInvalidArgument)
 	}
 	socket := options.SocketPath
+	session := options.Session
+	if session == "" && !options.SessionSet {
+		session = "main"
+	}
 	if socket == "" {
-		socket = defaultSocketPath(options.Session)
+		var err error
+		socket, err = resolveSocketPath("", session)
+		if err != nil {
+			return nil, err
+		}
 	}
 	dial := options.DialContext
 	if dial == nil {
@@ -202,6 +215,17 @@ func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
 		keySource = newIdempotencyKey
 	}
 	conn, err := dial(ctx, "unix", socket)
+	if err != nil && options.SocketPath == "" && envSocketPath() == "" &&
+		(errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)) {
+		legacy := legacySocketPathForResolvedSession(socket, session)
+		if legacy != "" {
+			if fallbackConn, fallbackErr := dial(ctx, "unix", legacy); fallbackErr == nil {
+				conn, err = fallbackConn, nil
+			} else {
+				err = errors.Join(err, fmt.Errorf("legacy socket %s: %w", legacy, fallbackErr))
+			}
+		}
+	}
 	if err != nil {
 		return nil, &TransportError{Operation: "connect", Err: err}
 	}
@@ -229,7 +253,7 @@ func (c *Client) Close(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.fail(&TransportError{Operation: "close", Err: ErrClosed})
+	c.failWithCleanupContext(ctx, &TransportError{Operation: "close", Err: ErrClosed}, true)
 	return nil
 }
 
@@ -789,6 +813,13 @@ func (c *Client) write(
 			return written, false, err
 		}
 		count, err := c.conn.Write(encoded)
+		if count < 0 || count > len(encoded) {
+			c.framingUnsafe = true
+			return written, false, &TransportError{
+				Operation: operation,
+				Err:       errors.New("transport returned an invalid write count"),
+			}
+		}
 		written = written || count > 0
 		encoded = encoded[count:]
 		if len(encoded) == 0 && onDispatched != nil {
@@ -1157,6 +1188,10 @@ func (c *Client) fail(err error) {
 }
 
 func (c *Client) failWithCleanup(err error, attemptCleanup bool) {
+	c.failWithCleanupContext(context.Background(), err, attemptCleanup)
+}
+
+func (c *Client) failWithCleanupContext(ctx context.Context, err error, attemptCleanup bool) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -1171,7 +1206,7 @@ func (c *Client) failWithCleanup(err error, attemptCleanup bool) {
 	c.streams = make(map[StreamID]*streamRoute)
 	c.mu.Unlock()
 	if attemptCleanup {
-		c.cancelFailedStreamOpens(streams)
+		c.cancelFailedStreamOpens(ctx, streams)
 	}
 	_ = c.conn.Close()
 	for _, waiter := range pending {
@@ -1184,13 +1219,19 @@ func (c *Client) failWithCleanup(err error, attemptCleanup bool) {
 }
 
 func (c *Client) cancelFailedStreamOpens(
+	ctx context.Context,
 	streams map[StreamID]*streamRoute,
 ) {
 	deadline := time.Now().Add(failedStreamOpenCleanupTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
 	case <-c.writer:
+	case <-ctx.Done():
+		return
 	case <-timer.C:
 		return
 	}
@@ -1238,6 +1279,12 @@ func (c *Client) writeUntrackedStreamCancel(
 	encoded = append(encoded, '\n')
 	for len(encoded) > 0 {
 		count, writeErr := c.conn.Write(encoded)
+		if count < 0 || count > len(encoded) {
+			return &TransportError{
+				Operation: wirev2.StreamCancel.Name,
+				Err:       errors.New("transport returned an invalid write count"),
+			}
+		}
 		encoded = encoded[count:]
 		if writeErr != nil {
 			return &TransportError{
@@ -1304,7 +1351,7 @@ func (r *streamRoute) beginStreamCleanup() bool {
 }
 
 func (r *streamRoute) beginExplicitCancel(
-	validateItem func(json.RawMessage) error,
+	validateItem func(streamEnvelope) error,
 ) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1390,7 +1437,7 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 		if r.cancelEnd != nil {
 			var err error
 			if message.envelope.Type == "stream_item" {
-				err = r.cancelItem(message.envelope.Item)
+				err = r.cancelItem(message.envelope)
 			}
 			if err == nil {
 				err = &ProtocolError{
@@ -1406,7 +1453,7 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 		}
 		switch message.envelope.Type {
 		case "stream_item":
-			if err := r.cancelItem(message.envelope.Item); err != nil {
+			if err := r.cancelItem(message.envelope); err != nil {
 				r.cancelErr = err
 				r.accepting = false
 				r.terminated = true

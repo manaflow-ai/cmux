@@ -56,7 +56,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 - Sidebar tint: `sidebarAppearance.matchTerminalBackground`, `.tintColor`, `.tintOpacity` (0..1).
 - Sidebar details: `sidebar.hideAllDetails`, `.showBranchDirectory`, `.showPullRequests`, `.showPorts`, `.showLog`.
 - Notifications: `notifications.dockBadge`, `.sound` (enum including `"none"`, `"custom_file"`), `.customSoundFilePath`, `.hooks` (array).
-- Browser: `browser.defaultSearchEngine`, `.theme`, `.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`.
+- Browser: `browser.defaultSearchEngine`, `.theme`, `.defaultZoomLevel`, `.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`.
 - Automation: `automation.socketControlMode` (`off | cmuxOnly | automation | password | allowAll`), `.portBase`, `.portRange`.
 - Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
 

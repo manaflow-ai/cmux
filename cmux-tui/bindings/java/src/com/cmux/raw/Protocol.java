@@ -7,15 +7,16 @@ import java.util.Map;
 
 public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
-    public static final int VERSION = 10;
+    public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91";
+    public static final String IR_SHA256 = "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
         Map<String, Object> object = Wire.object(value, "event");
         String event = Wire.string(Wire.required(object, "event"), "event.event");
         return switch (event) {
+            case "agent-changed" -> AgentChangedEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
             case "client-attached" -> ClientAttachedEvent.fromWire(value);

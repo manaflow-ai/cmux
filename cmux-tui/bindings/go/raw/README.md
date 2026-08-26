@@ -1,6 +1,6 @@
 # cmux Go SDK
 
-The Go SDK covers all 92 protocol-10 commands and 45 event shapes using only
+The Go SDK covers all 101 protocol-12 commands and 46 event shapes using only
 the Go standard library.
 
 ```go
@@ -32,6 +32,22 @@ screen, err := client.ReadScreen(ctx, surface.Surface)
 `CMUX_MUX_SOCKET`, then `$XDG_RUNTIME_DIR`, `$TMPDIR`, or `/tmp`. It applies
 the server's short-path fallback when the preferred Unix socket path exceeds
 the platform limit. An explicit `Options.SocketPath` has highest precedence.
+An omitted session uses the legacy `main` session. An explicitly empty session
+is invalid and the path-only `defaultSocketPath("")` helper returns an
+isolated deterministic invalid-session path. Explicit
+invalid session text supplied to `ResolveSocketPath` is rejected before any
+dial, including `.`, `..`, separators, NUL, Unicode control characters,
+Unicode line separators, and malformed UTF-8. Spaces, Unicode, punctuation,
+and long legacy-safe names remain valid. The source-compatible
+`DefaultSocketPath` helper returns a deterministic SHA-256 leaf in a separate
+invalid-session directory, but it is not a connector route.
+Valid names that exceed the Unix socket limit use the same digest in
+`<runtime-base>/cmux-tui-hashed-<uid>` when it fits, with
+`/tmp/cmux-tui-hashed-<uid>` as the length-only fallback used by the server.
+An empty `Options.Session` with `SessionSet: false` is omitted and selects
+`main`. Set `SessionSet: true` for caller-supplied session text so an explicitly
+empty value is rejected before socket discovery. Existing non-empty session
+values remain explicit without the flag.
 
 Every command method accepts `context.Context`. The client serializes commands
 on one connection. Subscribe and attach streams own dedicated connections, so
@@ -109,10 +125,10 @@ Required nullable fields use `RequiredNullable[T]`. Construct them with
 `RequiredValue(value)` or `RequiredNull[T]()`. Decoding rejects a missing
 required nullable field, and encoding rejects an unset zero value. Optional
 non-nullable fields remain pointers; decoding rejects an explicit `null`.
-Nullable inline enums and literals have generated field-specific types, so
-`TerminalPlacement.Lifecycle` contains
-`RequiredNullable[TerminalPlacementLifecycle]` and only accepts
-`TerminalPlacementLifecycleRunning`.
+Nullable inline enums and literals have generated field-specific types.
+Referenced enums use their shared generated type, so
+`TerminalPlacement.Lifecycle` is a `TerminalLifecycle` and accepts every
+terminal lifecycle value, including `TerminalLifecycleExited`.
 
 This presence model is a deliberate 0.4 source change. Replace `&value` in
 optional nullable generated fields with `cmux.Value(value)`, and replace a
@@ -197,7 +213,7 @@ go vet ./...
 The complete live-server consumer is `cmd/e2e`. Set `CMUX_TUI_SOCKET` and run
 `go run ./cmd/e2e`.
 
-The generated protocol-10 surface replaces incomplete legacy models.
+The generated protocol-12 surface replaces incomplete legacy models.
 `SetClientSizing` now takes `SetClientSizingOptions`, workspace registry
 mutations return their authoritative result, and `Pane` exposes
 `AsLivePane`/`AsDeadPane` for its wire union. `NewClient`, `Identify`,

@@ -31,6 +31,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     /// Whether automatic resume is requested (already gated: `true` only for the
     /// `agent-hook` source with `auto_resume == true`).
     public let autoResume: Bool
+    /// Verified Codex hook provenance used by the app-owned atomic replacement gate.
+    public let resumeEvidenceProvenance: String?
     /// The relay-claimed remote workspace, authenticated by the app context.
     public let remoteWorkspaceID: UUID?
     /// Raw relay parameters retained to authenticate their provenance.
@@ -52,6 +54,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - autoResume: Whether automatic resume is requested.
     ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
     ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
+    ///   - resumeEvidenceProvenance: The verified Codex hook provenance, when present.
     public init(
         name: String?,
         kind: String?,
@@ -65,7 +68,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         agentMutationGuard: ControlSidebarAgentMutationGuard?,
         autoResume: Bool,
         remoteWorkspaceID: UUID?,
-        remoteRelayParameters: [String: JSONValue]?
+        remoteRelayParameters: [String: JSONValue]?,
+        resumeEvidenceProvenance: String? = nil
     ) {
         self.name = name
         self.kind = kind
@@ -78,6 +82,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.permissionMode = permissionMode
         self.agentMutationGuard = agentMutationGuard
         self.autoResume = autoResume
+        self.resumeEvidenceProvenance = resumeEvidenceProvenance
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteRelayParameters = remoteRelayParameters
     }

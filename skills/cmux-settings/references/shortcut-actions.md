@@ -121,8 +121,11 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.switchRightSidebarToSessions`
 - `shortcuts.bindings.switchRightSidebarToFeed`
 - `shortcuts.bindings.switchRightSidebarToDock`
+- `shortcuts.bindings.switchRightSidebarToMachines`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.prevSidebarTab`
+- `shortcuts.bindings.nextSidebarTabInGroup`
+- `shortcuts.bindings.prevSidebarTabInGroup`
 
 ## Browser
 

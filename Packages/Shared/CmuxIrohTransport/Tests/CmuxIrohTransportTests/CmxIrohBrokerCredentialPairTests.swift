@@ -75,6 +75,7 @@ struct CmxIrohBrokerCredentialPairTests {
         let client = try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: tokenSource,
+            clientNamespace: "legacy",
             transport: transport
         )
 

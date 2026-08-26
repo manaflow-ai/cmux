@@ -42,6 +42,10 @@ mock.module("../app/lib/stack", () => ({
 mock.module("../services/subrouter/cutover", () => ({
   hostedSubrouterCutoverReadyForTeam,
 }));
+const captureCoderouterEvent = mock(() => {});
+mock.module("../services/coderouter/analytics", () => ({
+  captureCoderouterEvent,
+}));
 
 const accountsRoute = await import("../app/api/subrouter/accounts/route");
 const accountRoute = await import(
@@ -56,6 +60,9 @@ const leaseEventsRoute = await import(
 );
 const logoutRoute = await import("../app/api/subrouter/logout/route");
 const teamsRoute = await import("../app/api/subrouter/teams/route");
+const organizationsRoute = await import(
+  "../app/api/coderouter/organizations/route"
+);
 const exchangeRoute = await import("../app/api/subrouter/exchange/route");
 
 const originalFetch = globalThis.fetch;
@@ -98,6 +105,7 @@ beforeEach(() => {
   getAuthJson.mockClear();
   signOut.mockClear();
   hostedSubrouterCutoverReadyForTeam.mockClear();
+  captureCoderouterEvent.mockClear();
   globalThis.fetch = hostedFetch as typeof fetch;
 });
 
@@ -334,6 +342,15 @@ describe("hosted Subrouter account routes", () => {
     expect(text).not.toContain("must-not-leak");
     expect(text).not.toContain("upstream detail must not leak");
     expect(text).not.toContain(tenantKey);
+    expect(captureCoderouterEvent).toHaveBeenCalledWith({
+      event: "coderouter_account_status_viewed",
+      teamId: "team-a",
+      properties: {
+        source: "legacy_dashboard",
+        account_count: 1,
+        account_error_count: 0,
+      },
+    });
   });
 
   test("maps internal tenant-key authentication failures to an upstream error", async () => {
@@ -418,6 +435,16 @@ describe("hosted Subrouter account routes", () => {
         accountID: "account",
       },
     });
+    expect(captureCoderouterEvent).toHaveBeenCalledWith({
+      event: "coderouter_account_added",
+      userId: "user-1",
+      teamId: "team-a",
+      properties: {
+        provider: "codex",
+        source: "legacy_dashboard",
+        already_exists: false,
+      },
+    });
   });
 
   test("deletes and repairs only the requested tenant account", async () => {
@@ -431,6 +458,12 @@ describe("hosted Subrouter account routes", () => {
     );
     expect(calls[1]?.headers.get("authorization")).toBe(`Bearer ${tenantKey}`);
     expect(calls[1]?.url.href).not.toContain(tenantKey);
+    expect(captureCoderouterEvent).toHaveBeenCalledWith({
+      event: "coderouter_account_removed",
+      userId: "user-1",
+      teamId: "team-a",
+      properties: { source: "legacy_dashboard" },
+    });
 
     calls = [];
     const repaired = await repairRoute.POST(
@@ -454,6 +487,16 @@ describe("hosted Subrouter account routes", () => {
       label: "work",
       apiKey: "sk-new",
       targetAccountID: "apikey:openai-apikey:work",
+    });
+    expect(captureCoderouterEvent).toHaveBeenCalledWith({
+      event: "coderouter_account_added",
+      userId: "user-1",
+      teamId: "team-a",
+      properties: {
+        provider: "openai-apikey",
+        source: "legacy_dashboard",
+        already_exists: true,
+      },
     });
   });
 
@@ -531,6 +574,52 @@ describe("hosted Subrouter account routes", () => {
         },
       ],
     });
+
+    const organizationsResponse = await organizationsRoute.GET(
+      request("/api/coderouter/organizations", {
+        headers: {
+          cookie:
+            "cmux_coderouter_organization=%5B%22user-1%22%2C%22team-b%22%5D",
+        },
+      }),
+    );
+    expect(organizationsResponse.status).toBe(200);
+    expect(await organizationsResponse.json()).toEqual({
+      selectedTeamId: "team-b",
+      teams: [
+        {
+          id: "team-a",
+          name: "Team A",
+          personal: false,
+          permissions: { use: true, manageAccounts: true },
+        },
+        {
+          id: "team-b",
+          name: "Team B",
+          personal: false,
+          permissions: { use: true, manageAccounts: true },
+        },
+        {
+          id: "user-1",
+          name: "User One",
+          personal: true,
+          permissions: { use: true, manageAccounts: true },
+        },
+      ],
+    });
+
+    const unauthorizedScopeResponse = await organizationsRoute.GET(
+      request("/api/coderouter/organizations", {
+        headers: {
+          cookie:
+            "cmux_coderouter_organization=%5B%22user-1%22%2C%22team-not-authorized%22%5D",
+        },
+      }),
+    );
+    expect(unauthorizedScopeResponse.status).toBe(200);
+    expect((await unauthorizedScopeResponse.json()).selectedTeamId).toBe(
+      "team-a",
+    );
 
     const logoutResponse = await logoutRoute.POST(
       request("/api/subrouter/logout", { method: "POST" }),

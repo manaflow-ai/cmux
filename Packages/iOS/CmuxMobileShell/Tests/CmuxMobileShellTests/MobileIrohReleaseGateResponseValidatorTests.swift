@@ -7,6 +7,70 @@ import Testing
 @testable import CmuxMobileShellReleaseGateSupport
 
 struct MobileIrohReleaseGateResponseValidatorTests {
+    @Test func validatesCompleteUniqueRPCMethodInventory() throws {
+        let required: Set<String> = ["workspace.list", "terminal.input"]
+        let complete = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 1,
+            "methods": ["terminal.input", "workspace.list"],
+        ])
+        let missing = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 1,
+            "methods": ["workspace.list"],
+        ])
+        let duplicate = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 1,
+            "methods": ["workspace.list", "workspace.list", "terminal.input"],
+        ])
+
+        #expect(MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
+            complete,
+            required: required
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
+            missing,
+            required: required
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
+            duplicate,
+            required: required
+        ))
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                complete,
+                required: required
+            ) == nil
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                missing,
+                required: required
+            ) == .missingMethods
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                duplicate,
+                required: required
+            ) == .duplicateMethods
+        )
+
+        let wrongSchema = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 2,
+            "methods": ["terminal.input", "workspace.list"],
+        ])
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                wrongSchema,
+                required: required
+            ) == .schemaMismatch
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                Data("[]".utf8),
+                required: required
+            ) == .malformed
+        )
+    }
+
     @Test
     func independentEventsRequireExactStreamAndIrohLaneThenRemoval() throws {
         let streamID = "gate-stream"

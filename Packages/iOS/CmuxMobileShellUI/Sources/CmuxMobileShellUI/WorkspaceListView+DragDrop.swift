@@ -18,6 +18,9 @@ extension WorkspaceListView {
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
+            // The recency order is derived from timestamps, so a drag has no
+            // spatial position to send to the Mac.
+            && !appliesRecencySort
             && reorderableWorkspaces.hasSingleKnownWindow
             && (rendersGroupedSections || !filteredWorkspaces.contains(where: \.isPinned))
     }
@@ -28,10 +31,6 @@ extension WorkspaceListView {
 
     var filteredWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
         filteredWorkspaces.map { WorkspaceListStableOrderKey(workspace: $0) }
-    }
-
-    var groupedWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
-        groupedListItems.map { WorkspaceListStableOrderKey(item: $0) }
     }
 
     var canCreateWorkspaceInGroups: Bool {
@@ -87,6 +86,7 @@ extension WorkspaceListView {
               case .workspace(let workspace, _) = items[sourceIndex] else {
             return
         }
+        store?.recordAppEvent(.workspaceDragDropStarted, correlationID: workspace.id.rawValue)
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask
         let epoch = workspaceMoveEpoch
@@ -100,10 +100,30 @@ extension WorkspaceListView {
             // afterwards never see these branches.
             if let previousMove, await previousMove.value == false {
                 pendingWorkspaceMoveCount -= 1
+                store?.recordAppEvent(
+                    .workspaceDragDropFailed,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             guard epoch == workspaceMoveEpoch else {
                 pendingWorkspaceMoveCount -= 1
+                store?.recordAppEvent(
+                    .workspaceDragDropFailed,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: workspace.id.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             let accepted = await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
@@ -115,6 +135,11 @@ extension WorkspaceListView {
                 // reference and drain by aborting above.
                 pendingWorkspaceMoveTask = nil
             }
+            store?.recordAppEvent(
+                accepted ? .workspaceDragDropSucceeded : .workspaceDragDropFailed,
+                correlationID: workspace.id.rawValue,
+                failure: accepted ? nil : .protocolViolation
+            )
             return accepted
         }
     }
@@ -148,14 +173,17 @@ extension WorkspaceListView {
         case .workspace(let workspace, _):
             movedWorkspaceID = workspace.id
         case .groupHeader(let group, _):
-            movedWorkspaceID = group.anchorWorkspaceID
+            guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return }
+            movedWorkspaceID = anchorWorkspaceID
         case .groupFooter:
             return
         }
+        store?.recordAppEvent(.workspaceDragDropStarted, correlationID: movedWorkspaceID.rawValue)
         applyGroupedWorkspaceMove(
             intent,
             movedWorkspaceID: movedWorkspaceID,
-            sourceWorkspaces: sourceWorkspaces
+            sourceWorkspaces: sourceWorkspaces,
+            isDragDrop: true
         )
     }
 
@@ -176,9 +204,24 @@ extension WorkspaceListView {
             ) != nil
     }
 
+    /// The context-menu "Move to Group" picker for one workspace row, or `nil`
+    /// when moves are unavailable (drag gating applies identically) or the
+    /// picker would be empty.
+    func groupMoveMenu(for workspaceID: MobileWorkspacePreview.ID) -> MobileWorkspaceGroupMoveMenu? {
+        guard enablesWorkspaceReorder, rendersGroupedSections else { return nil }
+        let menu = MobileWorkspaceGroupMoveMenu(
+            workspaces: displayedGroupedWorkspaces,
+            groups: groups,
+            movedWorkspaceID: workspaceID
+        )
+        return menu.isEmpty ? nil : menu
+    }
+
+    /// Joins a group at its end, or leaves the current group when `groupID` is
+    /// `nil`. Shared by the drop-into-group path and the context-menu picker.
     func joinGroupAtEnd(
         workspaceID: MobileWorkspacePreview.ID,
-        groupID: MobileWorkspaceGroupPreview.ID
+        groupID: MobileWorkspaceGroupPreview.ID?
     ) {
         guard enablesWorkspaceReorder, rendersGroupedSections else { return }
         let sourceWorkspaces = displayedGroupedWorkspaces
@@ -196,14 +239,16 @@ extension WorkspaceListView {
         applyGroupedWorkspaceMove(
             intent,
             movedWorkspaceID: workspaceID,
-            sourceWorkspaces: sourceWorkspaces
+            sourceWorkspaces: sourceWorkspaces,
+            isDragDrop: false
         )
     }
 
     private func applyGroupedWorkspaceMove(
         _ intent: MobileWorkspaceMoveIntent,
         movedWorkspaceID: MobileWorkspacePreview.ID,
-        sourceWorkspaces: [MobileWorkspacePreview]
+        sourceWorkspaces: [MobileWorkspacePreview],
+        isDragDrop: Bool
     ) {
         let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
             intent,
@@ -224,11 +269,35 @@ extension WorkspaceListView {
             if let previousMove, await previousMove.value == false {
                 MobileDebugLog.anchormux("move.chain ABORT predecessor-failed id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
+                if isDragDrop {
+                    store?.recordAppEvent(
+                        .workspaceDragDropFailed,
+                        correlationID: movedWorkspaceID.rawValue,
+                        failure: .superseded
+                    )
+                }
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: movedWorkspaceID.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             guard epoch == workspaceMoveEpoch else {
                 MobileDebugLog.anchormux("move.chain ABORT epoch-superseded id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
+                if isDragDrop {
+                    store?.recordAppEvent(
+                        .workspaceDragDropFailed,
+                        correlationID: movedWorkspaceID.rawValue,
+                        failure: .superseded
+                    )
+                }
+                store?.recordAppEvent(
+                    .workspaceMutationCancelled,
+                    correlationID: movedWorkspaceID.rawValue,
+                    failure: .superseded
+                )
                 return false
             }
             let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
@@ -237,6 +306,13 @@ extension WorkspaceListView {
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
                 pendingWorkspaceMoveTask = nil
+            }
+            if isDragDrop {
+                store?.recordAppEvent(
+                    accepted ? .workspaceDragDropSucceeded : .workspaceDragDropFailed,
+                    correlationID: movedWorkspaceID.rawValue,
+                    failure: accepted ? nil : .protocolViolation
+                )
             }
             return accepted
         }

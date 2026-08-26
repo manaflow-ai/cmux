@@ -10,14 +10,16 @@ extension ShortcutAction {
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash, .reopenClosedWorkspace:
+             .switchRightSidebarToDock, .switchRightSidebarToMachines, .triggerFlash, .reopenClosedWorkspace:
             return .workspace
         case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight,
              .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
              .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
              .selectSurfaceByNumber,
-             .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown,
+             .nextSidebarTab, .prevSidebarTab,
+             .nextSidebarTabInGroup, .prevSidebarTabInGroup,
+             .moveWorkspaceUp, .moveWorkspaceDown,
              .focusHistoryBack, .focusHistoryForward, .selectWorkspaceByNumber,
              .renameTab, .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete,

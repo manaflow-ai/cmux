@@ -34,7 +34,7 @@ extension AppDelegate {
 
     func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
-            TerminalController.shared.stop()
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
             return
         }
         let path = TerminalController.shared.activeSocketPath(
@@ -54,7 +54,7 @@ extension AppDelegate {
 
     func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
-            TerminalController.shared.stop()
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
             return
         }
 
@@ -86,7 +86,7 @@ extension AppDelegate {
 
     func restartSocketListenerIfEnabled(source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
-            TerminalController.shared.stop()
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
             return
         }
         let manager = activeTabManagerForCommands()
@@ -98,7 +98,7 @@ extension AppDelegate {
             "path": restartPath,
             "source": source,
         ])
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: false)
         TerminalController.shared.startSocketTransport(
             config,
             socketPath: restartPath,

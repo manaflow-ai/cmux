@@ -21,7 +21,22 @@ extension MobileWorkspacePreview {
             hasUnread: remote.hasUnread ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
-            }
+            },
+            surfaces: (remote.surfaces ?? []).map(MobileSurfacePreview.init(remote:)),
+            simulators: remote.simulators
+        )
+    }
+}
+
+extension MobileSurfacePreview {
+    init(remote: MobileSyncWorkspaceListResponse.Surface) {
+        self.init(
+            id: ID(rawValue: remote.surfaceID),
+            kind: Kind(rawValue: remote.kind),
+            title: remote.title,
+            filePath: remote.filePath,
+            todo: remote.todo,
+            isFocused: remote.isFocused
         )
     }
 }
@@ -36,7 +51,10 @@ extension MobileWorkspaceGroupPreview {
             isCollapsed: remote.isCollapsed,
             isPinned: remote.isPinned,
             iconSymbol: remote.iconSymbol,
-            anchorWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.anchorWorkspaceID)
+            anchorWorkspaceID: remote.anchorWorkspaceID.map {
+                MobileWorkspacePreview.ID(rawValue: $0)
+            },
+            isEmpty: remote.isEmpty
         )
     }
 }

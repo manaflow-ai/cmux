@@ -16,7 +16,9 @@ extension CMUXCLI {
         sessionId: String?,
         sessionDidEnd: Bool = false,
         expectedBindingUpdatedAt: TimeInterval? = nil,
-        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) -> AgentSurfaceResumeBindingClearOutcome {
         let normalizedSessionId = normalizedHookValue(sessionId)
             .map(agentHookResumeSessionID)
@@ -37,7 +39,12 @@ extension CMUXCLI {
             params["_cmux_agent_mutation_guard"] = agentMutationGuard.socketEnvelope
         }
         do {
-            let result = try client.sendV2(method: "surface.resume.clear", params: params)
+            let result = try client.sendV2(
+                method: "surface.resume.clear",
+                params: params,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
             guard let cleared = result["cleared"] as? Bool else {
                 return .failed
             }

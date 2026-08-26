@@ -449,7 +449,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         line: UInt = #line
     ) {
         XCTAssertFalse(
-            script.contains(#"ssh-pty-attach --wait --workspace "$cmux_ssh_pty_workspace_id" --surface"#),
+            script.contains(#"ssh-pty-attach --wait --workspace "$CMUX_WORKSPACE_ID" --surface"#),
             script,
             file: file,
             line: line

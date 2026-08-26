@@ -34,25 +34,34 @@ export async function captureStripeBillingEvent(
   const mapped = mappedBillingEvent(event, subject);
   if (!mapped) return;
 
-  try {
-    await postHogFetch(`${POSTHOG_HOST}/capture/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: POSTHOG_PROJECT_KEY,
-        event: mapped.name,
-        properties: {
-          distinct_id: subjectDistinctId(subject),
-          // Stripe redeliveries and route retries keep one PostHog event.
-          $insert_id: event.id,
-          ...mapped.properties,
-        },
-      }),
-      signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS),
-    });
-  } catch {
-    // Analytics is deliberately non-authoritative.
-  }
+  await captureBillingPayload({
+    name: mapped.name,
+    insertId: event.id,
+    subject,
+    properties: mapped.properties,
+  }, postHogFetch);
+}
+
+export async function captureBillingCheckoutStarted(
+  input: {
+    readonly sessionId: string;
+    readonly subject: StripeBillingAnalyticsSubject;
+    readonly plan: "pro" | "team";
+    readonly billingInterval: "month" | "year";
+  },
+  postHogFetch: typeof fetch = fetch,
+): Promise<void> {
+  await captureBillingPayload({
+    name: "cmux_billing_checkout_started",
+    insertId: `checkout-started:${input.sessionId}`,
+    subject: input.subject,
+    properties: {
+      source: "checkout_route",
+      billing_scope: input.subject.scope,
+      plan: input.plan,
+      billing_interval: input.billingInterval,
+    },
+  }, postHogFetch);
 }
 
 function mappedBillingEvent(
@@ -131,6 +140,21 @@ function mappedBillingEvent(
         },
       };
     }
+    case "charge.refunded": {
+      const charge = event.data.object;
+      return {
+        name: "cmux_billing_charge_refunded",
+        properties: {
+          ...common,
+          amount: charge.amount,
+          amount_refunded: charge.amount_refunded,
+          currency: charge.currency,
+          fully_refunded: charge.refunded,
+          stripe_charge_id: charge.id,
+          stripe_customer_id: stringId(charge.customer),
+        },
+      };
+    }
     default:
       return null;
   }
@@ -140,6 +164,42 @@ function subjectDistinctId(subject: StripeBillingAnalyticsSubject): string {
   return subject.scope === "user"
     ? subject.stackUserId
     : `stack-team:${subject.stackTeamId}`;
+}
+
+async function captureBillingPayload(
+  input: {
+    readonly name: string;
+    readonly insertId: string;
+    readonly subject: StripeBillingAnalyticsSubject;
+    readonly properties: Record<string, unknown>;
+  },
+  postHogFetch: typeof fetch,
+): Promise<void> {
+  const body = JSON.stringify({
+    api_key: POSTHOG_PROJECT_KEY,
+    event: input.name,
+    properties: {
+      distinct_id: subjectDistinctId(input.subject),
+      $insert_id: input.insertId,
+      ...(input.subject.scope === "team"
+        ? { $groups: { stack_team: input.subject.stackTeamId } }
+        : {}),
+      ...input.properties,
+    },
+  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await postHogFetch(`${POSTHOG_HOST}/capture/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS),
+      });
+      if (response.ok || response.status < 500) return;
+    } catch {
+      // Retry once with the same insert id; never fail billing traffic.
+    }
+  }
 }
 
 function subscriptionEventAction(

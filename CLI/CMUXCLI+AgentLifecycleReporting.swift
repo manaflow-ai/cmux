@@ -148,7 +148,9 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String?,
         expectedLifecycleSessionId: String? = nil,
-        expectedProcessIdentity: AgentHookProcessIdentity? = nil
+        expectedProcessIdentity: AgentHookProcessIdentity? = nil,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) {
         if let expectedProcessIdentity,
            expectedProcessIdentity.pid != pid {
@@ -164,7 +166,11 @@ extension CMUXCLI {
             command += " --expected-pid-start-seconds=\(expectedProcessIdentity.startSeconds)"
             command += " --expected-pid-start-microseconds=\(expectedProcessIdentity.startMicroseconds)"
         }
-        _ = try? sendV1Command(command, client: client)
+        _ = try? client.send(
+            command: command,
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
     }
 
     @discardableResult

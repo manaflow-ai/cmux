@@ -148,6 +148,17 @@ enum AppearanceSettings {
         colorSchemeOverride(for: rawValue) ?? fallback
     }
 
+    /// The window-level light/dark appearance translucent chrome composites
+    /// against, resolved from the stored appearance mode and the app's live
+    /// effective appearance.
+    @MainActor
+    static func currentAmbientColorScheme(defaults: UserDefaults = .standard) -> ColorScheme {
+        effectiveColorScheme(
+            for: defaults.string(forKey: appearanceModeKey),
+            fallback: .light
+        )
+    }
+
     /// Resolves the color scheme the chrome should render with. Explicit modes
     /// win. After launch, system mode resolves from the app's live
     /// effectiveAppearance, which (unlike the AppleInterfaceStyle default) stays

@@ -119,11 +119,11 @@ extension TerminalController {
                 "dialog_id": response.dialogID,
             ])
         case "mobile.browser.input.pointer":
-            return v2MobileBrowserPointerInput(params: params, connectionID: connectionID)
+            return await v2MobileBrowserPointerInput(params: params, connectionID: connectionID)
         case "mobile.browser.input.scroll":
             return v2MobileBrowserScrollInput(params: params, connectionID: connectionID)
         case "mobile.browser.input.key":
-            return v2MobileBrowserKeyInput(params: params, connectionID: connectionID)
+            return await v2MobileBrowserKeyInput(params: params, connectionID: connectionID)
         case "mobile.browser.input.text":
             return await v2MobileBrowserTextInput(params: params, connectionID: connectionID)
         case "mobile.browser.navigate":
@@ -187,19 +187,22 @@ extension TerminalController {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
         guard let panel = workspace.newBrowserSurface(inPane: paneId, focus: false) else {
+            mobileBrowserRecordDiagnostic(.browserPanelCreateResolved, panel: nil, a: 0)
             return .err(code: "unavailable", message: "Browser creation is unavailable", data: nil)
         }
         let encoder = MobileBrowserWireEncoder()
         guard let payload = encoder.object(encoder.descriptor(panel: panel)) else {
+            mobileBrowserRecordDiagnostic(.browserPanelCreateResolved, panel: panel, a: 0)
             return .err(code: "internal_error", message: "Browser creation is unavailable", data: nil)
         }
+        mobileBrowserRecordDiagnostic(.browserPanelCreateResolved, panel: panel, a: 1)
         return .ok(payload)
     }
 
     private func v2MobileBrowserPointerInput(
         params: [String: Any],
         connectionID: UUID?
-    ) -> V2CallResult {
+    ) async -> V2CallResult {
         guard let input = mobileBrowserDecode(MobileBrowserPointerInput.self, params: params) else {
             return .err(code: "invalid_params", message: "Invalid browser pointer input", data: nil)
         }
@@ -207,12 +210,47 @@ extension TerminalController {
             return .err(code: "not_found", message: "Browser panel not found", data: ["panel_id": input.panelID])
         }
         do {
-            try MobileBrowserInputReplayer().replayPointer(input, in: panel.webView)
+            let focusAssist = try await panel.replayMobileBrowserPointer(input)
             mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
+            mobileBrowserRecordDiagnostic(
+                .browserInputReplayed, panel: panel, a: 1, b: input.clickCount
+            )
+            if input.kind == .click {
+                mobileBrowserRecordDiagnostic(
+                    .browserEditableFocus,
+                    panel: panel,
+                    a: focusAssist == 0 ? 0 : 1,
+                    b: focusAssist
+                )
+            }
             return .ok(["ok": true, "panel_id": input.panelID])
         } catch {
             return .err(code: "invalid_params", message: "Invalid browser pointer input", data: nil)
         }
+    }
+
+    /// Records one browser-stream diagnostic into the host ring so user bug
+    /// reports carry the stream's input, focus, and lifecycle history.
+    func mobileBrowserRecordDiagnostic(
+        _ code: DiagnosticEventCode,
+        panel: BrowserPanel?,
+        a: Int? = nil,
+        b: Int? = nil
+    ) {
+        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+            code,
+            a: a,
+            b: b,
+            c: panel.map { Self.mobileBrowserPanelCorrelation($0.id) }
+        ))
+    }
+
+    /// Stable positive correlation ID for one browser panel, derived from the
+    /// panel UUID so ring events group without carrying the full identifier.
+    static func mobileBrowserPanelCorrelation(_ id: UUID) -> Int {
+        let bytes = id.uuid
+        let value = (UInt32(bytes.0) << 24) | (UInt32(bytes.1) << 16) | (UInt32(bytes.2) << 8) | UInt32(bytes.3)
+        return Int(value & 0x7FFF_FFFF)
     }
 
     private func v2MobileBrowserScrollInput(
@@ -237,7 +275,7 @@ extension TerminalController {
     private func v2MobileBrowserKeyInput(
         params: [String: Any],
         connectionID: UUID?
-    ) -> V2CallResult {
+    ) async -> V2CallResult {
         guard let input = mobileBrowserDecode(MobileBrowserKeyInput.self, params: params) else {
             return .err(code: "invalid_params", message: "Invalid browser key input", data: nil)
         }
@@ -245,9 +283,14 @@ extension TerminalController {
             return .err(code: "not_found", message: "Browser panel not found", data: ["panel_id": input.panelID])
         }
         do {
-            try MobileBrowserInputReplayer().replayKey(input, in: panel.webView)
-            mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
-            return .ok(["ok": true, "panel_id": input.panelID])
+            let delivered = try await panel.replayMobileBrowserKey(input)
+            if delivered {
+                mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
+            }
+            mobileBrowserRecordDiagnostic(
+                .browserInputReplayed, panel: panel, a: delivered ? 2 : 4, b: 1
+            )
+            return .ok(["ok": true, "panel_id": input.panelID, "delivered": delivered])
         } catch {
             return .err(code: "invalid_params", message: "Invalid browser key input", data: nil)
         }
@@ -266,8 +309,12 @@ extension TerminalController {
         do {
             try await MobileBrowserInputReplayer().replayText(input, in: panel.webView)
             mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
+            mobileBrowserRecordDiagnostic(
+                .browserInputReplayed, panel: panel, a: 3, b: input.text.count
+            )
             return .ok(["ok": true, "panel_id": input.panelID])
         } catch {
+            mobileBrowserRecordDiagnostic(.browserInputReplayed, panel: panel, a: 3, b: -1)
             return .err(code: "invalid_params", message: "Browser text could not be inserted", data: nil)
         }
     }

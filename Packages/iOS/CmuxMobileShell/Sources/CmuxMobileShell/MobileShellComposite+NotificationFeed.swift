@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -24,10 +25,17 @@ extension MobileShellComposite {
     /// predate `notification.feed.v1` are excluded without hiding snapshots from
     /// newer or temporarily unavailable Macs.
     public func refreshNotificationFeed() async {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.notificationFeedLoadStarted)
         let targets = notificationFeedTargets()
         if targets.isEmpty {
             recomputeNotificationFeedItems()
             notificationFeedStatus = resolvedNotificationFeedStatus()
+            recordAppEvent(
+                .notificationFeedLoadFailed,
+                startedAt: startedAt,
+                failure: .endpointUnavailable
+            )
             return
         }
 
@@ -39,11 +47,27 @@ extension MobileShellComposite {
                 displayName: target.displayName
             )
         }
+        var outcomes: [NotificationFeedFetchOutcome] = []
         for task in tasks {
-            await task.value
+            outcomes.append(await task.value)
         }
         recomputeNotificationFeedItems()
         notificationFeedStatus = resolvedNotificationFeedStatus()
+        if outcomes.contains(.applied) {
+            recordAppEvent(
+                .notificationFeedLoadSucceeded,
+                startedAt: startedAt,
+                count: notificationFeedItems.count
+            )
+        } else {
+            recordAppEvent(
+                .notificationFeedLoadFailed,
+                startedAt: startedAt,
+                failure: Task.isCancelled
+                    ? .cancelled
+                    : (outcomes.contains(.failed) ? .endpointUnavailable : .superseded)
+            )
+        }
     }
 
     /// Resolves feed availability for one computer picker scope. A retained
@@ -95,26 +119,30 @@ extension MobileShellComposite {
     }
 
     /// Builds a computer-picker-scoped feed from the retained source snapshots
-    /// before applying the global row cap. Filtering the already-capped global
-    /// feed can hide an entire Mac when another Mac owns the newest retained
-    /// rows.
+    /// before applying the global row cap. Rows whose current navigation target
+    /// is absent from the live workspace snapshot stay retained but are not
+    /// presented. Filtering the already-capped global feed can hide valid older
+    /// rows when newer retained rows are no longer navigable.
     public func notificationFeedItems(
         scopedTo macDeviceIDs: Set<String>?
     ) -> [MobileNotificationFeedItem] {
-        guard let macDeviceIDs, !macDeviceIDs.isEmpty else {
-            return notificationFeedItems
-        }
         // Scope entries are bare device ids or pairing ids. Matching happens
         // per ITEM (each carries its stamped tag) so a build-scoped selection
         // excludes the sibling's rows even inside the foreground's
         // device-keyed snapshot.
-        let parsedScopeEntries =
-            MobileWorkspaceListFilter.parsedMachineEntries(macDeviceIDs)
+        let parsedScopeEntries = macDeviceIDs.flatMap { ids in
+            ids.isEmpty ? nil : MobileWorkspaceListFilter.parsedMachineEntries(ids)
+        }
+        let targetIndex = NotificationFeedWorkspaceTargetIndex(workspaces: workspaces)
         let projected = notificationFeedSnapshotsByMac.compactMap {
             entry -> MobileNotificationFeedSourceSnapshot? in
             let ownerKey = entry.key
             let items = entry.value.items.filter { item in
-                parsedScopeEntries.contains {
+                guard targetIndex.workspaceID(for: item) != nil else {
+                    return false
+                }
+                guard let parsedScopeEntries else { return true }
+                return parsedScopeEntries.contains {
                     $0.matches(deviceID: item.macDeviceID, rowTag: item.macInstanceTag)
                 }
             }
@@ -144,7 +172,15 @@ extension MobileShellComposite {
         isRead: Bool
     ) async {
         guard item.isRead != isRead,
-              let target = notificationFeedTarget(for: notificationFeedOwnerKey(for: item)) else { return }
+              let target = notificationFeedTarget(for: notificationFeedOwnerKey(for: item)) else {
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: item.notificationID,
+                failure: .endpointUnavailable,
+                count: isRead ? 1 : 0
+            )
+            return
+        }
         let method = isRead ? "notification.feed.mark_read" : "notification.feed.mark_unread"
         do {
             let request = try MobileCoreRPCClient.requestData(
@@ -165,6 +201,11 @@ extension MobileShellComposite {
                 client: target.client,
                 displayName: target.displayName
             )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: item.notificationID,
+                count: isRead ? 1 : 0
+            )
         } catch {
             notificationFeedLog.error(
                 """
@@ -173,6 +214,12 @@ extension MobileShellComposite {
                 mac=\(item.macDeviceID, privacy: .public) \
                 error=\(String(describing: error), privacy: .private)
                 """
+            )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: item.notificationID,
+                failure: DiagnosticFailureKind.classify(error),
+                count: isRead ? 1 : 0
             )
         }
     }
@@ -208,6 +255,11 @@ extension MobileShellComposite {
     /// finish even though the feed view disappears.
     public func requestOpenNotificationFeedItem(_ item: MobileNotificationFeedItem) {
         cancelPendingNotificationFeedOpen()
+        recordAppEvent(
+            .notificationFeedItemOpened,
+            correlationID: item.notificationID,
+            count: 0
+        )
         let token = UUID()
         notificationFeedOpenToken = token
         notificationFeedOpenTask = Task { @MainActor [weak self] in
@@ -243,47 +295,72 @@ extension MobileShellComposite {
         defer { finishNotificationFeedOpenOperation(operationToken) }
         // Compare the exact pairing: a sibling build's notification on the
         // foreground DEVICE still needs a switch to that build.
-        let isForegroundPairing = item.macDeviceID == normalizedForegroundNotificationFeedMacID()
-            && macInstanceTagAuthority.sameStoredAuthority(
-                item.macInstanceTag, activeMacInstanceTag
+        let isForegroundPairing = normalizedForegroundNotificationFeedMacID().map {
+            MacPairingKey(
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
+            ) == MacPairingKey(
+                macDeviceID: $0,
+                instanceTag: activeMacInstanceTag
             )
+        } ?? false
         if !isForegroundPairing {
             guard await switchToMac(
                 macDeviceID: item.macDeviceID,
                 instanceTag: item.macInstanceTag
-            ) else { return }
+            ) else {
+                recordAppEvent(
+                    .notificationFeedItemOpened,
+                    correlationID: item.notificationID,
+                    failure: .connectionClosed,
+                    count: 0
+                )
+                return
+            }
         }
-        // Sibling builds share the device id and can reuse Mac-local
-        // workspace/surface ids: match by the item's exact pairing.
-        let capturedWorkspaceID = rowWorkspaceID(
-            forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID),
-            macDeviceID: item.macDeviceID,
-            instanceTag: item.macInstanceTag
-        )
-        let targetWorkspaceID: MobileWorkspacePreview.ID?
-        if item.retargetsToLiveSurfaceOwner, let surfaceID = item.remoteSurfaceID {
-            targetWorkspaceID = workspaceID(
-                forTerminalID: surfaceID,
-                macDeviceID: item.macDeviceID,
-                instanceTag: item.macInstanceTag
-            )
-        } else {
-            targetWorkspaceID = capturedWorkspaceID
-        }
-        guard let workspaceID = targetWorkspaceID else {
+        guard let workspaceID = notificationFeedTargetWorkspaceID(for: item) else {
             notificationFeedLog.error(
                 "open target unavailable mac=\(item.macDeviceID, privacy: .public) notification=\(item.notificationID, privacy: .public)"
             )
+            recordAppEvent(
+                .notificationFeedItemOpened,
+                correlationID: item.notificationID,
+                failure: .endpointUnavailable,
+                count: 0
+            )
             return
         }
-        guard commitNotificationFeedOpenOperation(operationToken) else { return }
+        guard commitNotificationFeedOpenOperation(operationToken) else {
+            recordAppEvent(
+                .notificationFeedItemOpened,
+                correlationID: item.notificationID,
+                failure: .cancelled,
+                count: 0
+            )
+            return
+        }
 
         navigateToWorkspaceForDeeplink(workspaceID, origin: .notificationFeed)
         if let surfaceID = item.remoteSurfaceID,
            workspace(workspaceID, containsSurfaceID: surfaceID) {
             selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
         }
+        recordAppEvent(
+            .notificationFeedItemOpened,
+            correlationID: item.notificationID,
+            count: 1
+        )
         await markNotificationFeedItemRead(item)
+    }
+
+    /// Resolves the same live destination used by feed visibility and opening.
+    /// Sibling builds share Mac-local ids, so every lookup includes the item's
+    /// exact pairing identity.
+    private func notificationFeedTargetWorkspaceID(
+        for item: MobileNotificationFeedItem
+    ) -> MobileWorkspacePreview.ID? {
+        NotificationFeedWorkspaceTargetIndex(workspaces: workspaces)
+            .workspaceID(for: item)
     }
 
     /// Handles a revision-only feed invalidation from one specific Mac.
@@ -310,7 +387,7 @@ extension MobileShellComposite {
 
     /// Starts an initial feed fetch after a capable foreground connection is established.
     func scheduleForegroundNotificationFeedRefresh(client: MobileCoreRPCClient) {
-        guard let macDeviceID = normalizedForegroundNotificationFeedMacID(),
+        guard let macDeviceID = normalizedForegroundNotificationFeedOwnerKey(),
               supportedHostCapabilities.contains(Self.notificationFeedCapability),
               remoteClient === client else { return }
         if notificationFeedStatus == .idle {
@@ -331,6 +408,7 @@ extension MobileShellComposite {
     ) {
         let ownerKey = MacPairingKey(pairingID: macDeviceID)
         guard secondaryMacSubscriptions[ownerKey]?.client === client,
+              client !== remoteClient,
               secondaryMacSubscriptions[ownerKey]?.supportedHostCapabilities.contains(Self.notificationFeedCapability) == true else { return }
         _ = scheduleNotificationFeedRefresh(
             macDeviceID: macDeviceID,
@@ -352,6 +430,7 @@ extension MobileShellComposite {
               !subscription.isTransitioningToFocus else {
             return false
         }
+        if client === remoteClient { return true }
         guard subscription.supportedHostCapabilities.contains(
             Self.notificationFeedCapability
         ) else {
@@ -460,7 +539,11 @@ extension MobileShellComposite {
               !macInstanceTagAuthority.sameStoredAuthority(previousTag, newTag) else {
             return
         }
-        removeNotificationFeedSnapshot(macDeviceID: newDeviceID)
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: newDeviceID,
+            instanceTag: newTag
+        )
+        removeNotificationFeedSnapshot(macDeviceID: pairingID)
     }
 
     /// Removes one hidden Mac's content and cancels work that could restore it.
@@ -486,7 +569,7 @@ extension MobileShellComposite {
 
     /// Retains only a team-switch-safe foreground snapshot.
     func retainForegroundNotificationFeedSnapshot() {
-        guard let foregroundMacDeviceID = normalizedForegroundNotificationFeedMacID() else {
+        guard let foregroundMacDeviceID = normalizedForegroundNotificationFeedOwnerKey() else {
             resetNotificationFeed()
             return
         }
@@ -526,7 +609,7 @@ extension MobileShellComposite {
 
     /// Resolves the foreground Mac id for event routing without exposing RPC state to UI.
     func normalizedForegroundNotificationFeedMacIDForEvent() -> String? {
-        normalizedForegroundNotificationFeedMacID()
+        normalizedForegroundNotificationFeedOwnerKey()
     }
 
     /// Resolves a foreground Mac label for event-derived snapshots.
@@ -659,7 +742,7 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         displayName: String,
         advancesGeneration: Bool = true
-    ) -> Task<Void, Never>? {
+    ) -> Task<NotificationFeedFetchOutcome, Never>? {
         guard notificationFeedClient(for: macDeviceID) === client,
               notificationFeedClientSupportsCapability(macDeviceID: macDeviceID) else { return nil }
         if advancesGeneration {
@@ -679,25 +762,31 @@ extension MobileShellComposite {
         let token = UUID()
         notificationFeedRefreshTokensByMac[macDeviceID] = token
         let task = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else { return NotificationFeedFetchOutcome.failed }
             var attemptCount = 0
+            var aggregateOutcome = NotificationFeedFetchOutcome.failed
             repeat {
                 self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
                 let requiredRevision =
                     self.notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
-                _ = await self.fetchNotificationFeed(
+                let outcome = await self.fetchNotificationFeed(
                     macDeviceID: macDeviceID,
                     client: client,
                     displayName: displayName,
                     requiredRevision: requiredRevision
                 )
+                if outcome == .applied || aggregateOutcome != .applied {
+                    aggregateOutcome = outcome
+                }
                 attemptCount += 1
             } while attemptCount
                 < mobileShellNotificationFeedMaximumImmediateRefreshAttempts
                 && !Task.isCancelled
                 && self.notificationFeedClient(for: macDeviceID) === client
                 && self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
-            guard self.notificationFeedRefreshTokensByMac[macDeviceID] == token else { return }
+            guard self.notificationFeedRefreshTokensByMac[macDeviceID] == token else {
+                return .stale
+            }
             let stillPending =
                 self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
             self.notificationFeedRefreshTasksByMac[macDeviceID] = nil
@@ -720,6 +809,7 @@ extension MobileShellComposite {
             if !hasConnectedRefreshInFlight {
                 self.notificationFeedStatus = self.resolvedNotificationFeedStatus()
             }
+            return aggregateOutcome
         }
         notificationFeedRefreshTasksByMac[macDeviceID] = task
         return task
@@ -744,7 +834,7 @@ extension MobileShellComposite {
         let clock = controlPlaneSchedulingClock
         notificationFeedRefreshRetryTasksByMac[macDeviceID] = Task {
             @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else { return .failed }
             defer {
                 if self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
                     == token {
@@ -757,13 +847,13 @@ extension MobileShellComposite {
             do {
                 try await clock.sleep(for: .seconds(1))
             } catch {
-                return
+                return .stale
             }
             guard !Task.isCancelled,
                   self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
                     == token,
                   self.notificationFeedClient(for: macDeviceID) === client else {
-                return
+                return .stale
             }
             let servicedGeneration =
                 self.notificationFeedRefreshGenerationByMac[macDeviceID] ?? 0
@@ -776,10 +866,10 @@ extension MobileShellComposite {
                 displayName: displayName,
                 advancesGeneration: false
             )
-            await refresh?.value
+            let outcome = await refresh?.value ?? .failed
             guard self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
                     == token else {
-                return
+                return outcome
             }
             self.notificationFeedRefreshRetryTasksByMac[macDeviceID] = nil
             self.notificationFeedRefreshRetryTokensByMac[macDeviceID] = nil
@@ -792,6 +882,7 @@ extension MobileShellComposite {
                     displayName: displayName
                 )
             }
+            return outcome
         }
     }
 
@@ -801,6 +892,8 @@ extension MobileShellComposite {
         displayName: String,
         requiredRevision: Int? = nil
     ) async -> NotificationFeedFetchOutcome {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.notificationFeedLoadStarted, correlationID: macDeviceID)
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.feed.list",
@@ -820,22 +913,56 @@ extension MobileShellComposite {
                 operation: { try await decoderTask.value },
                 onCancel: { decoderTask.cancel() }
             )
-            guard !Task.isCancelled else { return .failed }
-            guard notificationFeedClient(for: macDeviceID) === client else {
+            guard !Task.isCancelled else {
+                recordAppEvent(
+                    .notificationFeedLoadFailed,
+                    correlationID: macDeviceID,
+                    startedAt: startedAt,
+                    failure: .cancelled
+                )
                 return .failed
             }
-            return applyNotificationFeedSnapshot(
+            guard notificationFeedClient(for: macDeviceID) === client else {
+                recordAppEvent(
+                    .notificationFeedLoadFailed,
+                    correlationID: macDeviceID,
+                    startedAt: startedAt,
+                    failure: .superseded
+                )
+                return .failed
+            }
+            let applied = applyNotificationFeedSnapshot(
                 response,
                 macDeviceID: macDeviceID,
                 displayName: displayName,
                 requiredRevision: requiredRevision
-            ) ? .applied : .stale
+            )
+            recordAppEvent(
+                applied ? .notificationFeedLoadSucceeded : .notificationFeedLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                failure: applied ? nil : .superseded,
+                count: applied ? response.notifications.count : nil
+            )
+            return applied ? .applied : .stale
         } catch {
             guard notificationFeedClient(for: macDeviceID) === client else {
+                recordAppEvent(
+                    .notificationFeedLoadFailed,
+                    correlationID: macDeviceID,
+                    startedAt: startedAt,
+                    failure: .superseded
+                )
                 return .failed
             }
             notificationFeedLog.error(
                 "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+            recordAppEvent(
+                .notificationFeedLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
             )
             return .failed
         }
@@ -862,9 +989,19 @@ extension MobileShellComposite {
                 client: target.client,
                 displayName: target.displayName
             )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: target.ownerKey,
+                count: ids.count
+            )
         } catch {
             notificationFeedLog.error(
                 "mark all read failed mac=\(target.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: target.ownerKey,
+                failure: DiagnosticFailureKind.classify(error)
             )
         }
     }
@@ -896,18 +1033,21 @@ extension MobileShellComposite {
     private func notificationFeedTargets() -> [NotificationFeedClientTarget] {
         var targets: [NotificationFeedClientTarget] = []
         if let client = remoteClient,
-           let macDeviceID = normalizedForegroundNotificationFeedMacID(),
+           let ownerKey = normalizedForegroundNotificationFeedOwnerKey(),
            supportedHostCapabilities.contains(Self.notificationFeedCapability) {
             targets.append(NotificationFeedClientTarget(
-                macDeviceID: macDeviceID,
+                macDeviceID: MobilePairedMac.pairingIdentity(from: ownerKey).macDeviceID,
                 instanceTag: activeMacInstanceTag,
-                displayName: notificationFeedDisplayName(for: macDeviceID),
-                ownerKey: macDeviceID,
+                displayName: notificationFeedDisplayName(for: ownerKey),
+                ownerKey: ownerKey,
                 client: client
             ))
         }
         for (ownerKey, subscription) in secondaryMacSubscriptions
-        where subscription.supportedHostCapabilities.contains(Self.notificationFeedCapability) {
+        where subscription.client !== remoteClient
+            && subscription.supportedHostCapabilities.contains(
+                Self.notificationFeedCapability
+            ) {
             targets.append(NotificationFeedClientTarget(
                 macDeviceID: subscription.macDeviceID,
                 instanceTag: subscription.storedInstanceTag,
@@ -936,7 +1076,7 @@ extension MobileShellComposite {
     /// key: the foreground's normalized device id, or a secondary
     /// subscription's pairing id.
     private func notificationFeedInstanceTag(forOwnerKey ownerKey: String) -> String? {
-        if normalizedForegroundNotificationFeedMacID() == ownerKey {
+        if normalizedForegroundNotificationFeedOwnerKey() == ownerKey {
             return activeMacInstanceTag
         }
         return secondaryMacSubscriptions[MacPairingKey(pairingID: ownerKey)]?.storedInstanceTag
@@ -946,8 +1086,11 @@ extension MobileShellComposite {
     /// the foreground pairing's, else the owning secondary's pairing id, else
     /// the item's device id (legacy rows).
     private func notificationFeedOwnerKey(for item: MobileNotificationFeedItem) -> String {
-        if let foreground = normalizedForegroundNotificationFeedMacID(),
-           foreground == item.macDeviceID,
+        if let foreground = normalizedForegroundNotificationFeedOwnerKey(),
+           foreground == MobilePairedMac.pairingID(
+               macDeviceID: item.macDeviceID,
+               instanceTag: item.macInstanceTag
+           ),
            macInstanceTagAuthority.sameStoredAuthority(
                item.macInstanceTag, activeMacInstanceTag
            ) {
@@ -959,16 +1102,15 @@ extension MobileShellComposite {
         if secondaryMacSubscriptions[MacPairingKey(pairingID: pairingKey)] != nil {
             return pairingKey
         }
-        // A tagged item whose exact pairing is offline must NOT fall back to
-        // the bare device key: that can resolve a sibling build's client and
-        // mutate a colliding notification id on the wrong build. Returning the
-        // pairing key fails closed (no client -> the mutation no-ops).
-        guard item.macInstanceTag == nil else { return pairingKey }
-        return item.macDeviceID
+        // Always retain the item's canonical pairing id, including when its
+        // Mac is offline. A bare wire device id can resolve a sibling build's
+        // client after teardown and mutate notification state on the wrong
+        // app instance.
+        return pairingKey
     }
 
     private func notificationFeedClient(for macDeviceID: String) -> MobileCoreRPCClient? {
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             return remoteClient
         }
         guard let subscription =
@@ -980,7 +1122,7 @@ extension MobileShellComposite {
     }
 
     private func notificationFeedClientSupportsCapability(macDeviceID: String) -> Bool {
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             return supportedHostCapabilities.contains(Self.notificationFeedCapability)
         }
         return secondaryMacSubscriptions[MacPairingKey(pairingID: macDeviceID)]?
@@ -988,7 +1130,7 @@ extension MobileShellComposite {
     }
 
     private func notificationFeedConnectionStatus(for macDeviceID: String) -> MobileMacConnectionStatus {
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             return remoteClient == nil ? .unavailable : macConnectionStatus
         }
         if secondaryMacSubscriptions[MacPairingKey(pairingID: macDeviceID)] != nil {
@@ -1002,9 +1144,22 @@ extension MobileShellComposite {
         return normalizedOptionalIdentifier(raw)
     }
 
+    /// Exact feed owner key for the foreground app instance. The feed maps use
+    /// this key, never a bare physical device id, so a Stable snapshot cannot
+    /// be reused by Nightly after a foreground switch.
+    private func normalizedForegroundNotificationFeedOwnerKey() -> String? {
+        guard let deviceID = normalizedForegroundNotificationFeedMacID() else {
+            return nil
+        }
+        return MobilePairedMac.pairingID(
+            macDeviceID: deviceID,
+            instanceTag: activeMacInstanceTag
+        )
+    }
+
     private func notificationFeedDisplayName(for macDeviceID: String) -> String {
         let raw: String?
-        if normalizedForegroundNotificationFeedMacID() == macDeviceID {
+        if normalizedForegroundNotificationFeedOwnerKey() == macDeviceID {
             raw = activeTicket?.macDisplayName ?? connectedHostName
         } else {
             let ownerKey = MacPairingKey(pairingID: macDeviceID)
@@ -1018,7 +1173,15 @@ extension MobileShellComposite {
     }
 
     private func resolvedNotificationFeedStatus() -> MobileNotificationFeedStatus {
-        let connectedClientCount = (remoteClient == nil ? 0 : 1) + secondaryMacSubscriptions.count
+        var connectedClientIDs = Set(
+            secondaryMacSubscriptions.map {
+                ObjectIdentifier($0.value.client)
+            }
+        )
+        if let remoteClient {
+            connectedClientIDs.insert(ObjectIdentifier(remoteClient))
+        }
+        let connectedClientCount = connectedClientIDs.count
         guard connectedClientCount > 0 else { return .unavailable }
         let targets = notificationFeedTargets()
         guard !targets.isEmpty else { return .requiresMacUpdate }

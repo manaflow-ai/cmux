@@ -5,7 +5,7 @@ internal import Foundation
 extension MobileShellComposite {
     static func normalizedPairingURL(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard CmxPairingURLScheme.hasPairingScheme(trimmed) else {
+        guard CmxPairingURLScheme(urlString: trimmed) != nil else {
             return trimmed
         }
         let scalars = trimmed.unicodeScalars.filter {
@@ -15,12 +15,7 @@ extension MobileShellComposite {
     }
 
     static func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
-        // Swift's Hasher is randomly seeded for each process. The same surface
-        // remains correlatable inside one report, but the exported number cannot
-        // become a stable cross-launch identifier.
-        var hasher = Hasher()
-        hasher.combine(surfaceID)
-        return UInt32(truncatingIfNeeded: hasher.finalize())
+        DiagnosticCorrelation().handle(for: surfaceID) ?? 0
     }
 
     static func workspaceActionCapabilities(
@@ -35,7 +30,9 @@ extension MobileShellComposite {
             supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1"),
             supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1") && allowsMacScopedMutations,
             supportsGroupActions: supportedHostCapabilities.contains("workspace.group_actions.v1") && allowsMacScopedMutations,
-            supportsGroupCreate: supportedHostCapabilities.contains("workspace.group_create.v1") && allowsMacScopedMutations
+            supportsGroupCreate: supportedHostCapabilities.contains("workspace.group_create.v1") && allowsMacScopedMutations,
+            supportsWorkspaceCreateInGroup: supportedHostCapabilities.contains("workspace.create_in_group.v1")
+                && allowsMacScopedMutations
         )
     }
 

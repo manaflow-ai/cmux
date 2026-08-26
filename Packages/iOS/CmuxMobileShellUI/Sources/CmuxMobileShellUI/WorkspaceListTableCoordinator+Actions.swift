@@ -9,9 +9,9 @@ extension WorkspaceListTableCoordinator {
         sourceView: UIView,
         renameTitle: String? = nil,
         contextMenuIdentifier: String? = nil
-    ) -> [UIAction] {
+    ) -> [UIMenuElement] {
         let capabilities = workspace.actionCapabilities
-        var actions: [UIAction] = []
+        var actions: [UIMenuElement] = []
         if capabilities.supportsWorkspaceActions, let setPinned = configuration.setPinned {
             let action = UIAction(
                 title: workspace.isPinned
@@ -57,6 +57,15 @@ extension WorkspaceListTableCoordinator {
             action.accessibilityIdentifier = "MobileWorkspaceReadStateMenuButton-\(workspace.id.rawValue)"
             actions.append(action)
         }
+        if capabilities.supportsMoveActions,
+           let moveToGroup = configuration.moveToGroup,
+           let menuModel = configuration.groupMoveMenu?(workspace.id) {
+            actions.append(groupMoveSubmenu(
+                for: workspace,
+                menuModel: menuModel,
+                moveToGroup: moveToGroup
+            ))
+        }
         if capabilities.supportsCloseActions, configuration.closeWorkspace != nil {
             let action = UIAction(
                 title: L10n.string("mobile.workspace.delete", defaultValue: "Delete"),
@@ -81,8 +90,7 @@ extension WorkspaceListTableCoordinator {
     func contextMenuActions(
         for group: MobileWorkspaceGroupPreview
     ) -> [UIMenuElement] {
-        let capabilities = configuration.workspacesByID[group.anchorWorkspaceID]?
-            .actionCapabilities ?? .none
+        let capabilities = groupActionCapabilities(for: group)
         var sections: [UIMenuElement] = []
         var groupActions: [UIAction] = []
 
@@ -131,7 +139,8 @@ extension WorkspaceListTableCoordinator {
         }
 
         var destructiveActions: [UIAction] = []
-        if capabilities.supportsGroupActions,
+        if !group.isPinned,
+           capabilities.supportsGroupActions,
            let ungroupWorkspaceGroupRequest = configuration.ungroupWorkspaceGroupRequest {
             let action = UIAction(
                 title: L10n.string(
@@ -165,6 +174,50 @@ extension WorkspaceListTableCoordinator {
             sections.append(UIMenu(options: .displayInline, children: destructiveActions))
         }
         return sections
+    }
+
+    /// The "Move to Group" picker: one item per candidate group (current
+    /// membership checked and disabled), plus a trailing "Remove from Group"
+    /// section when the workspace is grouped.
+    private func groupMoveSubmenu(
+        for workspace: MobileWorkspacePreview,
+        menuModel: MobileWorkspaceGroupMoveMenu,
+        moveToGroup: @escaping (MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID?) -> Void
+    ) -> UIMenu {
+        var children: [UIMenuElement] = menuModel.entries.map { entry in
+            let action = UIAction(
+                title: entry.group.name,
+                image: entry.group.iconSymbol.flatMap(UIImage.init(systemName:)),
+                attributes: entry.isEnabled ? [] : .disabled,
+                state: entry.isCurrent ? .on : .off
+            ) { _ in
+                moveToGroup(workspace.id, entry.group.id)
+            }
+            action.accessibilityIdentifier =
+                "MobileWorkspaceMoveToGroupTarget-\(workspace.id.rawValue)-\(entry.group.id.rawValue)"
+            return action
+        }
+        if menuModel.canRemoveFromGroup {
+            let remove = UIAction(
+                title: L10n.string(
+                    "mobile.workspace.removeFromGroup",
+                    defaultValue: "Remove from Group"
+                ),
+                image: UIImage(systemName: "folder.badge.minus")
+            ) { _ in
+                moveToGroup(workspace.id, nil)
+            }
+            remove.accessibilityIdentifier =
+                "MobileWorkspaceRemoveFromGroupButton-\(workspace.id.rawValue)"
+            children.append(UIMenu(options: .displayInline, children: [remove]))
+        }
+        let submenu = UIMenu(
+            title: L10n.string("mobile.workspace.moveToGroup", defaultValue: "Move to Group"),
+            image: UIImage(systemName: "folder"),
+            children: children
+        )
+        submenu.accessibilityIdentifier = "MobileWorkspaceMoveToGroupMenu-\(workspace.id.rawValue)"
+        return submenu
     }
 
     func readStateActionTitle(for workspace: MobileWorkspacePreview) -> String {

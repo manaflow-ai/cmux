@@ -301,4 +301,57 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             #expect(context.workspaceLoadingCall == nil)
         }
     }
+
+    @Test func shellStateForwardsTerminalLifecycleScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let terminalLifecycleID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) "
+                + "--terminal-lifecycle-id=\(terminalLifecycleID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.shellStateCall?.scope.workspaceID == workspaceID)
+        #expect(context.shellStateCall?.scope.panelID == panelID)
+        #expect(
+            context.shellStateCall?.scope.terminalLifecycleID
+                == terminalLifecycleID
+        )
+        #expect(context.shellStateCall?.stateRawValue == "promptIdle")
+    }
+
+    @Test func shellStateRejectsMalformedTerminalLifecycleScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --tab=\(UUID().uuidString) "
+                + "--panel=\(UUID().uuidString) "
+                + "--terminal-lifecycle-id=not-a-uuid"
+        )
+
+        #expect(response == "ERROR: Terminal session is out of date; restart the shell and try again")
+        #expect(context.shellStateCall == nil)
+    }
+
+    @Test func shellStateRejectsLifecycleIdentityWithoutCompleteScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --tab=\(UUID().uuidString) "
+                + "--terminal-lifecycle-id=\(UUID().uuidString)"
+        )
+
+        #expect(response == "ERROR: Terminal session is out of date; restart the shell and try again")
+        #expect(context.shellStateCall == nil)
+    }
 }

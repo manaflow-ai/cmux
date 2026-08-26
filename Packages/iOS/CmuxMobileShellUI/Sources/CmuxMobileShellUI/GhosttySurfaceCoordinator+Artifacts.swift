@@ -1,7 +1,9 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxAgentChat
+import CmuxMobileDiagnostics
 import CmuxMobileShell
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileTerminalKit
 import SwiftUI
@@ -19,7 +21,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         ) -> Bool {
             let artifactChipGate = TerminalArtifactChipFeatureGate(
                 artifactsAvailable: artifactFilesEnabled,
-                preferenceEnabled: terminalFilesChipEnabled
+                featureEnabled: terminalFilesChipEnabled
             )
             let changed = self.artifactFilesEnabled != artifactFilesEnabled
                 || self.artifactChipGate != artifactChipGate
@@ -287,6 +289,45 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didUseToolbarAction action: TerminalToolbarDiagnosticAction
+        ) {
+            let diagnosticAction: DiagnosticTerminalToolbarAction = switch action {
+            case .accessory(let action):
+                DiagnosticTerminalToolbarAction(rawValue: action.rawValue) ?? .customize
+            case .keyboardToggle: .keyboardToggle
+            case .hideChrome: .hideChrome
+            case .customize: .customize
+            case .zoomResetToDefault: .zoomResetToDefault
+            case .zoomSaveAsDefault: .zoomSaveAsDefault
+            case .zoomRestoreBuiltIn: .zoomRestoreBuiltIn
+            }
+            store?.recordAppEvent(
+                .terminalToolbarActionUsed,
+                correlationID: surfaceID,
+                detail: .terminalToolbarAction(diagnosticAction)
+            )
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didChangeZoom action: TerminalZoomDiagnosticAction
+        ) {
+            let diagnosticAction: DiagnosticTerminalZoomAction = switch action {
+            case .stepDecrease: .stepDecrease
+            case .stepIncrease: .stepIncrease
+            case .resetToDefault: .resetToDefault
+            case .restoreBuiltIn: .restoreBuiltIn
+            case .hostSet: .hostSet
+            }
+            store?.recordAppEvent(
+                .terminalZoomChanged,
+                correlationID: surfaceID,
+                detail: .terminalZoomAction(diagnosticAction)
+            )
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             // Report our natural grid to the Mac. The output stream decides
             // whether the phone should keep that natural grid (primary screen)
@@ -296,10 +337,19 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // report was superseded while in flight; the surface additionally
             // rejects any echo whose reportID is no longer the newest.
             guard size.columns > 0, size.rows > 0,
+                  terminalPresentationIsActive,
                   self.surfaceView === surfaceView,
                   surfaceView.window != nil,
                   let store,
                   let viewportReportScheduler else { return }
+            if let minimumReportID = outputStartMinimumViewportReportID,
+               reportID < minimumReportID {
+                MobileDebugLog.anchormux(
+                    "terminal.output.stale_viewport_callback surface=\(surfaceID) "
+                        + "report=\(reportID) minimum=\(minimumReportID)"
+                )
+                return
+            }
             if let outputStartContinuation {
                 guard let preparation = store.prepareTerminalViewport(
                     surfaceID: surfaceID,
@@ -310,6 +360,8 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 }
                 preparedViewportReportsByReportID[reportID] = preparation
                 self.outputStartContinuation = nil
+                self.outputStartReady = true
+                self.outputStartViewportTimeouts = 0
                 outputStartContinuation.yield()
                 outputStartContinuation.finish()
             }
@@ -369,6 +421,12 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 guard let self else { return }
                 await self.store?.scrollTerminal(surfaceID: self.surfaceID, lines: lines, col: col, row: row)
             }
+        }
+
+        func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool {
+            // The exact confirmed-primary condition that suppresses the Mac
+            // scroll RPC in `scrollTerminal`.
+            store?.ownsLocalPrimaryScreenScroll(surfaceID: surfaceID) ?? false
         }
 
         func ghosttySurfaceView(
@@ -526,7 +584,261 @@ extension GhosttySurfaceRepresentable.Coordinator {
         func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
             Task { @MainActor [weak self, weak store, surfaceID] in
                 guard let self, self.surfaceView === surfaceView else { return }
+                store?.recordAppEvent(
+                    .terminalRenderLagDetected,
+                    correlationID: surfaceID,
+                    failure: .timedOut
+                )
                 store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
+            }
+        }
+
+        func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView,
+                  terminalPresentationIsActive,
+                  surfaceView.window != nil,
+                  outputConsumerRecoveryAlert == nil else { return }
+            outputConsumerRecoveryAlertPending = true
+            guard presentOutputConsumerRecoveryAlertIfPossible(on: surfaceView) else {
+                queueOutputConsumerRecoveryAlert(surfaceView: surfaceView)
+                return
+            }
+        }
+
+        private func queueOutputConsumerRecoveryAlert(surfaceView: GhosttySurfaceView) {
+            guard outputConsumerRecoveryAlertPending,
+                  outputConsumerRecoveryPresentationTask == nil else { return }
+            let clock = outputConsumerRecoveryClock
+            outputConsumerRecoveryPresentationTask = Task { @MainActor [weak self, weak surfaceView] in
+                defer {
+                    self?.outputConsumerRecoveryPresentationTask = nil
+                }
+                for _ in 0..<Self.maximumOutputConsumerRecoveryPresentationAttempts {
+                    guard !Task.isCancelled else {
+                        return
+                    }
+                    let presentationComplete: Bool
+                    if let surfaceView {
+                        // Resolve the weak coordinator only for this
+                        // synchronous presenter attempt. The local surface
+                        // reference leaves scope before the clock sleep.
+                        presentationComplete = self?.presentOutputConsumerRecoveryAlertIfPossible(
+                            on: surfaceView
+                        ) ?? true
+                    } else {
+                        return
+                    }
+                    if presentationComplete {
+                        return
+                    }
+                    do {
+                        try await clock.sleep(
+                            for: Self.outputConsumerRecoveryPresentationRetryInterval,
+                            tolerance: nil
+                        )
+                    } catch {
+                        return
+                    }
+                }
+                guard !Task.isCancelled,
+                      let self,
+                      let surfaceView,
+                      self.surfaceView === surfaceView,
+                      self.terminalPresentationIsActive,
+                      surfaceView.window != nil,
+                      self.outputConsumerRestartBlocked else { return }
+                MobileDebugLog.anchormux(
+                    "terminal.output.recovery_alert_deferred surface=\(self.surfaceID)"
+                )
+            }
+        }
+
+        /// Returns `true` when presentation is complete or no longer applies.
+        /// `false` means UIKit is still transitioning and the bounded queue may
+        /// try again after its next clock interval.
+        private func presentOutputConsumerRecoveryAlertIfPossible(
+            on surfaceView: GhosttySurfaceView
+        ) -> Bool {
+            guard self.surfaceView === surfaceView,
+                  terminalPresentationIsActive,
+                  surfaceView.window != nil,
+                  outputConsumerRestartBlocked,
+                  outputConsumerRecoveryAlertPending,
+                  outputConsumerRecoveryAlert == nil else { return true }
+            // Keep a local retry action visible for the whole pending period.
+            // UIKit presentation is best-effort and can be rejected while a
+            // sheet or another alert owns the presenter; the fallback prevents
+            // that transition from stranding a blocked terminal.
+            showOutputConsumerRecoveryOverlay(on: surfaceView)
+            guard let presenter = presentingController(for: surfaceView),
+                  !(presenter is UIAlertController),
+                  presenter.viewIfLoaded?.window != nil else {
+                return false
+            }
+            presentOutputConsumerRecoveryAlert(
+                on: surfaceView,
+                from: presenter
+            )
+            return true
+        }
+
+        /// Gives a deferred recovery alert another chance when SwiftUI/UIKit
+        /// completes a presentation or window transition. This is deliberately
+        /// a synchronous probe: the bounded queue owns transition retries, and
+        /// this hook owns later lifecycle retries without a permanent task.
+        func attemptPendingOutputConsumerRecoveryPresentation() {
+            guard outputConsumerRecoveryAlertPending,
+                  let surfaceView else { return }
+            _ = presentOutputConsumerRecoveryAlertIfPossible(on: surfaceView)
+        }
+
+        private func showOutputConsumerRecoveryOverlay(on surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView else { return }
+            if let overlay = outputConsumerRecoveryOverlay {
+                if overlay.superview !== surfaceView {
+                    overlay.removeFromSuperview()
+                    outputConsumerRecoveryOverlay = nil
+                } else {
+                    return
+                }
+            }
+
+            let overlay = UIView()
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            overlay.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.96)
+            overlay.layer.cornerRadius = 14
+            overlay.layer.borderColor = UIColor.separator.cgColor
+            overlay.layer.borderWidth = 1
+            overlay.layer.zPosition = 1_000
+            overlay.accessibilityIdentifier = "MobileTerminalOutputRecoveryOverlay"
+
+            let titleLabel = UILabel()
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            titleLabel.text = L10n.string(
+                "mobile.terminal.outputRecovery.title",
+                defaultValue: "Terminal paused"
+            )
+            titleLabel.font = .preferredFont(forTextStyle: .headline)
+            titleLabel.textColor = .label
+            titleLabel.numberOfLines = 0
+
+            let messageLabel = UILabel()
+            messageLabel.translatesAutoresizingMaskIntoConstraints = false
+            messageLabel.text = L10n.string(
+                "mobile.terminal.outputRecovery.message",
+                defaultValue: "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+            )
+            messageLabel.font = .preferredFont(forTextStyle: .subheadline)
+            messageLabel.textColor = .secondaryLabel
+            messageLabel.numberOfLines = 0
+
+            let retryButton = UIButton(type: .system)
+            retryButton.translatesAutoresizingMaskIntoConstraints = false
+            retryButton.setTitle(
+                L10n.string(
+                    "mobile.terminal.outputRecovery.retry",
+                    defaultValue: "Retry"
+                ),
+                for: .normal
+            )
+            retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+            retryButton.accessibilityIdentifier = "MobileTerminalOutputRecoveryOverlayRetry"
+            retryButton.addAction(UIAction { [weak self, weak surfaceView] _ in
+                guard let self, let surfaceView else { return }
+                self.retryMountedOutputConsumer(surfaceView: surfaceView)
+            }, for: .touchUpInside)
+
+            let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel, retryButton])
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            stack.axis = .vertical
+            stack.spacing = 10
+            stack.alignment = .fill
+
+            surfaceView.addSubview(overlay)
+            overlay.addSubview(stack)
+            NSLayoutConstraint.activate([
+                overlay.centerXAnchor.constraint(equalTo: surfaceView.centerXAnchor),
+                overlay.centerYAnchor.constraint(equalTo: surfaceView.centerYAnchor),
+                overlay.leadingAnchor.constraint(greaterThanOrEqualTo: surfaceView.leadingAnchor, constant: 24),
+                overlay.trailingAnchor.constraint(lessThanOrEqualTo: surfaceView.trailingAnchor, constant: -24),
+                overlay.topAnchor.constraint(greaterThanOrEqualTo: surfaceView.topAnchor, constant: 24),
+                overlay.bottomAnchor.constraint(lessThanOrEqualTo: surfaceView.bottomAnchor, constant: -24),
+                overlay.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+                stack.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 18),
+                stack.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -18),
+                stack.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 16),
+                stack.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -16),
+                retryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            ])
+            outputConsumerRecoveryOverlay = overlay
+        }
+
+        // This teardown helper is shared with the coordinator lifecycle in
+        // GhosttySurfaceRepresentable.swift, so it must remain visible across
+        // the two extension files.
+        func removeOutputConsumerRecoveryOverlay() {
+            outputConsumerRecoveryOverlay?.removeFromSuperview()
+            outputConsumerRecoveryOverlay = nil
+        }
+
+        private func presentOutputConsumerRecoveryAlert(
+            on surfaceView: GhosttySurfaceView,
+            from presenter: UIViewController
+        ) {
+            guard outputConsumerRecoveryAlert == nil else { return }
+
+            let alert = UIAlertController(
+                title: L10n.string(
+                    "mobile.terminal.outputRecovery.title",
+                    defaultValue: "Terminal paused"
+                ),
+                message: L10n.string(
+                    "mobile.terminal.outputRecovery.message",
+                    defaultValue: "Terminal output stopped unexpectedly. Retry to reconnect this terminal."
+                ),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(
+                title: L10n.string(
+                    "mobile.terminal.outputRecovery.retry",
+                    defaultValue: "Retry"
+                ),
+                style: .default,
+                handler: { [weak self, weak surfaceView] _ in
+                    guard let self, let surfaceView else { return }
+                    self.retryMountedOutputConsumer(surfaceView: surfaceView)
+                }
+            ))
+            alert.addAction(UIAlertAction(
+                title: L10n.string(
+                    "mobile.terminal.outputRecovery.dismiss",
+                    defaultValue: "Dismiss"
+                ),
+                style: .cancel,
+                // Dismissing the only recovery affordance must not strand a
+                // mounted terminal behind the permanent restart latch. Treat
+                // the cancel action as an explicit retry boundary as well.
+                handler: { [weak self, weak surfaceView] _ in
+                    guard let self, let surfaceView else { return }
+                    self.retryMountedOutputConsumer(surfaceView: surfaceView)
+                }
+            ))
+            alert.view.accessibilityIdentifier = "MobileTerminalOutputRecoveryAlert"
+            outputConsumerRecoveryAlert = alert
+            presenter.present(alert, animated: true) { [weak self, weak surfaceView, weak alert] in
+                guard let self, let surfaceView, let alert,
+                      self.surfaceView === surfaceView,
+                      self.outputConsumerRecoveryAlert === alert else { return }
+                if alert.presentingViewController != nil {
+                    self.outputConsumerRecoveryAlertPending = false
+                    self.removeOutputConsumerRecoveryOverlay()
+                } else {
+                    // UIKit rejected the presentation after the preflight. Keep
+                    // the pending state and the in-surface Retry action alive.
+                    self.outputConsumerRecoveryAlert = nil
+                    self.outputConsumerRecoveryAlertPending = true
+                    self.showOutputConsumerRecoveryOverlay(on: surfaceView)
+                }
             }
         }
 

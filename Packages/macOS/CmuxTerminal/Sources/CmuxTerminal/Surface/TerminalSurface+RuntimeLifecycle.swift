@@ -37,7 +37,25 @@ extension TerminalSurface {
 
     @MainActor
     private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
-        guard headlessStartupWindow == nil else { return }
+        if let existingWindow = headlessStartupWindow {
+            guard paneHost.window !== existingWindow else { return }
+            if paneHost.window != nil {
+                // The pane host reached a real window while a bootstrap
+                // window was still recorded; the bootstrap is stale.
+                headlessStartupWindow = nil
+                existingWindow.contentView = nil
+                existingWindow.close()
+                return
+            }
+            // Window-portal churn can reparent the pane host out of the
+            // bootstrap window and park it with no window at all
+            // (detachHostedView ends in removeFromSuperview). Reclaim custody
+            // instead of early-returning: otherwise every later cold start
+            // defers on the missing window and the surface never spawns a
+            // PTY (#9769).
+            adoptPaneHostIntoHeadlessStartupWindow(existingWindow, reason: reason)
+            return
+        }
         guard paneHost.window == nil else { return }
         let width = max(surfaceView.bounds.width, CGFloat(800))
         let height = max(surfaceView.bounds.height, CGFloat(600))
@@ -54,18 +72,30 @@ extension TerminalSurface {
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
         window.isExcludedFromWindowsMenu = true
-        let contentView = NSView(frame: frame)
+        window.contentView = NSView(frame: frame)
+        headlessStartupWindow = window
+        adoptPaneHostIntoHeadlessStartupWindow(window, reason: reason)
+
+#if DEBUG
+        logDebugEvent(
+            "surface.headless_window.create surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) window=\(ObjectIdentifier(window))"
+        )
+#endif
+    }
+
+    @MainActor
+    private func adoptPaneHostIntoHeadlessStartupWindow(_ window: NSWindow, reason: String) {
+        guard let contentView = window.contentView else { return }
         paneHost.frame = contentView.bounds
         paneHost.autoresizingMask = [.width, .height]
         contentView.addSubview(paneHost)
-        window.contentView = contentView
-        headlessStartupWindow = window
         paneHost.setVisibleInUI(false)
         paneHost.setActive(false)
 
 #if DEBUG
         logDebugEvent(
-            "surface.headless_window.create surface=\(id.uuidString.prefix(8)) " +
+            "surface.headless_window.adopt surface=\(id.uuidString.prefix(8)) " +
             "reason=\(reason) window=\(ObjectIdentifier(window))"
         )
 #endif
@@ -131,13 +161,34 @@ extension TerminalSurface {
         guard registeredOwnerId == id,
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
+            invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
+            let manualIOContext = self.manualIOContext
+            self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
+            let retiredRemoteOutputLane = retireRemoteOutputLane()
+            let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease
+            )
+            staleRuntimeResourceReleaseTicket = runtimeTeardown.enqueueRuntimeTeardownFence(
+                id: UUID(),
+                workspaceId: tabId,
+                reason: "stale",
+                fence: {
+                    await retiredRemoteOutputLane.drain()
+                },
+                onCompletion: {
+                    staleRuntimeResources.release()
+                }
+            )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
+            byteTee.dropSurface(surfaceID: id)
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -148,8 +199,6 @@ extension TerminalSurface {
                 "registryOwner=\(registeredOwnerToken)"
             )
 #endif
-            callbackContext?.release()
-            teeLease?.release()
             return nil
         }
         return surface
@@ -174,7 +223,18 @@ extension TerminalSurface {
     }
 
     func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        portalLifecycleState == .live &&
+            !runtimeSurfaceSuspendedForAgentHibernation &&
+            startupRestoreAdmissionPhase != .awaitingAdmission
+    }
+
+    /// Whether the surface lifecycle currently permits creating a runtime
+    /// surface (portal live, admitted, and not suspended for agent hibernation).
+    ///
+    /// Background priming uses this to skip surfaces whose spawn can never
+    /// complete instead of retaining a hidden mount slot for them forever.
+    public var canCreateRuntimeSurface: Bool {
+        allowsRuntimeSurfaceCreation()
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -227,30 +287,31 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
-    /// before deinit; deinit will skip the free if already torn down.
+    /// Explicitly retire this model and free its Ghostty runtime surface.
+    /// Idempotent — safe to call before deinit; deinit will skip the work if
+    /// already torn down.
     @MainActor
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
-
         let callbackContext = surfaceCallbackContext
+        let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
-
-        let surfaceToFree = surface
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
-
         guard let surfaceToFree else {
             callbackContext?.release()
             manualIOContext?.release()
@@ -267,7 +328,6 @@ extension TerminalSurface {
             return
         }
 #endif
-
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             // Transport manualIOContext and teeLease through the request too:
@@ -281,20 +341,27 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
+                },
                 freeSurface: freeSurface
             )
             return
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-        }
+        runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease,
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
+            }
+        )
     }
 
     /// Frees the runtime surface while keeping the model alive for an
@@ -313,12 +380,22 @@ extension TerminalSurface {
         agentHibernationRuntimeTeardownReservation = nil
         _ = fontSizeLineageSnapshot()
         mobileViewportFontFitState = nil
+        if !runtimeSurfaceSuspendedForAgentHibernation {
+            // End the child-process generation at the successful suspension
+            // boundary. The registry advances first, synchronously rejecting
+            // delayed reports before this main-actor model exports the token
+            // to the replacement runtime.
+            advanceTerminalLifecycleForRuntimeReplacement()
+        }
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
+        let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
@@ -326,7 +403,6 @@ extension TerminalSurface {
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
 
-        let surfaceToFree = surface
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
@@ -369,6 +445,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
+                },
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
@@ -385,6 +464,9 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
+            },
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation
         )
@@ -439,6 +521,19 @@ extension TerminalSurface {
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
         return true
+    }
+
+    /// Sets the transport-only command used when a deferred restore is cancelled.
+    ///
+    /// Persistent SSH restores keep their PTY attached after cancellation, but
+    /// must omit the embedded agent-resume payload. The value is captured when
+    /// admission is cancelled and remains in force for later runtime retries.
+    ///
+    /// - Parameter command: The transport-only command to run after cancellation.
+    @MainActor
+    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
+        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
+        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
     }
 
     /// Primes the initial input for the next runtime spawn only.
@@ -620,13 +715,13 @@ extension TerminalSurface {
         ) {
             return
         }
-        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
-        guard claudeShimState.isReady else { return }
+        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        guard agentShimState.isReady else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        let claudeShim = claudeShimState.shim
+        let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -654,12 +749,13 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            claudeShim: claudeShim
+            agentCommandShims: agentCommandShims
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
+            invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
             manualIOContext?.release()
@@ -689,6 +785,11 @@ extension TerminalSurface {
                 "A native terminal surface requires callback userdata"
             )
         }
+        _ = surfaceCallbackContext.takeUnretainedValue()
+            .bindRuntimeClipboardSurface(
+                createdSurface,
+                generation: runtimeSurfaceGeneration
+            )
         installFontSizeActionObservation(
             on: createdSurface,
             callbackContext: surfaceCallbackContext
@@ -710,7 +811,6 @@ extension TerminalSurface {
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
-
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
         additionalEnvironment.removeValue(forKey: scrollbackReplayEnvironmentKey)
