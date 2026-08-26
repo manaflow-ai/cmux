@@ -9,6 +9,7 @@ import { relayAllowSignature } from "../services/relay/allow";
 import {
   RELAY_REPORT_MAX_CONCURRENT,
   RELAY_REPORT_MAX_FUTURE_SKEW_MS,
+  RELAY_REPORT_MAX_PAST_SKEW_MS,
   RELAY_REPORT_SIGNATURE_HEADER,
   RelayReportSaturatedError,
   parseRelayAttachReport,
@@ -207,6 +208,17 @@ describe("POST /api/relay/report", () => {
     const response = await handleRelayReportRequest(
       signedRequest(reportBody({
         ts: NOW.getTime() + RELAY_REPORT_MAX_FUTURE_SKEW_MS + 1,
+      })),
+      deps(),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_report_time" });
+  });
+
+  test("rejects a replayed old event timestamp", async () => {
+    const response = await handleRelayReportRequest(
+      signedRequest(reportBody({
+        ts: NOW.getTime() - RELAY_REPORT_MAX_PAST_SKEW_MS - 1,
       })),
       deps(),
     );

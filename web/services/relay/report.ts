@@ -70,6 +70,16 @@ export const RELAY_REPORT_SETTLE_MS = 4_000;
  */
 export const RELAY_REPORT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
 
+/**
+ * Reject event timestamps this far behind server time. The Reporter sends
+ * each event once, immediately, with a 3s HTTP timeout and no retry, so a
+ * legitimate report is at most seconds old; the allowance is for relay clock
+ * drift. Without the bound, a captured signed attach (HMAC has no nonce)
+ * could be replayed much later into an empty attachment slot and would then
+ * be re-served as current reachability until the liveness window expired.
+ */
+export const RELAY_REPORT_MAX_PAST_SKEW_MS = 15 * 60 * 1_000;
+
 const ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;
 // RFC 1123 hostname labels, lowercase; total length bounded below.
 const RELAY_HOSTNAME_RE =
@@ -160,7 +170,8 @@ export function parseRelayAttachReport(
     typeof ts !== "number" ||
     !Number.isSafeInteger(ts) ||
     ts <= 0 ||
-    ts > now.getTime() + RELAY_REPORT_MAX_FUTURE_SKEW_MS
+    ts > now.getTime() + RELAY_REPORT_MAX_FUTURE_SKEW_MS ||
+    ts < now.getTime() - RELAY_REPORT_MAX_PAST_SKEW_MS
   ) {
     return { ok: false, error: "invalid_report_time" };
   }
