@@ -1348,6 +1348,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE10651000000000000002 /* LocalTmuxCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */; };
 		C0DE10651000000000000004 /* LocalTmuxInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000014 /* LocalTmuxInvocation.swift */; };
 		C0DE10651000000000000003 /* LocalTmuxProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000013 /* LocalTmuxProcessRunner.swift */; };
+		C0DE10651000000000000008 /* LocalTmuxSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000018 /* LocalTmuxSessionIdentity.swift */; };
+		C0DE10651000000000000009 /* LocalTmuxSessionIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000019 /* LocalTmuxSessionIdentityResolver.swift */; };
+		C0DE1065100000000000000A /* LocalTmuxSessionListParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1065100000000000001A /* LocalTmuxSessionListParser.swift */; };
 		C0DE10651000000000000001 /* LocalTmuxSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
 		7690848956F4C55873F767F6 /* MachinesPanelModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */; };
@@ -4197,6 +4200,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxCommandBuilder.swift; sourceTree = "<group>"; };
 		C0DE10651000000000000014 /* LocalTmuxInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxInvocation.swift; sourceTree = "<group>"; };
 		C0DE10651000000000000013 /* LocalTmuxProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxProcessRunner.swift; sourceTree = "<group>"; };
+		C0DE10651000000000000018 /* LocalTmuxSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionIdentity.swift; sourceTree = "<group>"; };
+		C0DE10651000000000000019 /* LocalTmuxSessionIdentityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionIdentityResolver.swift; sourceTree = "<group>"; };
+		C0DE1065100000000000001A /* LocalTmuxSessionListParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionListParser.swift; sourceTree = "<group>"; };
 		C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionRegistry.swift; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
 		78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelModelTests.swift; sourceTree = "<group>"; };
@@ -7860,6 +7866,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */,
 				C0DE10651000000000000013 /* LocalTmuxProcessRunner.swift */,
 				C0DE10651000000000000014 /* LocalTmuxInvocation.swift */,
+				C0DE10651000000000000018 /* LocalTmuxSessionIdentity.swift */,
+				C0DE10651000000000000019 /* LocalTmuxSessionIdentityResolver.swift */,
+				C0DE1065100000000000001A /* LocalTmuxSessionListParser.swift */,
 				C0DE10651000000000000015 /* CMUXCLI+LocalTmux.swift */,
 				C0DE10651000000000000016 /* CMUXCLI+LocalTmuxLifecycle.swift */,
 				C0DE10651000000000000017 /* CMUXCLI+LocalTmuxAttachment.swift */,
@@ -11139,6 +11148,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE10651000000000000002 /* LocalTmuxCommandBuilder.swift in Sources */,
 				C0DE10651000000000000004 /* LocalTmuxInvocation.swift in Sources */,
 				C0DE10651000000000000003 /* LocalTmuxProcessRunner.swift in Sources */,
+				C0DE10651000000000000008 /* LocalTmuxSessionIdentity.swift in Sources */,
+				C0DE10651000000000000009 /* LocalTmuxSessionIdentityResolver.swift in Sources */,
+				C0DE1065100000000000000A /* LocalTmuxSessionListParser.swift in Sources */,
 				C0DE10651000000000000001 /* LocalTmuxSessionRegistry.swift in Sources */,
 						C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */,
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,

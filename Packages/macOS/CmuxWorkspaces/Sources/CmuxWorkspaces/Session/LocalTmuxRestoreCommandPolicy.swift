@@ -19,14 +19,14 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
               words[1] == "CMUX_LOCAL_TMUX=1",
               words[2] == "exec",
               words[3].hasPrefix("/"),
-              (words[3] as NSString).lastPathComponent == "tmux",
+              URL(fileURLWithPath: words[3]).standardizedFileURL.path == words[3],
               words[4] == "-S",
               words[5].hasPrefix("/"),
-              words[5].hasSuffix("/local-tmux/server.sock"),
+              (words[5] as NSString).lastPathComponent == "server.sock",
               URL(fileURLWithPath: words[5]).standardizedFileURL.path == words[5],
               words[6] == "attach-session",
               words[7] == "-t",
-              words[8].range(of: "^=[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else {
+              words[8].range(of: "^\\$[0-9]+$", options: .regularExpression) != nil else {
             return nil
         }
         // The command is later evaluated by a login shell. Accept only the

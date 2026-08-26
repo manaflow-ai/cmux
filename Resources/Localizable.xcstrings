@@ -39623,6 +39623,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "指定された ID の local-tmux セッションが見つかりません: %@" } }
       }
     },
+    "cli.localTmux.error.sessionIdentityChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session identity changed; refusing to operate on replacement session: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションの識別子が変更されたため、置き換えられたセッションへの操作を拒否しました: %@" } }
+      }
+    },
+    "cli.localTmux.error.sessionIdentityUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not verify the tmux session identity: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で tmux セッションの識別子を確認できませんでした: %@" } }
+      }
+    },
     "cli.localTmux.error.sessionNotFound": {
       "extractionState": "manual",
       "localizations": {

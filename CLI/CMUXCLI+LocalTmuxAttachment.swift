@@ -2,28 +2,21 @@ import Foundation
 
 extension CMUXCLI {
     func attachLocalTmuxSession(
-        record originalRecord: LocalTmuxSessionRecord,
+        session: LocalTmuxSessionIdentityResolver.LiveSession,
         invocation: LocalTmuxInvocation,
         registry: LocalTmuxSessionRegistry,
         builder: LocalTmuxCommandBuilder,
-        runner: LocalTmuxProcessRunner,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let live = try runner.run(arguments: builder.hasSessionArguments(originalRecord.name))
-        guard live.succeeded else {
-            throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.sessionNotRunning", defaultValue: "local-tmux session is no longer running: %@"),
-                originalRecord.name
-            ))
-        }
+        let originalRecord = session.record
         let workspace = try resolveLocalTmuxWorkspace(
             invocation: invocation,
             record: originalRecord,
             client: client
         )
-        let attachCommand = builder.attachCommand(sessionName: originalRecord.name)
+        let attachCommand = builder.attachCommand(sessionID: session.identity)
         guard workspace.id != nil || (originalRecord.workspaceID == nil && originalRecord.workspaceTitle == nil) else {
             throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
         }
@@ -162,7 +155,7 @@ extension CMUXCLI {
             ?? originalRecord.workspaceTitle
             ?? "tmux:\(originalRecord.name)"
         updated.surfaceID = surfaceID ?? originalRecord.surfaceID
-        updated.updatedAt = Date().timeIntervalSince1970
+        updated.updatedAt = Date.now.timeIntervalSince1970
         try registry.upsert(updated)
 
         payload["session_id"] = updated.id.uuidString

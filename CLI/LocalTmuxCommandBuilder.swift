@@ -25,16 +25,28 @@ struct LocalTmuxCommandBuilder {
         self.socketPath = socketPath
     }
 
-    func attachCommand(sessionName: String) -> String {
-        "TMUX= \(Self.restoreMarker) exec \(shellQuote(tmuxPath)) -S \(shellQuote(socketPath)) attach-session -t \(shellQuote(exactTarget(sessionName)))"
+    func attachCommand(sessionID: LocalTmuxSessionIdentity) -> String {
+        "TMUX= \(Self.restoreMarker) exec \(shellQuote(tmuxPath)) -S \(shellQuote(socketPath)) attach-session -t \(shellQuote(sessionID.rawValue))"
     }
 
     func hasSessionArguments(_ sessionName: String) -> [String] {
         ["-S", socketPath, "has-session", "-t", exactTarget(sessionName)]
     }
 
-    func sessionPathArguments(_ sessionName: String) -> [String] {
-        ["-S", socketPath, "display-message", "-p", "-t", exactTarget(sessionName), "#{session_path}"]
+    func hasSessionArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
+        ["-S", socketPath, "has-session", "-t", sessionID.rawValue]
+    }
+
+    func sessionPathArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
+        ["-S", socketPath, "display-message", "-p", "-t", sessionID.rawValue, "#{session_path}"]
+    }
+
+    func sessionIdentityArguments(sessionName: String) -> [String] {
+        ["-S", socketPath, "display-message", "-p", "-t", exactTarget(sessionName), "#{session_id}"]
+    }
+
+    func sessionIdentityArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
+        ["-S", socketPath, "display-message", "-p", "-t", sessionID.rawValue, "#{session_id}"]
     }
 
     func listSessionsArguments() -> [String] {
@@ -43,6 +55,10 @@ struct LocalTmuxCommandBuilder {
 
     func listClientsArguments() -> [String] {
         ["-S", socketPath, "list-clients", "-F", "#{client_id}\t#{session_name}\t#{client_pid}\t#{client_tty}"]
+    }
+
+    func listClientsArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
+        ["-S", socketPath, "list-clients", "-t", sessionID.rawValue, "-F", "#{client_id}\t#{session_name}\t#{client_pid}\t#{client_tty}"]
     }
 
     func newSessionArguments(
@@ -57,27 +73,26 @@ struct LocalTmuxCommandBuilder {
         return arguments
     }
 
-    func attachArguments(sessionName: String) -> [String] {
-        ["-S", socketPath, "attach-session", "-t", exactTarget(sessionName)]
+    func attachArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
+        ["-S", socketPath, "attach-session", "-t", sessionID.rawValue]
     }
 
-    func historyLimitArguments(sessionName: String, lines: Int = 10_000) -> [String] {
-        ["-S", socketPath, "set-window-option", "-t", exactTarget(sessionName), "history-limit", String(lines)]
+    func historyLimitArguments(sessionID: LocalTmuxSessionIdentity, lines: Int = 10_000) -> [String] {
+        ["-S", socketPath, "set-window-option", "-t", sessionID.rawValue, "history-limit", String(lines)]
     }
 
-    func detachArguments(sessionName: String, clientID: String? = nil, all: Bool = false) -> [String] {
+    func detachArguments(sessionID: LocalTmuxSessionIdentity, clientID: String? = nil) -> [String] {
         var arguments = ["-S", socketPath, "detach-client"]
         if let clientID {
             arguments.append(contentsOf: ["-t", clientID])
         } else {
-            if all { arguments.append("-a") }
-            arguments.append(contentsOf: ["-s", exactTarget(sessionName)])
+            arguments.append(contentsOf: ["-s", sessionID.rawValue])
         }
         return arguments
     }
 
-    func killSessionArguments(_ sessionName: String) -> [String] {
-        ["-S", socketPath, "kill-session", "-t", exactTarget(sessionName)]
+    func killSessionArguments(sessionID: LocalTmuxSessionIdentity) -> [String] {
+        ["-S", socketPath, "kill-session", "-t", sessionID.rawValue]
     }
 
     /// Prefixes a session target with `=` so tmux requires an exact match

@@ -5,6 +5,7 @@ import Foundation
 struct LocalTmuxSessionRecord: Codable, Equatable, Sendable {
     var id: UUID
     var name: String
+    var tmuxSessionID: String?
     var socketPath: String
     var cwd: String
     var workspaceID: String?
@@ -16,16 +17,18 @@ struct LocalTmuxSessionRecord: Codable, Equatable, Sendable {
     init(
         id: UUID = UUID(),
         name: String,
+        tmuxSessionID: String? = nil,
         socketPath: String,
         cwd: String,
         workspaceID: String? = nil,
         workspaceTitle: String? = nil,
         surfaceID: String? = nil,
-        createdAt: TimeInterval = Date().timeIntervalSince1970,
-        updatedAt: TimeInterval = Date().timeIntervalSince1970
+        createdAt: TimeInterval = Date.now.timeIntervalSince1970,
+        updatedAt: TimeInterval = Date.now.timeIntervalSince1970
     ) {
         self.id = id
         self.name = name
+        self.tmuxSessionID = tmuxSessionID
         self.socketPath = socketPath
         self.cwd = cwd
         self.workspaceID = workspaceID
@@ -225,7 +228,15 @@ struct LocalTmuxSessionRegistry {
         do {
             let data = try Data(contentsOf: sessionsURL)
             let state = try JSONDecoder().decode(LocalTmuxRegistryFile.self, from: data)
-            guard state.version == 1 else {
+            let uniqueIDs = Set(state.sessions.map(\.id))
+            let uniqueNames = Set(state.sessions.map(\.name))
+            let storedTmuxIDs = state.sessions.compactMap(\.tmuxSessionID)
+            let uniqueTmuxIDs = Set(storedTmuxIDs)
+            guard state.version == 1,
+                  uniqueIDs.count == state.sessions.count,
+                  uniqueNames.count == state.sessions.count,
+                  uniqueTmuxIDs.count == storedTmuxIDs.count,
+                  storedTmuxIDs.allSatisfy({ LocalTmuxSessionIdentity($0) != nil }) else {
                 throw LocalTmuxRegistryError.invalidState(sessionsURL.path)
             }
             return state

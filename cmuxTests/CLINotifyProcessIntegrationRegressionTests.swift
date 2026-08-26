@@ -117,6 +117,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
+          start:*display-message*'#{session_id}'*) printf '%s\n' '$201'; exit 0 ;;
           start:*has-session*) exit 1 ;;
           start:*) exit 0 ;;
           fail:*) echo "tmux unavailable" >&2; exit 1 ;;
@@ -186,6 +187,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
+          start:*display-message*'pipe-'*'#{session_id}'*) printf '%s\n' '$302'; exit 0 ;;
+          start:*display-message*'#{session_id}'*) printf '%s\n' '$301'; exit 0 ;;
           start:*has-session*) exit 1 ;;
           start:*) exit 0 ;;
           stopped:*list-sessions*) echo "no server running on $2" >&2; exit 1 ;;

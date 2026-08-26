@@ -36,7 +36,7 @@ extension CMUXCLI {
         case .list, .status, .cleanup, .close, .detach:
             return
         case .start:
-            let record = try startLocalTmuxSession(
+            let session = try startLocalTmuxSession(
                 invocation: invocation,
                 registry: registry,
                 builder: builder,
@@ -44,39 +44,37 @@ extension CMUXCLI {
             )
             if invocation.detached || invocation.headless {
                 if invocation.headless, !invocation.detached {
-                    try runLocalTmuxInteractiveAttach(record: record, builder: builder)
+                    try runLocalTmuxInteractiveAttach(session: session, builder: builder)
                 } else {
-                    printLocalTmuxRecord(record, jsonOutput: jsonOutput, idFormat: idFormat, state: "detached")
+                    printLocalTmuxRecord(session.record, jsonOutput: jsonOutput, idFormat: idFormat, state: "detached")
                 }
                 return
             }
             try attachLocalTmuxSession(
-                record: record,
+                session: session,
                 invocation: invocation,
                 registry: registry,
                 builder: builder,
-                runner: runner,
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
             )
         case .attach:
-            let record = try requireOrDiscoverLocalTmuxRecord(
+            let session = try requireOrDiscoverLocalTmuxSession(
                 invocation,
                 registry: registry,
                 builder: builder,
                 runner: runner
             )
             if invocation.headless {
-                try runLocalTmuxInteractiveAttach(record: record, builder: builder)
+                try runLocalTmuxInteractiveAttach(session: session, builder: builder)
                 return
             }
             try attachLocalTmuxSession(
-                record: record,
+                session: session,
                 invocation: invocation,
                 registry: registry,
                 builder: builder,
-                runner: runner,
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
@@ -114,15 +112,15 @@ extension CMUXCLI {
         case .list, .status, .cleanup, .close, .detach:
             return
         case .start:
-            let record = try startLocalTmuxSession(invocation: invocation, registry: registry, builder: builder, runner: runner)
+            let session = try startLocalTmuxSession(invocation: invocation, registry: registry, builder: builder, runner: runner)
             if invocation.headless, !invocation.detached {
-                try runLocalTmuxInteractiveAttach(record: record, builder: builder)
+                try runLocalTmuxInteractiveAttach(session: session, builder: builder)
             } else {
-                printLocalTmuxRecord(record, jsonOutput: jsonOutput, idFormat: idFormat, state: "detached")
+                printLocalTmuxRecord(session.record, jsonOutput: jsonOutput, idFormat: idFormat, state: "detached")
             }
         case .attach:
-            let record = try requireOrDiscoverLocalTmuxRecord(invocation, registry: registry, builder: builder, runner: runner)
-            try runLocalTmuxInteractiveAttach(record: record, builder: builder)
+            let session = try requireOrDiscoverLocalTmuxSession(invocation, registry: registry, builder: builder, runner: runner)
+            try runLocalTmuxInteractiveAttach(session: session, builder: builder)
         }
     }
 
@@ -142,7 +140,7 @@ extension CMUXCLI {
             try listLocalTmuxSessions(registry: registry, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
         case .status:
             let record = try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
-            try statusLocalTmuxSession(record: record, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
+            try statusLocalTmuxSession(record: record, registry: registry, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
         case .cleanup:
             try cleanupLocalTmuxSessions(registry: registry, builder: builder, runner: runner, prune: invocation.prune, jsonOutput: jsonOutput, idFormat: idFormat)
         case .close:
@@ -189,15 +187,21 @@ extension CMUXCLI {
         registry: LocalTmuxSessionRegistry,
         builder: LocalTmuxCommandBuilder,
         runner: LocalTmuxProcessRunner
-    ) throws -> LocalTmuxSessionRecord {
+    ) throws -> LocalTmuxSessionIdentityResolver.LiveSession {
         guard let rawName = invocation.name else {
             throw CLIError(message: String(localized: "cli.localTmux.error.startRequiresName", defaultValue: "local-tmux start requires a session name"))
         }
         let name = try LocalTmuxSessionNameValidator().validate(rawName)
         let requestedCwd = try invocation.cwd.map { try localTmuxWorkingDirectory($0) }
+        let identityResolver = LocalTmuxSessionIdentityResolver(
+            registry: registry,
+            builder: builder,
+            runner: runner
+        )
         let existing = try runner.run(arguments: builder.hasSessionArguments(name))
         if existing.succeeded {
-            let existingPath = localTmuxSessionPath(name: name, builder: builder, runner: runner)
+            let identity = try identityResolver.identity(named: name)
+            let existingPath = localTmuxSessionPath(identity: identity, builder: builder, runner: runner)
             if let requestedCwd,
                let existingPath,
                requestedCwd != existingPath {
@@ -208,18 +212,25 @@ extension CMUXCLI {
                 throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCommand", defaultValue: "local-tmux session already exists; use attach or close it before supplying a new command"))
             }
             if var record = try registry.load().first(where: { $0.name == name }) {
+                let liveSession = try identityResolver.bind(record, to: identity)
+                record = liveSession.record
                 if let sessionPath = existingPath {
                     record.cwd = sessionPath
                 }
                 record.socketPath = builder.socketPath
-                record.updatedAt = Date().timeIntervalSince1970
+                record.updatedAt = Date.now.timeIntervalSince1970
                 try registry.upsert(record)
-                return record
+                return .init(record: record, identity: identity)
             }
-            let sessionCwd = localTmuxSessionPath(name: name, builder: builder, runner: runner) ?? ""
-            let record = LocalTmuxSessionRecord(name: name, socketPath: builder.socketPath, cwd: sessionCwd)
+            let sessionCwd = existingPath ?? ""
+            let record = LocalTmuxSessionRecord(
+                name: name,
+                tmuxSessionID: identity.rawValue,
+                socketPath: builder.socketPath,
+                cwd: sessionCwd
+            )
             try registry.upsert(record)
-            return record
+            return .init(record: record, identity: identity)
         }
 
         let cwd = try requestedCwd ?? localTmuxWorkingDirectory(nil)
@@ -227,16 +238,22 @@ extension CMUXCLI {
             builder.newSessionArguments(sessionName: name, workingDirectory: cwd, command: invocation.command),
             context: "start"
         )
+        let identity = try identityResolver.identity(named: name)
         // tmux owns scrollback for this profile; keep a useful bounded history
         // rather than inheriting a small user/global default.
         _ = try? runner.requireSuccess(
-            builder.historyLimitArguments(sessionName: name),
+            builder.historyLimitArguments(sessionID: identity),
             context: "configure history"
         )
         try registry.validateServerSocketIfPresent()
-        let record = LocalTmuxSessionRecord(name: name, socketPath: builder.socketPath, cwd: cwd)
+        let record = LocalTmuxSessionRecord(
+            name: name,
+            tmuxSessionID: identity.rawValue,
+            socketPath: builder.socketPath,
+            cwd: cwd
+        )
         try registry.upsert(record)
-        return record
+        return .init(record: record, identity: identity)
     }
 
     private func localTmuxWorkingDirectory(_ raw: String?) throws -> String {
@@ -252,12 +269,13 @@ extension CMUXCLI {
     }
 
     private func localTmuxSessionPath(
-        name: String,
+        identity: LocalTmuxSessionIdentity,
         builder: LocalTmuxCommandBuilder,
         runner: LocalTmuxProcessRunner
     ) -> String? {
-        guard let result = try? runner.run(arguments: builder.sessionPathArguments(name)),
-              result.succeeded else { return nil }
+        guard let result = try? runner.run(arguments: builder.sessionPathArguments(sessionID: identity)),
+              result.succeeded,
+              !result.stdoutWasTruncated else { return nil }
         let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path).standardizedFileURL.path
@@ -274,7 +292,7 @@ extension CMUXCLI {
             if record.socketPath == builder.socketPath { return record }
             var refreshed = record
             refreshed.socketPath = builder.socketPath
-            refreshed.updatedAt = Date().timeIntervalSince1970
+            refreshed.updatedAt = Date.now.timeIntervalSince1970
             try registry.upsert(refreshed)
             return refreshed
         }
@@ -284,7 +302,7 @@ extension CMUXCLI {
             if record.socketPath == builder.socketPath { return record }
             var refreshed = record
             refreshed.socketPath = builder.socketPath
-            refreshed.updatedAt = Date().timeIntervalSince1970
+            refreshed.updatedAt = Date.now.timeIntervalSince1970
             try registry.upsert(refreshed)
             return refreshed
         }
@@ -297,8 +315,19 @@ extension CMUXCLI {
                     validatedName
                 ))
             }
-            let sessionCwd = localTmuxSessionPath(name: validatedName, builder: builder, runner: runner) ?? ""
-            let record = LocalTmuxSessionRecord(name: validatedName, socketPath: builder.socketPath, cwd: sessionCwd)
+            let identityResolver = LocalTmuxSessionIdentityResolver(
+                registry: registry,
+                builder: builder,
+                runner: runner
+            )
+            let identity = try identityResolver.identity(named: validatedName)
+            let sessionCwd = localTmuxSessionPath(identity: identity, builder: builder, runner: runner) ?? ""
+            let record = LocalTmuxSessionRecord(
+                name: validatedName,
+                tmuxSessionID: identity.rawValue,
+                socketPath: builder.socketPath,
+                cwd: sessionCwd
+            )
             try registry.upsert(record)
             return record
         }
@@ -308,13 +337,23 @@ extension CMUXCLI {
         ))
     }
 
-    private func requireOrDiscoverLocalTmuxRecord(
+    private func requireOrDiscoverLocalTmuxSession(
         _ invocation: LocalTmuxInvocation,
         registry: LocalTmuxSessionRegistry,
         builder: LocalTmuxCommandBuilder,
         runner: LocalTmuxProcessRunner
-    ) throws -> LocalTmuxSessionRecord {
-        try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
+    ) throws -> LocalTmuxSessionIdentityResolver.LiveSession {
+        let record = try requireLocalTmuxRecord(
+            invocation,
+            registry: registry,
+            runner: runner,
+            builder: builder
+        )
+        return try LocalTmuxSessionIdentityResolver(
+            registry: registry,
+            builder: builder,
+            runner: runner
+        ).requireLive(record)
     }
 
 }

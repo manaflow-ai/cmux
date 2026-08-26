@@ -13,6 +13,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$*" in
+          *display-message*'#{session_id}'*) printf '%s\n' '$101'; exit 0 ;;
           *has-session*) exit 1 ;;
           *) exit 0 ;;
         esac
@@ -62,6 +63,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
+          *display-message*'#{session_id}'*) printf '%s\n' '$102'; exit 0 ;;
           create:*has-session*) exit 1 ;;
           live:*has-session*) exit 0 ;;
           *) exit 0 ;;
@@ -195,8 +197,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$*" in
+          *display-message*'#{session_id}'*) printf '%s\n' '$103'; exit 0 ;;
           *has-session*) exit 0 ;;
-          *display-message*) printf '%s\n' "$EXISTING_TMUX_CWD"; exit 0 ;;
+          *display-message*'#{session_path}'*) printf '%s\n' "$EXISTING_TMUX_CWD"; exit 0 ;;
           *) exit 0 ;;
         esac
         """
@@ -259,6 +262,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$FAKE_TMUX_MODE:$*" in
+          *display-message*'#{session_id}'*) printf '%s\n' '$104'; exit 0 ;;
           create:*has-session*) exit 1 ;;
           live:*has-session*) exit 0 ;;
           *) exit 0 ;;
@@ -286,7 +290,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(start.status, 0, start.stderr)
 
         let state = MockSocketServerState()
-        let expectedCommand = "TMUX= CMUX_LOCAL_TMUX=1 exec '\(fakeTmuxURL.path)' -S '\(root.appendingPathComponent("server.sock").path)' attach-session -t '=\(sessionName)'"
+        let expectedCommand = "TMUX= CMUX_LOCAL_TMUX=1 exec '\(fakeTmuxURL.path)' -S '\(root.appendingPathComponent("server.sock").path)' attach-session -t '$104'"
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
