@@ -260,6 +260,50 @@ struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
     }
 
     @MainActor
+    @Test func claudeHistoryFindsSessionAfterLargeProjectTree() async throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-chat-claude-large-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: home) }
+        let projectsRoot = home.appendingPathComponent(".claude/projects", isDirectory: true)
+        try fileManager.createDirectory(at: projectsRoot, withIntermediateDirectories: true)
+        for index in 0..<4_100 {
+            try fileManager.createDirectory(
+                at: projectsRoot.appendingPathComponent("project-\(index)", isDirectory: true),
+                withIntermediateDirectories: false
+            )
+        }
+        let sessionID = UUID().uuidString.lowercased()
+        let transcript = projectsRoot
+            .appendingPathComponent("project-z", isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("messages", isDirectory: true)
+            .appendingPathComponent("\(sessionID).jsonl")
+        try fileManager.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcript, atomically: true, encoding: .utf8)
+
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            fallbackResolutionTimeout: .seconds(10)
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            cwd: "/Users/current-project"
+        ))
+
+        #expect(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50) != nil)
+        #expect(service.sessionRecord(sessionID: sessionID)?.transcriptPath == transcript.path)
+    }
+
+    @MainActor
     @Test func expiredDeadlineSkipsCodexFallbackEnumeration() throws {
         let fixture = try makeCodexFixture()
         defer { try? FileManager.default.removeItem(at: fixture.home) }

@@ -12,9 +12,6 @@ struct AgentChatTranscriptResolver: Sendable {
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     private let codexConfigRoot: URL
-    /// Bounds the exact-session Claude fallback scan when a resumed session's
-    /// current working directory no longer names its original project folder.
-    private static let maximumClaudeFallbackEntries = 4096
 
     /// Creates a resolver.
     ///
@@ -71,10 +68,12 @@ struct AgentChatTranscriptResolver: Sendable {
         switch record.agentKind {
         case .claude:
             return claudeFallbackPath(record: record)
-                ?? claudeTranscriptPathInAnyProject(
-                    sessionID: record.hookStoreLookupSessionID,
-                    deadline: deadline
-                )
+                ?? deadline.flatMap {
+                    claudeTranscriptPathInAnyProject(
+                        sessionID: record.hookStoreLookupSessionID,
+                        deadline: $0
+                    )
+                }
         case .codex:
             return codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
         case .other:
@@ -118,64 +117,45 @@ struct AgentChatTranscriptResolver: Sendable {
 
     /// Finds a Claude transcript by its exact session filename when the
     /// cwd-derived project directory is stale (the usual `claude --resume`
-    /// case). This runs only on the explicit history fallback path, never on
-    /// the main-actor session-list path.
+    /// case). The caller must provide a deadline; the lookup is intentionally
+    /// reserved for the explicit history fallback path and never the
+    /// main-actor session-list path.
     private func claudeTranscriptPathInAnyProject(
         sessionID: String,
-        deadline: ContinuousClock.Instant?
+        deadline: ContinuousClock.Instant
     ) -> String? {
-        guard Self.isSafeSessionFilename(sessionID), Self.scanCanContinue(deadline: deadline) else {
+        guard Self.isSafeSessionFilename(sessionID),
+              !Task.isCancelled,
+              ContinuousClock.now < deadline else {
             return nil
         }
         let fileManager = FileManager.default
         let projectsRoot = claudeConfigRoot.appendingPathComponent("projects", isDirectory: true)
-        guard let projectDirectories = try? fileManager.contentsOfDirectory(
+        guard let enumerator = fileManager.enumerator(
             at: projectsRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
             return nil
         }
 
         let targetFilename = "\(sessionID).jsonl"
-        var visitedEntries = 0
-        for projectDirectory in projectDirectories.sorted(by: { $0.path < $1.path }) {
-            guard Self.scanCanContinue(deadline: deadline) else { return nil }
-            visitedEntries += 1
-            guard visitedEntries <= Self.maximumClaudeFallbackEntries else { return nil }
-            guard (try? projectDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+        var bestPath: String?
+        while let candidate = enumerator.nextObject() as? URL {
+            guard !Task.isCancelled else { return nil }
+            if ContinuousClock.now >= deadline {
+                return nil
+            }
+            guard candidate.lastPathComponent == targetFilename,
+                  (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true,
+                  fileManager.fileExists(atPath: candidate.path) else {
                 continue
             }
-
-            let directCandidate = projectDirectory.appendingPathComponent(targetFilename)
-            if fileManager.fileExists(atPath: directCandidate.path) {
-                return directCandidate.path
-            }
-
-            // Claude workflow sessions can keep the JSONL under a sidecar
-            // directory (`<session-id>/messages/<session-id>.jsonl`). Search
-            // only within this project directory and stop at the same global
-            // entry bound so a malformed config tree cannot monopolize lookup.
-            guard let enumerator = fileManager.enumerator(
-                at: projectDirectory,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
-            ) else {
-                continue
-            }
-            for case let candidate as URL in enumerator {
-                guard Self.scanCanContinue(deadline: deadline) else { return nil }
-                visitedEntries += 1
-                guard visitedEntries <= Self.maximumClaudeFallbackEntries else { return nil }
-                guard candidate.lastPathComponent == targetFilename,
-                      (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true,
-                      fileManager.fileExists(atPath: candidate.path) else {
-                    continue
-                }
-                return candidate.path
+            if bestPath == nil || candidate.path < bestPath! {
+                bestPath = candidate.path
             }
         }
-        return nil
+        return bestPath
     }
 
     private static func isSafeSessionFilename(_ sessionID: String) -> Bool {
@@ -184,11 +164,6 @@ struct AgentChatTranscriptResolver: Sendable {
             && sessionID != ".."
             && !sessionID.contains("/")
             && !sessionID.contains("\\")
-    }
-
-    private static func scanCanContinue(deadline: ContinuousClock.Instant?) -> Bool {
-        guard !Task.isCancelled else { return false }
-        return deadline.map { ContinuousClock.now < $0 } ?? true
     }
 
     /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`
