@@ -337,6 +337,12 @@ struct FeedEventClassifier {
             "agentSpawn": .sessionStart,
             "stop": .response,
         ],
+        // Vibe has its own approval UI (tool permissions handled in the TUI),
+        // so feed events are telemetry only — no blocking approval wait.
+        "vibe": [
+            "pre_tool": .toolStart,
+            "post_tool": .toolEnd,
+        ],
     ]
 
     /// Shared event spellings for sources that have a verified blocking

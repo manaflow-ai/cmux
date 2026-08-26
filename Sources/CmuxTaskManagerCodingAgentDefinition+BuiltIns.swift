@@ -59,6 +59,16 @@ extension CmuxTaskManagerCodingAgentDefinition {
             argumentNeedles: ["kimi-cli", "kimi-code"]
         ),
         .init(
+            id: "vibe",
+            displayName: String(localized: "agent.vibe.displayName", defaultValue: "Mistral Vibe"),
+            assetName: nil,
+            launchKinds: ["vibe"],
+            // Vibe's Python entrypoint overwrites its OS process title/argv with
+            // "Vibe CLI". Identity comes from the executable basename or launch kind.
+            directBasenames: ["vibe", "Vibe CLI", "mistral-vibe"],
+            argumentNeedles: ["mistral-vibe", "vibe"]
+        ),
+        .init(
             id: "ollama",
             displayName: String(localized: "agent.ollama.displayName", defaultValue: "Ollama"),
             assetName: nil,
