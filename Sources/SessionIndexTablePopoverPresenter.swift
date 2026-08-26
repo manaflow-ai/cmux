@@ -26,7 +26,10 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     /// The recycled table cell that owns the row being previewed. The table is
     /// the positioning view, but the owner lets the controller dismiss the
     /// popover when AppKit recycles that row.
-    private weak var anchorOwnerView: NSView?
+    // Keep the owner alive while the popover is shown. NSTableView may release
+    // a recycled cell before `didRemoveRowView` runs; retaining this lightweight
+    // cell lets that callback still identify and dismiss the stale preview.
+    private var anchorOwnerView: NSView?
     /// The last row-local positioning rectangle handed to AppKit. Keeping it
     /// separate from the presentation identity lets a scrolling table move an
     /// already-visible popover without tearing down its hosted transcript.
