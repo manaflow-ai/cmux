@@ -3,6 +3,7 @@ import Foundation
 
 extension GitMetadataService {
     /// Builds one bounded branch-aware config-path map for a repository tree.
+    @concurrent
     nonisolated func branchAwareConfigPathsByRepository(
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration

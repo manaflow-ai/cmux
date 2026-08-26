@@ -100,13 +100,13 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
                 return true
             }
             if forcedWorkTreeRoots.contains(where: { Self.isSameOrInside(path, root: $0) }),
-               Self.isLikelyForcedMetadataPath(path) {
+               isLikelyForcedMetadataPath(path) {
                 return true
             }
             guard let alternate = Self.alternateVarPath(for: path) else { return false }
             return gitMetadataPaths.contains(where: { Self.pathsOverlap(alternate, $0) })
                 || (forcedWorkTreeRoots.contains(where: { Self.isSameOrInside(alternate, root: $0) })
-                    && Self.isLikelyForcedMetadataPath(alternate))
+                    && isLikelyForcedMetadataPath(alternate))
         }
     }
 
@@ -176,11 +176,14 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
 
     /// Identifies metadata-like paths under a forced root without promoting
     /// ordinary source/build events to descriptor rebuilds.
-    private static func isLikelyForcedMetadataPath(_ path: String) -> Bool {
+    private func isLikelyForcedMetadataPath(_ path: String) -> Bool {
         let components = path.split(separator: "/").map(String.init)
         guard let gitIndex = components.lastIndex(of: ".git") else { return false }
         let relative = components.dropFirst(gitIndex + 1)
-        guard let first = relative.first else { return true }
-        return first != "objects" && first != "logs"
+        guard !relative.isEmpty else { return true }
+        // Linked worktrees and submodules can nest object/log stores below
+        // `.git/modules` or `.git/worktrees`; exclude those at any depth so a
+        // conservative sentinel never turns pack churn into plan rebuilds.
+        return !relative.contains("objects") && !relative.contains("logs")
     }
 }

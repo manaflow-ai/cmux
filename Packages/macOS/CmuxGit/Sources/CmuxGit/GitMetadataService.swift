@@ -89,6 +89,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
+    @concurrent
     public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
     }
@@ -105,6 +106,7 @@ public struct GitMetadataService: Sendable {
     ///     then avoids reuse.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
+    @concurrent
     public nonisolated func workspaceMetadata(
         for directory: String,
         trackedPathEventGeneration: GitTrackedPathEventGeneration?
@@ -239,6 +241,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The ``GitCheckedOutBranch`` for the enclosing repository, or
     ///   ``GitCheckedOutBranch/notARepository`` when there is none.
+    @concurrent
     public nonisolated func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository

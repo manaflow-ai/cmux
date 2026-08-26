@@ -3,6 +3,7 @@ import Foundation
 
 extension GitMetadataService {
     /// Runs bounded remote fallback plumbing on the blocking-I/O lane.
+    @concurrent
     nonisolated func gitRemoteVFallback(
         repository: ResolvedGitRepository,
         deadline: DispatchTime? = nil
@@ -67,6 +68,7 @@ extension GitMetadataService {
     }
 
     /// Resolves the branch context for config traversal on the blocking-I/O lane.
+    @concurrent
     nonisolated func gitReferenceBranchContext(
         repository: ResolvedGitRepository,
         deadline: DispatchTime? = nil
