@@ -448,7 +448,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
             .write(to: stateURL, options: .atomic)
         let unchangedExpected = try XCTUnwrap(try store.lookup(sessionId: sessionId))
-        XCTAssertTrue(try store.upsertCompactSessionIfCurrent(
+        XCTAssertFalse(try store.upsertCompactSessionIfCurrent(
             sessionId: sessionId,
             expectedRecord: unchangedExpected,
             workspaceId: newWorkspaceId,
@@ -462,9 +462,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let refreshedState = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
         )
-        XCTAssertEqual(
-            ((refreshedState["activeSessionsBySurface"] as? [String: Any])?[newSurfaceId] as? [String: Any])?["sessionId"] as? String,
-            sessionId
+        XCTAssertNil(
+            ((refreshedState["activeSessionsBySurface"] as? [String: Any])?[newSurfaceId] as? [String: Any])?["sessionId"],
+            "An exact-target compact without active ownership must not revive an ended session"
         )
     }
 
@@ -2320,6 +2320,71 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ))
     }
 
+    func testDetachedAutoNameDisabledProbeReleasesSpawnLease() throws {
+        for agentName in ["codex", "opencode"] {
+            let context = try makeClaudeHookContext(name: "\(agentName)-auto-name-disabled-probe")
+            defer { context.cleanup() }
+
+            let sessionId = "\(agentName)-auto-name-disabled-probe-session"
+            let stateURL = context.root.appendingPathComponent("\(agentName)-hook-sessions.json")
+            let store = ClaudeHookSessionStore(processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path
+            ])
+            try store.upsert(
+                sessionId: sessionId,
+                workspaceId: context.workspaceId,
+                surfaceId: context.surfaceId,
+                cwd: context.root.path,
+                markActive: true
+            )
+            let token = try XCTUnwrap(try store.claimAutoNamingSpawn(
+                sessionId: sessionId,
+                now: Date()
+            ))
+            let probeHandled = startMockServer(
+                listenerFD: context.listenerFD,
+                state: context.state,
+                connectionCount: 1,
+                waitForAllConnections: true
+            ) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      payload["method"] as? String == "workspace.set_auto_title" else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                return self.v2Response(id: id, ok: true, result: ["enabled": false])
+            }
+            let result = runProcess(
+                executablePath: context.cliPath,
+                arguments: [
+                    "hooks", agentName, "auto-name",
+                    "--session", sessionId,
+                    "--workspace", context.workspaceId,
+                    "--surface", context.surfaceId,
+                ],
+                environment: [
+                    "HOME": context.root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": context.root.path,
+                    "CMUX_SOCKET_PATH": context.socketPath,
+                    "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                    "CMUX_AUTO_NAME_SPAWN_TOKEN": token,
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                timeout: 5
+            )
+            wait(for: [probeHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+
+            let replacementToken = try XCTUnwrap(
+                try store.claimAutoNamingSpawn(sessionId: sessionId, now: Date()),
+                "\(agentName) must release its detached spawn lease when the first probe disables naming"
+            )
+            try store.releaseAutoNamingSpawn(sessionId: sessionId, token: replacementToken)
+        }
+    }
+
     func testCodexStopKeepsDetachedAutoNameForManualWorkspaceWithReplayableTitle() throws {
         let context = try makeClaudeHookContext(name: "codex-manual-auto-title")
         defer { context.cleanup() }
@@ -2564,11 +2629,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testCodexManualWorkspaceDiscoversTranscriptForDetachedReconciliation() throws {
-        let context = try makeClaudeHookContext(name: "codex-discover-progress")
+    func testCodexManualWorkspaceWithoutBoundTranscriptDoesNotDiscoverOrSpawn() throws {
+        let context = try makeClaudeHookContext(name: "codex-unbound-transcript")
         defer { context.cleanup() }
 
-        let sessionId = "codex-discover-progress-session"
+        let sessionId = "codex-unbound-transcript-session"
         let codexHome = context.root.appendingPathComponent("codex-home", isDirectory: true)
         let nowComponents = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         let sessionsDirectory = codexHome
@@ -2605,7 +2670,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             session["autoNameLastNamedAt"] = Date().timeIntervalSince1970 - 600
         }
 
-        let detachedProbe = expectation(description: "discovered-transcript detached auto-name probe")
+        let detachedProbe = expectation(description: "unbound transcript detached auto-name probe")
+        detachedProbe.isInverted = true
         let commandStart = startManualWorkspaceAutoNamingProbeServer(
             context: context,
             expectedProbeCount: 2,
@@ -2619,15 +2685,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(stop.timedOut, stop.stderr)
         XCTAssertEqual(stop.status, 0, stop.stderr)
-        wait(for: [detachedProbe], timeout: 5)
+        wait(for: [detachedProbe], timeout: 1)
         let commands = Array(context.state.snapshot().dropFirst(commandStart))
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(
             autoNamingProbeRequestCount(in: commands),
-            2,
-            "The parent Stop must discover the same Codex transcript as the detached worker"
+            1,
+            "A matching file on disk is not authoritative transcript identity and must not spawn a worker"
         )
         let record = try readClaudeHookSession(sessionId, context: context)
-        XCTAssertEqual(record["transcriptPath"] as? String, transcriptURL.path)
+        XCTAssertNil(record["transcriptPath"])
     }
 
     func testCodexPromptSubmitDoesNotRefreshTerminalLastTurnDiffBaseline() throws {

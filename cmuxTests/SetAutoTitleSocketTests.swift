@@ -650,7 +650,7 @@ import Testing
         }
     }
 
-    @Test func reapplyingSameAutoTitlePreservesAuthoritativeRemoteRename() throws {
+    @Test func reapplyingSameAutoTitleRepairsMatchingRemoteProjectionAndPreservesRename() throws {
         let harness = try RemoteTmuxMirrorRenameHarness()
         defer { harness.tearDown() }
 
@@ -666,6 +666,16 @@ import Testing
             source: .auto
         ))
         harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "Fix auth bug"))
+        harness.workspace.bonsplitController.updateTab(tabId, title: "Claude Code")
+        #expect(harness.workspace.bonsplitController.tab(tabId)?.title == "Claude Code")
+
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panelId,
+            title: "Fix auth bug",
+            source: .auto
+        ))
+        #expect(harness.workspace.bonsplitController.tab(tabId)?.title == "Fix auth bug")
+
         harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "Remote choice"))
         #expect(harness.workspace.panelCustomTitles[panelId] == "Fix auth bug")
         #expect(harness.workspace.panelTitles[panelId] == "Remote choice")
