@@ -10,7 +10,10 @@ public struct ShellArtifactMutationPathDetector: Sendable {
         return paths(in: tokens)
     }
 
-    /// Returns mutation targets only when one successful status attributes execution directly.
+    /// Returns output-redirection targets attributable to one successful shell command.
+    ///
+    /// - Parameter command: Shell command text from a successful tool execution.
+    /// - Returns: Normalized output paths, or an empty array when attribution is ambiguous.
     public func pathsAttributedToSuccessfulCommand(in command: String) -> [String] {
         let tokens = tokenize(command)
         guard !tokens.contains(where: { token in
