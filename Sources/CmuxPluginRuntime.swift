@@ -49,7 +49,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     private var snapshotGeneration: UInt64 = 0
     var pluginShortcutStore: CmuxPluginShortcutStore?
     var routablePluginShortcuts: [String: StoredShortcut] = [:]
-    var routablePluginShortcutValues: [StoredShortcut] = []
+    var routablePluginShortcutFirstIndex: [ShortcutStroke: [String]] = [:]
+    var routablePluginShortcutSecondIndex: [ShortcutStroke: [String]] = [:]
     var configuredCmuxShortcutBindings: [String: StoredShortcut] = [:]
     private var hasStarted = false
     private var pluginDirectoryWatcher: RecursivePathWatcher?
@@ -312,7 +313,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         let validIDs = Set(next.plugins.map { $0.plugin.manifest.id })
         pluginErrors = pluginErrors.filter { validIDs.contains($0.key) }
         routablePluginShortcuts.removeAll()
-        routablePluginShortcutValues.removeAll()
+        routablePluginShortcutFirstIndex.removeAll()
+        routablePluginShortcutSecondIndex.removeAll()
         lock.unlock()
         revokedSubscriptions.forEach { $0.close() }
         refreshRoutablePluginShortcuts()
@@ -465,6 +467,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         }
         sessionTokens.removeAll()
         routablePluginShortcuts.removeAll()
+        routablePluginShortcutFirstIndex.removeAll()
+        routablePluginShortcutSecondIndex.removeAll()
         pluginErrors.removeAll()
         lock.unlock()
         if let pluginDirectoryWatcher {

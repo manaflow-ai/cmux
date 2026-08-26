@@ -136,15 +136,28 @@ extension CmuxPluginRuntime {
     /// treating an unresolved plugin as a standard socket client.
     func socketPeerPolicy(
         forProcess processID: pid_t?,
-        isEventStreamRequest: Bool
+        isEventStreamRequest: Bool,
+        peerHasSameUID: Bool = true
     ) -> CmuxPluginSocketPeerPolicy {
-        guard let processID else { return .denied }
+        let hasTrackedPluginLineage: Bool = {
+            lock.lock()
+            defer { lock.unlock() }
+            return !processAuthorizations.isEmpty || !revokedPluginProcessGroups.isEmpty
+        }()
+        guard let processID else {
+            // A missing PID can be a short-lived external client in permissive
+            // modes. Once a plugin lineage exists, however, a same-UID peer
+            // that cannot be identified must not fall through to raw commands.
+            return hasTrackedPluginLineage && peerHasSameUID ? .denied : .standard
+        }
         if let authorization = processAuthorization(forProcess: processID) {
             return Self.socketPeerPolicy(
                 processAuthorization: authorization,
                 isEventStreamRequest: isEventStreamRequest
             )
         }
+        guard hasTrackedPluginLineage else { return .standard }
+        guard peerHasSameUID else { return .standard }
         var current = processID
         var visited = Set<pid_t>()
         let hostProcessID = getpid()

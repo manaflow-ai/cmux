@@ -1,5 +1,6 @@
 import CmuxExtensionKit
 import CmuxSettings
+import Darwin
 import Foundation
 import OSLog
 
@@ -38,6 +39,7 @@ final class CmuxPluginProcessSupervisor {
         let processID: pid_t
         let processGroupID: pid_t
         let authorizationIdentity: CmuxPluginProcessIdentity
+        let containment: CmuxPluginProcessContainment
         let snapshot: CmuxPluginExecutionSnapshot
         let integrityMonitor: CmuxPluginSnapshotIntegrityMonitor
         let integrityTask: Task<Void, Never>
@@ -231,6 +233,20 @@ final class CmuxPluginProcessSupervisor {
         let process = Process()
         let processGeneration = UUID()
         let launchGate = Pipe()
+        let containment: CmuxPluginProcessContainment
+        do {
+            containment = try CmuxPluginProcessContainment()
+        } catch {
+            await snapshotter.remove(executionSnapshot)
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
         let integrityMonitor = CmuxPluginSnapshotIntegrityMonitor(
             rootURL: executionSnapshot.directoryURL.deletingLastPathComponent()
         )
@@ -253,6 +269,9 @@ final class CmuxPluginProcessSupervisor {
             FileHandle(fileDescriptor: $0, closeOnDealloc: false)
         }
         guard let launcherURL = Bundle.main.executableURL else {
+            integrityMonitor.cancel()
+            integrityTask.cancel()
+            containment.cleanup()
             await snapshotter.remove(executionSnapshot)
             reportError(
                 pluginID,
@@ -271,7 +290,10 @@ final class CmuxPluginProcessSupervisor {
         // pathname replacement after validation unable to change the bytes
         // that receive the plugin token.
         process.arguments = ["--cmux-plugin-launcher"]
-            + Self.launchArguments(for: executionSnapshot.entrypointExecution)
+            + Self.launchArguments(
+                for: executionSnapshot.entrypointExecution,
+                containmentMarkerPath: containment.markerURL.path
+            )
         var environment = Self.inheritedPluginEnvironment(
             from: ProcessInfo.processInfo.environment
         )
@@ -302,6 +324,7 @@ final class CmuxPluginProcessSupervisor {
                     processID: terminatedID,
                     processGeneration: processGeneration,
                     status: status,
+                    containment: containment,
                     runtime: runtime,
                     reportError: reportError
                 )
@@ -315,6 +338,7 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
+            containment.cleanup()
             if process.isRunning {
                 process.terminate()
             }
@@ -345,8 +369,10 @@ final class CmuxPluginProcessSupervisor {
             integrityTask.cancel()
             terminateProcess(
                 process,
-                processGroupID: process.processIdentifier
+                processGroupID: process.processIdentifier,
+                containment: containment
             )
+            containment.cleanup()
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -365,11 +391,16 @@ final class CmuxPluginProcessSupervisor {
             generation: processGeneration,
             processGroupID: processID
         ) else {
-            terminateProcess(process, processGroupID: processID)
+            terminateProcess(
+                process,
+                processGroupID: processID,
+                containment: containment
+            )
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
+            containment.cleanup()
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -388,6 +419,7 @@ final class CmuxPluginProcessSupervisor {
             processID: processID,
             processGroupID: processID,
             authorizationIdentity: authorizationIdentity,
+            containment: containment,
             snapshot: executionSnapshot,
             integrityMonitor: integrityMonitor,
             integrityTask: integrityTask
@@ -405,8 +437,10 @@ final class CmuxPluginProcessSupervisor {
             terminateProcess(
                 process,
                 processGroupID: process.processIdentifier,
-                identity: authorizationIdentity
+                identity: authorizationIdentity,
+                containment: containment
             )
+            containment.cleanup()
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -431,8 +465,10 @@ final class CmuxPluginProcessSupervisor {
             terminateProcess(
                 process,
                 processGroupID: process.processIdentifier,
-                identity: authorizationIdentity
+                identity: authorizationIdentity,
+                containment: containment
             )
+            containment.cleanup()
             pluginProcessLogger.error(
                 "Plugin \(pluginID, privacy: .public) launch gate failed: \(String(describing: error), privacy: .private)"
             )
@@ -455,6 +491,7 @@ final class CmuxPluginProcessSupervisor {
                 processID: processID,
                 processGeneration: processGeneration,
                 status: process.terminationStatus,
+                containment: containment,
                 runtime: runtime,
                 reportError: reportError
             )
@@ -496,7 +533,8 @@ final class CmuxPluginProcessSupervisor {
         terminateProcess(
             running.process,
             processGroupID: running.processGroupID,
-            identity: running.authorizationIdentity
+            identity: running.authorizationIdentity,
+            containment: running.containment
         )
         Task { await snapshotter.remove(running.snapshot) }
         reportError(
@@ -516,12 +554,14 @@ final class CmuxPluginProcessSupervisor {
         processID: pid_t,
         processGeneration: UUID,
         status: Int32,
+        containment: CmuxPluginProcessContainment,
         runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
     ) {
         guard let running = processes[pluginID],
               running.processID == processID,
               running.authorizationIdentity.generation == processGeneration else {
+            containment.cleanup()
             runtime.processDidExit(processID, generation: processGeneration)
             return
         }
@@ -533,8 +573,10 @@ final class CmuxPluginProcessSupervisor {
         terminateProcess(
             running.process,
             processGroupID: running.processGroupID,
-            identity: running.authorizationIdentity
+            identity: running.authorizationIdentity,
+            containment: running.containment
         )
+        running.containment.cleanup()
         runtime.processDidExit(processID, generation: processGeneration)
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
@@ -583,8 +625,12 @@ final class CmuxPluginProcessSupervisor {
         terminateProcess(
             running.process,
             processGroupID: running.processGroupID,
-            identity: running.authorizationIdentity
+            identity: running.authorizationIdentity,
+            containment: running.containment
         )
+        if !running.process.isRunning {
+            running.containment.cleanup()
+        }
         pluginProcessLogger.debug("Stopped plugin \(pluginID, privacy: .public)")
     }
 
@@ -593,29 +639,32 @@ final class CmuxPluginProcessSupervisor {
     private func terminateProcess(
         _ process: Process,
         processGroupID: pid_t,
-        identity: CmuxPluginProcessIdentity? = nil
+        identity: CmuxPluginProcessIdentity? = nil,
+        containment: CmuxPluginProcessContainment? = nil
     ) {
-        guard processGroupID > 1 else { return }
-        if let expectedStart = identity?.startMicroseconds {
+        guard processGroupID > 1 || containment != nil else { return }
+        var rootIdentityIsCurrent = true
+        if processGroupID > 1, let expectedStart = identity?.startMicroseconds {
             if let currentStart = CmuxPluginRuntime.processStartMicroseconds(processGroupID) {
-                guard currentStart == expectedStart else {
-                    // A new process has reused the root PID/PGID. Never signal it.
-                    return
-                }
+                rootIdentityIsCurrent = currentStart == expectedStart
             } else {
-                // A private group can outlive its leader. A reused PGID must
-                // have a live leader with that PID, whose start time the two
-                // Darwin lookup paths above would expose. With no leader,
-                // signal only if the original group still exists.
-                guard Darwin.kill(-processGroupID, 0) == 0 || errno == EPERM else {
-                    return
-                }
+                // A private group can outlive its leader. With no verifiable
+                // root identity, skip the group signal and let the inherited
+                // containment marker target descendants individually.
+                rootIdentityIsCurrent = false
             }
         }
-        guard process.isRunning || identity != nil else { return }
-        _ = Darwin.kill(-processGroupID, SIGTERM)
-        _ = Darwin.kill(-processGroupID, SIGKILL)
-        if process.isRunning {
+        guard process.isRunning || identity != nil || containment != nil else { return }
+        containment?.terminate(
+            rootProcessID: process.processIdentifier,
+            processGroupID: processGroupID,
+            expectedRootStartMicroseconds: identity?.startMicroseconds
+        )
+        if containment == nil, rootIdentityIsCurrent {
+            _ = Darwin.kill(-processGroupID, SIGTERM)
+            _ = Darwin.kill(-processGroupID, SIGKILL)
+        }
+        if process.isRunning && rootIdentityIsCurrent {
             process.terminate()
         }
     }
@@ -661,21 +710,24 @@ final class CmuxPluginProcessSupervisor {
     }
 
     private static func launchArguments(
-        for execution: CmuxPluginEntrypointExecution
+        for execution: CmuxPluginEntrypointExecution,
+        containmentMarkerPath: String
     ) -> [String] {
-        let gate = "read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1;"
+        let gate = "exec 9>>\"$1\" || exit 126; shift; read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1;"
         switch execution {
         case .executable:
             return [
                 "-c",
                 "\(gate) exec 1>/dev/null 2>/dev/null; exec /dev/fd/3",
                 "cmux-plugin-launch-gate",
+                containmentMarkerPath,
             ]
         case .interpreter(let interpreterArguments):
             return [
                 "-c",
                 "\(gate) exec 4>&2; exec 1>/dev/null 2>/dev/null; exec /dev/fd/4 \"$@\" /dev/fd/3",
                 "cmux-plugin-launch-gate",
+                containmentMarkerPath,
             ] + interpreterArguments
         }
     }

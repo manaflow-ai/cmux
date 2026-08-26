@@ -1,3 +1,4 @@
+import AppKit
 import CmuxExtensionKit
 import CmuxSettingsUI
 import Foundation
@@ -64,11 +65,44 @@ extension CmuxPluginRuntime {
         return routablePluginShortcuts
     }
 
-    /// Returns the cached value-only projection used while arming chords.
-    func routablePluginShortcutValueList() -> [StoredShortcut] {
+    /// Returns only plugin bindings whose indexed stroke can match `event`.
+    /// The key-event path never copies or scans the complete binding table.
+    func routablePluginShortcutActionIDs(
+        for event: NSEvent,
+        completingChord: Bool
+    ) -> [String] {
+        guard let eventStroke = ShortcutStroke.from(event: event, requireModifier: false) else {
+            return []
+        }
+        let lookupStrokes = shortcutLookupStrokes(for: eventStroke)
+        lock.lock()
+        let index = completingChord
+            ? routablePluginShortcutSecondIndex
+            : routablePluginShortcutFirstIndex
+        var actionIDs = Set<String>()
+        for stroke in lookupStrokes {
+            actionIDs.formUnion(index[stroke] ?? [])
+        }
+        lock.unlock()
+        return actionIDs.sorted()
+    }
+
+    /// Returns one indexed binding for final event matching.
+    func routablePluginShortcut(for actionID: String) -> StoredShortcut? {
         lock.lock()
         defer { lock.unlock() }
-        return routablePluginShortcutValues
+        return routablePluginShortcuts[actionID]
+    }
+
+    /// Returns only chord bindings whose first stroke matches `event`.
+    func routablePluginChordShortcuts(for event: NSEvent) -> [StoredShortcut] {
+        routablePluginShortcutActionIDs(for: event, completingChord: false)
+            .compactMap { actionID in
+                guard let shortcut = routablePluginShortcut(for: actionID), shortcut.hasChord else {
+                    return nil
+                }
+                return shortcut
+            }
     }
 
     /// Updates the configured cmux action projection that has routing priority
@@ -151,8 +185,48 @@ extension CmuxPluginRuntime {
         }
         lock.lock()
         routablePluginShortcuts = next
-        routablePluginShortcutValues = Array(next.values)
+        routablePluginShortcutFirstIndex = shortcutIndex(for: next) { $0.firstStroke }
+        routablePluginShortcutSecondIndex = shortcutIndex(for: next) { $0.secondStroke }
         lock.unlock()
+    }
+
+    private func shortcutIndex(
+        for bindings: [String: StoredShortcut],
+        _ stroke: (StoredShortcut) -> ShortcutStroke?
+    ) -> [ShortcutStroke: [String]] {
+        var index: [ShortcutStroke: [String]] = [:]
+        for (actionID, shortcut) in bindings {
+            guard let stroke = stroke(shortcut), !stroke.key.isEmpty else { continue }
+            for lookupStroke in shortcutLookupStrokes(for: stroke) {
+                index[lookupStroke, default: []].append(actionID)
+            }
+            if let resolvedKeyCode = stroke.resolvedKeyCode() {
+                let resolvedStroke = ShortcutStroke(
+                    key: stroke.key,
+                    command: stroke.command,
+                    shift: stroke.shift,
+                    option: stroke.option,
+                    control: stroke.control,
+                    keyCode: resolvedKeyCode
+                )
+                index[resolvedStroke, default: []].append(actionID)
+            }
+        }
+        return index.mapValues { Array(Set($0)).sorted() }
+    }
+
+    private func shortcutLookupStrokes(for stroke: ShortcutStroke) -> [ShortcutStroke] {
+        guard stroke.keyCode != nil else { return [stroke] }
+        return [
+            stroke,
+            ShortcutStroke(
+                key: stroke.key,
+                command: stroke.command,
+                shift: stroke.shift,
+                option: stroke.option,
+                control: stroke.control
+            ),
+        ]
     }
 
     private func invocablePluginActionIDs() -> Set<String> {

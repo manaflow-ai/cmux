@@ -22,16 +22,22 @@ extension AppDelegate {
         )
     }
 
-    func configuredPluginShortcutBindings() -> [StoredShortcut] {
+    func configuredPluginShortcutBindings(for event: NSEvent) -> [StoredShortcut] {
         guard let pluginRuntime else { return [] }
-        return pluginRuntime.routablePluginShortcutValueList()
+        return pluginRuntime.routablePluginChordShortcuts(for: event)
     }
 
     @discardableResult
     func handlePluginShortcut(event: NSEvent) -> Bool {
         guard let pluginRuntime else { return false }
-        let routableBindings = pluginRuntime.routablePluginShortcutBindings()
-        for (commandID, shortcut) in routableBindings {
+        let commandIDs = pluginRuntime.routablePluginShortcutActionIDs(
+            for: event,
+            completingChord: activeConfiguredShortcutChordPrefixForCurrentEvent != nil
+        )
+        for commandID in commandIDs {
+            guard let shortcut = pluginRuntime.routablePluginShortcut(for: commandID) else {
+                continue
+            }
             guard matchConfiguredShortcut(event: event, shortcut: shortcut) else {
                 continue
             }

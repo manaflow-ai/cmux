@@ -1872,26 +1872,11 @@ class TerminalController {
             // intentionally limited to the event stream in this core slice.
             // Do not let the generic descendant allow-list turn a plugin into
             // an unrestricted control-socket client.
-            let pluginProcessAuthorization = pluginRuntime?
-                .processAuthorization(forProcess: pid)
-            let pluginPeerPolicy: CmuxPluginSocketPeerPolicy
-            if let pluginProcessAuthorization {
-                pluginPeerPolicy = CmuxPluginRuntime.socketPeerPolicy(
-                    processAuthorization: pluginProcessAuthorization,
-                    isEventStreamRequest: isEventsStreamRequest(trimmed)
-                )
-            } else if socketServer.accessMode == .cmuxOnly {
-                // cmuxOnly already admitted this peer as a descendant; require
-                // a positive ordinary/plugin classification so an unresolved
-                // plugin cannot fall through. Other access modes intentionally
-                // allow authorized external peers and keep nil as standard.
-                pluginPeerPolicy = pluginRuntime?.socketPeerPolicy(
-                    forProcess: pid,
-                    isEventStreamRequest: isEventsStreamRequest(trimmed)
-                ) ?? .standard
-            } else {
-                pluginPeerPolicy = .standard
-            }
+            let pluginPeerPolicy = pluginRuntime?.socketPeerPolicy(
+                forProcess: pid,
+                isEventStreamRequest: isEventsStreamRequest(trimmed),
+                peerHasSameUID: peerHasSameUID
+            ) ?? .standard
             if pluginPeerPolicy == .denied {
                 _ = await writer.writeAll(
                     Data((Self.socketClientAccessDeniedResponse + "\n").utf8)
