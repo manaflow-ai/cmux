@@ -282,7 +282,7 @@ public struct MobileWorkspaceAggregation: Sendable {
                     // Empty headers have no workspace row to namespace; use
                     // the already-namespaced group id only as a stable UI row
                     // identity, never as a workspace capability.
-                    stamped.anchorWorkspaceID = stamped.id
+                    stamped.anchorWorkspaceID = MobileWorkspacePreview.ID(rawValue: stamped.id.rawValue)
                 }
                 result.append(stamped)
             }
