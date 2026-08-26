@@ -85,7 +85,7 @@ extension GhosttyApp {
                     "reload.config.surfaceApply.end source=\(snapshot.source)"
                 )
 #endif
-                finishConfigurationSurfaceCreationGate(
+                self.finishConfigurationSurfaceCreationGate(
                     generation: surfaceCreationGateGeneration
                 )
                 completionBox.finish()
