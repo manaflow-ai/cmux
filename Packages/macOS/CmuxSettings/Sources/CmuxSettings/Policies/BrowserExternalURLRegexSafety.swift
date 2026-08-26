@@ -26,7 +26,7 @@ struct BrowserExternalURLRegexSafety: Sendable {
         var inCharacterClass = false
         var quantifierCount = 0
         var alternationCount = 0
-        var atomsSinceQuantifier: Int?
+        var fixedCharactersSinceQuantifier: Int?
         var index = expression.startIndex
 
         while index < expression.endIndex {
@@ -42,7 +42,9 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 isEscaping = false
                 previousAtom = 1
                 previousGroupIsComplex = false
-                increment(&atomsSinceQuantifier)
+                if !isVariableEscapedAtom(character) {
+                    incrementFixed(&fixedCharactersSinceQuantifier)
+                }
                 index = nextIndex
                 continue
             }
@@ -58,7 +60,6 @@ struct BrowserExternalURLRegexSafety: Sendable {
                     inCharacterClass = false
                     previousAtom = 1
                     previousGroupIsComplex = false
-                    increment(&atomsSinceQuantifier)
                 }
                 index = nextIndex
                 continue
@@ -92,7 +93,6 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 }
                 previousAtom = 2
                 previousGroupIsComplex = hasQuantifier || hasAlternation
-                increment(&atomsSinceQuantifier)
             case "|":
                 alternationCount += 1
                 guard alternationCount <= maximumAlternationCount else { return false }
@@ -101,7 +101,7 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 }
                 previousAtom = 0
                 previousGroupIsComplex = false
-                atomsSinceQuantifier = nil
+                fixedCharactersSinceQuantifier = nil
             case "*", "+", "?", "{":
                 var quantifierEndIndex = nextIndex
                 if character == "{" {
@@ -114,8 +114,8 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 // Quantifying a group that already contains a quantifier or
                 // alternation is the common catastrophic-backtracking shape.
                 guard !(previousAtom == 2 && previousGroupIsComplex) else { return false }
-                if let atomsSinceQuantifier,
-                   atomsSinceQuantifier < 2 {
+                if let fixedCharactersSinceQuantifier,
+                   fixedCharactersSinceQuantifier < 3 {
                     return false
                 }
                 quantifierCount += 1
@@ -125,17 +125,19 @@ struct BrowserExternalURLRegexSafety: Sendable {
                 }
                 previousAtom = 3
                 previousGroupIsComplex = false
-                atomsSinceQuantifier = 0
+                fixedCharactersSinceQuantifier = 0
                 index = quantifierEndIndex
                 continue
             case "^", "$":
                 previousAtom = 0
                 previousGroupIsComplex = false
-                atomsSinceQuantifier = nil
+                fixedCharactersSinceQuantifier = nil
             default:
                 previousAtom = 1
                 previousGroupIsComplex = false
-                increment(&atomsSinceQuantifier)
+                if character != "." {
+                    incrementFixed(&fixedCharactersSinceQuantifier)
+                }
             }
             index = nextIndex
         }
@@ -143,10 +145,14 @@ struct BrowserExternalURLRegexSafety: Sendable {
         return !isEscaping && !inCharacterClass && groupHasQuantifier.isEmpty
     }
 
-    private func increment(_ value: inout Int?) {
+    private func incrementFixed(_ value: inout Int?) {
         if let current = value {
-            value = min(current + 1, 2)
+            value = min(current + 1, 3)
         }
+    }
+
+    private func isVariableEscapedAtom(_ character: Character) -> Bool {
+        "dDsSwW".contains(character)
     }
 
     private func quantifierEnd(
