@@ -14622,13 +14622,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sort By"
+            "value": "Sort Computers By"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "並べ替え"
+            "value": "コンピュータの並べ替え"
           }
         }
       }
@@ -20058,7 +20058,7 @@
     "mobile.connections.visibilityToggle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show this computer on this iPhone"}},"ja":{"stringUnit":{"state":"translated","value":"このコンピュータをこのiPhoneに表示"}}}},
     "mobile.workspaces.macPicker.allConnections": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"All Computers"}},"ja":{"stringUnit":{"state":"translated","value":"すべてのコンピュータ"}}}},
     "mobile.workspaces.macPicker.connectionLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ"}}}},
-    "mobile.workspaces.sort.connectionOrder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Order"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ順"}}}},
+    "mobile.workspaces.sort.connectionOrder": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Order"}},"ja":{"stringUnit":{"state":"translated","value":"カスタム順"}}}},
     "mobile.connections.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, choose Tailscale in the computer's configuration."}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータがありません。Irohで表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、コンピュータの設定でTailscaleを選択してください。"}}}},
     "mobile.connections.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."}},"ja":{"stringUnit":{"state":"translated","value":"各コンピュータは、それぞれの設定で選んだ接続方法で接続します。コンピュータをオフにすると、そのワークスペースがこのiPhoneで非表示になります。コンピュータはアカウントにサインインしたままです。"}}}},
     "mobile.connections.method.debug": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Debug"}},"ja":{"stringUnit":{"state":"translated","value":"デバッグ"}}}},
