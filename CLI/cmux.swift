@@ -500,7 +500,7 @@ final class ClaudeHookSessionStore {
     ) throws -> (record: ClaudeHookSessionRecord?, ended: Bool) {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return (nil, false) }
-        return try withLockedState { state in
+        return try withLockedState { state -> (record: ClaudeHookSessionRecord?, ended: Bool) in
             (
                 state.sessions[normalized],
                 state.endedSessionIDs[normalized] != nil
@@ -707,9 +707,9 @@ final class ClaudeHookSessionStore {
         // event-driven: no pipe read or process wait blocks the thread while
         // lockf is waiting. The completion group only waits for those
         // callbacks; it is not used to protect state or serialize callers.
-        let remainingSeconds = max(0, deadlineUptime - ProcessInfo.processInfo.systemUptime)
+        let readinessRemainingSeconds = max(0, deadlineUptime - ProcessInfo.processInfo.systemUptime)
         let readiness = readySignal.wait(
-            timeout: .now() + remainingSeconds
+            timeout: .now() + readinessRemainingSeconds
         )
         readyHandle.readabilityHandler = nil
         guard readiness == .success, lockProcess.isRunning else {
@@ -990,7 +990,7 @@ final class ClaudeHookSessionStore {
     ) throws {
         let normalizedTaskListID = taskListID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTaskListID.isEmpty else { return }
-        try withLockedState { state in
+        _ = try withLockedState { state in
             state.retiredClaudeTaskLists.removeValue(
                 forKey: claudeTaskListStorageKey(
                     taskListID: normalizedTaskListID,
@@ -1303,35 +1303,39 @@ final class ClaudeHookSessionStore {
               normalizedDirectoryName != "..",
               !normalizedDirectoryName.contains("/"),
               !normalizedDirectoryName.contains("\0") else { return [] }
-        return try withLockedState { state in
-            let records = Array(state.sessions.values)
-                + Array(state.pendingSupersededSessionCleanup.values)
+        return try withLockedState { state -> [String] in
+            let sessionRecords = Array(state.sessions.values)
+            let supersededSessionRecords = Array(state.pendingSupersededSessionCleanup.values)
+            let records = sessionRecords + supersededSessionRecords
             let pendingRecords = records.filter {
                 $0.claudeTaskDirectoryName == normalizedDirectoryName
                     && $0.claudeTaskStoreID == nil
                     && $0.claudeTaskLegacyOwnerCleared != true
             }
-            let legacyDestinationWorkspaceIDs = state.claudeTaskListDestinations.values
+            let legacyDestinationRecords = state.claudeTaskListDestinations.values
                 .filter {
                     $0.taskStoreIdentity == nil
                         && $0.taskListID == normalizedDirectoryName
                 }
-                .flatMap(\.workspaceIDs)
-            let legacyTeamWorkspaceIDs = state.claudeTeamTaskBindings.values
+            let legacyDestinationWorkspaceIDs = legacyDestinationRecords.flatMap(\.workspaceIDs)
+            let legacyTeamBindingRecords = state.claudeTeamTaskBindings.values
                 .filter {
                     $0.binding.taskStoreIdentity == nil
                         && $0.binding.taskListID == normalizedDirectoryName
                 }
-                .flatMap(\.workspaceIDs)
-            let persistedWorkspaceIDs = (state.pendingLegacyClaudeTaskOwnerCleanup[
+            let legacyTeamWorkspaceIDs = legacyTeamBindingRecords.flatMap(\.workspaceIDs)
+            let pendingCleanupWorkspaceIDs = state.pendingLegacyClaudeTaskOwnerCleanup[
                 normalizedDirectoryName
-            ]?.workspaceIDs ?? [])
-                + (state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
-                    normalizedDirectoryName
-                ]?.workspaceIDs ?? [])
-                + (state.pendingLegacyClaudeTaskOwnerCleanupSpill[
-                    normalizedDirectoryName
-                ]?.workspaceIDs ?? [])
+            ]?.workspaceIDs ?? []
+            let overflowCleanupWorkspaceIDs = state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries[
+                normalizedDirectoryName
+            ]?.workspaceIDs ?? []
+            let spillCleanupWorkspaceIDs = state.pendingLegacyClaudeTaskOwnerCleanupSpill[
+                normalizedDirectoryName
+            ]?.workspaceIDs ?? []
+            let persistedWorkspaceIDs = pendingCleanupWorkspaceIDs
+                + overflowCleanupWorkspaceIDs
+                + spillCleanupWorkspaceIDs
             guard !pendingRecords.isEmpty
                     || !persistedWorkspaceIDs.isEmpty
                     || !legacyDestinationWorkspaceIDs.isEmpty
@@ -1340,15 +1344,20 @@ final class ClaudeHookSessionStore {
                 return []
             }
             let requiredWorkspaceIDs = Set(workspaceIDs.compactMap(normalizeOptional))
-            let destinationWorkspaceIDs = Set(
-                persistedWorkspaceIDs.compactMap(normalizeOptional)
-                    + pendingRecords.compactMap { normalizeOptional($0.workspaceId) }
-                    + legacyDestinationWorkspaceIDs.compactMap(normalizeOptional)
-                    + legacyTeamWorkspaceIDs.compactMap(normalizeOptional)
-                    + requiredWorkspaceIDs
-            )
+            let pendingRecordWorkspaceIDs = pendingRecords.compactMap {
+                normalizeOptional($0.workspaceId)
+            }
+            let persistedDestinationWorkspaceIDs = persistedWorkspaceIDs.compactMap(normalizeOptional)
+            let legacyDestinationIDs = legacyDestinationWorkspaceIDs.compactMap(normalizeOptional)
+            let legacyTeamIDs = legacyTeamWorkspaceIDs.compactMap(normalizeOptional)
+            let allDestinationWorkspaceIDs = persistedDestinationWorkspaceIDs
+                + pendingRecordWorkspaceIDs
+                + legacyDestinationIDs
+                + legacyTeamIDs
+                + Array(requiredWorkspaceIDs)
+            let destinationWorkspaceIDs = Set(allDestinationWorkspaceIDs)
             // Explicit destinations are the current owner proof and must be
-            // be cleaned in the first bounded page; retained continuations
+            // cleaned in the first bounded page; retained continuations
             // follow. If old session records accumulated beyond the aggregate
             // proof cap, leave the unselected records discoverable for the
             // next page instead of rejecting the whole cleanup.
@@ -35429,14 +35438,14 @@ export default CMUXSessionRestore;
             let cwdURL = URL(fileURLWithPath: rawCwd).standardizedFileURL
             let fileManager = FileManager.default
             var cursor = cwdURL
-            var projectRoot: URL?
+            var discoveredProjectRoot: URL?
             let maximumProjectRootAncestors = 64
             var ancestorDepth = 0
             while ancestorDepth < maximumProjectRootAncestors {
                 if fileManager.fileExists(
                     atPath: cursor.appendingPathComponent(".git", isDirectory: false).path
                 ) {
-                    projectRoot = cursor
+                    discoveredProjectRoot = cursor
                     break
                 }
                 let parent = cursor.deletingLastPathComponent()
@@ -35445,7 +35454,7 @@ export default CMUXSessionRestore;
                 cursor = parent
                 ancestorDepth += 1
             }
-            let projectRoot = projectRoot ?? cwdURL
+            let projectRoot = discoveredProjectRoot ?? cwdURL
             applyConfig(
                 at: projectRoot
                     .appendingPathComponent(".cursor", isDirectory: true)
