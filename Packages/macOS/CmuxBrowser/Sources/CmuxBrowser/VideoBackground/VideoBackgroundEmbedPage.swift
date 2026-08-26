@@ -5,7 +5,8 @@ public import Foundation
 ///
 /// The page is loaded into a non-interactive `WKWebView` with
 /// ``VideoBackgroundEmbedPage/baseURL`` as its document origin (YouTube
-/// refuses to play inside a null-origin document). The player is chrome-free
+/// refuses to play inside a null-origin document or one that claims to be
+/// youtube.com itself). The player is chrome-free
 /// and looping, silent unless the host opts in to audio; the native side
 /// drives pause/resume and mute through ``VideoBackgroundEmbedPage/pauseScript``,
 /// ``resumeScript`` and ``mutedScript(_:)`` and hears about fatal player
@@ -31,7 +32,16 @@ public struct VideoBackgroundEmbedPage: Sendable {
     public static let playerHeight = 540
 
     /// Document base URL giving the page a real origin YouTube will serve.
-    public static let baseURL = URL(string: "https://www.youtube.com")!
+    ///
+    /// The IFrame player validates the embedding document's origin/referrer:
+    /// a null origin (`about:blank`) fails with error 153 and a document
+    /// claiming to *be* `youtube.com` fails with error 152, while an ordinary
+    /// third-party origin plays. cmux's own domain is the honest choice.
+    public static let baseURL = URL(string: "https://cmux.com/video-background")!
+
+    /// The host that actually serves the player; used to pick a browser
+    /// identity (user agent) YouTube treats as a full Safari.
+    public static let playerHostURL = URL(string: "https://www.youtube.com")!
 
     /// Name of the `WKScriptMessageHandler` the page posts events to.
     public static let messageHandlerName = "cmuxVideoBackground"

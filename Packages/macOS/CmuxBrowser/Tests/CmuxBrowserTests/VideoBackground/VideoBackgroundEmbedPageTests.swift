@@ -31,7 +31,10 @@ struct VideoBackgroundEmbedPageTests {
         #expect(html.contains("window.cmuxVideoBackgroundSetPaused = function"))
         #expect(VideoBackgroundEmbedPage.pauseScript.contains("cmuxVideoBackgroundSetPaused(true)"))
         #expect(VideoBackgroundEmbedPage.resumeScript.contains("cmuxVideoBackgroundSetPaused(false)"))
-        #expect(VideoBackgroundEmbedPage.baseURL.host == "www.youtube.com")
+        // YouTube rejects embeds whose document origin is null (error 153) or
+        // youtube.com itself (error 152); the page must carry a third-party origin.
+        #expect(VideoBackgroundEmbedPage.baseURL.scheme == "https")
+        #expect(VideoBackgroundEmbedPage.baseURL.host == "cmux.com")
         #expect(html.contains("window.cmuxVideoBackgroundSetMuted = function"))
         #expect(VideoBackgroundEmbedPage.mutedScript(true) == "window.cmuxVideoBackgroundSetMuted(true);")
         #expect(VideoBackgroundEmbedPage.mutedScript(false) == "window.cmuxVideoBackgroundSetMuted(false);")
