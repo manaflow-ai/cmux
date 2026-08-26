@@ -2807,7 +2807,8 @@ final class ClaudeHookSessionStore {
                     return false
                 }
             } else {
-                guard targetIsAuthoritative,
+                guard existing == nil,
+                      targetIsAuthoritative,
                       compactTargetIsAvailable(
                           state: state,
                           sessionId: normalizedSessionId,

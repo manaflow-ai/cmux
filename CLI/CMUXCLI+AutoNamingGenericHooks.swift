@@ -532,11 +532,10 @@ extension CMUXCLI {
                     confirmedTitle = sanitized
                 } else if let lastTitle = outcome.lastTitle {
                     confirmedTitle = lastTitle
-                } else if applied.terminalSkip {
-                    // A terminal target skip (for example, a panel that
-                    // disappeared) is resolved without creating a title. Mark
-                    // its baseline complete so the same transcript is not
-                    // summarized again forever.
+                } else {
+                    // A terminal disappearance or a resolved manual-ownership
+                    // rejection creates no title. Mark its baseline complete
+                    // so the same transcript is not summarized again forever.
                     baselineConfirmedWithoutTitle = true
                 }
             }
