@@ -75,25 +75,24 @@ struct TmuxWorkspacePaneOverlayModelTests {
         defer { window.close() }
 
         let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
-        var deliveredProviders: [Int] = []
+        let deliveredProviders = AsyncStream<Int>.makeStream()
+        var deliveredProviderIterator = deliveredProviders.stream.makeAsyncIterator()
 
         // A full-screen transition can enqueue an intermediate geometry update
         // immediately before didEnter/didExit delivers the settled update. The
         // pending refresh must evaluate the newest provider, not the one that
         // happened to arrive first.
         controller.scheduleGeometryRefresh {
-            deliveredProviders.append(1)
+            deliveredProviders.continuation.yield(1)
             return nil
         }
         controller.scheduleGeometryRefresh {
-            deliveredProviders.append(2)
+            deliveredProviders.continuation.yield(2)
             return nil
         }
 
-        for _ in 0..<4 {
-            await Task.yield()
-        }
-
-        #expect(deliveredProviders == [2])
+        let deliveredProvider = await deliveredProviderIterator.next()
+        #expect(deliveredProvider == 2)
+        deliveredProviders.continuation.finish()
     }
 }
