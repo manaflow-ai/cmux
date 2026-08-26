@@ -166,7 +166,7 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         let envelope = try jsonObject(response)
         let error = try #require(envelope["error"] as? [String: Any])
         #expect(error["code"] as? String == "invalid_params")
-        #expect(error["message"] as? String == strings.cloudNotificationClearWorkspaceInvalid)
+        #expect(error["message"] as? String == strings.cloudNotificationClearSurfaceInvalid)
     }
 
     @Test("invalid surface notification clear uses the injected localized message")

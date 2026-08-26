@@ -316,29 +316,31 @@ struct AgentNotificationRegressionTests {
         )
         defer { fixture.restore() }
 
-        let routing = ControlRoutingSelectors(
-            hasWindowIDParam: false,
-            windowID: nil,
-            groupID: nil,
-            workspaceID: fixture.source.id,
-            surfaceID: nil,
-            paneID: nil
-        )
-        let result = TerminalController.shared.controlNotificationCreateForTarget(
-            routing: routing,
-            workspaceID: fixture.source.id,
-            surfaceID: fixture.panelId,
-            title: "Suppressed",
-            subtitle: "",
-            body: "No stored notification"
-        )
+        try await confirmation("policy-suppressed notification completed") { completed in
+            fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in completed() }
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: fixture.source.id,
+                surfaceID: nil,
+                paneID: nil
+            )
+            let result = TerminalController.shared.controlNotificationCreateForTarget(
+                routing: routing,
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Suppressed",
+                subtitle: "",
+                body: "No stored notification"
+            )
 
-        guard case .delivered(_, _, _, let notificationID) = result else {
-            Issue.record("Expected policy-suppressed delivery, got \(result)")
-            return
+            guard case .delivered(_, _, _, let notificationID) = result else {
+                Issue.record("Expected policy-suppressed delivery, got \(result)")
+                return
+            }
+            #expect(notificationID == nil)
         }
-        #expect(notificationID == nil)
-        for _ in 0..<100 { await Task.yield() }
         #expect(fixture.store.notifications.allSatisfy { $0.title != "Suppressed" })
     }
 
