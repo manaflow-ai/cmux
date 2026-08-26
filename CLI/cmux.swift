@@ -198,6 +198,10 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastObservationGeneration: String?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
+    /// Reservation written by the synchronous Stop hook before it forks a
+    /// detached worker. The child clears it when it claims the naming pass;
+    /// expiry lets a crashed child be reclaimed.
+    var autoNameSpawnLeaseAt: TimeInterval?
     /// Highest transcript size observed while the current in-flight owner was
     /// summarizing or reconciling. Its finisher consumes the accumulator only
     /// while it still owns `autoNameLastObservationGeneration`.
@@ -320,6 +324,29 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Atomically reserves the detached-worker spawn for one session.
+    @discardableResult
+    func claimAutoNamingSpawn(sessionId: String, now: Date) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return false }
+            let timestamp = now.timeIntervalSince1970
+            if let leaseAt = record.autoNameSpawnLeaseAt,
+               timestamp - leaseAt < AutoNamingEngine().config.inFlightExpiry {
+                return false
+            }
+            if let inFlightAt = record.autoNameInFlightAt,
+               timestamp - inFlightAt < AutoNamingEngine().config.inFlightExpiry {
+                return false
+            }
+            record.autoNameSpawnLeaseAt = timestamp
+            record.updatedAt = timestamp
+            state.sessions[normalized] = record
+            return true
+        }
+    }
+
     /// Records the hook-observed permission mode on an existing session record.
     /// The already-current check happens INSIDE the lock: an unlocked pre-check
     /// can race an overlapping hook's write and skip persisting the newest mode,
@@ -403,6 +430,9 @@ final class ClaudeHookSessionStore {
                 startedAt: now.timeIntervalSince1970,
                 updatedAt: now.timeIntervalSince1970
             )
+            // A detached child that reaches the store owns the reservation;
+            // clear it before evaluating the normal in-flight throttle.
+            record.autoNameSpawnLeaseAt = nil
             let snapshot = AutoNamingSessionSnapshot(
                 lastTitle: record.autoNameLastTitle,
                 lastLineCount: record.autoNameLastLineCount,
@@ -765,6 +795,7 @@ final class ClaudeHookSessionStore {
                 foldAutoNamingInFlightObservationIntoHighWater(record: &record)
             }
             record.autoNameInFlightAt = nil
+            record.autoNameSpawnLeaseAt = nil
             record.autoNameLastObservationGeneration = nil
             record.autoNameInFlightObservedLineCount = nil
             record.updatedAt = Date().timeIntervalSince1970
@@ -794,6 +825,7 @@ final class ClaudeHookSessionStore {
             let inFlightObservedLineCount = record.autoNameInFlightObservedLineCount
             foldAutoNamingInFlightObservationIntoHighWater(record: &record)
             record.autoNameInFlightAt = nil
+            record.autoNameSpawnLeaseAt = nil
             record.autoNameLastObservationGeneration = nil
             record.autoNameInFlightObservedLineCount = nil
             // Stamp every completed pass (success or failure) so the throttle
@@ -33497,7 +33529,7 @@ export default CMUXSessionRestore;
                     probe: autoNameProbe,
                     session: autoNamingSession,
                     currentProgress: autoNamingProgress
-                ) {
+                ), (try? store.claimAutoNamingSpawn(sessionId: sessionId, now: Date())) == true {
                     spawnDetachedAgentAutoName(
                         def: def,
                         sessionId: sessionId,

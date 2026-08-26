@@ -4183,6 +4183,7 @@ class TerminalController {
         var panelApplied: Bool?
         var panelApplySkipped = false
         var terminalSkip = false
+        var targetUnresolved = false
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
@@ -4214,6 +4215,7 @@ class TerminalController {
                 guard sessionMatches else {
                     workspaceApplySkipped = true
                     if panelId != nil { panelApplySkipped = true }
+                    targetUnresolved = true
                     return
                 }
             }
@@ -4339,6 +4341,7 @@ class TerminalController {
                 "panel_applied": v2OrNull(panelApplied),
                 "panel_apply_skipped": panelApplySkipped,
                 "terminal_skip": terminalSkip,
+                "target_unresolved": targetUnresolved,
                 "enabled": true
         ])
     }

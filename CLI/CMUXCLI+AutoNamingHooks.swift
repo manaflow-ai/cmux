@@ -327,7 +327,7 @@ extension CMUXCLI {
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> Result<(titleApplied: Bool, targetsResolved: Bool, terminalSkip: Bool), CLIError> {
+    ) -> Result<(titleApplied: Bool, targetsResolved: Bool, terminalSkip: Bool, targetUnresolved: Bool), CLIError> {
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "panel_id": surfaceId,
@@ -365,6 +365,7 @@ extension CMUXCLI {
             || panelApplied != nil
             || payload["panel_apply_skipped"] as? Bool == true
         let titleApplied = workspaceApplied || panelApplied == true
+        let targetUnresolved = payload["target_unresolved"] as? Bool == true
         if titleApplied {
             telemetry.breadcrumb("\(telemetryKey).applied")
         } else if workspaceApplySkipped {
@@ -374,8 +375,9 @@ extension CMUXCLI {
         }
         return .success((
             titleApplied: titleApplied,
-            targetsResolved: workspaceResolved && panelResolved,
-            terminalSkip: payload["terminal_skip"] as? Bool == true
+            targetsResolved: !targetUnresolved && workspaceResolved && panelResolved,
+            terminalSkip: payload["terminal_skip"] as? Bool == true,
+            targetUnresolved: targetUnresolved
         ))
     }
 }

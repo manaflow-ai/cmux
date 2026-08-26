@@ -398,7 +398,7 @@ extension CMUXCLI {
             return
         }
         if case .reseedBaseline(let compactedLineCount) = outcome.decision {
-            let applyOutcome: Result<(titleApplied: Bool, targetsResolved: Bool, terminalSkip: Bool), CLIError>
+            let applyOutcome: Result<(titleApplied: Bool, targetsResolved: Bool, terminalSkip: Bool, targetUnresolved: Bool), CLIError>
             if let lastTitle = outcome.lastTitle {
                 if (try? sessionStore.isCurrent(
                     sessionId: sessionId,
@@ -420,11 +420,11 @@ extension CMUXCLI {
                     )
                 } else {
                     telemetry.breadcrumb("\(telemetryKey).reconcile.stale-before-apply")
-                    applyOutcome = .success((titleApplied: false, targetsResolved: false, terminalSkip: false))
+                    applyOutcome = .success((titleApplied: false, targetsResolved: false, terminalSkip: false, targetUnresolved: true))
                 }
             } else {
                 telemetry.breadcrumb("\(telemetryKey).throttled")
-                applyOutcome = .success((titleApplied: false, targetsResolved: false, terminalSkip: false))
+                applyOutcome = .success((titleApplied: false, targetsResolved: false, terminalSkip: false, targetUnresolved: false))
             }
             let applied = try? applyOutcome.get()
             let confirmedApply = applied?.targetsResolved == true
