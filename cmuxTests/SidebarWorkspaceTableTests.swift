@@ -848,7 +848,7 @@ struct SidebarWorkspaceTableTests {
         let nextModel = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: String(
                 repeating: "authoritative content that must wrap at the live width ",
-                count: 12
+                count: 6
             ),
             workspaceId: workspace.id
         )
@@ -954,6 +954,41 @@ struct SidebarWorkspaceTableTests {
         #expect(
             abs(tableHeight - expectedHeight) < 0.5,
             "The AppKit row frame must match the changed model before width settlement."
+        )
+
+        // Reverse the width before the trailing settle task gets a turn. A
+        // partial cache write must force that settle even when the width lands
+        // back on the last settled value.
+        let postsBoundsChangesAfterApply = container.clipView.postsBoundsChangedNotifications
+        container.clipView.postsBoundsChangedNotifications = false
+        bounds = container.clipView.bounds
+        bounds.size.width = settledWidth
+        container.clipView.bounds = bounds
+        container.clipView.postsBoundsChangedNotifications = postsBoundsChangesAfterApply
+        controller.performWidthRemeasureNow()
+        container.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+
+        let restoredExpectedHeight = ceil(
+            cell.layoutContent(
+                model: installedModel,
+                width: cell.bounds.width,
+                apply: false
+            )
+        )
+        #expect(
+            abs(restoredExpectedHeight - expectedHeight) > 0.5,
+            "The reversed width must exercise a distinct settled height."
+        )
+        let restoredServedHeight = controller.tableView(table, heightOfRow: 0)
+        let restoredTableHeight = table.rect(ofRow: 0).height - table.intercellSpacing.height
+        #expect(
+            abs(restoredServedHeight - restoredExpectedHeight) < 0.5,
+            "A rapid width reversal must settle the changed row at the restored width."
+        )
+        #expect(
+            abs(restoredTableHeight - restoredExpectedHeight) < 0.5,
+            "The AppKit row frame must not retain the transient width after reversal."
         )
     }
 
