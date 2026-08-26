@@ -4,10 +4,12 @@ import CmuxIrohTransport
 extension MobileHostIrohRuntime {
     /// Applies a platform reachability transition to the host transport.
     ///
-    /// Offline is a normal lifecycle state for a laptop, so relay-policy and
-    /// endpoint recovery work is parked until the next usable path. Returning
-    /// online cancels any stale wait and re-enters the existing single-flight
-    /// refresh/reconcile paths immediately.
+    /// Offline is a normal lifecycle state for a laptop, so broker refresh and
+    /// endpoint recovery work is parked until the next usable path. The
+    /// relay-policy task remains alive when a signed policy has an expiry
+    /// deadline: it must still remove expired relay authority while the host is
+    /// offline. Returning online cancels any stale broker wait and re-enters
+    /// the existing single-flight refresh/reconcile paths immediately.
     func handleNetworkReachabilityChange(_ isReachable: Bool) {
         relayPolicyNetworkReachable = isReachable
         diagnosticLog.record(DiagnosticEvent(
@@ -16,13 +18,9 @@ extension MobileHostIrohRuntime {
         ))
 
         guard isReachable else {
-            // The active refresh checks this flag after every suspension and
-            // exits without arming another timer. Cancelling the task also
-            // releases a clock wait promptly when the path drops during the
-            // backoff interval.
-            relayPolicyRefreshTask?.cancel()
-            relayPolicyRefreshTask = nil
-            relayPolicyRefreshTaskID = nil
+            // Keep the refresh task's local expiry deadline. Its offline branch
+            // performs only the local deactivation at policy expiry; no broker
+            // request or retry is attempted until a reachable-path callback.
             if let revision = serverSignalRefreshRevision {
                 serverSignalPendingRevision = max(
                     serverSignalPendingRevision ?? revision,

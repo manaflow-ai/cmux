@@ -176,6 +176,30 @@ import Testing
         #expect(attempt == retryAt)
     }
 
+    @Test func offlineRelayPolicyKeepsALocalExpiryDeadline() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let futureExpiry = now.addingTimeInterval(300)
+
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: futureExpiry,
+                now: now
+            ) == futureExpiry
+        )
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: now.addingTimeInterval(-1),
+                now: now
+            ) == now
+        )
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: nil,
+                now: now
+            ) == nil
+        )
+    }
+
     @Test func activationAllowsUnknownInitialPathButBlocksKnownOffline() {
         #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: nil))
         #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: false))

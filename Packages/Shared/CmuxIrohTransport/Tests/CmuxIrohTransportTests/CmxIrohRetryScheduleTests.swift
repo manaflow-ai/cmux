@@ -91,6 +91,7 @@ struct CmxIrohRetryScheduleTests {
     @Test
     func macHostRelayPolicyStartsSlowAndCapsAtAnIdleCadence() {
         let schedule = CmxIrohRetrySchedule.macHostRelayPolicy
+        #expect(CmxIrohRetrySchedule().maximumDelay < schedule.maximumDelay)
         #expect(schedule.delay(
             failureCount: 0,
             retryAfterSeconds: nil,

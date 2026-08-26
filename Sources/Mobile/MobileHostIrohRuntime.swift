@@ -150,7 +150,11 @@ final class MobileHostIrohRuntime {
     var retryInspectionRevision: UInt64 = 0
     var failureRecoveryFailureCount = 0
     var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
-    var failureRecoverySchedule = CmxIrohRetrySchedule.macHostRelayPolicy
+    /// Terminal endpoint recovery remains on the short host-runtime ladder.
+    /// Relay-policy refreshes select their longer broker-specific schedule in
+    /// `scheduleRelayPolicyRefresh`; keeping this profile separate prevents a
+    /// broker outage from stranding endpoint activation for hours.
+    var failureRecoverySchedule = CmxIrohRetrySchedule()
     var failureRecoveryJitter: @Sendable () -> Double = {
         Double.random(in: 0 ... 1)
     }
