@@ -204,24 +204,58 @@ jobs:
           done
 
       - name: Publish relay launcher package
+        id: launcher
         env:
           DIST_TAG: ${{ needs.version.outputs.dist_tag }}
-        run: npm publish --provenance --access public --tag "$DIST_TAG" dist/npm-packages/cmux-relay
+        run: |
+          set -euo pipefail
+          if npm publish --provenance --access public --tag "$DIST_TAG" dist/npm-packages/cmux-relay; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$DIST_TAG" == "next" ]]; then
+            # Pre-R5 rc era: npm allows one trusted publisher per package and
+            # the cmux-relay launcher's publisher stays with the chatmux Node
+            # lane until the R5 owner switch (chatmux docs/RELAY-RUST.md). rc
+            # launcher publishes fail here until then; the platform packages
+            # above are the rc gate, and the launcher is smoke-tested from the
+            # local tarball against the registry platform packages instead.
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::cmux-relay launcher publish failed on an rc tag; running the local-tarball smoke instead (expected until the R5 trusted-publisher switch)."
+          else
+            echo "stable cmux-relay publish failed: move the cmux-relay trusted publisher to this repository before the first stable cmux-relay-vX.Y.Z tag." >&2
+            exit 1
+          fi
 
       - name: Smoke install from the registry
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          LAUNCHER_PUBLISHED: ${{ steps.launcher.outputs.published }}
         run: |
           set -euo pipefail
-          # Registry propagation can lag the publish by a few seconds.
-          for attempt in $(seq 1 10); do
-            if npm install -g "cmux-relay@$VERSION"; then
-              break
-            fi
-            if [[ "$attempt" == "10" ]]; then
-              echo "npm install -g cmux-relay@$VERSION never resolved" >&2
-              exit 1
-            fi
-            sleep 15
-          done
+          if [[ "$LAUNCHER_PUBLISHED" == "true" ]]; then
+            # Registry propagation can lag the publish by a few seconds.
+            for attempt in $(seq 1 10); do
+              if npm install -g "cmux-relay@$VERSION"; then
+                break
+              fi
+              if [[ "$attempt" == "10" ]]; then
+                echo "npm install -g cmux-relay@$VERSION never resolved" >&2
+                exit 1
+              fi
+              sleep 15
+            done
+          else
+            # rc-era fallback: local launcher package, registry platform
+            # packages. npm still resolves the exact-version platform
+            # dependency from the registry, so this smokes the published rc.
+            for attempt in $(seq 1 10); do
+              if npm install -g ./dist/npm-packages/cmux-relay; then
+                break
+              fi
+              if [[ "$attempt" == "10" ]]; then
+                echo "local cmux-relay install never resolved its registry platform package" >&2
+                exit 1
+              fi
+              sleep 15
+            done
+          fi
           cmux-relay --version
