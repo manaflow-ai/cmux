@@ -133,6 +133,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             )
         }
         let isComplete = !state.budget.didExhaustBudget
+            && !state.didEncounterUnsafeInclude
         return (
             state.configURLs,
             state.referenceStorageName,
@@ -203,7 +204,9 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 continue
             }
             guard state.budget.canReservePath() else { return }
-            guard !includeConditionalPathsForWatch || isSafeConfigWatchPath(includeURL) else {
+            if includeConditionalPathsForWatch,
+               !isSafeConfigWatchPath(includeURL) {
+                state.didEncounterUnsafeInclude = true
                 continue
             }
             processConfig(at: includeURL, state: &state)
