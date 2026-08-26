@@ -447,7 +447,8 @@ public struct ClaudeTaskSnapshotLoader {
         try operationDeadline.check()
         guard let record = try? decoder.decode(ClaudeTaskRecord.self, from: data) else { return false }
         guard record.id == identity.id,
-              record.subject == identity.subject else { return false }
+              record.subject == identity.subject,
+              record.canonicalState != nil else { return false }
         try validateTaskText(record.subject, field: "subject", fileURL: fileURL)
         return true
     }

@@ -4213,12 +4213,15 @@ final class ClaudeHookSessionStore {
     /// multi-turn continuations can proceed after Stop clears the active turn.
     /// ``allowEndedSession`` is reserved for SessionEnd after the exact record
     /// has been consumed; the active surface/workspace proof still gates cleanup.
+    /// When supplied, ``expectedSessionStartedAt`` keeps cleanup tied to the
+    /// consumed generation even if a new SessionStart reuses its session id.
     func isCurrent(
         sessionId: String?,
         workspaceId: String,
         surfaceId: String? = nil,
         turnId: String? = nil,
-        allowEndedSession: Bool = false
+        allowEndedSession: Bool = false,
+        expectedSessionStartedAt: TimeInterval? = nil
     ) throws -> Bool {
         guard let normalizedSessionId = normalizeOptional(sessionId),
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
@@ -4229,6 +4232,17 @@ final class ClaudeHookSessionStore {
                     || (state.endedSessionIDs[normalizedSessionId] == nil
                         && state.endedSessionGenerationStarts[normalizedSessionId] == nil) else {
                 return false
+            }
+            if let expectedSessionStartedAt {
+                if let currentRecord = state.sessions[normalizedSessionId] {
+                    guard currentRecord.startedAt == expectedSessionStartedAt else {
+                        return false
+                    }
+                } else {
+                    // A consumed SessionEnd has no live record. Other callers
+                    // must not use a missing record as proof of a generation.
+                    guard allowEndedSession else { return false }
+                }
             }
             // The pane's own active boundary decides first: a hook is stale when a
             // DIFFERENT session was promoted in the SAME surface (post-/clear or
@@ -30124,7 +30138,8 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: cleanupSurfaceId,
                     telemetry: telemetry,
-                    allowEndedSession: true
+                    allowEndedSession: true,
+                    expectedSessionStartedAt: consumedSession.startedAt
                 )
                 let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -30477,7 +30492,8 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String?,
         telemetry: CLISocketSentryTelemetry,
-        allowEndedSession: Bool = false
+        allowEndedSession: Bool = false,
+        expectedSessionStartedAt: TimeInterval? = nil
     ) -> Bool {
         shouldApplyClaudeHookVisibleMutation(
             sessionStore: sessionStore,
@@ -30486,7 +30502,8 @@ struct CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             telemetry: telemetry,
-            allowEndedSession: allowEndedSession
+            allowEndedSession: allowEndedSession,
+            expectedSessionStartedAt: expectedSessionStartedAt
         )
     }
 
@@ -30497,7 +30514,8 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceId: String?,
         telemetry: CLISocketSentryTelemetry,
-        allowEndedSession: Bool = false
+        allowEndedSession: Bool = false,
+        expectedSessionStartedAt: TimeInterval? = nil
     ) -> Bool {
         do {
             return try sessionStore.isCurrent(
@@ -30505,7 +30523,8 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 turnId: turnId,
-                allowEndedSession: allowEndedSession
+                allowEndedSession: allowEndedSession,
+                expectedSessionStartedAt: expectedSessionStartedAt
             )
         } catch {
             telemetry.breadcrumb(

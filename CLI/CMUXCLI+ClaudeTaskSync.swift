@@ -500,26 +500,46 @@ extension CMUXCLI {
                             workspaceIDs: cleanupWorkspaceIDs,
                             deadlineUptime: hookDeadlineUptime
                         )
+                        guard taskSyncIsLatest() else {
+                            telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                            return
+                        }
                         try sessionStore.retainClaudeTeamTaskBindingWorkspaces(
                             cleanup.retainedWorkspaceIDs,
                             for: previouslyBoundRecord.binding
                         )
                         if cleanup.succeeded {
+                            guard taskSyncIsLatest() else {
+                                telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                                return
+                            }
                             try sessionStore.retireClaudeTaskList(
                                 taskListID: previouslyBoundRecord.binding.taskListID,
                                 taskStoreIdentity: taskStoreIdentity
                             )
                             if let bindingTaskStoreIdentity = previouslyBoundRecord.binding.taskStoreIdentity,
                                bindingTaskStoreIdentity != taskStoreIdentity {
+                                guard taskSyncIsLatest() else {
+                                    telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                                    return
+                                }
                                 try sessionStore.retireClaudeTaskList(
                                     taskListID: previouslyBoundRecord.binding.taskListID,
                                     taskStoreIdentity: bindingTaskStoreIdentity
                                 )
                             }
+                            guard taskSyncIsLatest() else {
+                                telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                                return
+                            }
                             try sessionStore.clearClaudeTaskDirectoryBindings(
                                 directoryName: previouslyBoundRecord.binding.taskListID,
                                 taskStoreIdentity: previouslyBoundRecord.binding.taskStoreIdentity
                             )
+                            guard taskSyncIsLatest() else {
+                                telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                                return
+                            }
                             try sessionStore.removeClaudeTeamTaskListBinding(
                                 previouslyBoundRecord.binding
                             )
@@ -678,12 +698,20 @@ extension CMUXCLI {
                         reconciliationWorkspaceIDs: destinationWorkspaceIDs,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     try persistClaudeTaskListDestinations(
                         taskDirectoryName: snapshot.directoryName,
                         taskStoreIdentity: taskStoreIdentity,
                         retainedWorkspaceIDs: delivery.retainedWorkspaceIDs,
                         sessionStore: sessionStore
                     )
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     guard try markLegacyClaudeTaskChecklistOwnerMigratedIfNeeded(
                         currentRecord: currentRecord,
                         sessionID: sessionID,
@@ -761,6 +789,10 @@ extension CMUXCLI {
                             workspaceIDs: retiredWorkspaceIDs,
                             deadlineUptime: hookDeadlineUptime
                         ).succeeded else { return }
+                    }
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
                     }
                     let teamBindingBeforeCommit = try sessionStore.claudeTeamTaskBindingRecord(
                         taskListID: snapshot.directoryName,
@@ -854,10 +886,18 @@ extension CMUXCLI {
                         reconciliationWorkspaceIDs: teamWorkspaceIDs,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     try sessionStore.retainClaudeTeamTaskBindingWorkspaces(
                         delivery.retainedWorkspaceIDs,
                         for: automaticTeamResolution.binding
                     )
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     guard try markLegacyClaudeTaskChecklistOwnerMigratedIfNeeded(
                         currentRecord: currentRecord,
                         sessionID: sessionID,
@@ -1146,6 +1186,10 @@ extension CMUXCLI {
                       delivery.retainedWorkspaceIDs.contains(normalizedWorkspaceID) else {
                     return
                 }
+                guard taskSyncIsLatest() else {
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                    return
+                }
                 guard clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
                     currentRecord: currentRecord,
                     taskDirectoryName: sessionSnapshot.directoryName,
@@ -1156,12 +1200,20 @@ extension CMUXCLI {
                     telemetry: telemetry,
                     deadlineUptime: hookDeadlineUptime
                 ) else { return }
+                guard taskSyncIsLatest() else {
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                    return
+                }
                 try persistClaudeTaskListDestinations(
                     taskDirectoryName: sessionSnapshot.directoryName,
                     taskStoreIdentity: taskStoreIdentity,
                     retainedWorkspaceIDs: retainedPersonalWorkspaceIDs,
                     sessionStore: sessionStore
                 )
+                guard taskSyncIsLatest() else {
+                    telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                    return
+                }
                 guard try markLegacyClaudeTaskChecklistOwnerMigratedIfNeeded(
                     currentRecord: currentRecord,
                     sessionID: sessionID,
@@ -1169,6 +1221,10 @@ extension CMUXCLI {
                     sessionStore: sessionStore,
                 ) else { return }
                 if let deferredAutomaticTeamCleanup {
+                    guard taskSyncIsLatest() else {
+                        telemetry.breadcrumb("claude-hook.task-sync.coalesced")
+                        return
+                    }
                     // The personal replacement is durable before the
                     // superseded team owner is retried. Keep the old proof
                     // when cleanup fails so a later hook can retry without
