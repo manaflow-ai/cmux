@@ -27,22 +27,27 @@ extension GitMetadataService {
             deadline: deadline
         )
         let output: String?
+        let remoteReadFailed: Bool
         if traversalResult.isComplete {
             output = traversalResult.output
+            remoteReadFailed = false
         } else if traversalResult.isUnsafe {
             output = nil
+            remoteReadFailed = true
         } else {
             output = await gitRemoteVFallback(
                 repository: repository,
                 deadline: deadline
             )
+            remoteReadFailed = output == nil
         }
         let repositorySlugs = output.map {
             Self.githubRepositorySlugs(fromGitRemoteVOutput: $0)
         } ?? []
         return GitRepositoryDiscoverySnapshot(
             repositorySlugs: repositorySlugs,
-            checkedOutBranch: references.checkedOutBranch
+            checkedOutBranch: references.checkedOutBranch,
+            remoteReadFailed: remoteReadFailed
         )
     }
 

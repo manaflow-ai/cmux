@@ -3,8 +3,16 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-private nonisolated struct AlwaysExecutableGitProbe: GitExecutableFileProbing {
-    func isExecutableFile(atPath _: String) -> Bool { true }
+private nonisolated struct UserPathGitProbe: GitExecutableFileProbing {
+    func isExecutableFile(atPath path: String) -> Bool {
+        path == "/Users/cmux-tests/.local/bin/git"
+    }
+}
+
+private nonisolated struct SystemGitOnlyProbe: GitExecutableFileProbing {
+    func isExecutableFile(atPath path: String) -> Bool {
+        path == "/usr/bin/git" || path == "/Library/Developer/CommandLineTools/usr/bin/git"
+    }
 }
 
 private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
@@ -18,12 +26,26 @@ private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
             environment: [
                 "PATH": "\(userGitDirectory):/nix/var/nix/profiles/default/bin:/Applications/Xcode.app/Contents/Developer/usr/bin",
             ],
-            fileProbe: AlwaysExecutableGitProbe()
+            fileProbe: UserPathGitProbe()
         )
 
         let candidates = resolver.referenceExecutableURLs().map(\.path)
 
         #expect(candidates.contains(userGitDirectory + "/git"))
+    }
+
+    @Test func referenceResolverRetainsSystemFallbackSlots() {
+        let resolver = SystemGitExecutableResolver(
+            environment: [
+                "PATH": "/Users/cmux-tests/one:/Users/cmux-tests/two:/Users/cmux-tests/three",
+            ],
+            fileProbe: SystemGitOnlyProbe()
+        )
+
+        let candidates = resolver.referenceExecutableURLs().map(\.path)
+
+        #expect(candidates.contains("/usr/bin/git"))
+        #expect(candidates.contains("/Library/Developer/CommandLineTools/usr/bin/git"))
     }
 
     @Test func failedReftablePlumbingRemainsMarkedAsPlumbing() throws {

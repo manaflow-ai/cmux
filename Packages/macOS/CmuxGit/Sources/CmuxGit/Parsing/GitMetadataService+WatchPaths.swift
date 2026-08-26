@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -23,7 +24,8 @@ extension GitMetadataService {
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         configPathsByRepository: [String: [String]]? = nil,
         metadataSentinelPathsByRepository: [String: [String]]? = nil,
-        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil
+        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
+        deadline: DispatchTime? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
@@ -36,7 +38,8 @@ extension GitMetadataService {
             repository: repository,
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: configPathsByRepository,
-            indexSnapshotsByRepository: indexSnapshotsByRepository
+            indexSnapshotsByRepository: indexSnapshotsByRepository,
+            deadline: deadline
         )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexExists = FileManager.default.fileExists(atPath: indexPath)
@@ -53,7 +56,10 @@ extension GitMetadataService {
                ) == cached.signature {
                 cached
             } else {
-                gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath))
+                gitIndexSnapshot(
+                    indexURL: URL(fileURLWithPath: indexPath),
+                    deadline: deadline
+                )
             }
         } else {
             nil
@@ -197,7 +203,8 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration,
         configPathsByRepository: [String: [String]]? = nil,
-        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil
+        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
+        deadline: DispatchTime? = nil
     ) -> [String] {
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
         return gitlinkMetadataWatchPaths(
@@ -206,7 +213,8 @@ extension GitMetadataService {
             visitedWorkTreeRoots: &visitedWorkTreeRoots,
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: configPathsByRepository,
-            indexSnapshotsByRepository: indexSnapshotsByRepository
+            indexSnapshotsByRepository: indexSnapshotsByRepository,
+            deadline: deadline
         )
     }
 
@@ -216,9 +224,11 @@ extension GitMetadataService {
         visitedWorkTreeRoots: inout Set<String>,
         safetyConfiguration: GitMetadataSafetyConfiguration,
         configPathsByRepository: [String: [String]]?,
-        indexSnapshotsByRepository: [String: GitIndexSnapshot]?
+        indexSnapshotsByRepository: [String: GitIndexSnapshot]?,
+        deadline: DispatchTime?
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
+        if let deadline, deadline <= DispatchTime.now() { return [] }
         if let indexSnapshotsByRepository,
            indexSnapshotsByRepository[repository.workTreeRoot] == nil {
             // The aggregate planner did not finish this child before its
@@ -266,7 +276,8 @@ extension GitMetadataService {
                     visitedWorkTreeRoots: &visitedWorkTreeRoots,
                     safetyConfiguration: safetyConfiguration,
                     configPathsByRepository: configPathsByRepository,
-                    indexSnapshotsByRepository: indexSnapshotsByRepository
+                    indexSnapshotsByRepository: indexSnapshotsByRepository,
+                    deadline: deadline
                 )
             )
         }

@@ -19,6 +19,7 @@ extension GitMetadataService {
             deadline: deadline
         )
         return GitMetadataWatchInputs(
+            deadline: deadline,
             configPathsByRepository: result.paths,
             metadataSentinelPathsByRepository: result.metadataSentinels,
             indexSnapshotsByRepository: result.indexSnapshots,
@@ -88,12 +89,11 @@ extension GitMetadataService {
             forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
-        let configTraversal = GitConfigBranchTraversal(
+        let configTraversal = await watchPathResult(
             repository: repository,
             branchContext: branchContext,
-            includeConditionalPathsForWatch: true,
             deadline: deadline
-        ).watchPathResult()
+        )
         pathsByRepository[repository.workTreeRoot] = configTraversal.paths
             + references.storageWatchPaths
         metadataSentinelsByRepository[repository.workTreeRoot] = configTraversal.metadataSentinelPaths
@@ -109,34 +109,31 @@ extension GitMetadataService {
         }
 
         if configTraversal.objectFormatSHA256 != false {
-            var fallbackRemainingRepositoryCount = remainingRepositoryCount
-            var fallbackVisitedRoots: Set<String> = []
-            var fallbackForcedRoots: Set<String> = []
-            pathsByRepository[repository.workTreeRoot, default: []].append(contentsOf:
-                gitmodulesFallbackMetadataPaths(
-                    repository: repository,
-                    depth: 0,
-                    safetyConfiguration: safetyConfiguration,
-                    deadline: deadline,
-                    remainingRepositoryCount: &fallbackRemainingRepositoryCount,
-                    visitedRoots: &fallbackVisitedRoots,
-                    forcedRoots: &fallbackForcedRoots
-                )
+            let fallback = await gitmodulesFallbackMetadataPathsBlocking(
+                repository: repository,
+                safetyConfiguration: safetyConfiguration,
+                deadline: deadline,
+                remainingRepositoryCount: remainingRepositoryCount
             )
+            pathsByRepository[repository.workTreeRoot, default: []].append(contentsOf: fallback.paths)
             forceWorkTreeRoots.insert(repository.workTreeRoot)
-            forceWorkTreeRoots.formUnion(fallbackForcedRoots)
-            visitedRoots.formUnion(fallbackVisitedRoots)
-            remainingRepositoryCount = fallbackRemainingRepositoryCount
+            forceWorkTreeRoots.formUnion(fallback.forcedRoots)
+            visitedRoots.formUnion(fallback.visitedRoots)
+            remainingRepositoryCount = fallback.remainingRepositoryCount
             return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
-        guard let header = Self.gitIndexHeaderSummary(indexPath: indexPath),
+        let indexResult = await watchIndexSnapshot(
+            indexPath: indexPath,
+            deadline: deadline,
+            maximumEntryCount: safetyConfiguration.trackedEventPathCount,
+            maximumFileByteCount: safetyConfiguration.directIndexByteCount
+        )
+        guard let header = indexResult.header,
               header.entryCount <= safetyConfiguration.trackedEventPathCount,
               header.fileByteCount <= Int64(safetyConfiguration.directIndexByteCount),
-              let indexSnapshot = Self.gitIndexSnapshot(
-                  indexURL: URL(fileURLWithPath: indexPath)
-              ) else {
+              let indexSnapshot = indexResult.snapshot else {
             return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         // Reuse the parse in the descriptor itself. Child snapshots retain only
@@ -228,7 +225,8 @@ extension GitMetadataService {
         guard depth < safetyConfiguration.submoduleDepth,
               remainingRepositoryCount > 0,
               !visitedRoots.contains(repository.workTreeRoot),
-              deadline > DispatchTime.now() else { return [] }
+              deadline > DispatchTime.now(),
+              !WorkspaceChangesCancellationSignal.isCurrentCancelled else { return [] }
         remainingRepositoryCount -= 1
         visitedRoots.insert(repository.workTreeRoot)
         let gitmodulesURL = URL(fileURLWithPath: repository.workTreeRoot)
@@ -244,7 +242,9 @@ extension GitMetadataService {
         var paths: [String] = [gitmodulesURL.path]
         var inSubmoduleSection = false
         for rawLine in contents.split(whereSeparator: \.isNewline) {
-            guard remainingRepositoryCount > 0, deadline > DispatchTime.now() else { break }
+            guard remainingRepositoryCount > 0,
+                  deadline > DispatchTime.now(),
+                  !WorkspaceChangesCancellationSignal.isCurrentCancelled else { break }
             let line = GitMetadataService.gitConfigLineRemovingInlineComment(String(rawLine))
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
@@ -289,6 +289,137 @@ extension GitMetadataService {
         }
         var seen: Set<String> = []
         return paths.filter { seen.insert($0).inserted }
+    }
+
+    /// Runs the bounded config parser on the dedicated blocking-I/O lane.
+    private nonisolated func watchPathResult(
+        repository: ResolvedGitRepository,
+        branchContext: GitConfigBranchContext,
+        deadline: DispatchTime
+    ) async -> GitConfigBranchTraversal.WatchPathResult {
+        let traversal = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: branchContext,
+            includeConditionalPathsForWatch: true,
+            deadline: deadline
+        )
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let result = cancellationSignal.withCurrentBinding {
+                        traversal.watchPathResult()
+                    }
+                    continuation.resume(returning: result)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
+    }
+
+    /// Reads and parses one bounded index on the blocking-I/O lane.
+    private nonisolated func watchIndexSnapshot(
+        indexPath: String,
+        deadline: DispatchTime,
+        maximumEntryCount: Int,
+        maximumFileByteCount: Int
+    ) async -> (header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?) {
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let result = cancellationSignal.withCurrentBinding {
+                        guard deadline > DispatchTime.now() else { return (nil, nil) }
+                        let header = Self.gitIndexHeaderSummary(indexPath: indexPath)
+                        let snapshot = header.flatMap { header in
+                            guard header.entryCount <= maximumEntryCount,
+                                  header.fileByteCount <= Int64(maximumFileByteCount) else {
+                                return nil
+                            }
+                            return Self.gitIndexSnapshot(
+                                indexURL: URL(fileURLWithPath: indexPath),
+                                deadline: deadline
+                            )
+                        }
+                        return (header, snapshot)
+                    }
+                    continuation.resume(returning: result)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
+    }
+
+    /// Runs SHA-256 `.gitmodules` fallback discovery without occupying the
+    /// cooperative executor and returns the consumed shared budget.
+    private nonisolated func gitmodulesFallbackMetadataPathsBlocking(
+        repository: ResolvedGitRepository,
+        safetyConfiguration: GitMetadataSafetyConfiguration,
+        deadline: DispatchTime,
+        remainingRepositoryCount: Int
+    ) async -> (
+        paths: [String],
+        forcedRoots: Set<String>,
+        visitedRoots: Set<String>,
+        remainingRepositoryCount: Int
+    ) {
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let result = cancellationSignal.withCurrentBinding {
+                        var remaining = remainingRepositoryCount
+                        var visited: Set<String> = []
+                        var forced: Set<String> = []
+                        let paths = gitmodulesFallbackMetadataPaths(
+                            repository: repository,
+                            depth: 0,
+                            safetyConfiguration: safetyConfiguration,
+                            deadline: deadline,
+                            remainingRepositoryCount: &remaining,
+                            visitedRoots: &visited,
+                            forcedRoots: &forced
+                        )
+                        return (paths, forced, visited, remaining)
+                    }
+                    continuation.resume(returning: result)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
+    }
+
+    /// Builds the final descriptor on the blocking-I/O lane. The static
+    /// descriptor builder performs bounded index/stat reads and must not occupy
+    /// a cooperative executor thread.
+    nonisolated func watchDescriptorBlocking(
+        for directory: String,
+        safetyConfiguration: GitMetadataSafetyConfiguration,
+        watchInputs: GitMetadataWatchInputs
+    ) async -> GitWorkspaceMetadataWatchDescriptor? {
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let descriptor = cancellationSignal.withCurrentBinding {
+                        Self.workspaceGitMetadataWatchDescriptor(
+                            for: directory,
+                            safetyConfiguration: safetyConfiguration,
+                            configPathsByRepository: watchInputs.configPathsByRepository,
+                            metadataSentinelPathsByRepository: watchInputs.metadataSentinelPathsByRepository,
+                            indexSnapshotsByRepository: watchInputs.indexSnapshotsByRepository,
+                            deadline: watchInputs.deadline
+                        )
+                    }
+                    continuation.resume(returning: descriptor)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
     }
 
     private nonisolated func conservativeRepositoryMetadataPaths(

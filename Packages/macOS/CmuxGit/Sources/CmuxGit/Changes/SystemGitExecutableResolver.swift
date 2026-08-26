@@ -52,15 +52,10 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         if let searchPath = environment["PATH"] {
             for entry in searchPath.split(separator: ":") {
                 guard entry.first == "/" else { continue }
-                guard entry.hasPrefix("/usr/")
-                    || entry.hasPrefix("/opt/")
-                    || entry.hasPrefix("/Library/") else {
-                    continue
-                }
                 let path = URL(fileURLWithPath: String(entry), isDirectory: true)
                     .appendingPathComponent("git", isDirectory: false)
                     .path
-                guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
+                guard appendCandidate(atPath: path, to: &result, seen: &seen) else { continue }
                 if result.count == Self.maximumCandidateCount { return result }
             }
         }
@@ -81,7 +76,11 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
     func referenceExecutableURLs() -> [URL] {
         var result: [URL] = []
         var seen: Set<String> = []
-        for path in Self.preferredGitPaths {
+        let maximumUserCandidateCount = max(
+            0,
+            Self.maximumReferenceCandidateCount - Self.systemGitPaths.count
+        )
+        for path in Self.preferredGitPaths where result.count < maximumUserCandidateCount {
             guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
         }
         if let searchPath = environment["PATH"] {
@@ -92,12 +91,12 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
                     .path
                 // Reference probing deliberately honors absolute user PATH
                 // entries (asdf/mise shims, Nix, ~/.local/bin, or an Xcode
-                // bundle). The candidate count and regular-executable probe
-                // keep this bounded; ordinary status commands still use the
-                // known-safe candidate set above.
+                // bundle). The candidate count keeps this bounded; these
+                // candidates are validated when a bounded command is spawned.
                 guard !Self.systemGitPaths.contains(path) else { continue }
-                guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
-                if result.count == Self.maximumReferenceCandidateCount {
+                guard result.count < maximumUserCandidateCount,
+                      appendCandidate(atPath: path, to: &result, seen: &seen) else { continue }
+                if result.count == maximumUserCandidateCount {
                     break
                 }
             }
@@ -110,6 +109,20 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
             result.append(URL(fileURLWithPath: "/usr/bin/git"))
         }
         return Array(result.prefix(Self.maximumReferenceCandidateCount))
+    }
+
+    /// Adds an absolute candidate without touching the filesystem. PATH entries
+    /// are validated when the bounded Git process is spawned, keeping resolver
+    /// construction safe even when PATH names an unavailable mount.
+    private func appendCandidate(
+        atPath path: String,
+        to result: inout [URL],
+        seen: inout Set<String>
+    ) -> Bool {
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard seen.insert(standardizedPath).inserted else { return false }
+        result.append(URL(fileURLWithPath: standardizedPath))
+        return true
     }
 
     private func appendExecutable(

@@ -202,12 +202,10 @@ public struct GitMetadataService: Sendable {
             repository: repository,
             safetyConfiguration: safetyConfiguration
         )
-        guard let descriptor = Self.workspaceGitMetadataWatchDescriptor(
+        guard let descriptor = await watchDescriptorBlocking(
             for: directory,
             safetyConfiguration: safetyConfiguration,
-            configPathsByRepository: watchInputs.configPathsByRepository,
-            metadataSentinelPathsByRepository: watchInputs.metadataSentinelPathsByRepository,
-            indexSnapshotsByRepository: watchInputs.indexSnapshotsByRepository
+            watchInputs: watchInputs
         ) else {
             return nil
         }

@@ -58,13 +58,14 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     /// Returns bounded config paths plus completion state for watcher planning.
     func watchPathResult() -> WatchPathResult {
         let result = traverse()
-        var paths = result.configURLs.map { $0.standardizedFileURL.path }
         let metadataSentinelPaths = Array(Set(result.missingConfigPaths))
             .sorted()
             .prefix(Self.maximumIncludedFileCount)
         let metadataSentinelParentPaths = Array(Set(result.missingConfigParentPaths))
             .sorted()
             .prefix(Self.maximumIncludedFileCount)
+        var paths = Array(metadataSentinelParentPaths)
+            + result.configURLs.map { $0.standardizedFileURL.path }
         let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
             .appendingPathComponent("config.worktree")
             .standardizedFileURL
@@ -87,7 +88,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             // but config.worktree has not been created yet.
             paths.append(contentsOf: rootWatchPaths)
         }
-        paths.append(contentsOf: metadataSentinelParentPaths)
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
         return WatchPathResult(
@@ -256,6 +256,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         // Preserve the path-qualified form for backend selection while using
         // the separately normalized name for path handling below.
         state.referenceStorageName = value.lowercased()
+        guard includeConditionalPathsForWatch else { return }
         var payload = String(value[value.index(after: separator)...])
         if payload.hasPrefix("//") {
             payload.removeFirst(2)
@@ -268,87 +269,16 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 .appendingPathComponent(payload)
                 .standardizedFileURL.path
         }
-        if isSafeReferenceStoragePath(
-            path,
-            storageName: storageName
-        ) {
-            let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
-                .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-            if roots.contains(where: { root in
-                path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
-            }) {
-                state.referenceStoragePaths.append(path)
-            } else {
-                let externalRoot = URL(fileURLWithPath: path)
-                if storageName == "reftable" {
-                    appendExternalWatchPath(
-                        externalRoot.appendingPathComponent("tables.list"),
-                        state: &state
-                    )
-                } else {
-                    appendExternalFilesWatchPaths(
-                        root: externalRoot,
-                        state: &state
-                    )
-                }
-            }
-        }
-    }
-
-    private func isSafeReferenceStoragePath(_ path: String, storageName: String) -> Bool {
-        guard path != "/" else { return false }
-        let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
-            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-        let isInRepository = roots.contains(where: { root in
-            path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
-        })
-        if isInRepository {
-            return true
-        }
-        guard storageName == "reftable" || storageName == "files" else { return false }
-        let rootURL = URL(fileURLWithPath: path)
-        return configReader.isLocalDirectory(at: rootURL, deadline: deadline)
-    }
-
-    /// Adds a regular external marker or its bounded local parent sentinel.
-    private func appendExternalWatchPath(
-        _ targetURL: URL,
-        state: inout GitConfigTraversalState,
-        allowParentSentinel: Bool = true
-    ) {
-        let target = targetURL.standardizedFileURL
-        if configReader.isLocalRegularFile(at: target, deadline: deadline) {
-            state.referenceStoragePaths.append(target.path)
-            return
-        }
-        guard allowParentSentinel else { return }
-        let parent = target.deletingLastPathComponent()
-        guard configReader.isLocalDirectory(at: parent, deadline: deadline) else { return }
-        state.referenceStoragePaths.append(parent.path)
-    }
-
-    /// Watches only the current loose branch ref plus packed-refs for an
-    /// external files store; never recursively watches the arbitrary store root.
-    private func appendExternalFilesWatchPaths(
-        root: URL,
-        state: inout GitConfigTraversalState
-    ) {
-        if let branch = branchContext.branchName(for: repository, deadline: deadline) {
-            let refRoot = root.appendingPathComponent("refs", isDirectory: true)
-            let branchRef = refRoot
-                .appendingPathComponent("heads", isDirectory: true)
-                .appendingPathComponent(branch, isDirectory: false)
-                .standardizedFileURL
-            let refRootPath = refRoot.standardizedFileURL.path
-            if branchRef.path.hasPrefix(refRootPath + "/") {
-                appendExternalWatchPath(branchRef, state: &state)
-            }
-        }
-        appendExternalWatchPath(
-            root.appendingPathComponent("packed-refs", isDirectory: false),
-            state: &state,
-            allowParentSentinel: false
+        let planner = GitConfigReferenceStorageWatchPlanner(
+            repository: repository,
+            branchContext: branchContext,
+            configReader: configReader,
+            deadline: deadline
         )
+        state.referenceStoragePaths.append(contentsOf: planner.watchPaths(
+            storageName: storageName,
+            path: path
+        ))
     }
 
     /// Finds a local repository-owned parent for a missing optional include.

@@ -211,6 +211,31 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(descriptor.containsRelevantChange(paths: [missingURL.path]))
     }
 
+    @Test func missingExternalReferenceMarkerDoesNotWatchExternalRoot() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let externalRoot = fixture.root.deletingLastPathComponent()
+            .appendingPathComponent("cmuxgit-empty-ref-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: externalRoot) }
+        try fixture.writeConfig("""
+        [extensions]
+            refStorage = reftable:\(externalRoot.path)
+        """)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let result = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .resolved("main"),
+            includeConditionalPathsForWatch: true
+        ).watchPathResult()
+
+        #expect(!result.paths.contains(externalRoot.path))
+        #expect(!result.paths.contains(externalRoot.appendingPathComponent("tables.list").path))
+    }
+
     @Test func appliesIncludesInPlace() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

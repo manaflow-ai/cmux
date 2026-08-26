@@ -10,10 +10,13 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
     private let wallTimeLimit: TimeInterval
 
     /// Creates a production selector from bounded PATH/system candidates.
+    /// Set `probesReferenceFormat` to `false` for commands such as `status`
+    /// that must work with older Git versions and do not need backend probing.
     init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         wallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime,
-        isolateRepositoryConfig: Bool = true
+        isolateRepositoryConfig: Bool = true,
+        probesReferenceFormat: Bool = true
     ) {
         let resolver = SystemGitExecutableResolver(environment: environment)
         self.runners = resolver.referenceExecutableURLs().map { executableURL in
@@ -24,7 +27,7 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
                 isolateRepositoryConfig: isolateRepositoryConfig
             ) as any WorkspaceChangesGitRunning
         }
-        self.probesReferenceFormat = true
+        self.probesReferenceFormat = probesReferenceFormat
         self.wallTimeLimit = max(0, wallTimeLimit)
     }
 

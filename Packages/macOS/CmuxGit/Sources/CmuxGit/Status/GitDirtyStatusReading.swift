@@ -18,7 +18,8 @@ struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
             // filters (for example Git LFS). Only repository-selection
             // variables are stripped by the runner; reference plumbing uses
             // isolated mode to avoid unrelated global config.
-            isolateRepositoryConfig: false
+            isolateRepositoryConfig: false,
+            probesReferenceFormat: false
         )
     }
 
