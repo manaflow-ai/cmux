@@ -109,6 +109,106 @@ struct CmxIrohClientRuntimeTests {
         await runtime.stop()
     }
 
+    /// A fresh endpoint (no cached binding) must not dial a managed,
+    /// admission-gated relay before its broker registration is acknowledged:
+    /// the relay's allow hook denies an unregistered endpoint and negatively
+    /// caches the deny, costing the whole first activation. The endpoint
+    /// binds relay-less and the managed relays are installed only after
+    /// registration returns.
+    @Test
+    func freshEndpointWithholdsManagedRelaysUntilRegistrationIsAcknowledged() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let discovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 2
+        )
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [discovery],
+            blockedRegistrationCount: 1,
+            embedInitialDiscovery: true,
+            registrationRevision: 1
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        let start = Task { try await runtime.start() }
+        await broker.waitUntilRegistrationCount(1)
+        // The endpoint is bound and its registration is held in flight: no
+        // managed relay may be installed yet.
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(boundConfigurations.first?.relayProfile.activeRelays.isEmpty == true)
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+
+        await broker.releaseBlockedRegistration()
+        try await start.value
+
+        let updates = await endpoint.observedRelayProfileUpdates()
+        #expect(updates.count == 1)
+        #expect(
+            updates.first?.allowedRelayURLs
+                == Set(ClientRuntimeTestFixture.relayURLs)
+        )
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    /// A cached binding proves the broker already acknowledged this endpoint,
+    /// so the managed relays stay installed at bind and no post-registration
+    /// relay swap happens.
+    @Test
+    func cachedBindingKeepsManagedRelaysInstalledAtBind() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let discovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: fixture.configuration.accountID,
+            deviceID: fixture.configuration.deviceID,
+            appInstanceID: fixture.configuration.appInstanceID,
+            clientNamespace: fixture.configuration.clientNamespace,
+            tag: fixture.configuration.tag,
+            displayName: fixture.configuration.displayName,
+            identity: fixture.configuration.identity,
+            capabilities: fixture.configuration.capabilities,
+            managedRelayURLs: fixture.configuration.managedRelayURLs,
+            cachedBinding: CmxIrohBrokerBindingMetadata(binding: fixture.binding)
+        )
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let runtime = try CmxIrohClientRuntime(
+            factory: factory,
+            broker: TestRevisionedClientBroker(
+                binding: fixture.binding,
+                discoveries: [discovery]
+            ),
+            configuration: configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(
+            boundConfigurations.first?.relayProfile.allowedRelayURLs
+                == Set(ClientRuntimeTestFixture.relayURLs)
+        )
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
     @Test
     func authoritativeRejectionCannotFallBackToStaleOfflineAuthority() async throws {
         let fixture = try RegistryFixture()
@@ -485,9 +585,16 @@ struct CmxIrohClientRuntimeTests {
         #expect(prepared.challengeRequest.tag == fixture.binding.tag)
         #expect(prepared.challengeRequest.endpointId == fixture.endpointID.endpointID)
         #expect(prepared.challengeRequest.identityGeneration == fixture.identity.generation)
-        // Tokenless transport: relays are configured at bind time and the
-        // connect path installs no credential and mutates no relay.
-        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+        // Tokenless transport: a fresh endpoint binds relay-less, start()
+        // installs the managed relays exactly once after registration is
+        // acknowledged, and the connect path installs no credential and
+        // mutates no relay further.
+        let relayUpdates = await endpoint.observedRelayProfileUpdates()
+        #expect(relayUpdates.count == 1)
+        #expect(
+            relayUpdates.first?.activeRelays
+                .allSatisfy { $0.authenticationToken == nil } == true
+        )
         #expect(await recorder.observedBindingCount() == 1)
         #expect(runtime.transportFactory.supportedKinds == [.iroh])
         await runtime.stop()
