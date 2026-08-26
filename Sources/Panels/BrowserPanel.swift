@@ -429,10 +429,12 @@ final class BrowserProfileStore: ObservableObject {
         repository.canRenameProfile(id: id)
     }
 
-    func deleteProfile(id: UUID) async -> BrowserProfileDefinition? {
+    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
         let result = repository.deleteProfile(id: id)
         if result != nil {
-            await removeChromiumProfileData(for: id)
+            Task { @MainActor [weak self] in
+                await self?.removeChromiumProfileData(for: id)
+            }
         }
         mirrorPublishedState()
         return result
@@ -448,12 +450,10 @@ final class BrowserProfileStore: ObservableObject {
     }
 
     private func removeChromiumProfileData(for profileID: UUID) async {
-        if let directory = ChromiumBrowserSession.ownedProfileDataURL(
+        await ChromiumBrowserSession.removeOwnedProfileData(
             for: profileID,
             environment: .cmuxLive
-        ) {
-            await BrowserProfileFileRemover().removeItemIfExists(at: directory)
-        }
+        )
         await CEFRuntimeBootstrap.removeProfileData(for: profileID)
     }
 

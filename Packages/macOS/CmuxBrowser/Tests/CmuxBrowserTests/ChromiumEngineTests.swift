@@ -322,7 +322,7 @@ struct ChromiumEngineTests {
     }
 
     @Test("Profile cleanup removes every pane-owned Chromium directory")
-    func profileDataCleanup() throws {
+    func profileDataCleanup() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-chromium-profile-cleanup-\(UUID().uuidString)", isDirectory: true)
@@ -344,7 +344,7 @@ struct ChromiumEngineTests {
             startupDeadline: {}
         )
 
-        ChromiumBrowserSession.removeOwnedProfileData(for: profileID, environment: environment)
+        await ChromiumBrowserSession.removeOwnedProfileData(for: profileID, environment: environment)
         #expect(!fileManager.fileExists(atPath: paneDirectory.path))
     }
 
