@@ -13,8 +13,28 @@ extension AgentHibernationController {
         isPressureStillCritical: @escaping @MainActor () -> Bool,
         onHibernationCompleted: @escaping @MainActor (Int) -> Void
     ) -> Bool {
+        reclaimIdleAgentsForMemoryPressure(
+            now: now,
+            isPressureStillActive: isPressureStillCritical,
+            onHibernationCompleted: onHibernationCompleted
+        )
+    }
+
+    /// Starts one asynchronous aggregate-pressure evaluation.
+    ///
+    /// The existing hibernation lifecycle remains the sole teardown owner:
+    /// pressure only changes which safe idle agents it selects. Transcript
+    /// protection, confirmation, activity revalidation, and scoped process
+    /// termination are unchanged. If the caller can no longer prove that the
+    /// same pressure is active, the pending evaluation is abandoned.
+    @discardableResult
+    func reclaimIdleAgentsForMemoryPressure(
+        now: Date,
+        isPressureStillActive: @escaping @MainActor () -> Bool,
+        onHibernationCompleted: @escaping @MainActor (Int) -> Void
+    ) -> Bool {
         guard memoryPressureEvaluation == nil,
-              isPressureStillCritical() else {
+              isPressureStillActive() else {
             return false
         }
 
@@ -31,7 +51,7 @@ extension AgentHibernationController {
             let settings = AgentHibernationSettings.values()
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled,
-                  isPressureStillCritical() else {
+                  isPressureStillActive() else {
                 return
             }
             let initialEvaluation = self.evaluate(
@@ -47,11 +67,11 @@ extension AgentHibernationController {
             } catch {
                 return
             }
-            guard isPressureStillCritical() else { return }
+            guard isPressureStillActive() else { return }
             let confirmationIndex = await RestorableAgentSessionIndex
                 .loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled,
-                  isPressureStillCritical() else {
+                  isPressureStillActive() else {
                 return
             }
             let confirmationEvaluation = self.evaluate(
@@ -59,7 +79,7 @@ extension AgentHibernationController {
                 settings: AgentHibernationSettings.values(),
                 now: .now,
                 trigger: .systemMemoryPressure,
-                teardownShouldProceed: isPressureStillCritical,
+                teardownShouldProceed: isPressureStillActive,
                 onHibernationCompleted: { [weak self] hibernatedCount in
                     self?.finishMemoryPressureEvaluation(requestID: requestID)
                     onHibernationCompleted(hibernatedCount)

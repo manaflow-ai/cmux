@@ -35,6 +35,18 @@ extension AppDelegate {
             }
         )
         monitor.registry.register(
+            AggregateMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isAggregatePressureActive: { [weak monitor] in
+                    guard let aggregate = monitor?.aggregateMemoryPressure else { return false }
+                    return aggregate.isActionable && aggregate.severity >= .warning
+                },
+                onAggregatePressureWarning: { [weak self] snapshot in
+                    self?.postAggregateMemoryPressureWarning(snapshot: snapshot)
+                }
+            )
+        )
+        monitor.registry.register(
             AgentHibernationMemoryPressureResponder(
                 controller: AgentHibernationController.shared,
                 isPressureCritical: { [weak monitor] in
@@ -51,6 +63,34 @@ extension AppDelegate {
             self?.postPersistentCriticalMemoryPressureWarning(snapshot: snapshot)
         }
         monitor.start()
+    }
+
+    private func postAggregateMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {
+        guard let notificationStore else { return }
+        let managers = paneMemoryGuardrailTabManagers()
+        guard let tabId = tabManager?.selectedTabId
+            ?? managers.compactMap(\.selectedTabId).first
+            ?? managers.flatMap(\.tabs).first?.id
+        else { return }
+
+        notificationStore.addNotification(
+            tabId: tabId,
+            surfaceId: nil,
+            title: String(
+                localized: "memoryPressure.aggregate.title",
+                defaultValue: "cmux is using substantial aggregate memory"
+            ),
+            subtitle: String(
+                localized: "memoryPressure.aggregate.subtitle",
+                defaultValue: "Idle agent surfaces may be hibernated"
+            ),
+            body: String(
+                localized: "memoryPressure.aggregate.body",
+                defaultValue: "macOS reports memory pressure across cmux and its child processes. Only hidden, idle agent surfaces are considered after a confirmation window; active or visible work is left alone."
+            ),
+            cooldownKey: "memory-pressure-aggregate",
+            cooldownInterval: 300
+        )
     }
 
     private func postPersistentCriticalMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {

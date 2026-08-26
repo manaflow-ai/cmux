@@ -229,12 +229,13 @@ final class AgentHibernationController {
                 lastActivityAt: effectiveLastActivityAt
             )
         }
-        let selectedKeys = AgentHibernationPlanner.selectedPanelKeys(
+        let orderedSelectedKeys = AgentHibernationPlanner.orderedPanelKeys(
             inputs: plannerInputs,
             settings: settings,
             now: nowTime,
             trigger: trigger
         )
+        let selectedKeys = Set(orderedSelectedKeys)
         let currentKeys = Set(records.map(\.key))
         pruneTrackingState(
             currentKeys: currentKeys,
@@ -242,11 +243,15 @@ final class AgentHibernationController {
             trigger: trigger
         )
 
-        let confirmedTeardowns = records.compactMap { record -> ConfirmedTeardownRequest? in
-            guard selectedKeys.contains(record.key) else { return nil }
+        let recordsByKey = Dictionary(
+            records.map { ($0.key, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let confirmedTeardowns = orderedSelectedKeys.compactMap { key -> ConfirmedTeardownRequest? in
+            guard let record = recordsByKey[key] else { return nil }
             return evaluateConfirmation(
                 record: record,
-                effectiveLastActivityAt: effectiveActivityByKey[record.key] ?? record.lastActivityAt,
+                effectiveLastActivityAt: effectiveActivityByKey[key] ?? record.lastActivityAt,
                 settings: settings,
                 now: nowTime,
                 trigger: trigger

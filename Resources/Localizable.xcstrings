@@ -124681,6 +124681,57 @@
         }
       }
     },
+    "memoryPressure.aggregate.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS reports memory pressure across cmux and its child processes. Only hidden, idle agent surfaces are considered after a confirmation window; active or visible work is left alone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux と子プロセス全体のメモリプレッシャーを報告しています。確認時間の後、非表示でアイドル状態のエージェントサーフェスだけを対象にします。アクティブまたは表示中の作業はそのままです。"
+          }
+        }
+      }
+    },
+    "memoryPressure.aggregate.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle agent surfaces may be hibernated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のエージェントサーフェスを休止する場合があります"
+          }
+        }
+      }
+    },
+    "memoryPressure.aggregate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is using substantial aggregate memory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 全体のメモリ使用量が大きくなっています"
+          }
+        }
+      }
+    },
     "memoryPressure.critical.body": {
       "extractionState": "manual",
       "localizations": {

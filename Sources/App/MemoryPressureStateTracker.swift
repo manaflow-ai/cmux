@@ -19,13 +19,18 @@ struct MemoryPressureStateTracker: Sendable {
     mutating func ingest(
         systemSeverity: MemoryPressureSeverity?,
         physicalFootprintBytes: UInt64?,
+        aggregateMemoryPressure: MemoryPressureAggregateSnapshot? = nil,
         sampledAt: Date
     ) -> MemoryPressureStateEvaluation {
         let previousSeverity = currentSeverity
         let footprintSeverity = thresholds.severity(
             forPhysicalFootprintBytes: physicalFootprintBytes
         )
-        let nextSeverity = max(systemSeverity ?? .normal, footprintSeverity)
+        let aggregateSeverity = aggregateMemoryPressure?.severity ?? .normal
+        let nextSeverity = max(
+            max(systemSeverity ?? .normal, footprintSeverity),
+            aggregateSeverity
+        )
         currentSeverity = nextSeverity
 
         var didBecomePersistentCritical = false
@@ -47,6 +52,7 @@ struct MemoryPressureStateTracker: Sendable {
         let snapshot = MemoryPressureSnapshot(
             severity: nextSeverity,
             physicalFootprintBytes: physicalFootprintBytes,
+            aggregateMemoryPressure: aggregateMemoryPressure,
             sampledAt: sampledAt
         )
         return MemoryPressureStateEvaluation(

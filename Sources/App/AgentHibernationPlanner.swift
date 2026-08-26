@@ -13,6 +13,25 @@ enum AgentHibernationPlanner {
         now: TimeInterval,
         trigger: AgentHibernationReclaimTrigger = .scheduled
     ) -> Set<AgentHibernationPanelKey> {
+        Set(
+            orderedPanelKeys(
+                inputs: inputs,
+                settings: settings,
+                now: now,
+                trigger: trigger
+            )
+        )
+    }
+
+    /// Returns the same bounded pressure candidates in their eviction order.
+    /// Oldest activity wins; UUID is a stable tie-breaker across dictionary and
+    /// workspace traversal order.
+    static func orderedPanelKeys(
+        inputs: [AgentHibernationPlannerInput],
+        settings: AgentHibernationSettings.Values,
+        now: TimeInterval,
+        trigger: AgentHibernationReclaimTrigger = .scheduled
+    ) -> [AgentHibernationPanelKey] {
         let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive }
         let excess: Int
         switch trigger {
@@ -55,6 +74,6 @@ enum AgentHibernationPlanner {
                 return lhs.lastActivityAt < rhs.lastActivityAt
             }
 
-        return Set(eligible.prefix(excess).map(\.key))
+        return eligible.prefix(excess).map(\.key)
     }
 }

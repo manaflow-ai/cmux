@@ -103,7 +103,7 @@ Default: `cloudFirst`.
 
 ## `terminal.agentHibernation`
 
-Routine Agent Hibernation is opt-in. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. Independently, critical memory pressure can trigger a bounded safety pass over eligible idle background agents even when routine hibernation is disabled. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility rules, confirmation settle window, and resume behavior.
+Routine Agent Hibernation is opt-in. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. Independently, aggregate memory pressure can trigger a bounded safety pass over eligible idle background agents even when routine hibernation is disabled. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility rules, confirmation settle window, and resume behavior.
 
 ```json
 {
@@ -120,6 +120,25 @@ Routine Agent Hibernation is opt-in. cmux kills idle background agent processes 
 - `enabled`: turn routine Agent Hibernation on. Default: `false`. Critical-pressure safety hibernation remains active when this is `false`.
 - `idleSeconds`: seconds a background idle agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
 - `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
+
+### Aggregate memory-pressure safety policy
+
+cmux prefers macOS's resource-coalition physical footprint, which includes the
+cmux process and its descendants. If that optional API is unavailable, cmux
+uses a complete, de-duplicated descendant process tree; an incomplete listing
+is treated as unavailable and cannot authorize eviction. The policy uses
+relative thresholds rather than a machine-specific GB limit: warning at 50%
+of installed physical memory and critical at 70%. A corroborating available-
+memory estimate can raise a crossed threshold at 20%/10% of physical memory.
+These values are implementation policy constants, not per-process RSS guards.
+
+At warning, cmux posts a localized notification and may schedule a bounded
+hibernation pass. The existing confirmation window, lifecycle `idle` state,
+terminal-input check, transcript/process identity validation, and visible-panel
+protection remain required. Candidates are evicted oldest-activity first, with
+the panel UUID as a stable tie-breaker. If metrics disappear during the
+confirmation window, the pass is cancelled; active or visible work is not
+terminated by this policy.
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 

@@ -19,12 +19,17 @@ final class MemoryPressureMonitor {
     let registry: MemoryPressureResponderRegistry
     private(set) var currentSeverity: MemoryPressureSeverity = .normal
     private(set) var physicalFootprintBytes: UInt64?
+    private(set) var aggregateMemoryPressure: MemoryPressureAggregateSnapshot?
 
     @ObservationIgnored
     var onPersistentCriticalPressure: (@MainActor (MemoryPressureSnapshot) -> Void)?
 
     @ObservationIgnored
     private let footprintSampler: any MemoryPressureFootprintSampling
+    @ObservationIgnored
+    private let aggregateSampler: any MemoryPressureAggregateSampling
+    @ObservationIgnored
+    private let aggregatePolicy: MemoryPressureAggregatePolicy
     @ObservationIgnored
     private var stateTracker: MemoryPressureStateTracker
     @ObservationIgnored
@@ -41,10 +46,14 @@ final class MemoryPressureMonitor {
     private var activeSystemSeverity: MemoryPressureSeverity = .normal
     @ObservationIgnored
     private var activeSystemSeverityExpiresAt: Date?
+    @ObservationIgnored
+    private var lastAggregateSample: MemoryPressureAggregateSample?
 
     init(
         registry: MemoryPressureResponderRegistry? = nil,
         footprintSampler: any MemoryPressureFootprintSampling = TaskVMInfoMemoryPressureFootprintSampler(),
+        aggregateSampler: any MemoryPressureAggregateSampling = DarwinMemoryPressureAggregateSampler(),
+        aggregatePolicy: MemoryPressureAggregatePolicy = .default,
         thresholds: MemoryPressureFootprintThresholds = .default,
         criticalPersistenceDuration: TimeInterval = 60,
         sampleInterval: TimeInterval = 30,
@@ -52,6 +61,8 @@ final class MemoryPressureMonitor {
     ) {
         self.registry = registry ?? MemoryPressureResponderRegistry()
         self.footprintSampler = footprintSampler
+        self.aggregateSampler = aggregateSampler
+        self.aggregatePolicy = aggregatePolicy
         stateTracker = MemoryPressureStateTracker(
             thresholds: thresholds,
             criticalPersistenceDuration: criticalPersistenceDuration
@@ -67,9 +78,12 @@ final class MemoryPressureMonitor {
     }
 
     func samplePhysicalFootprint(at sampledAt: Date = Date()) {
+        let aggregateSample = aggregateSampler.sample(at: sampledAt)
+        lastAggregateSample = aggregateSample
         apply(
             systemSeverity: heldSystemSeverity(at: sampledAt),
             physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
+            aggregateSample: aggregateSample,
             sampledAt: sampledAt
         )
     }
@@ -82,6 +96,7 @@ final class MemoryPressureMonitor {
         apply(
             systemSeverity: effectiveSeverity,
             physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
+            aggregateSample: lastAggregateSample,
             sampledAt: sampledAt
         )
     }
@@ -132,10 +147,23 @@ final class MemoryPressureMonitor {
             repeating: sampleInterval,
             leeway: .seconds(5)
         )
+        let footprintSampler = self.footprintSampler
+        let aggregateSampler = self.aggregateSampler
         timer.setEventHandler { [weak self] in
             let sampledAt = Date()
+            let footprintBytes = footprintSampler.physicalFootprintBytes()
+            let aggregateSample = aggregateSampler.sample(at: sampledAt)
             Task { @MainActor in
-                self?.samplePhysicalFootprint(at: sampledAt)
+                guard let self else { return }
+                if let aggregateSample {
+                    self.lastAggregateSample = aggregateSample
+                }
+                self.apply(
+                    systemSeverity: self.heldSystemSeverity(at: sampledAt),
+                    physicalFootprintBytes: footprintBytes,
+                    aggregateSample: aggregateSample,
+                    sampledAt: sampledAt
+                )
             }
         }
         sampleTimer = timer
@@ -156,15 +184,26 @@ final class MemoryPressureMonitor {
     private func apply(
         systemSeverity: MemoryPressureSeverity?,
         physicalFootprintBytes: UInt64?,
+        aggregateSample: MemoryPressureAggregateSample?,
         sampledAt: Date
     ) {
+        // Keep aggregate severity intrinsic to cmux's coalition/tree. The
+        // independent Dispatch/system signal still drives the overall tracker,
+        // but must not turn a low aggregate sample into an eviction command.
+        let aggregateMemoryPressure = aggregateSample.map {
+            aggregatePolicy.evaluate(
+                sample: $0
+            )
+        }
         let evaluation = stateTracker.ingest(
             systemSeverity: systemSeverity,
             physicalFootprintBytes: physicalFootprintBytes,
+            aggregateMemoryPressure: aggregateMemoryPressure,
             sampledAt: sampledAt
         )
         currentSeverity = evaluation.snapshot.severity
         self.physicalFootprintBytes = evaluation.snapshot.physicalFootprintBytes
+        self.aggregateMemoryPressure = aggregateMemoryPressure
 
         if evaluation.didTransition {
             logTransition(evaluation)
@@ -180,14 +219,17 @@ final class MemoryPressureMonitor {
     private func logTransition(_ evaluation: MemoryPressureStateEvaluation) {
         let snapshot = evaluation.snapshot
         let footprint = Self.byteDescription(snapshot.physicalFootprintBytes)
+        let aggregate = snapshot.aggregateMemoryPressure
+        let aggregateBytes = Self.byteDescription(aggregate?.aggregateBytes)
+        let aggregateSource = aggregate?.source.rawValue ?? "unavailable"
         Self.logger.info(
-            "memoryPressure.transition previous=\(evaluation.previousSeverity.logName, privacy: .public) severity=\(snapshot.severity.logName, privacy: .public) footprint=\(footprint, privacy: .public)"
+            "memoryPressure.transition previous=\(evaluation.previousSeverity.logName, privacy: .public) severity=\(snapshot.severity.logName, privacy: .public) footprint=\(footprint, privacy: .public) aggregateSource=\(aggregateSource, privacy: .public) aggregateBytes=\(aggregateBytes, privacy: .public)"
         )
         let signpostID = Self.signposter.makeSignpostID()
         Self.signposter.emitEvent(
             "MemoryPressureTransition",
             id: signpostID,
-            "previous=\(evaluation.previousSeverity.logName) severity=\(snapshot.severity.logName) footprint=\(footprint)"
+            "previous=\(evaluation.previousSeverity.logName) severity=\(snapshot.severity.logName) footprint=\(footprint) aggregateSource=\(aggregateSource) aggregateBytes=\(aggregateBytes)"
         )
     }
 
