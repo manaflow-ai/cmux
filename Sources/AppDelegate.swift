@@ -10290,6 +10290,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
     }
 
+    func mainWindowParticipatesInRestoreTopology(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.participatesInRestoreTopology(window)
+    }
+
     func dismissMainWindowFromWindowChrome(_ window: NSWindow) {
         mainWindowVisibilityController.dismissWindows(windows: [window], reason: .titlebarDismiss)
     }

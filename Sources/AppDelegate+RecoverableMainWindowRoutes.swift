@@ -23,12 +23,15 @@ extension AppDelegate {
         mainWindowLifecycleCoordinator.orphanedRoutes()
     }
 
-    /// Returns a recoverable window only when its cached AppKit identity is
-    /// still present and belongs to the requested stable window id.
+    /// Returns a recoverable window when its cached AppKit identity is still
+    /// present and belongs to the requested stable window id. Explicitly hidden
+    /// app/titlebar restore targets remain in the live topology; generic hidden
+    /// windows stay fail-closed.
     func liveRecoverableMainWindow(windowId: UUID, cachedWindow: NSWindow?) -> NSWindow? {
         guard let cachedWindow,
               NSApp.windows.contains(where: { $0 === cachedWindow }),
-              cachedWindow.isVisible || cachedWindow.isMiniaturized,
+              cachedWindow.isVisible || cachedWindow.isMiniaturized
+                || mainWindowParticipatesInRestoreTopology(cachedWindow),
               mainWindowId(from: cachedWindow) == windowId,
               !hasCommittedMainWindowClose(cachedWindow) else {
             return nil
