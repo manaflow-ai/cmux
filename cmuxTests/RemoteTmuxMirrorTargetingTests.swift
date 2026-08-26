@@ -1,6 +1,5 @@
 import AppKit
 import CmuxControlSocket
-import CmuxRemoteSession
 import Foundation
 import Testing
 import CmuxSettings
