@@ -546,4 +546,26 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.isEmpty == true)
         #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
     }
+
+    @Test("A late pre-hook does not duplicate a post-first create")
+    func postFirstCreateWithMismatchedHookIDsIsDeduplicated() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"already created"}"#,
+            response: #"{"task":{"id":"1","subject":"already created"}}"#,
+            requestId: "post-hook-id"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"already created"}"#,
+            requestId: "pre-hook-id"
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1"])
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
+    }
 }
