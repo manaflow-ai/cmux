@@ -1546,18 +1546,34 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
 def test_relay_launcher_rc_fallback_never_relaxes_stable() -> None:
     text = workflow("relay-publish-npm.yml")
 
-    # Pre-R5 rc era: npm allows one trusted publisher per package and the
-    # cmux-relay launcher's publisher stays with the chatmux Node lane until
-    # the R5 owner switch. Only the next dist-tag tolerates a failed launcher
-    # publish; a stable (latest) publish must hard-fail.
-    assert 'elif [[ "$DIST_TAG" == "next" ]]' in text
-    assert "move the cmux-relay trusted publisher to this repository" in text
-    assert 'echo "published=false"' in text
-    # The rc fallback smoke installs the LOCAL launcher package so the
-    # registry platform packages are still exercised; the smoke itself is
-    # never skipped and always executes the installed binary.
-    assert "npm install -g ./dist/npm-packages/cmux-relay" in text
-    assert "LAUNCHER_PUBLISHED: ${{ steps.launcher.outputs.published }}" in text
+    # The Rust cutover has one launcher plus four Unix target packages. Every
+    # package uses the same idempotent publish path for both `next` and
+    # `latest`; there is no local-tarball or failed-launcher fallback. A
+    # fallback could report a release as usable while the launcher is absent
+    # from the registry, so the workflow must fail closed instead.
+    publish_section = text.split(
+        "- name: Publish five Unix relay packages idempotently", 1
+    )[1].split("- name: Audit published npm signatures and provenance", 1)[0]
+    package_lines = re.findall(
+        r"^\s+(cmux-relay(?:-(?:darwin-arm64|darwin-x64|linux-x64|linux-arm64))?)\s*$",
+        publish_section,
+        re.MULTILINE,
+    )
+    assert package_lines == [
+        "cmux-relay-darwin-arm64",
+        "cmux-relay-darwin-x64",
+        "cmux-relay-linux-x64",
+        "cmux-relay-linux-arm64",
+        "cmux-relay",
+    ]
+    assert 'elif [[ "$DIST_TAG" == "next" ]]' not in text
+    assert "LAUNCHER_PUBLISHED" not in text
+    assert "npm install -g ./dist/npm-packages/cmux-relay" not in text
+    assert "cmux-relay-win32-x64" not in text
+    assert 'publish_if_missing "$package"' in publish_section
+    assert "version_exists" in publish_section
+    assert "registry_integrity" in publish_section
+    assert "Audit published npm signatures and provenance" in text
     assert text.count("cmux-relay --version") == 1
 
 
