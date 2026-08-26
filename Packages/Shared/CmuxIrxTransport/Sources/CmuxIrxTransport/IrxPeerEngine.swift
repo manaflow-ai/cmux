@@ -63,6 +63,11 @@ public actor IrxPeerEngine {
     private var terminationWatcher: Task<Void, Never>?
     private var backoff: Duration
     private var parkedCode: String?
+    /// Sequential-dial cooldown: after a failure, automatic callers fail fast
+    /// until the scheduled redial fires. Without this, an app layer that
+    /// retries in a tight loop turns every failure into a dial storm.
+    private var cooldownUntil: ContinuousClock.Instant?
+    private var lastDialError: (any Error)?
     private var stateContinuations: [Int: AsyncStream<IrxSessionState>.Continuation] = [:]
     private var closureObservers: [Int: @Sendable (IrxTermination) async -> Void] = [:]
     private var observerCounter = 0
@@ -114,12 +119,18 @@ public actor IrxPeerEngine {
         }
         if explicit {
             parkedCode = nil
+            cooldownUntil = nil
             dialTask?.cancel()
             dialTask = nil
         }
         if let dialTask {
             journal.record("engine", "dial-joined", ["trigger": trigger])
             return try await dialTask.value
+        }
+        if !explicit, let cooldownUntil, ContinuousClock.now < cooldownUntil {
+            // The scheduled redial owns the next attempt; fail fast instead
+            // of stacking another dial on top of it.
+            throw lastDialError ?? IrxConnectionError.closed(nil)
         }
         redialTimer?.cancel()
         redialTimer = nil
@@ -143,6 +154,7 @@ public actor IrxPeerEngine {
         } catch {
             dialTask = nil
             guard !Task.isCancelled else { throw error }
+            lastDialError = error
             setState(.closed(code: "dial-failed"))
             journal.record(
                 "engine", "dial-failed",
@@ -246,13 +258,19 @@ public actor IrxPeerEngine {
     private func scheduleRedial() {
         let delay = backoff
         backoff = min(backoff * 2, config.maxBackoff)
+        cooldownUntil = ContinuousClock.now.advanced(by: delay)
         redialTimer?.cancel()
         redialTimer = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
-            _ = try? await self?.ensureSession(trigger: "backoff")
+            await self?.clearCooldownAndRedial()
         }
         journal.record("engine", "redial-scheduled", ["delay": String(describing: delay)])
+    }
+
+    private func clearCooldownAndRedial() async {
+        cooldownUntil = nil
+        _ = try? await ensureSession(trigger: "backoff")
     }
 
     private func setState(_ next: IrxSessionState) {

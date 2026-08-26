@@ -73,6 +73,7 @@ public actor MobileIrxRuntimeComposition {
     private var autopilot: IrxRelayCredentialAutopilot?
     private var identity: IrxIdentity?
     private var provisioningTask: Task<Void, Never>?
+    private var provisionInFlight: Task<IrxBrokerService, any Error>?
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
     private var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
@@ -187,8 +188,26 @@ public actor MobileIrxRuntimeComposition {
         }
     }
 
+    /// Builds and warms the full broker/endpoint stack, publishing it ONLY
+    /// after every step succeeds. A transient failure (e.g. the auth session
+    /// not yet coherent during launch sign-in) must never leave a
+    /// half-initialized broker behind: an unregistered client 403s every
+    /// later call, which is exactly the poisoned state this single-flight
+    /// all-or-nothing shape forbids.
     private func provisionedBroker() async throws -> IrxBrokerService {
         if let broker { return broker }
+        if let provisionInFlight {
+            return try await provisionInFlight.value
+        }
+        let task = Task<IrxBrokerService, any Error> {
+            try await self.provisionOnce()
+        }
+        provisionInFlight = task
+        defer { provisionInFlight = nil }
+        return try await task.value
+    }
+
+    private func provisionOnce() async throws -> IrxBrokerService {
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
@@ -197,7 +216,6 @@ public actor MobileIrxRuntimeComposition {
                 fileURL: stateDirectory.appendingPathComponent("identity.json")),
             deviceID: cmxCanonicalDeviceID(irxDeviceID())
         )
-        self.identity = identity
         let broker = try IrxBrokerService(
             configuration: .init(
                 baseURL: brokerBaseURL,
@@ -215,7 +233,6 @@ public actor MobileIrxRuntimeComposition {
             },
             journal: Self.journal
         )
-        self.broker = broker
         let supervisor = IrxEndpointSupervisor(
             configuration: .init(
                 identity: identity,
@@ -228,10 +245,8 @@ public actor MobileIrxRuntimeComposition {
             ),
             journal: Self.journal
         )
-        endpointSupervisor = supervisor
         let pilot = IrxRelayCredentialAutopilot(
             broker: broker, endpoint: supervisor, journal: Self.journal)
-        autopilot = pilot
         // Warm everything off the dial path. Registration FIRST: non-legacy
         // namespaces need its binding authorization before relay minting or
         // discovery are accepted.
@@ -239,6 +254,10 @@ public actor MobileIrxRuntimeComposition {
         _ = try await pilot.usableCredentials()
         _ = try? await broker.discover()
         await pilot.start()
+        self.identity = identity
+        self.broker = broker
+        endpointSupervisor = supervisor
+        autopilot = pilot
         return broker
     }
 
