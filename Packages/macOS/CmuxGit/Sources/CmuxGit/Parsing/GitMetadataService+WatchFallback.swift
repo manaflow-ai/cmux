@@ -21,12 +21,13 @@ extension GitMetadataService {
             repositoryRoot: descriptor.repositoryRoot,
             watchedPaths: watchedPaths.sorted(),
             gitMetadataPaths: descriptor.gitMetadataPaths,
-            trackedEntryPaths: anyForcedRoot ? [] : descriptor.trackedEntryPaths,
-            acceptsAllWorkTreeEvents: anyForcedRoot || descriptor.acceptsAllWorkTreeEvents,
-            eventCoalescingInterval: anyForcedRoot
+            trackedEntryPaths: rootIsForced ? [] : descriptor.trackedEntryPaths,
+            forcedWorkTreeRoots: existingRoots.sorted(),
+            acceptsAllWorkTreeEvents: rootIsForced || descriptor.acceptsAllWorkTreeEvents,
+            eventCoalescingInterval: rootIsForced
                 ? safetyConfiguration.unfilteredWorkTreeEventThrottle
                 : descriptor.eventCoalescingInterval,
-            eventFilterIdentity: anyForcedRoot ? nil : descriptor.eventFilterIdentity,
+            eventFilterIdentity: rootIsForced ? nil : descriptor.eventFilterIdentity,
             degradation: anyForcedRoot
                 ? .unreadableIndex
                 : descriptor.degradation

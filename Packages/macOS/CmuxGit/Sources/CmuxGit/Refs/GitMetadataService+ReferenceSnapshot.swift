@@ -74,33 +74,6 @@ extension GitMetadataService {
         .resolved((await gitReferenceSnapshot(repository: repository, deadline: deadline)).branchName)
     }
 
-    /// Probes backend metadata on the same blocking lane as the eventual read.
-    private nonisolated func referenceRequiresGitPlumbing(
-        repository: ResolvedGitRepository,
-        deadline: DispatchTime?,
-        referenceReader: any GitReferenceReading
-    ) async -> Bool {
-        let cancellationSignal = WorkspaceChangesCancellationSignal()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                Self.blockingStatusQueue.async {
-                    let requiresPlumbing = cancellationSignal.withCurrentBinding {
-                        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
-                            return true
-                        }
-                        return referenceReader.requiresGitPlumbing(
-                            repository: repository,
-                            deadline: deadline
-                        )
-                    }
-                    continuation.resume(returning: requiresPlumbing)
-                }
-            }
-        } onCancel: {
-            cancellationSignal.cancel()
-        }
-    }
-
     /// Resolves refs on the package's bounded blocking-I/O lane.
     ///
     /// - Parameter repository: The already-resolved repository to inspect.
@@ -119,26 +92,10 @@ extension GitMetadataService {
             )
         }
         let referenceReader = referenceReader
-        let shouldLimit = await referenceRequiresGitPlumbing(
-            repository: repository,
-            deadline: deadline,
-            referenceReader: referenceReader
-        )
-        guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
-            return GitReferenceSnapshot(
-                checkedOutBranch: .unreadable,
-                headSignature: nil,
-                currentCommit: nil
-            )
-        }
-        let didAcquire = if shouldLimit {
-            if let deadline {
-                await referenceSnapshotLimiter.acquire(until: deadline)
-            } else {
-                await referenceSnapshotLimiter.acquire()
-            }
+        let didAcquire = if let deadline {
+            await referenceSnapshotLimiter.acquire(until: deadline)
         } else {
-            true
+            await referenceSnapshotLimiter.acquire()
         }
         guard didAcquire else {
             return GitReferenceSnapshot(
@@ -171,9 +128,7 @@ extension GitMetadataService {
         } onCancel: {
             cancellationSignal.cancel()
         }
-        if shouldLimit {
-            await referenceSnapshotLimiter.release()
-        }
+        await referenceSnapshotLimiter.release()
         return snapshot
     }
 }

@@ -11,6 +11,9 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     public let gitMetadataPaths: [String]
     /// Sorted native Swift paths for tracked entries used by exact filtering.
     public let trackedEntryPaths: [String]
+    /// Work-tree roots whose descendants must be treated as relevant when an
+    /// index format cannot be parsed safely.
+    public let forcedWorkTreeRoots: [String]
     /// Whether every work-tree path is conservatively relevant. This is enabled
     /// only when retaining an exact tracked-path filter would cross its budget.
     public let acceptsAllWorkTreeEvents: Bool
@@ -38,6 +41,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         watchedPaths: [String],
         gitMetadataPaths: [String],
         trackedEntryPaths: [String],
+        forcedWorkTreeRoots: [String] = [],
         acceptsAllWorkTreeEvents: Bool,
         eventCoalescingInterval: Duration,
         eventFilterIdentity: String?,
@@ -47,6 +51,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         self.watchedPaths = watchedPaths
         self.gitMetadataPaths = gitMetadataPaths
         self.trackedEntryPaths = trackedEntryPaths
+        self.forcedWorkTreeRoots = forcedWorkTreeRoots
         self.acceptsAllWorkTreeEvents = acceptsAllWorkTreeEvents
         self.eventCoalescingInterval = eventCoalescingInterval
         self.eventFilterIdentity = eventFilterIdentity
@@ -105,6 +110,9 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         }
         if acceptsAllWorkTreeEvents,
            Self.isSameOrInside(path, root: repositoryRoot) {
+            return true
+        }
+        if forcedWorkTreeRoots.contains(where: { Self.isSameOrInside(path, root: $0) }) {
             return true
         }
         guard !trackedEntryPaths.isEmpty else { return false }

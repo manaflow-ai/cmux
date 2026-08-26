@@ -207,7 +207,13 @@ actor CmxConnectivityPeerSession {
             if let pendingConnection {
                 pending = pendingConnection
             } else {
-                makeRetiredDialCapacity()
+                // Keep ownership of every canceled dial. Once the bounded
+                // cleanup set is full, fail closed until one of those dials
+                // settles instead of creating untracked FFI work.
+                guard retiredDialDrains.count + retiredDialCleanupTasks.count
+                    < Self.maximumRetiredDialCleanupCount else {
+                    throw CmxConnectivityEngineError.superseded
+                }
                 connectionGeneration &+= 1
                 failure = .none
                 let buildSession = buildSession
@@ -651,29 +657,6 @@ actor CmxConnectivityPeerSession {
             for continuation in waiters {
                 continuation.resume()
             }
-        }
-    }
-
-    private func pruneRetiredDialCleanupTasksIfNeeded() {
-        while retiredDialCleanupTasks.count >= Self.maximumRetiredDialCleanupCount {
-            guard let oldestID = retiredDialCleanupTasks.keys.first else { break }
-            retiredDialPendingTasks[oldestID]?.cancel()
-            retiredDialCleanupTasks[oldestID]?.cancel()
-            retiredDialPendingTasks.removeValue(forKey: oldestID)
-            retiredDialCleanupTasks.removeValue(forKey: oldestID)
-        }
-    }
-
-    private func makeRetiredDialCapacity() {
-        let total = retiredDialDrains.count + retiredDialCleanupTasks.count
-        guard total >= Self.maximumRetiredDialCleanupCount else { return }
-        if let id = retiredDialDrains.keys.first {
-            retiredDialPendingTasks[id]?.cancel()
-            retiredDialDrains[id]?.cancel()
-            retiredDialPendingTasks.removeValue(forKey: id)
-            retiredDialDrains.removeValue(forKey: id)
-        } else {
-            pruneRetiredDialCleanupTasksIfNeeded()
         }
     }
 

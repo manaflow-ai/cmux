@@ -44,7 +44,10 @@ extension GitMetadataService {
         }
         guard DispatchTime.now() < deadline else {
             return (
-                [repository.workTreeRoot: [repository.gitDirectory, repository.commonDirectory]],
+                [repository.workTreeRoot: conservativeRepositoryMetadataPaths(
+                    repository: repository,
+                    deadline: deadline
+                )],
                 [:],
                 [],
                 visitedRoots,
@@ -65,9 +68,10 @@ extension GitMetadataService {
         guard references.checkedOutBranch != .unreadable else {
             // Keep the root metadata paths so a later HEAD/index/config event
             // can trigger a fresh plan instead of dropping the existing watcher.
-            pathsByRepository[repository.workTreeRoot] = GitWorktreeConfigEnablementReader()
-                .rootConfigURLs(repository: repository, deadline: deadline)
-                .map(\.path)
+            pathsByRepository[repository.workTreeRoot] = conservativeRepositoryMetadataPaths(
+                repository: repository,
+                deadline: deadline
+            )
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
@@ -160,10 +164,10 @@ extension GitMetadataService {
             remainingRepositoryCount = childResult.remainingRepositoryCount
             pathsByRepository.merge(childResult.paths, uniquingKeysWith: { _, new in new })
             if childResult.paths[submoduleRepository.workTreeRoot] == nil {
-                pathsByRepository[submoduleRepository.workTreeRoot] = [
-                    submoduleRepository.gitDirectory,
-                    submoduleRepository.commonDirectory,
-                ]
+                pathsByRepository[submoduleRepository.workTreeRoot] = conservativeRepositoryMetadataPaths(
+                    repository: submoduleRepository,
+                    deadline: deadline
+                )
             }
             indexSnapshotsByRepository.merge(
                 childResult.indexSnapshots,
@@ -239,9 +243,10 @@ extension GitMetadataService {
                   !visitedRoots.contains(child.workTreeRoot) else { continue }
             paths.append(contentsOf: [
                 child.workTreeRoot,
-                child.gitDirectory,
-                child.commonDirectory,
-            ])
+            ] + conservativeRepositoryMetadataPaths(
+                repository: child,
+                deadline: deadline
+            ))
             paths.append(contentsOf: gitmodulesFallbackMetadataPaths(
                 repository: child,
                 depth: depth + 1,
@@ -253,5 +258,22 @@ extension GitMetadataService {
         }
         var seen: Set<String> = []
         return paths.filter { seen.insert($0).inserted }
+    }
+
+    private nonisolated func conservativeRepositoryMetadataPaths(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime
+    ) -> [String] {
+        [
+            joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
+            joinedPath(root: repository.gitDirectory, relativePath: "index"),
+            joinedPath(root: repository.gitDirectory, relativePath: "refs"),
+            joinedPath(root: repository.gitDirectory, relativePath: "reftable"),
+            joinedPath(root: repository.commonDirectory, relativePath: "refs"),
+            joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
+            joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
+        ] + GitWorktreeConfigEnablementReader()
+            .rootConfigURLs(repository: repository, deadline: deadline)
+            .map(\.path)
     }
 }
