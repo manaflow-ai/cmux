@@ -7905,6 +7905,17 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "on_exit": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "close",
+                "keep"
+              ]
+            },
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -12344,6 +12355,17 @@
               "name": "string"
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
+          },
+          "on_exit": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "close",
+                "keep"
+              ]
+            },
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
           },
           "cols": {
             "required": false,

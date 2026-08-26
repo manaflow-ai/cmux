@@ -1179,6 +1179,7 @@ fn terminal(id: &str, workspace_key: &str) -> RegistryTerminal {
         lifecycle: TerminalLifecycle::Launching,
         launch_spec: json!({"command":["/bin/zsh"],"cwd":"/tmp","rows":24,"cols":80}),
         exit: None,
+        on_exit: TerminalOnExit::Close,
     }
 }
 
@@ -3525,6 +3526,154 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
         registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
         TerminalLifecycle::Exited
     );
+}
+
+#[test]
+fn terminal_on_exit_policy_round_trips_and_is_fixed_at_reservation() {
+    let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+    seed_workspace(&mut registry, "one");
+    let mut keep = terminal(TERMINAL_ONE, "one");
+    keep.on_exit = TerminalOnExit::Keep;
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("reserve-keep", "browser").unwrap(),
+            &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(0),
+            "terminal-reserved",
+            &keep,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().on_exit,
+        TerminalOnExit::Keep
+    );
+    assert_eq!(registry.terminal_snapshot().unwrap().terminals[0].on_exit, TerminalOnExit::Keep);
+
+    let mut repolicied = keep.clone();
+    repolicied.lifecycle = TerminalLifecycle::Adopting;
+    repolicied.incarnation = Some(INCARNATION_ONE.into());
+    repolicied.on_exit = TerminalOnExit::Close;
+    let error = registry
+        .commit_terminal(
+            &WorkspaceMutation::new("adopt-repolicied", "daemon").unwrap(),
+            &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(1),
+            "terminal-adopting",
+            &repolicied,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("on-exit policy is fixed at reservation"));
+
+    let mut adopting = keep;
+    adopting.lifecycle = TerminalLifecycle::Adopting;
+    adopting.incarnation = Some(INCARNATION_ONE.into());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("adopt-keep", "daemon").unwrap(),
+            &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(1),
+            "terminal-adopting",
+            &adopting,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().on_exit,
+        TerminalOnExit::Keep
+    );
+}
+
+/// Registries created before the exit-policy column existed gain it on open;
+/// every pre-existing terminal keeps today's close-on-exit behavior.
+#[test]
+fn registries_created_before_on_exit_gain_the_column_with_close_default() {
+    let root = temp_root("on-exit-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+        let mut keep = terminal(TERMINAL_ONE, "one");
+        keep.on_exit = TerminalOnExit::Keep;
+        registry
+            .commit_terminal(
+                &WorkspaceMutation::new("reserve-keep", "browser").unwrap(),
+                &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
+                None,
+                Some(0),
+                "terminal-reserved",
+                &keep,
+                &json!({"terminal_id":TERMINAL_ONE}),
+            )
+            .unwrap();
+    }
+
+    // Recreate the pre-policy table shape: same rows, no on_exit column.
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP INDEX IF EXISTS terminal_incarnation;
+             DROP INDEX IF EXISTS live_terminals_by_workspace;
+             CREATE TABLE terminal_hosts_pre_on_exit (
+               terminal_id TEXT PRIMARY KEY NOT NULL,
+               workspace_key TEXT NOT NULL,
+               incarnation TEXT,
+               lifecycle TEXT NOT NULL CHECK(
+                 lifecycle IN ('launching','adopting','running','exited','tombstoned')
+               ),
+               launch_spec_json TEXT NOT NULL,
+               exit_json TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER
+             );
+             INSERT INTO terminal_hosts_pre_on_exit(
+               terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+               exit_json, created_revision, updated_revision, deleted_revision
+             )
+             SELECT terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+                    exit_json, created_revision, updated_revision, deleted_revision
+             FROM terminal_hosts;
+             DROP TABLE terminal_hosts;
+             ALTER TABLE terminal_hosts_pre_on_exit RENAME TO terminal_hosts;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().on_exit,
+        TerminalOnExit::Close
+    );
+
+    // The migrated column stores and reloads a fresh keep reservation.
+    let mut keep = terminal(TERMINAL_TWO, "one");
+    keep.on_exit = TerminalOnExit::Keep;
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("reserve-keep-two", "browser").unwrap(),
+            &json!({"op":"reserve-terminal","terminal_id":TERMINAL_TWO}),
+            None,
+            Some(1),
+            "terminal-reserved",
+            &keep,
+            &json!({"terminal_id":TERMINAL_TWO}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_TWO).unwrap().unwrap().on_exit,
+        TerminalOnExit::Keep
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

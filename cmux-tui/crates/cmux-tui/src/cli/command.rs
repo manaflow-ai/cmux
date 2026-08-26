@@ -2106,6 +2106,19 @@ fn run_params(
     if let Some(name) = flags.take("name") {
         params.insert("name".into(), Value::String(name));
     }
+    if let Some(policy) = flags.take("on-exit") {
+        match policy.as_str() {
+            "close" | "keep" => {
+                params.insert("on_exit".into(), Value::String(policy));
+            }
+            "shell" => {
+                return Err(UsageError::new("--on-exit shell is not supported yet"));
+            }
+            _ => {
+                return Err(UsageError::new("--on-exit must be close or keep"));
+            }
+        }
+    }
     Ok(params)
 }
 
@@ -3462,6 +3475,31 @@ mod tests {
     }
 
     #[test]
+    fn run_on_exit_policy_is_validated_and_forwarded_verbatim() {
+        for scope in [["workspace", "current"], ["pane", "current"]] {
+            let kept = protocol(&[scope[0], scope[1], "run", "--on-exit", "keep", "--", "true"]);
+            assert_eq!(kept.params["on_exit"], "keep");
+
+            let closed = protocol(&[scope[0], scope[1], "run", "--on-exit", "close", "--", "true"]);
+            assert_eq!(closed.params["on_exit"], "close");
+
+            let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
+            assert!(default.params.get("on_exit").is_none());
+
+            let shell_policy =
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]));
+            assert!(
+                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
+                "--on-exit shell must be a typed not-yet-supported usage error"
+            );
+            assert!(
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn input_commands_enforce_variant_constraints() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         const BROWSER: &str = "browser_00000000000000000000000000000009";
@@ -4001,6 +4039,8 @@ mod tests {
                     "100",
                     "--rows",
                     "40",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -4124,6 +4164,8 @@ mod tests {
                     "90",
                     "--rows",
                     "30",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",

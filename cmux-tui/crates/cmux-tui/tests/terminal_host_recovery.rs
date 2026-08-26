@@ -409,6 +409,267 @@ fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
 }
 
 #[test]
+fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart() {
+    let mut harness = RecoveryHarness::start("keep-on-exit");
+    let marker = format!("keep-on-exit-marker-{}", std::process::id());
+    let created = resource_request(
+        &harness.socket,
+        "keep-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Keep on exit",
+            "initial_content":"empty",
+        }),
+        Some("keep-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+
+    // The catalog constrains on_exit to its supported enum values.
+    let unsupported = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-run-unsupported",
+            "operation":"workspace.run",
+            "idempotency_key":"keep-run-unsupported",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "workspace":workspace,
+                "argv":["/bin/sh","-c","exit 0"],
+                "on_exit":"shell",
+            },
+        }),
+    );
+    assert_eq!(unsupported["ok"], false, "on_exit shell must be rejected: {unsupported}");
+    assert_eq!(unsupported["error"]["code"], "validation.invalid");
+
+    let run = resource_request(
+        &harness.socket,
+        "keep-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",format!("printf '{marker}\\n'; exit 9")],
+            "on_exit":"keep",
+        }),
+        Some("keep-run"),
+    );
+    let path = run["value"].clone();
+    let terminal = path["terminal_id"].as_str().unwrap().to_string();
+    let tab = path["tab_id"].as_str().unwrap().to_string();
+    let waited = resource_request(
+        &harness.socket,
+        "keep-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["state"], "exited");
+    assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":9}));
+
+    // The exit is latched, but the tab and the final screen stay live.
+    resource_request(
+        &harness.socket,
+        "keep-tab-show",
+        "tab.get",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        None,
+    );
+    let screen = resource_request(
+        &harness.socket,
+        "keep-screen-read",
+        "terminal.screen.read",
+        serde_json::json!({"machine":"current","session":"current","terminal":terminal}),
+        None,
+    );
+    assert!(
+        screen["text"].as_str().unwrap().contains(&marker),
+        "kept terminal lost its final screen: {screen}"
+    );
+    let history = resource_request(
+        &harness.socket,
+        "keep-history-read",
+        "terminal.history.read",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "limit":100,
+        }),
+        None,
+    );
+    assert!(history["rows"].is_array(), "kept terminal lost its history: {history}");
+
+    // Input to the dead PTY is a harmless no-op, not an error.
+    resource_request(
+        &harness.socket,
+        "keep-dead-write",
+        "terminal.input.write",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "text":"ignored\n",
+        }),
+        Some("keep-dead-write"),
+    );
+    let latched = resource_request(
+        &harness.socket,
+        "keep-wait-again",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"0",
+        }),
+        None,
+    );
+    assert_eq!(latched, waited, "kept terminal re-minted its exit receipt");
+
+    // A daemon restart drops the in-memory VT, so the kept terminal degrades
+    // to the normal detach while the durable receipt survives.
+    harness.sigkill();
+    harness.restart();
+    let after_restart = resource_request(
+        &harness.socket,
+        "keep-wait-restarted",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"5000",
+        }),
+        None,
+    );
+    assert_eq!(after_restart["state"], "exited");
+    assert_eq!(after_restart["outcome"], serde_json::json!({"kind":"exit","code":9}));
+    let detached_read = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-screen-read-restarted",
+            "operation":"terminal.screen.read",
+            "params":{"machine":"current","session":"current","terminal":terminal},
+        }),
+    );
+    assert_eq!(
+        detached_read["ok"], false,
+        "restart must degrade the kept screen to a detached receipt: {detached_read}"
+    );
+    let detached_tab = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-tab-show-restarted",
+            "operation":"tab.get",
+            "params":{"machine":"current","session":"current","tab":tab},
+        }),
+    );
+    assert_eq!(detached_tab["ok"], false, "restart left a kept tab behind: {detached_tab}");
+}
+
+#[test]
+fn keep_on_exit_terminal_close_cleans_up_the_live_tab_and_surface() {
+    let harness = RecoveryHarness::start("keep-on-exit-close");
+    let run = resource_request(
+        &harness.socket,
+        "keep-close-run",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Keep close",
+            "initial_content":"terminal",
+        }),
+        Some("keep-close-workspace"),
+    );
+    let workspace = run["value"]["workspace_id"].as_str().unwrap();
+    let run = resource_request(
+        &harness.socket,
+        "keep-close-run-terminal",
+        "pane.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "screen":"current",
+            "pane":"current",
+            "argv":["/bin/sh","-c","exit 0"],
+            "on_exit":"keep",
+        }),
+        Some("keep-close-run-terminal"),
+    );
+    let path = run["value"].clone();
+    let terminal = path["terminal_id"].as_str().unwrap().to_string();
+    let tab = path["tab_id"].as_str().unwrap().to_string();
+    resource_request(
+        &harness.socket,
+        "keep-close-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    resource_request(
+        &harness.socket,
+        "keep-close-tab-show",
+        "tab.get",
+        serde_json::json!({"machine":"current","session":"current","tab":tab}),
+        None,
+    );
+
+    // The existing close path cleans up the kept-exited terminal fully.
+    resource_request(
+        &harness.socket,
+        "keep-close-close",
+        "terminal.close",
+        serde_json::json!({"machine":"current","session":"current","terminal":terminal}),
+        Some("keep-close-close"),
+    );
+    let closed_tab = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-close-tab-closed",
+            "operation":"tab.get",
+            "params":{"machine":"current","session":"current","tab":tab},
+        }),
+    );
+    assert_eq!(closed_tab["ok"], false, "terminal close left the kept tab behind: {closed_tab}");
+    let closed_read = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-close-screen-read",
+            "operation":"terminal.screen.read",
+            "params":{"machine":"current","session":"current","terminal":terminal},
+        }),
+    );
+    assert_eq!(closed_read["ok"], false, "terminal close left the kept screen live: {closed_read}");
+}
+
+#[test]
 fn hosted_exit_detaches_existing_and_later_render_streams() {
     let harness = RecoveryHarness::start("hosted-exit-detaches-render");
     let marker = format!("hosted-exit-marker-{}", std::process::id());

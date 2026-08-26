@@ -211,6 +211,12 @@ cmux workspace current run shell 'cargo test && printf ready'
 
 The client never reads or expands `$SHELL`.
 
+Both run forms accept `--on-exit <close|keep>`. `close` (the default)
+detaches every view when the process exits and leaves only the durable exit
+receipt. `keep` retains the tab and the final screen next to that receipt
+until the terminal is closed; after a daemon restart a kept-exited terminal
+degrades to the normal detach.
+
 ## Resource paths
 
 ```text
