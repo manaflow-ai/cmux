@@ -46,4 +46,14 @@ describe("founders-feedback-call template", () => {
     const { html } = await renderTemplate("founders-feedback-call");
     expect(html).toContain("Austin Wang");
   });
+
+  test("interpolates the release version into the default subject", async () => {
+    const english = await renderTemplate("founders-feedback-call");
+    expect(english.subject).toBe("Help shape cmux 0.65.0");
+    const japanese = await renderTemplate("founders-feedback-call", {
+      locale: "ja",
+    });
+    expect(japanese.subject).toContain("cmux 0.65.0");
+    expect(japanese.subject).not.toContain("{releaseVersion}");
+  });
 });

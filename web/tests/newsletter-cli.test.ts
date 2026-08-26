@@ -8,6 +8,7 @@ import {
   DEFAULT_TEST_RECIPIENT,
   TEST_RECIPIENT_OVERRIDE_FLAG,
   parseDraftArgs,
+  requirePrivacyDisclosureConfirmation,
   parseSyncArgs,
   parseTestSendArgs,
 } from "../services/newsletter/cli";
@@ -31,6 +32,31 @@ describe("parseSyncArgs", () => {
     expect(() => parseSyncArgs(["--audience", "everyone"])).toThrow(
       /--audience must be/,
     );
+  });
+
+  test("requires an explicit privacy acknowledgement before users apply", () => {
+    expect(() =>
+      requirePrivacyDisclosureConfirmation({
+        apply: true,
+        audience: "users",
+        json: false,
+      }),
+    ).toThrow(/confirm-privacy-disclosure/);
+    expect(() =>
+      requirePrivacyDisclosureConfirmation({
+        apply: true,
+        audience: "all",
+        json: false,
+        confirmPrivacyDisclosure: true,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      requirePrivacyDisclosureConfirmation({
+        apply: true,
+        audience: "founders",
+        json: false,
+      }),
+    ).not.toThrow();
   });
 });
 

@@ -93,7 +93,9 @@ helpers.
 
 ```bash
 bun run newsletter:sync                      # DRY RUN (default): prints the diff, writes nothing
-bun run newsletter:sync --apply              # create segments/topics, add contacts
+# required for the users/all audience after the privacy review
+bun run newsletter:sync --apply --confirm-privacy-disclosure
+bun run newsletter:sync --apply --audience founders # create founder segment/topic
 bun run newsletter:sync --audience founders  # limit to one segment (users|founders|all)
 bun run newsletter:sync --json               # machine-readable summary only
 ```

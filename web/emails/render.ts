@@ -57,12 +57,18 @@ export async function renderTemplate(
       return { html, subject };
     }
     case "founders-feedback-call": {
+      const foundersCopy = copy.foundersFeedbackCall;
+      const headline = foundersCopy.headline.replaceAll(
+        "{releaseVersion}",
+        foundersCopy.releaseVersion,
+      );
       const props: FoundersFeedbackCallEmailProps = {
         ...FoundersFeedbackCallEmail.PreviewProps,
-        ...copy.foundersFeedbackCall,
+        ...foundersCopy,
+        headline,
         locale,
         footerCopy: copy.footer,
-        greetingTemplate: copy.foundersFeedbackCall.greeting,
+        greetingTemplate: foundersCopy.greeting,
         ...(overrides.greetingName
           ? { greetingName: overrides.greetingName }
           : {}),

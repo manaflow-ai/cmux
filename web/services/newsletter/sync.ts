@@ -187,7 +187,7 @@ export async function syncSegment(options: {
     for (const add of plan.toAddToSegment) {
       const latest = await client.getContactByEmail(add.email);
       if (!latest || latest.unsubscribed) continue;
-      await client.addContactToSegment(add.contactId, segment.id);
+      await client.addContactToSegment(latest.id, segment.id);
       memberEmails.add(add.email);
       addedToSegmentCount += 1;
     }
@@ -199,7 +199,7 @@ export async function syncSegment(options: {
       const firstName = !latest.first_name ? backfill.firstName : undefined;
       const lastName = !latest.last_name ? backfill.lastName : undefined;
       if (firstName || lastName) {
-        await client.updateContactName(backfill.contactId, {
+        await client.updateContactName(latest.id, {
           firstName,
           lastName,
         });

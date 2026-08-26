@@ -43,6 +43,7 @@ export type SyncArgs = {
   apply: boolean;
   audience: AudienceChoice;
   json: boolean;
+  confirmPrivacyDisclosure?: boolean;
 };
 
 export function parseSyncArgs(argv: string[]): SyncArgs {
@@ -53,6 +54,8 @@ export function parseSyncArgs(argv: string[]): SyncArgs {
       args.apply = true;
     } else if (arg === "--json") {
       args.json = true;
+    } else if (arg === "--confirm-privacy-disclosure") {
+      args.confirmPrivacyDisclosure = true;
     } else if (arg === "--audience") {
       const value = flagValue("--audience", argv[++i]);
       if (!AUDIENCE_CHOICES.includes(value as AudienceChoice)) {
@@ -66,6 +69,21 @@ export function parseSyncArgs(argv: string[]): SyncArgs {
     }
   }
   return args;
+}
+
+export function requirePrivacyDisclosureConfirmation(args: SyncArgs): void {
+  if (
+    args.apply &&
+    (args.audience === "users" || args.audience === "all") &&
+    !args.confirmPrivacyDisclosure
+  ) {
+    throw new Error(
+      "Applying the users audience requires the published privacy disclosure " +
+        "to cover product-update email. Re-run with " +
+        "--confirm-privacy-disclosure only after that review is complete, or " +
+        "sync the founders audience alone.",
+    );
+  }
 }
 
 export type DraftArgs = {

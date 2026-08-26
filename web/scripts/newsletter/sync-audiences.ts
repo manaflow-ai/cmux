@@ -25,7 +25,10 @@
 // Env (source scripts/load-dev-env.sh or `vercel env pull`): RESEND_API_KEY,
 // NEXT_PUBLIC_STACK_PROJECT_ID, STACK_SECRET_SERVER_KEY, STRIPE_SECRET_KEY.
 
-import { parseSyncArgs } from "../../services/newsletter/cli";
+import {
+  parseSyncArgs,
+  requirePrivacyDisclosureConfirmation,
+} from "../../services/newsletter/cli";
 import { ResendClient } from "../../services/newsletter/resend-client";
 import { listStackContacts } from "../../services/newsletter/stack-source";
 import { listFounderContacts } from "../../services/newsletter/stripe-source";
@@ -42,6 +45,13 @@ import {
 import { requiredEnv } from "./script-env";
 
 const args = parseSyncArgs(process.argv.slice(2));
+
+// Stack Auth users are account holders, not an explicit marketing opt-in
+// source. Keep the first production apply fail-closed until the published
+// privacy disclosure has been updated (or the source is changed to an
+// explicit opt-in list). The deliberately verbose acknowledgement makes this
+// boundary visible in automation logs and prevents an accidental --apply.
+requirePrivacyDisclosureConfirmation(args);
 
 const client = new ResendClient({ apiKey: requiredEnv("RESEND_API_KEY") });
 
