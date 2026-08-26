@@ -91,7 +91,14 @@ public struct AgentLifecycleReducer: Sendable {
     ) -> (phase: AgentLifecyclePhase, ended: Bool)? {
         switch draft.kind {
         case .sessionStarted:
-            return (.unknown, false)
+            // A session that is starting is present and ready, not stateless:
+            // `unknown` renders as "no agent in this pane", so a freshly started
+            // or resumed agent read as a plain terminal until its first turn.
+            //
+            // A resume keeps whatever phase the session already had - startup
+            // replay restores a pending question or a spent quota, and starting
+            // the agent back up must not blank that.
+            return (previous?.phase ?? .idle, false)
         case .turnStarted:
             return (.running, false)
         case .turnCompleted:

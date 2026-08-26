@@ -107,6 +107,51 @@ struct AgentJournalLifecycleCenterTests {
         #expect(!state.combinedPendingWork(surfaceId: surface, agentKey: "claude_code"))
     }
 
+    /// A started agent is present and ready; a resumed one keeps what replay
+    /// restored.
+    ///
+    /// `sessionStarted` used to reduce to `unknown`, which renders as "no agent
+    /// in this pane" - so a freshly started or resumed agent read as a plain
+    /// terminal until its first turn journaled. Asserting ready from the hook
+    /// instead was worse: it blanked the pending question or spent quota that
+    /// startup replay had just restored, at the moment the agent came back.
+    @Test func aStartedSessionIsReadyAndAResumedOneKeepsItsRestoredPhase() {
+        let reducer = AgentLifecycleReducer()
+        let surface = UUID().uuidString
+        let workspace = UUID().uuidString
+
+        func event(_ sequence: Int64, _ kind: AgentJournalEventKind) -> AgentJournalEvent {
+            AgentJournalEvent(
+                sequence: sequence,
+                committedAtMs: sequence,
+                draft: AgentJournalEventDraft(
+                    eventId: "event-\(sequence)",
+                    kind: kind,
+                    occurredAtMs: sequence,
+                    source: "claude",
+                    agentKey: "claude_code",
+                    sessionId: "session-1",
+                    workspaceId: workspace,
+                    surfaceId: surface
+                )
+            )
+        }
+
+        // Nothing prior: ready, so the pane shows an agent rather than a bare
+        // terminal.
+        var fresh = AgentLifecycleReducerState()
+        reducer.apply(event(1, .sessionStarted), to: &fresh)
+        #expect(fresh.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+
+        // Blocked, then the agent restarts: the block survives.
+        var resumed = AgentLifecycleReducerState()
+        reducer.apply(event(1, .approvalRequested), to: &resumed)
+        #expect(resumed.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .needsInput)
+        reducer.apply(event(2, .sessionStarted), to: &resumed)
+        #expect(resumed.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .needsInput,
+                "a resumed session must not blank the state replay restored")
+    }
+
     /// An agent that exits leaves the pane with no state at all, not frozen on
     /// its last one.
     ///

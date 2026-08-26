@@ -84,13 +84,17 @@ struct ClaudeBackgroundWorkNotifyTests {
             "Stop with a running background task must tag the done-ping pending; saw \(snapshot)"
         )
         #expect(cached == true)
-        // Sidebar pill must not say "Idle" while background work is live.
-        #expect(statusLine(snapshot, value: "Running") != nil,
-                "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
-        #expect(statusLine(snapshot, value: "Idle") == nil)
-        // And the journaled turn boundary must carry pending_work=true so the
-        // reduced lifecycle stays running (non-hibernatable) while the
-        // background task is live.
+        // The turn is over, so the pill says so. It used to claim Running for
+        // pending work - the only way, then, to signal "do not reclaim this
+        // pane" - which made the sidebar report the agent as working after it
+        // had plainly finished, disagreeing with its own pane.
+        #expect(statusLine(snapshot, value: "Idle") != nil,
+                "A completed turn must show an Idle pill even with work pending; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Running") == nil,
+                "A completed turn must not claim the agent is working; saw \(snapshot)")
+        // The pending bit still rides the journaled turn boundary: that is what
+        // now keeps the pane non-hibernatable, in place of the pill and phase
+        // both lying about what the agent is doing.
         #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: true) != nil,
                 "Pending stop must journal a pending turn completion; saw \(snapshot)")
         #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: false) == nil)

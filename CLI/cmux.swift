@@ -26023,20 +26023,13 @@ struct CMUXCLI {
                         icon: "exclamationmark.triangle.fill",
                         color: "#FF453A"
                     )
-                } else if hasPendingBackgroundWork {
-                    // The turn ended but a background task or scheduled wakeup is
-                    // still live, so the pane is not idle — show it as still
-                    // running rather than the misleading "Idle". Reuse the shared
-                    // generic-agent status strings so the pill stays localized.
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: "bolt.fill",
-                        color: "#4C8DFF"
-                    )
                 } else {
+                    // Idle regardless of pending background work. The pill used to
+                    // say Running for it, for the same reason the phase did - it
+                    // was the only way to signal "do not reclaim this pane" - so
+                    // the sidebar claimed the agent was working after it had
+                    // plainly finished. Hibernation now carries that separately,
+                    // and the pane and the sidebar agree again.
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
