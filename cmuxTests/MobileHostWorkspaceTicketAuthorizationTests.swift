@@ -107,7 +107,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
     }
 
-    @Test func endpointIDOnlyIrohAttachURLsAreLosslessAndCarryNoSecretOrPathHint() throws {
+    @Test func attachURLsSanitizeIrohAndPreservePhysicalCompatibility() throws {
         let store = MobileAttachTicketStore()
         let originalRoute = try irohRoute()
 
@@ -131,18 +131,20 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             case .simulatorInjection:
                 #expect(attachURL.contains("?v=1&payload="))
                 decoded = try compactTicket(from: attachURL)
+                #expect(decoded.routes == selectedRoutes)
             case .physicalDevice:
-                #expect(attachURL.contains("?v=3&i="))
+                #expect(attachURL.contains("?v=2"))
                 #expect(!attachURL.contains("payload="))
                 let components = try #require(URLComponents(string: attachURL))
                 decoded = try CmxPairingQRCode().decode(components)
+                #expect(decoded.routes == [try tailscaleRoute()])
+                #expect(decoded.authToken == nil)
+                continue
             case .ticketOnly:
                 Issue.record("Ticket-only target does not produce an attach URL")
                 continue
             }
             let authToken = try #require(ticket.authToken)
-            #expect(decoded.routes.count == selectedRoutes.count)
-            #expect(decoded.routes.first?.endpoint == selectedRoutes.first?.endpoint)
             #expect(decoded.authToken == nil)
             #expect(!attachURL.contains("relay.should-not-leak.example"))
             #expect(!attachURL.contains(authToken))
