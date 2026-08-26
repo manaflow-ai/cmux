@@ -23,14 +23,6 @@ public enum CmxIrohDebugRelayOverride {
         #endif
     }
 
-    /// The active override's single relay URL, exposed for local debug
-    /// diagnostics (the `iroh_diag` socket verb). Nil when the override is
-    /// inactive, and always nil in release builds, where the override
-    /// compiles away.
-    public static var diagnosticsActiveRelayURL: String? {
-        activeProfile()?.activeRelays.first?.url
-    }
-
     #if DEBUG
     /// Reads the raw override value, preferring the process environment.
     static func rawValue(
