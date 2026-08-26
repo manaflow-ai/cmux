@@ -210,13 +210,13 @@ private extension MobilePairedMac {
               !displayName.isEmpty else {
             return nil
         }
-        let reconnectRoutes = MobileShellComposite.storedReconnectRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        )
+        // Presentation identity, not authorization: two stored rows that dial
+        // the same host/port under the same reported name are one computer on
+        // the Computers screen whether or not a local Tailscale grant exists
+        // yet. Grant enforcement stays on the reconnect path
+        // (`storedReconnectRoutes` requires a `TailscaleRouteRequirement`).
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
-            reconnectRoutes,
+            routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {

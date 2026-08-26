@@ -221,16 +221,17 @@ extension MobileShellComposite {
     ///
     /// `tailscaleRequirement` carries the pairing's device-local grants: only
     /// stored Tailscale routes matching an exact grant remain dialable, so a
-    /// registry refresh or manual edit alone grants nothing. Without a
-    /// requirement every raw Tailscale host/port route is dropped (fail
-    /// closed). Debug loopback is the dev-build same-machine lane (the
-    /// simulator/mock host), not a cross-method fallback; physical devices
-    /// strip it via `preferNonLoopback`.
+    /// registry refresh or manual edit alone grants nothing (fail closed).
+    /// The requirement is not optional; presentation-only identity (dial
+    /// endpoint coalescing) reads raw routes directly instead of borrowing
+    /// this authorization filter. Debug loopback is the dev-build
+    /// same-machine lane (the simulator/mock host), not a cross-method
+    /// fallback; physical devices strip it via `preferNonLoopback`.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false,
-        tailscaleRequirement: TailscaleRouteRequirement? = nil
+        tailscaleRequirement: TailscaleRouteRequirement
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         var ordered = routes
@@ -239,17 +240,14 @@ extension MobileShellComposite {
         if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
-        if let tailscaleRequirement {
-            return ordered.filter { route in
-                route.kind == .debugLoopback
-                    || legacyTailscaleAuthorizationEvidence(
-                        for: route,
-                        macDeviceID: tailscaleRequirement.macDeviceID,
-                        persistedRoutes: tailscaleRequirement.grantRoutes
-                    ) != nil
-            }
+        return ordered.filter { route in
+            route.kind == .debugLoopback
+                || legacyTailscaleAuthorizationEvidence(
+                    for: route,
+                    macDeviceID: tailscaleRequirement.macDeviceID,
+                    persistedRoutes: tailscaleRequirement.grantRoutes
+                ) != nil
         }
-        return ordered.filter { $0.kind == .debugLoopback }
     }
 
     /// The dial order for one stored Mac: its grant-authorized Tailscale
