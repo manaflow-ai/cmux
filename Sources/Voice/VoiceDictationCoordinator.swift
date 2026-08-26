@@ -84,7 +84,7 @@ final class VoiceDictationCoordinator {
             defaultValue: "Set Up Voice"
         ))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        guard runCmuxModalAlert(alert) == .alertFirstButtonReturn else { return }
+        guard alert.runCmuxModal() == .alertFirstButtonReturn else { return }
         catalog.voice.dictationSetupCompleted.set(true, in: defaults)
         controller.start()
     }
@@ -191,7 +191,7 @@ final class VoiceDictationCoordinator {
             defaultValue: "Open System Settings"
         ))
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        guard runCmuxModalAlert(alert) == .alertFirstButtonReturn else { return }
+        guard alert.runCmuxModal() == .alertFirstButtonReturn else { return }
         let url = "x-apple.systempreferences:com.apple.preference.security?\(settingsPane)"
         if let settingsURL = URL(string: url) {
             NSWorkspace.shared.open(settingsURL)
@@ -203,6 +203,6 @@ final class VoiceDictationCoordinator {
         alert.messageText = message
         alert.informativeText = informative
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        _ = runCmuxModalAlert(alert)
+        _ = alert.runCmuxModal()
     }
 }

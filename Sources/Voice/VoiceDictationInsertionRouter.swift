@@ -14,6 +14,8 @@ import WebKit
 /// pinned target goes away the session ends.
 @MainActor
 final class VoiceDictationInsertionRouter: DictationTextInserting {
+    private static let javaScriptEvaluationTimeout: TimeInterval = 2
+
     /// Resolves the focused terminal panel of the active workspace across
     /// window contexts; injected from the composition root.
     private let focusedTerminalPanel: () -> TerminalPanel?
@@ -93,32 +95,19 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
             // Wait for the JavaScript completion before acknowledging the
             // segment. Otherwise a rejected final insertion can be reported
             // as success and the controller will settle while text is lost.
-            return await withCheckedContinuation { continuation in
-                webView.evaluateJavaScript(
-                    """
-                    (() => {
-                      const target = window.__cmuxVoiceDictationTarget;
-                      if (!target || !target.isConnected || target.disabled || target.readOnly) {
-                        return false;
-                      }
-                      target.focus();
-                      return Boolean(document.execCommand('insertText', false, \(literal)));
-                    })()
-                    """
-                ) { result, error in
-                    let commandSucceeded: Bool
-                    if let value = result as? Bool {
-                        commandSucceeded = value
-                    } else if let value = result as? NSNumber {
-                        commandSucceeded = value.boolValue
-                    } else {
-                        commandSucceeded = false
-                    }
-                    continuation.resume(
-                        returning: error == nil && commandSucceeded
-                    )
-                }
-            }
+            return await Self.evaluateBoolean(
+                """
+                (() => {
+                  const target = window.__cmuxVoiceDictationTarget;
+                  if (!target || !target.isConnected || target.disabled || target.readOnly) {
+                    return false;
+                  }
+                  target.focus();
+                  return Boolean(document.execCommand('insertText', false, \(literal)));
+                })()
+                """,
+                in: webView
+            )
         case .terminalSurface:
             guard let panel = pinnedTerminalPanel else { return false }
             return panel.sendInputResult(text).accepted
@@ -142,20 +131,20 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
 
     private static func pinWebViewEditableTarget(_ webView: WKWebView) async -> Bool {
         guard webView.window != nil else { return false }
-        return await withCheckedContinuation { continuation in
-            webView.evaluateJavaScript(Self.pinWebEditableTargetScript) { result, error in
-                guard error == nil else {
-                    continuation.resume(returning: false)
-                    return
-                }
-                if let value = result as? Bool {
-                    continuation.resume(returning: value)
-                } else if let value = result as? NSNumber {
-                    continuation.resume(returning: value.boolValue)
-                } else {
-                    continuation.resume(returning: false)
-                }
-            }
+        return await evaluateBoolean(Self.pinWebEditableTargetScript, in: webView)
+    }
+
+    private static func evaluateBoolean(_ script: String, in webView: WKWebView) async -> Bool {
+        do {
+            let result = try await BrowserScreenshotJavaScriptRequest(
+                webView: webView,
+                timeout: javaScriptEvaluationTimeout
+            ).evaluate(script: script)
+            if let value = result as? Bool { return value }
+            if let value = result as? NSNumber { return value.boolValue }
+            return false
+        } catch {
+            return false
         }
     }
 

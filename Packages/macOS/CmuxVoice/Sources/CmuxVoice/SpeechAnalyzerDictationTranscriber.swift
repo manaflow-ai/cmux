@@ -14,28 +14,53 @@ import Speech
 /// Recognition never leaves the machine.
 @available(macOS 26.0, *)
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
+    /// Raw audio-tap payload. The tap captures only value metadata and the
+    /// framework-owned buffer reference; AnalyzerInput construction happens
+    /// on the conversion worker. Safety: AVAudioEngine transfers an owned
+    /// buffer reference whose lifetime is retained by this value until the
+    /// single conversion worker consumes it.
+    private struct RawAudioInput: @unchecked Sendable {
+        let buffer: AVAudioPCMBuffer
+        let sampleTime: AVAudioFramePosition?
+        let sampleRate: Double?
+
+        var bufferStartTime: CMTime? {
+            guard let sampleTime, let sampleRate, sampleRate > 0 else { return nil }
+            let roundedRate = min(sampleRate.rounded(), Double(Int32.max))
+            return CMTime(value: sampleTime, timescale: CMTimeScale(roundedRate))
+        }
+    }
+
     /// The bounded handoff from the audio-thread tap to the actor.
     ///
     /// Lock carve-out: the AVAudioEngine tap is a synchronous audio-thread
-    /// callback. It only enqueues an already-owned AnalyzerInput; format
-    /// conversion and buffer allocation happen on the actor's worker task.
+    /// callback. It only snapshots the continuation and enqueues a raw buffer
+    /// reference; format conversion and AnalyzerInput allocation happen on
+    /// the actor's worker task.
     private final class InputBox: @unchecked Sendable {
         private let lock = OSAllocatedUnfairLock()
         // The continuation is guarded by lock.
-        private var continuation: AsyncStream<AnalyzerInput>.Continuation?
+        private var continuation: AsyncStream<RawAudioInput>.Continuation?
 
         func configure(
-            continuation: AsyncStream<AnalyzerInput>.Continuation
+            continuation: AsyncStream<RawAudioInput>.Continuation
         ) {
             lock.lock()
             defer { lock.unlock() }
             self.continuation = continuation
         }
 
-        func ingest(_ buffer: AVAudioPCMBuffer) {
+        func ingest(_ buffer: AVAudioPCMBuffer, at time: AVAudioTime) {
             lock.lock()
-            defer { lock.unlock() }
-            continuation?.yield(AnalyzerInput(buffer: buffer))
+            let continuation = self.continuation
+            lock.unlock()
+            continuation?.yield(
+                RawAudioInput(
+                    buffer: buffer,
+                    sampleTime: time.isSampleTimeValid ? time.sampleTime : nil,
+                    sampleRate: time.isSampleTimeValid ? time.sampleRate : nil
+                )
+            )
         }
 
         func finish() {
@@ -128,7 +153,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         try Task.checkCancellation()
 
-        let (rawInputSequence, rawInputContinuation) = AsyncStream<AnalyzerInput>.makeStream(
+        let (rawInputSequence, rawInputContinuation) = AsyncStream<RawAudioInput>.makeStream(
             bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
         )
         let (inputSequence, inputContinuation) = AsyncStream<AnalyzerInput>.makeStream(
@@ -235,8 +260,8 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             throw DictationFailure.audioCaptureFailed("no audio input device")
         }
         let box = inputBox
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            box.ingest(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, time in
+            box.ingest(buffer, at: time)
         }
         engine.prepare()
         try engine.start()
@@ -244,11 +269,13 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     /// Converts one raw tap buffer off the realtime audio callback.
-    private func convertAndYield(_ input: AnalyzerInput) {
+    private func convertAndYield(_ input: RawAudioInput) {
         guard let analyzerFormat, let continuation = convertedInputContinuation else { return }
         let buffer = input.buffer
         if buffer.format == analyzerFormat {
-            continuation.yield(input)
+            continuation.yield(
+                AnalyzerInput(buffer: buffer, bufferStartTime: input.bufferStartTime)
+            )
             return
         }
         if converter == nil || converter?.inputFormat != buffer.format {
@@ -275,7 +302,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             return next
         }
         guard conversionError == nil, converted.frameLength > 0 else { return }
-        continuation.yield(AnalyzerInput(buffer: converted))
+        continuation.yield(
+            AnalyzerInput(buffer: converted, bufferStartTime: input.bufferStartTime)
+        )
     }
 
     private func finishConvertedInput() {
