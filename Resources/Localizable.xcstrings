@@ -267548,16 +267548,124 @@
     "cli.identify.error.noCallerConflict": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: لا يمكن دمج --no-caller مع %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller se ne može kombinovati sa %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller kan ikke kombineres med %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller kann nicht mit %@ kombiniert werden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "identify: --no-caller cannot be combined with %@."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller no se puede combinar con %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify : --no-caller ne peut pas être combiné avec %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller non può essere combinato con %@."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "identify: --no-caller は %@ と併用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller មិនអាចប្រើរួមជាមួយ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller는 %@와 함께 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller kan ikke brukes sammen med %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller nie może być używane razem z %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller não pode ser combinado com %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller нельзя использовать вместе с %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: ไม่สามารถใช้ --no-caller ร่วมกับ %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller %@ ile birlikte kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify: --no-caller не можна поєднувати з %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify：--no-caller 不能与 %@ 组合使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "identify：--no-caller 不能與 %@ 搭配使用。"
           }
         }
       }

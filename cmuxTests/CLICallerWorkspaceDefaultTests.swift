@@ -121,7 +121,8 @@ struct CLICallerWorkspaceDefaultTests {
     /// `--no-caller` and an explicit caller selector are contradictory. The CLI must
     /// reject the invocation before opening a socket instead of silently discarding
     /// the selector and returning an indistinguishable identity response.
-    @Test func identifyNoCallerRejectsWorkspaceSelector() throws {
+    @Test(arguments: ["--workspace", "--surface"])
+    func identifyNoCallerRejectsCallerSelector(_ selector: String) throws {
         let socketPath = Self.makeSocketPath("identify-conflict")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
@@ -147,10 +148,11 @@ struct CLICallerWorkspaceDefaultTests {
             callerWorkspaceId: Self.callerWorkspaceId
         )
         environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys9999999"
+        let selectorValue = selector == "--workspace" ? Self.otherWorkspaceId : Self.callerSurfaceId
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: [
-                "identify", "--json", "--workspace", Self.otherWorkspaceId, "--no-caller",
+                "identify", "--json", selector, selectorValue, "--no-caller",
             ],
             environment: environment,
             timeout: 5
@@ -161,7 +163,7 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(try state.requestObjects().isEmpty)
         let output = result.stderr + result.stdout
         #expect(output.contains("--no-caller"), Comment(rawValue: output))
-        #expect(output.contains("--workspace"), Comment(rawValue: output))
+        #expect(output.contains(selector), Comment(rawValue: output))
     }
 
     private func runIdentify(

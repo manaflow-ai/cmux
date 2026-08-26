@@ -18269,6 +18269,7 @@ struct CMUXCLI {
         return (values, remaining)
     }
 
+    /// Rejects explicit caller selectors when identify opts out of caller context.
     private func validateIdentifyCallerOptions(_ args: [String]) throws {
         var sawNoCaller = false
         var selectorFlags: [String] = []
@@ -18298,7 +18299,7 @@ struct CMUXCLI {
         }
 
         guard sawNoCaller, !selectorFlags.isEmpty else { return }
-        let selectors = selectorFlags.joined(separator: " or ")
+        let selectors = ListFormatter.localizedString(byJoining: selectorFlags)
         throw CLIError(
             message: String(
                 format: String(
