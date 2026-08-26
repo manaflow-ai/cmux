@@ -238,6 +238,38 @@ import Testing
         #expect(await jsonStore.value(for: catalog.shortcuts.bindings)[targetAction.rawValue] == nil)
     }
 
+    @Test func legacyRenameWorkspaceOverrideSharesHardReloadStroke() async throws {
+        // WHY: an existing install may retain Rename Workspace on Cmd+Shift+R.
+        // The runtime routes that legacy binding after browser hard reload, so
+        // the Settings recorder must allow the same stroke for both actions.
+        let legacyShortcut = StoredShortcut(first: ShortcutStroke(
+            key: "r",
+            command: true,
+            shift: true
+        ))
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [.renameWorkspace: legacyShortcut]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+
+        let jsonStore = makeJSONStore()
+        let catalog = SettingCatalog()
+        let model = ShortcutListModel(
+            jsonStore: jsonStore,
+            userDefaultsStore: defaultsStore,
+            catalog: catalog,
+            errorLog: SettingsErrorLog()
+        )
+
+        await model.assign(stroke: legacyShortcut.first, to: .browserHardReload)
+
+        #expect(model.conflictRejections[ShortcutAction.browserHardReload.rawValue] == nil)
+        #expect(
+            await jsonStore.value(for: catalog.shortcuts.bindings)[ShortcutAction.browserHardReload.rawValue]
+                == legacyShortcut
+        )
+    }
+
     @Test func successfulEditRetiresSupersededLegacyOverride() async throws {
         let action = ShortcutAction.showHideAllWindows
         let legacyShortcut = StoredShortcut(first: ShortcutStroke(key: "]", command: true, shift: true))
