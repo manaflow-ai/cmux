@@ -307,6 +307,52 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func bonsplitTargetsExcludeVisualDividerRows() {
+        let first = makeRowConfiguration()
+        let dividerId = UUID()
+        let divider = makeRowConfiguration(
+            workspaceId: dividerId,
+            renderItemId: .divider(dividerId)
+        )
+        let second = makeRowConfiguration()
+        let rows = [first, divider, second]
+
+        let targets = SidebarWorkspaceTableDropTargetGeometryGate.makeBonsplitTargets(
+            rows: rows,
+            rowRange: rows.indices,
+            frameForRow: { row in
+                CGRect(x: 0, y: CGFloat(row * 20), width: 200, height: 18)
+            }
+        )
+
+        #expect(targets.map(\.workspaceId) == [first.workspaceId, second.workspaceId])
+    }
+
+    @Test
+    @MainActor
+    func emptyAreaMenuUsesAuthoritativeDividerAvailability() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let container = controller.makeContainerView()
+
+        controller.apply(
+            rows: [first, second],
+            actions: makeTableActions(canCreateDivider: false),
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        let dividerItem = try #require(controller.emptyAreaMenu().items.last)
+        #expect(dividerItem.title == String(localized: "sidebar.divider.add", defaultValue: "Add Divider"))
+        #expect(!dividerItem.isEnabled)
+        _ = container
+    }
+
+    @Test
+    @MainActor
     func reorderDragReplansFromStoredWindowPointOnViewportChange() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -617,6 +663,7 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),
+        renderItemId: SidebarWorkspaceRenderItemID? = nil,
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
         colorScheme: ColorScheme = .light,
@@ -635,7 +682,7 @@ struct SidebarWorkspaceTableTests {
         )
 #endif
         return SidebarWorkspaceTableRowConfiguration(
-            id: .workspace(workspaceId),
+            id: renderItemId ?? .workspace(workspaceId),
             workspaceId: workspaceId,
             groupId: nil,
             isGroupHeader: false,
@@ -683,7 +730,8 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeTableActions(
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
-        clearWorkspaceDropIndicator: @escaping () -> Void = {}
+        clearWorkspaceDropIndicator: @escaping () -> Void = {},
+        canCreateDivider: Bool = true
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
@@ -691,6 +739,7 @@ struct SidebarWorkspaceTableTests {
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
             createDivider: {},
+            canCreateDivider: canCreateDivider,
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: {},
@@ -839,6 +888,7 @@ struct SidebarWorkspaceTableResizeLifecycleTests {
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
             createDivider: {},
+            canCreateDivider: true,
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: {},

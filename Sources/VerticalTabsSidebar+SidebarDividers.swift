@@ -58,7 +58,8 @@ extension VerticalTabsSidebar {
                 guard !dividerIds.contains(target.workspaceId) else { return false }
                 return target.isGroupHeader || target.groupId == nil
             }
-            .sorted { lhs, rhs in lhs.frame.minY < rhs.frame.minY }
+        // SwiftUI and AppKit callers pass their rendered row order; retain it
+        // so drag updates do not sort the full target collection each tick.
         guard topLevelTargets.count > 1 else { return nil }
 
         let insertionIndex = topLevelTargets.firstIndex { point.y < $0.frame.midY }

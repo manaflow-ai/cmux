@@ -12076,6 +12076,7 @@ struct VerticalTabsSidebar: View, Equatable {
             createDivider: {
                 _ = tabManager.workspaces.insertSidebarDividerAtEnd()
             },
+            canCreateDivider: renderContext.canAddSidebarDivider,
             beginWorkspaceDrag: { workspaceId in
                 dragState.beginDragging(tabId: workspaceId)
             },

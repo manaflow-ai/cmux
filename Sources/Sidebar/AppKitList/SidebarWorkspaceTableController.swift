@@ -1333,20 +1333,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return menu
     }
 
-    /// Whether the rendered top-level blocks contain an unoccupied interior
-    /// gap. Divider rows are already projected into `rows`, so this stays a
-    /// cheap value-only check and mirrors the model's normalization rules.
+    /// Whether the authoritative render snapshot contains an unoccupied
+    /// interior gap. The value is computed from stable top-level UUIDs in
+    /// `WorkspaceListRenderContext`, rather than from projected row indices.
     private var hasAvailableDividerGap: Bool {
-        let topLevelIndices = rows.indices.filter {
-            !rows[$0].id.isDivider && (rows[$0].isGroupHeader || rows[$0].groupId == nil)
-        }
-        guard topLevelIndices.count > 1 else { return false }
-        for pair in zip(topLevelIndices, topLevelIndices.dropFirst()) {
-            if !rows[(pair.0 + 1)..<pair.1].contains(where: { $0.id.isDivider }) {
-                return true
-            }
-        }
-        return false
+        actions?.canCreateDivider == true
     }
 
     @objc private func createEmptyWorkspaceGroupFromMenu() {

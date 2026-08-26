@@ -6235,7 +6235,7 @@ extension TabManager {
             workspaceGroups.map { ($0.anchorWorkspaceId, $0.id) },
             uniquingKeysWith: { first, _ in first }
         )
-        let dividerSnapshots: [SessionWorkspaceSidebarDividerSnapshot]? = {
+        let dividerSnapshots: [SessionWorkspaceSidebarDividerSnapshot] = {
             let snapshots = sidebarDividers.compactMap { divider -> SessionWorkspaceSidebarDividerSnapshot? in
                 guard validDividerAnchors.contains(divider.afterWorkspaceId) else {
                     return nil
@@ -6251,13 +6251,13 @@ extension TabManager {
                     afterWorkspaceGroupId: groupId
                 )
             }
-            return snapshots.isEmpty ? nil : snapshots
+            return snapshots
         }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
             workspaceGroups: groupSnapshots,
-            sidebarDividers: dividerSnapshots
+            sidebarDividers: dividerSnapshots.isEmpty ? nil : dividerSnapshots
         )
     }
 
