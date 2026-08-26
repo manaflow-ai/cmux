@@ -34,6 +34,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupUIDelegate: PopupUIDelegate
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
@@ -124,6 +125,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // Build delegate objects before super.init so they can be assigned
         let externalNavigationHandler = BrowserExternalNavigationHandler()
+        self.externalNavigationHandler = externalNavigationHandler
         let uiDel = PopupUIDelegate(externalNavigationHandler: externalNavigationHandler)
         let navDel = PopupNavigationDelegate(externalNavigationHandler: externalNavigationHandler)
         let dlDel = BrowserDownloadDelegate()
@@ -204,8 +206,8 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             // A popup without an opener cannot create a sibling tab, but a
             // configured rule still gets the shared canonicalization and
             // fail-closed opener handling before the system fallback.
-            let handler = BrowserExternalNavigationHandler()
-            switch handler.openConfiguredExternallyResult(
+            guard let self else { return }
+            switch self.externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: .linkActivated,
                 targetFrameIsMain: true
@@ -213,9 +215,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             case .opened:
                 return
             case .failed:
-                if let webView = self?.webView {
-                    browserPresentExternalNavigationFailure(for: url, in: webView)
-                }
+                browserPresentExternalNavigationFailure(for: url, in: self.webView)
             case .notConfigured:
                 _ = NSWorkspace.shared.open(url)
             }

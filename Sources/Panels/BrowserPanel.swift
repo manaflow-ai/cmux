@@ -1948,6 +1948,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
@@ -3389,6 +3390,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.id = UUID()
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
+        self.externalNavigationHandler = BrowserExternalNavigationHandler()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -3455,7 +3457,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate(
-            externalNavigationHandler: BrowserExternalNavigationHandler()
+            externalNavigationHandler: externalNavigationHandler
         )
         navDelegate.owner = self
         navDelegate.openInNewTab = { [weak self] url in
@@ -3641,7 +3643,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
         let browserUIDelegate = BrowserUIDelegate(
-            externalNavigationHandler: BrowserExternalNavigationHandler()
+            externalNavigationHandler: externalNavigationHandler
         )
         browserUIDelegate.owner = self
         browserUIDelegate.openInNewTab = { [weak self] url in
@@ -6089,7 +6091,7 @@ extension BrowserPanel {
 
     /// Routes the context-menu tab action through configured external rules.
     func openContextMenuLinkInNewTab(url: URL) {
-        switch BrowserExternalNavigationHandler().openConfiguredExternallyResult(
+        switch externalNavigationHandler.openConfiguredExternallyResult(
             url,
             navigationType: .linkActivated,
             targetFrameIsMain: true
