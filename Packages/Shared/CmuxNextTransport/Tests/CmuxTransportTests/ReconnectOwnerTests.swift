@@ -221,8 +221,12 @@ struct ReconnectOwnerShutdownTests {
         await waitFor(owner) { $0 == .idle }
         await owner.stop()
         // Long past the backoff wake-up: the scheduled redial must be dead,
-        // not dialing a fresh connection after shutdown.
-        try await Task.sleep(for: .milliseconds(200))
+        // not dialing a fresh connection after shutdown. Poll for the failure
+        // mode (a second dial) until well past the 40ms backoff deadline.
+        let deadline = ContinuousClock.now + .milliseconds(200)
+        while await owner.dialsStarted == 1, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(await owner.dialsStarted == 1)
         #expect(await owner.state == .closed(.userRequested))
         #expect(await owner.currentConnection == nil)
@@ -303,7 +307,12 @@ extension ReconnectOwnerShutdownTests {
             await rig.host.pushRelayCredential(
                 deviceID: rig.identity.deviceID, appIdentity: rig.identity.appIdentity,
                 url: "https://relay-2.example", token: "tok-2"))
-        try await Task.sleep(for: .milliseconds(200))
+        // Poll for the failure mode (a second surfaced frame) until well past
+        // any plausible delivery latency; a dead watch loop surfaces nothing.
+        let deadline = ContinuousClock.now + .milliseconds(200)
+        while await collector.count < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(await collector.count == 1)
     }
 
