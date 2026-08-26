@@ -278,32 +278,11 @@ cmux_ios_resolve_api_base_url() {
   fi
 }
 
-# Iroh discovery and grants always use one shared broker. This is staging for
-# Debug builds on both targets and production for --prod-auth builds.
-cmux_ios_resolve_iroh_broker_base_url() {
-  local explicit_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
-
-  if [[ -n "$explicit_base_url" ]]; then
-    printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
-  else
-    printf '%s' "https://cmux-staging.vercel.app"
-  fi
-}
-
 CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url simulator)"
 CMUX_IOS_DEVICE_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url physical_device)"
-CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="$(cmux_ios_resolve_iroh_broker_base_url)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-IROH_RELAY_POLICY_BUILD_ARGS=()
-if [[ "$PROD_AUTH" -eq 1 ]]; then
-  IROH_RELAY_POLICY_BUILD_ARGS=(
-    -xcconfig "$IOS_DIR/../config/IrohRelayPolicyProduction.xcconfig"
-  )
-fi
 # Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
 # built bundle id matches the signed-launch bundle id. Sourced before any
 # sanitize_tag call below.
@@ -721,7 +700,6 @@ reload_simulator() {
     -configuration Debug \
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA" \
-    ${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"} \
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
@@ -729,7 +707,6 @@ reload_simulator() {
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
     CMUX_API_BASE_URL="$CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE" \
-    CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -775,7 +752,7 @@ PY
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
     elif ! auto_setup_launch simulator "$SIM_ID"; then
       echo "error: installed $BUNDLE_ID, but signed setup failed; refusing an unpaired fallback launch" >&2
-      echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
+      echo "error: repair the tagged Mac/Tailscale route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
       return 1
     fi
   fi
@@ -916,8 +893,6 @@ reload_device() {
     -destination "$device_destination"
     -derivedDataPath "$DERIVED_DATA"
   )
-  build_args+=(${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"})
-
   if [[ "$ALLOW_PROVISIONING_UPDATES" -eq 1 ]]; then
     build_args+=(-allowProvisioningUpdates)
   fi
@@ -937,7 +912,6 @@ reload_device() {
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
     CMUX_API_BASE_URL="$CMUX_IOS_DEVICE_API_BASE_URL_VALUE"
-    CMUX_IROH_BROKER_BASE_URL="$CMUX_IOS_IROH_BROKER_BASE_URL_VALUE"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic
@@ -1073,8 +1047,8 @@ reload_device() {
         return 75
       elif [[ "$setup_rc" -ne 0 ]]; then
         # A plain fallback can reuse stale pairing state and look dogfood-ready
-        # while the matching tagged Iroh route is absent. Fail closed unless the
-        # caller explicitly requested a plain launch above.
+        # while the matching tagged Tailscale route is absent. Fail closed
+        # unless the caller explicitly requested a plain launch above.
         echo "error: installed $BUNDLE_ID, but the iPhone auth gate failed; refusing an unpaired fallback launch" >&2
         echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
         return 1

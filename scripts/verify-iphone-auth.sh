@@ -23,7 +23,7 @@
 # Device id defaults to CMUX_IPHONE_DEVICE_ID, then the first line of
 # ~/.config/cmux/iphone-device-id. Timeout defaults to
 # CMUX_VERIFY_IPHONE_AUTH_TIMEOUT_SECONDS or 45 (a plain relaunch must rebuild
-# its broker discovery + Iroh route before the RPC session is usable).
+# its Tailscale route to the Mac before the RPC session is usable).
 #
 # Prints exactly one final PASS:/FAIL: line on stdout; FAIL includes the
 # reason and the exact retry command. Exit 0 PASS, 1 FAIL, 2 usage/environment.

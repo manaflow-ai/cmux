@@ -17,9 +17,9 @@ class AnalyzerTests(unittest.TestCase):
         lines = [
             "2026-08-12 10:00:00.000 UTC | App lifecycle changed (Phase: Background)",
             "2026-08-12 10:08:00.000 UTC | App lifecycle changed (Phase: Active)",
-            "2026-08-12 10:08:00.100 UTC | Transport dial started (Peer: 7, Transport: Iroh, Attempt: 11)",
-            "2026-08-12 10:08:00.300 UTC | Transport connected (Peer: 7, Transport: Iroh, Duration: 200 ms, Attempt: 11)",
-            "2026-08-12 10:08:00.500 UTC | RPC session ready (Peer: 7, Transport: Iroh, Duration: 400 ms)",
+            "2026-08-12 10:08:00.100 UTC | Transport dial started (Peer: 7, Transport: Tailscale, Attempt: 11)",
+            "2026-08-12 10:08:00.300 UTC | Transport connected (Peer: 7, Transport: Tailscale, Duration: 200 ms, Attempt: 11)",
+            "2026-08-12 10:08:00.500 UTC | RPC session ready (Peer: 7, Transport: Tailscale, Duration: 400 ms)",
             "2026-08-12 10:08:00.600 UTC | Transport session state changed (Peer: 7, State: Established, Session: 1)",
             "2026-08-12 10:08:00.700 UTC | Transport session state changed (Peer: 7, State: Established, Session: 2)",
         ]
@@ -31,8 +31,8 @@ class AnalyzerTests(unittest.TestCase):
 
     def test_old_export_without_peer_fields_still_checks_success(self):
         lines = [
-            "+0.000 seconds | Transport dial started (Transport: Iroh, Attempt: 4)",
-            "+0.250 seconds | Transport connected (Transport: Iroh, Duration: 250 ms, Attempt: 4)",
+            "+0.000 seconds | Transport dial started (Transport: Tailscale, Attempt: 4)",
+            "+0.250 seconds | Transport connected (Transport: Tailscale, Duration: 250 ms, Attempt: 4)",
         ]
         result = analyzer.analyze(lines)
         self.assertTrue(result["pass"])
@@ -42,9 +42,9 @@ class AnalyzerTests(unittest.TestCase):
         lines = [
             "cmux network diagnostics log · cmux · built 2026-08-12",
             "2026-08-12T10:00:00.000Z Direct dial plan assembled (Peer: 9, Public paths: 1, Private fallback paths: 0, Public relay URLs: 1)",
-            "2026-08-12T10:00:00.100Z Iroh route discovery succeeded (Peer: 9, Duration: 340 ms)",
+            "2026-08-12T10:00:00.100Z Tailscale route discovery succeeded (Peer: 9, Duration: 340 ms)",
             "2026-08-12T10:00:00.200Z Direct dial leg failed (Peer: 9, Leg: Public paths, Failure: No route available, Duration: 5.000 seconds)",
-            "2026-08-12T10:00:00.300Z Transport dial failed (Peer: 9, Transport: Iroh, Failure: No route available, Duration: 5.000 seconds, Attempt: 4)",
+            "2026-08-12T10:00:00.300Z Transport dial failed (Peer: 9, Transport: Tailscale, Failure: No route available, Duration: 5.000 seconds, Attempt: 4)",
         ]
         result = analyzer.analyze(lines)
         self.assertEqual(result["event_count"], 4)
@@ -73,7 +73,7 @@ class AnalyzerTests(unittest.TestCase):
         missing_relay = analyzer.analyze(
             [
                 "2026-08-12T10:00:00.000Z Direct dial plan assembled (Peer: 9, Public paths: 1, Private fallback paths: 0, Public relay URLs: 0)",
-                "2026-08-12T10:00:00.100Z Transport dial failed (Peer: 9, Transport: Iroh, Failure: No route available, Attempt: 4)",
+                "2026-08-12T10:00:00.100Z Transport dial failed (Peer: 9, Transport: Tailscale, Failure: No route available, Attempt: 4)",
             ]
         )
         self.assertEqual(missing_relay["route_policy"]["assessment"], "no_public_relay")
@@ -84,7 +84,7 @@ class AnalyzerTests(unittest.TestCase):
 
         legacy = analyzer.analyze(
             [
-                "2026-08-12T10:00:00.100Z Transport dial failed (Transport: Iroh, Failure: No route available, Attempt: 4)",
+                "2026-08-12T10:00:00.100Z Transport dial failed (Transport: Tailscale, Failure: No route available, Attempt: 4)",
             ]
         )
         self.assertEqual(
@@ -97,7 +97,7 @@ class AnalyzerTests(unittest.TestCase):
             [
                 "2026-08-12T10:00:00.000Z Relay policy refresh started",
                 "2026-08-12T10:00:00.050Z Relay policy refreshed",
-                "2026-08-12T10:00:00.100Z Iroh route discovery succeeded (Transport: Iroh, Bindings: 2, Duration: 340 ms, Relay fleet: 3)",
+                "2026-08-12T10:00:00.100Z Tailscale route discovery succeeded (Transport: Tailscale, Bindings: 2, Duration: 340 ms, Relay fleet: 3)",
                 "2026-08-12T10:00:00.200Z Network reachability changed (Network: Online)",
             ]
         )
@@ -121,9 +121,9 @@ class AnalyzerTests(unittest.TestCase):
     def test_handles_iso_offsets_and_explicit_duration_units(self):
         result = analyzer.analyze(
             [
-                "2026-08-12T10:00:00.000+02:00 Transport dial started (Transport: Iroh, Attempt: 4)",
-                "2026-08-12T08:00:00.250Z Transport connected (Transport: Iroh, Duration: 250 milliseconds, Attempt: 4)",
-                "2026-08-12T08:00:00.300Z Iroh route discovery succeeded (Duration: 1.5 seconds)",
+                "2026-08-12T10:00:00.000+02:00 Transport dial started (Transport: Tailscale, Attempt: 4)",
+                "2026-08-12T08:00:00.250Z Transport connected (Transport: Tailscale, Duration: 250 milliseconds, Attempt: 4)",
+                "2026-08-12T08:00:00.300Z Tailscale route discovery succeeded (Duration: 1.5 seconds)",
             ]
         )
         self.assertEqual(result["connected_latency_ms"], [250.0])

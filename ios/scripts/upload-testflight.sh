@@ -1106,7 +1106,7 @@ if [[ "$SIGNING" == "manual" ]]; then
   fi
 
   # Xcode embeds SPM binaryTarget frameworks into Frameworks/ even when the
-  # framework's binary is a STATIC archive (ar), e.g. iroh-ffi's Iroh.framework.
+  # framework's binary is a STATIC archive (ar), not a dynamic library.
   # The linker already folded that code into the app executable, so the embedded
   # copy is inert — and App Store Connect rejects it in processing with
   # ITMS-90208 regardless of the app's deployment target or the framework's
@@ -1235,9 +1235,9 @@ PY
   # expanded to an empty string and CMUXKeychainAccessGroup baked as the bare
   # bundle id. The runtime reads that key verbatim for kSecAttrAccessGroup, and
   # the entitlements above never grant a prefix-less group, so every SecItem
-  # call fails with errSecMissingEntitlement and the iroh transport dies before
-  # any broker fetch. Rewrite the key to the exact group the entitlements
-  # grant, then sign, so the signature covers the corrected plist.
+  # call fails with errSecMissingEntitlement and keychain-backed features die
+  # at startup. Rewrite the key to the exact group the entitlements grant,
+  # then sign, so the signature covers the corrected plist.
   if "$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$RESIGN_APP/Info.plist" >/dev/null 2>&1; then
     "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" \
       "$RESIGN_APP/Info.plist"

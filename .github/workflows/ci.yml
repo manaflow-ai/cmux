@@ -430,9 +430,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Validate managed relay catalog
-        run: bun tools/generate-managed-iroh-relay-catalog.ts --check
-
       - name: Typecheck
         run: bun run typecheck
 
@@ -1586,7 +1583,6 @@ jobs:
             CmuxAgentChat
             CmuxAuthRuntime
             CmuxBrowser
-            CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -1621,7 +1617,7 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
+            CmuxAgentChat|CmuxAuthRuntime)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
