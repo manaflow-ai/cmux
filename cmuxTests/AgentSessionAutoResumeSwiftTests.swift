@@ -2515,6 +2515,32 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(registered.restoreWorkingDirectorySelection == .unavailable)
     }
 
+    @Test func exactRemoteRebuildSupportsRegistryOwnedKindWithoutSnapshot() throws {
+        let sessionID = "snapshotless-grok-session"
+        let trustedDirectory = "/srv/remote-grok"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "grok",
+            command: "grok -r \(sessionID)",
+            cwd: trustedDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "/usr/local/bin/grok",
+                arguments: ["/usr/local/bin/grok"],
+                workingDirectory: trustedDirectory
+            ),
+            restoreWorkingDirectorySelection: .exact(trustedDirectory),
+            autoResume: true
+        )
+
+        let input = try #require(binding.remoteStartupInput())
+
+        #expect(input.contains("grok"), Comment(rawValue: input))
+        #expect(input.contains(sessionID), Comment(rawValue: input))
+        #expect(input.contains(trustedDirectory), Comment(rawValue: input))
+    }
+
     @MainActor
     @Test(arguments: [RestorableAgentKind.codex, .opencode])
     func remoteManualResumeRecordUsesOnlyTrustedReportedDirectory(
