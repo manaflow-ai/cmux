@@ -1013,6 +1013,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var activeSaveGeneration: Int?
     var fileContentChangeCoordinator: FileContentChangeCoordinator
     var fileContentObservationID: UUID?
+    var fileContentObservationLifetime: FileContentObservationLifetime?
     var fileChangeReloadTask: Task<Void, Never>?
     /// The one container currently projecting this panel's tab metadata.
     weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?

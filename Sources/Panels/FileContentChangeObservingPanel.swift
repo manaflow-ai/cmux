@@ -6,6 +6,7 @@ protocol FileContentChangeObservingPanel: AnyObject {
     var filePath: String { get }
     var fileContentChangeCoordinator: FileContentChangeCoordinator { get set }
     var fileContentObservationID: UUID? { get set }
+    var fileContentObservationLifetime: FileContentObservationLifetime? { get set }
     var lastObservedFileState: FilePreviewFileState? { get set }
     var isClosed: Bool { get }
     var isSaving: Bool { get }
@@ -31,6 +32,14 @@ extension FileContentChangeObservingPanel {
             guard let self, !self.isClosed else { return }
             _ = self.handleObservedFileChange()
         }
+        if let fileContentObservationID {
+            let coordinator = fileContentChangeCoordinator
+            fileContentObservationLifetime = FileContentObservationLifetime {
+                Task { @MainActor in
+                    coordinator.removeObservation(fileContentObservationID)
+                }
+            }
+        }
     }
 
     /// Reloads only after the observed file fingerprint advances.
@@ -44,6 +53,8 @@ extension FileContentChangeObservingPanel {
 
     /// Removes the coordinator registration and cancels panel-specific reload work.
     func stopWatchingForFileChanges() {
+        fileContentObservationLifetime?.cancel()
+        fileContentObservationLifetime = nil
         if let fileContentObservationID {
             self.fileContentObservationID = nil
             fileContentChangeCoordinator.removeObservation(fileContentObservationID)

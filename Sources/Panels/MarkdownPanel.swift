@@ -80,6 +80,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     var fileContentChangeCoordinator: FileContentChangeCoordinator
     var fileContentObservationID: UUID?
+    var fileContentObservationLifetime: FileContentObservationLifetime?
     var lastObservedFileState: FilePreviewFileState?
     private var originalTextContent: String = ""
     private var textEncoding: String.Encoding = .utf8
@@ -351,6 +352,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             return nil
         }
 
+        textLoadCoordinator.cancel()
+        textLoadGeneration &+= 1
         saveGeneration += 1
         let generation = saveGeneration
         textContent = currentContent
