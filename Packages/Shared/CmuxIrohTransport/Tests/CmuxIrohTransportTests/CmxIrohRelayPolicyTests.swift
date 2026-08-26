@@ -25,6 +25,59 @@ struct CmxIrohRelayPolicyTests {
         #expect(trustRoot?.keys.map(\.keyID) == ["policy-current", "policy-next"])
     }
 
+    /// A build configuration that does not stage a key for an optional plist
+    /// slot leaves both substitution variables undefined, which the Info.plist
+    /// build expands to empty strings. The exactly-empty record is an unused
+    /// slot, not a malformed trust root.
+    @Test
+    func appPinnedTrustRootSkipsUnusedEmptyRotationSlot() throws {
+        let current = Curve25519.Signing.PrivateKey()
+        let next = Curve25519.Signing.PrivateKey()
+        let trustRoot = CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: [
+            "CMUXIrohRelayPolicyTrustKeys": [
+                [
+                    "keyID": "policy-current",
+                    "publicKeyBase64": current.publicKey.rawRepresentation.base64EncodedString(),
+                ],
+                [
+                    "keyID": "policy-next",
+                    "publicKeyBase64": next.publicKey.rawRepresentation.base64EncodedString(),
+                ],
+                ["keyID": "", "publicKeyBase64": ""],
+            ],
+        ])
+
+        #expect(trustRoot?.keys.map(\.keyID) == ["policy-current", "policy-next"])
+    }
+
+    /// A half-filled slot (empty key ID with a non-empty key, or the reverse)
+    /// is a misconfiguration, not an unused slot, and must fail closed.
+    @Test
+    func appPinnedTrustRootFailsClosedForHalfFilledRotationSlot() throws {
+        let current = Curve25519.Signing.PrivateKey()
+        let orphanKey = Curve25519.Signing.PrivateKey()
+        let currentRecord = [
+            "keyID": "policy-current",
+            "publicKeyBase64": current.publicKey.rawRepresentation.base64EncodedString(),
+        ]
+        #expect(CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: [
+            "CMUXIrohRelayPolicyTrustKeys": [
+                currentRecord,
+                [
+                    "keyID": "",
+                    "publicKeyBase64": orphanKey.publicKey.rawRepresentation
+                        .base64EncodedString(),
+                ],
+            ],
+        ]) == nil)
+        #expect(CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: [
+            "CMUXIrohRelayPolicyTrustKeys": [
+                currentRecord,
+                ["keyID": "policy-extra", "publicKeyBase64": ""],
+            ],
+        ]) == nil)
+    }
+
     @Test
     func appPinnedTrustRootFailsClosedForPartialRotationConfiguration() throws {
         let current = Curve25519.Signing.PrivateKey()
