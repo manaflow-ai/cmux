@@ -57,6 +57,39 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSDockTilePlugIn</key>
+	<string>CmuxDockTilePlugin.plugin</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+		<string>x86_64</string>
+	</array>
+	<key>NSHumanReadableCopyright</key>
+	<string></string>
+	<key>NSMainStoryboardFile</key>
+	<string></string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running within cmux would like to use your microphone.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running within cmux would like to use your camera.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running within cmux would like to access your calendars.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running within cmux would like to access your reminders.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running within cmux would like to access your contacts.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A program running within cmux would like to access your location.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running within cmux would like to access your photo library.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within cmux would like to use AppleScript.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
