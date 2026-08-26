@@ -37700,6 +37700,57 @@
         }
       }
     },
+    "cli.error.clearNotificationsCorrelationKeyInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid notification correlation key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知相関キーが無効です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsCorrelationKeyRequiresPanel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key requires --panel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key には --panel が必要です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        }
+      }
+    },
     "cli.error.markNotificationReadSelector": {
       "extractionState": "manual",
       "localizations": {
@@ -49193,6 +49244,91 @@
         }
       }
     },
+    "cli.mobile.compatibleTags.applied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted Mac dev tags for paired phones: %@ (pushed to connected device(s))."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの iPhone に許可した Mac 開発タグ: %@（接続中のデバイスへ送信済み）。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.appliedNoDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted Mac dev tags for paired phones: %@ (applies when a phone next connects)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの iPhone に許可した Mac 開発タグ: %@（次回接続時に適用されます）。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No additional Mac dev tags are granted to this Mac's paired phones."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のペアリング済み iPhone に追加で許可された Mac 開発タグはありません。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(none)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（なし）"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux mobile compatible-tags [list|set <tags...>|add <tags...>|remove <tags...>|clear]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux mobile compatible-tags [list|set <タグ...>|add <タグ...>|remove <タグ...>|clear]"
+          }
+        }
+      }
+    },
     "cli.mobile.setFont.applied": {
       "extractionState": "manual",
       "localizations": {
@@ -54117,6 +54253,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.inputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 切断中に入力した内容は破棄されます。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.recovered": {
       "extractionState": "manual",
       "localizations": {
@@ -55560,6 +55713,23 @@
         }
       }
     },
+    "cli.sshPtyAttach.bridgeClosedReattachingInputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s). Input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。切断中に入力した内容は破棄されます。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.reconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -55628,6 +55798,40 @@
         }
       }
     },
+    "cli.sshPtyAttach.flushInputUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal SSH input flush does not accept arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部 SSH 入力フラッシュは引数を受け付けません。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.flushInputFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルの入力を安全に破棄できませんでした。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
       "extractionState": "manual",
       "localizations": {
@@ -55692,6 +55896,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputTransitionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputGuardFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be protected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を保護できなかったため、SSH の再接続を停止しました。"
           }
         }
       }
@@ -171822,6 +172060,57 @@
         }
       }
     },
+    "settings.betaFeatures.cloudMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.cloudMachines.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides every Cloud Machines surface unless remote rollout enables it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートロールアウトで有効化されない限り、クラウドマシンのすべての画面を非表示にします。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.cloudMachines.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにクラウドを表示し、クラウドマシンの設定、パレットコマンド、新規ワークスペースの項目も有効にします。"
+          }
+        }
+      }
+    },
     "settings.betaFeatures.customSidebars": {
       "extractionState": "manual",
       "localizations": {
@@ -181956,13 +182245,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. Still listening on %lld."
+            "value": "Port %lld is in use. The pairing listener is still on %lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。引き続きポート %lld で待ち受けています。"
+            "value": "ポート %lld は使用中です。ペアリングリスナーは引き続きポート %lld で待ち受けています。"
           }
         }
       }
@@ -181973,13 +182262,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved. Will use port %lld when iOS Pairing is on."
+            "value": "Saved. The pairing listener will use port %lld when iOS Pairing is on."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存しました。iOS ペアリングを有効にするとポート %lld を使用します。"
+            "value": "保存しました。iOS ペアリングを有効にするとペアリングリスナーはポート %lld を使用します。"
           }
         }
       }
@@ -181990,13 +182279,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
+            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合は再バインドして、接続中のデバイスは新しいポートで再接続します。"
+            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合はペアリングリスナーを直ちに再バインドして、接続中のデバイスは新しいポートで再接続します。Iroh エンドポイントは次回の cmux 起動時に新しいポートを使用します。"
           }
         }
       }
@@ -182007,13 +182296,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. Listening on %lld instead."
+            "value": "Port %lld is in use. The pairing listener is on %lld instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。代わりにポート %lld で待ち受けています。"
+            "value": "ポート %lld は使用中です。ペアリングリスナーは代わりにポート %lld で待ち受けています。"
           }
         }
       }
@@ -182041,13 +182330,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Listening on port %lld."
+            "value": "Pairing listener on port %lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld で待ち受けています。"
+            "value": "ペアリングリスナーはポート %lld で待ち受けています。"
           }
         }
       }
@@ -182075,13 +182364,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferred TCP port for the iOS pairing listener (1–65535)."
+            "value": "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS ペアリングリスナーの優先 TCP ポート（1〜65535）。"
+            "value": "iOS ペアリングリスナー（TCP）と、Direct アドレスの接続先となる Iroh エンドポイント（UDP）の優先ポート（1〜65535）。"
           }
         }
       }
@@ -182160,13 +182449,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reachable addresses yet. Pairing over the network needs Tailscale running on this Mac."
+            "value": "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "到達可能なアドレスがまだありません。ネットワーク経由のペアリングには、この Mac で Tailscale が動作している必要があります。"
+            "value": "到達可能なアドレスがまだありません。Iroh 経路にはこの Mac が cmux アカウントにサインインしていることが、Tailscale 経路にはこの Mac で Tailscale が動作していることが必要です。"
           }
         }
       }
@@ -201116,13 +201405,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines"
+            "value": "Cloud"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドマシン"
+            "value": "クラウド"
           }
         }
       }
@@ -264080,6 +264369,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "close_workspaces はブール値である必要があります"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.cannotDeleteEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete every workspace in a window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ内のすべてのワークスペースは削除できません"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.couldNotCloseEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not close every workspace in the group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内のすべてのワークスペースを閉じられませんでした"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.emptyPinnedCannotUngroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pinned empty group can only be removed with Delete Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のピン留めグループは「グループを削除」でのみ削除できます"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.noWorkspacesToClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group has no workspaces to close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループに閉じるワークスペースがありません"
           }
         }
       }

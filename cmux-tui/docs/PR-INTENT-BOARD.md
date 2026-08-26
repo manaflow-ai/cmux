@@ -1,19 +1,72 @@
 # cmux TUI PR intent and merge board
 
-Audit date: 2026-08-24. This board records the GitHub search and exact check
-state used for the aggregate merge. A mergeable label is not acceptance proof.
-The aggregate branch currently includes the exact-head autoreview fixes and
-cross-platform hardening through `17413db11cc0ebb7b0b5c254447cede3faaad0cf`;
-the reviewer must be rerun at the final pushed head.
+Current snapshot: 2026-08-25. The aggregate branch is
+`codex/tui-techdebt-aggregate-wave39`; its audited local tip is
+`75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9` (code), based on `origin/main`
+`bd985bddcded04ed849e3484dbcb645b32a32cb6`, 811 commits ahead and 0 behind
+before this documentation update. Query `git rev-parse HEAD` for the exact
+metadata commit. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
+points to the latest pushed head. Focused hosted run
+[`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
+passed on the earlier quota source tip and is stale after the latest fixes. Run
+focused and full hosted checks on
+the new exact head, then run final exact-head autoreview. A mergeable label is
+not acceptance proof.
+
+The prior 2026-08-24 values are historical. The aggregate includes the
+cross-platform hardening, PTY generation and delivery gates, bounded readers,
+stale-close identity checks, owned no-clobber SSH staging, and the merged web
+determinism fix [#10718](https://github.com/manaflow-ai/cmux/pull/10718), plus
+the current-main PyPI project-description metadata fix.
 All URLs point to `manaflow-ai/cmux`; authors are included for merge decisions.
 
-The latest exact-head autoreview is clean for in-scope changes. It reported
-two remote-tmux findings, both ignored because they are outside this
-aggregate's cmux-tui, SDK, relay, and preview scope. The wave also includes
+The dated snapshot recorded a clean in-scope autoreview with two remote-tmux
+findings ignored as out of scope. The wave also includes
 the Go canonical fallback correction, C++ exact-parent/CMake include fix,
 bounded Rust workspace reads, watcher sink termination, and preview/shell
 ownership fixes. These are documented with full commit SHAs and exact revert
 commands in `TECH-DEBT-CHANGELOG.md`.
+
+The current inventory found 105 open PRs mentioning `cmux-tui`, 64 of the
+newest 300 open PRs changing a `cmux-tui/` path, and 52 sharing a path with
+[#10708](https://github.com/manaflow-ai/cmux/pull/10708). Stacked or
+conflicting branches remain ordered work. Green inherited checks do not replace
+an exact-head review.
+
+Session-mined unfinished requests and the simplification backlog are in
+[`USER-REQUEST-BOARD.md`](USER-REQUEST-BOARD.md). They remain open until a
+behavior test or dogfood result proves completion.
+
+Final aggregate commits include the merge of current main
+[`0560bae72c`](https://github.com/manaflow-ai/cmux/commit/0560bae72c17ccf2da139fdf44f1907523fc82cc),
+ the PTY generation and delivery gate fixes through `77b51e368a`, the per-entry
+legacy socket scan fix `ae2fa91709`, the Go write-progress fixes through
+`4a50dd64b2`, the Java path test `3e85c7dd05`, and scoped remote-daemon upload
+cleanup through `4fffdfc128`, followed by the PID-marker, terminal-lookup,
+wire-contract, selector, and Kitty quota fixes recorded at the audited tip.
+The latest tail also includes protocol-v7 PTY error gating, partial-write
+cancellation retirement, bounded Git stderr drains for both status and diff,
+child reaping on missing diff stdout, and stale-overflow generation gating. Do
+not infer hosted or review-green status from commits alone.
+
+## Live PR state
+
+This table is authoritative. Older tables below preserve historical snapshots.
+
+| PR | Author | State and head on 2026-08-25 | Decision |
+| --- | --- | --- | --- |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, source head `75ddb6fbe8`; exact-head hosted checks and local autoreview are pending. | Run focused and full exact-head hosted checks, run local autoreview, then merge. |
+| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, head `2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, mergeable, all listed checks pass. Prior preview and localization findings are addressed; local autoreview needs a clean engine run. | Keep separate from #10708, run local autoreview, then merge if exact gates stay green. |
+| [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, head `64ae7f91f0`; exact review found a compile error in `owner_spawn_failed`, dropped startup options, and GitHub reports seven-language conformance failure. | Do not merge. Fix P0/P1 findings and rerun exact-head checks. |
+| [#10743](https://github.com/manaflow-ai/cmux/pull/10743) | Lawrence Chen | Open, head `470252914f`, stale-surface follow-up. Active identity and publication-race findings remain. | Rework, rebase after [#10708](https://github.com/manaflow-ai/cmux/pull/10708), then rerun exact-head checks. |
+| [#10747](https://github.com/manaflow-ai/cmux/pull/10747) | Lawrence Chen | Open, head `35ef21fa3b`, follow-up to #10743. Review found it removes valid lazy/unattached server tabs and still lacks atomic pair publication. | Do not merge. Rework against authoritative server state and add refresh-level tests. |
+| [#10744](https://github.com/manaflow-ai/cmux/pull/10744) | Lawrence Chen | Open, head `45f208fb98`, watch replacement generation gate. | Review exact head and integrate only after hosted proof. |
+| [#10745](https://github.com/manaflow-ai/cmux/pull/10745) | Lawrence Chen | Open, head `ee8f3d00ea`, Git process-group cleanup. | Review Unix and Windows cleanup, then integrate only after hosted proof. |
+| [#10746](https://github.com/manaflow-ai/cmux/pull/10746) | Lawrence Chen | Open, head `9fa4c14977`, run_spec detached waitpid reaper. Review found PID/PGID reuse and unbounded detached-thread risks. | Do not merge. Prefer the existing owned timeout supervisor and add cancellation/reap behavior tests. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Already merged. |
+| [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Already merged. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, conflicting, unchanged head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; superseded. | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking the head. |
+| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, conflicting, unchanged head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82`; superseded. | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking the head. |
 
 ## Aggregate
 
@@ -39,6 +92,11 @@ commands in `TECH-DEBT-CHANGELOG.md`.
 These PRs were mergeable or near-ready in the audit, but they are not part of
 the aggregate branch. Merge them separately only after checking the current
 head and overlap with #10603.
+
+[#10681](https://github.com/manaflow-ai/cmux/pull/10681), Austin Wang, is
+independent and has wrapper, quoting, and Emacs-mode fixes at `ff7685ddcd`.
+The existing `env -S "nvim --clean"` detector path still needs a parser fix;
+then it needs hosted Swift proof and exact-head autoreview.
 
 - [#10607](https://github.com/manaflow-ai/cmux/pull/10607), Lawrence Chen, identity and protocol preflight.
 - [#10537](https://github.com/manaflow-ai/cmux/pull/10537), dkta0, client-local host colors.

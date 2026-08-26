@@ -400,13 +400,15 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: actions.onOpenDocs
             )
             Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup Workspaces"
-                ),
-                action: actions.onUngroup
-            )
+            if !isPinned || memberCount > 0 {
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.ungroup",
+                        defaultValue: "Ungroup Workspaces"
+                    ),
+                    action: actions.onUngroup
+                )
+            }
             Button(
                 role: .destructive,
                 action: actions.onDelete

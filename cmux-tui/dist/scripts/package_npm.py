@@ -145,9 +145,17 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
         src = binaries_dir / f"chatmux-relay-{target['rust_target']}{ext}"
         if not src.is_file():
             raise SystemExit(f"missing relay binary: {src}")
+        tui_src = binaries_dir / f"cmux-tui-{target['rust_target']}{ext}"
+        if not tui_src.is_file():
+            raise SystemExit(f"missing cmux-tui runtime for relay: {tui_src}")
         package_dir = out_dir / target["package"]
         recreate_dir(package_dir)
-        copy_executable(src, package_dir / "bin" / f"cmux-relay{ext}")
+        copy_executable(src, package_dir / "bin" / f"chatmux-relay{ext}")
+        # The machine relay must never silently fall back to a shell when its
+        # matching cmux-tui runtime is absent. Keep the exact runtime in the
+        # platform package. The launcher resolves this bundled binary from the
+        # same platform package, so a separate TUI package is not needed.
+        copy_executable(tui_src, package_dir / "bin" / f"cmux-tui{ext}")
         write_json(
             package_dir / "package.json",
             {
@@ -162,7 +170,7 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path, include_w
                 "license": "MIT",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-relay{ext}"],
+                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}"],
             },
         )
 
