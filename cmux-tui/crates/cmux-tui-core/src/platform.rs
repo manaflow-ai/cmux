@@ -843,10 +843,11 @@ pub fn default_terminal_cwd() -> Option<String> {
 }
 
 fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
-    if let Some(dir) = launch {
-        if dir.parent().is_some() && dir.is_dir() {
-            return Some(dir.to_string_lossy().into_owned());
-        }
+    if let Some(dir) = launch
+        && dir.parent().is_some()
+        && dir.is_dir()
+    {
+        return Some(dir.to_string_lossy().into_owned());
     }
     home_dir().map(|path| path.to_string_lossy().into_owned())
 }
