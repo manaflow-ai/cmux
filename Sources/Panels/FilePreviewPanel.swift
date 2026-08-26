@@ -611,7 +611,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         let data = (try? JSONEncoder().encode(transfer)) ?? Data()
         bonsplitRegistration = tabDragTransferRegistry?.register(
             TabDragTransfer(
-                tab: Tab(
+                tab: Bonsplit.Tab(
                     id: TabID(uuid: dragId),
                     title: displayTitle,
                     icon: icon,
