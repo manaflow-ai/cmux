@@ -3715,6 +3715,44 @@
         "Styled history rows use the same lossless runs, attributes, underline variants, and width hints as live render attachments."
       ]
     },
+    "TerminalOutputReadResult": {
+      "kind": "object",
+      "fields": {
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "start_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "next_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "Offsets are terminal.output stream byte offsets. next_offset is always a valid resume cursor: a follow-up read with after set to it returns only output strictly after this window.",
+        "complete is false when this window was truncated by max_bytes or by exit-snapshot coverage; the caller resumes with next_offset."
+      ]
+    },
     "TerminalStateResult": {
       "kind": "object",
       "fields": {
@@ -7905,6 +7943,17 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "on_exit": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "close",
+                "keep"
+              ]
+            },
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -11340,6 +11389,71 @@
         "validation.invalid"
       ]
     },
+    "terminal.output_read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {
+          "after": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Resume cursor: the terminal.output stream byte offset a previous read returned as next_offset. Absent reads from the earliest still-retained byte."
+          },
+          "max_bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "default": 262144,
+            "description": "Bound on raw stream bytes rendered into one window. A window never splits a journal record, so the first record of a window is always included whole even when it alone exceeds this bound."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TerminalOutputReadResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Text is the plain-text projection of the selected stream window replayed through a fresh terminal emulator; escape sequences never appear in it.",
+        "Works on live terminals and on exited ones, including exited terminals whose views were detached: the selector resolves the durable exit receipt exactly like terminal.wait_exit.",
+        "start_offset may exceed the requested cursor when earlier bytes are no longer retained, and a cursor that lands mid-record starts the window at that record's boundary (start_offset below the cursor).",
+        "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw records: start_offset is 0 and next_offset is the snapshot coverage end.",
+        "A window rendered from mid-stream records may carry escape-state artifacts at its leading edge; a snapshot window cannot."
+      ]
+    },
     "terminal.process.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -12344,6 +12458,17 @@
               "name": "string"
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
+          },
+          "on_exit": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "close",
+                "keep"
+              ]
+            },
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
           },
           "cols": {
             "required": false,

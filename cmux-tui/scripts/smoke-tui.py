@@ -690,17 +690,15 @@ assert has_sgr_parameters(color_output, (48, 5, 236)), color_output[-2000:]
 assert not has_sgr_parameters(color_output, (38, 2, 204, 102, 102)), color_output[-2000:]
 print("indexed color passthrough ok")
 
-inner_osc_query = """python3 - <<'PY'
-import os, select, termios, time, tty
+inner_osc_query = """import os, select, termios, time, tty
 fd = os.open('/dev/tty', os.O_RDWR)
 old = termios.tcgetattr(fd)
 try:
     tty.setraw(fd)
     os.write(fd, b'\\x1b]11;?\\x1b\\\\')
     data = b''
-    # Generous deadline: the shell may still be consuming the pasted
-    # heredoc and the TUI coalesces frames (this raced at 2s, and 8s
-    # still fails on saturated CI runners).
+    # Generous deadline: the TUI coalesces frames and saturated CI
+    # runners stall the reply (this raced at 2s and again at 8s).
     end = time.monotonic() + 30
     while time.monotonic() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
         r, _, _ = select.select([fd], [], [], max(0, end - time.monotonic()))
@@ -711,9 +709,18 @@ finally:
     termios.tcsetattr(fd, termios.TCSADRAIN, old)
     os.close(fd)
 print(data.decode('ascii', 'ignore').replace('\\x1b', '<ESC>').replace('\\x07', '<BEL>'))
-PY
 """
-write_all(fd, inner_osc_query.replace("\n", "\r").encode())
+# Never PASTE the script through the pty: on saturated CI runners a
+# multi-line heredoc flood drops bytes in transit (observed as a
+# corrupted `tcsetattr` on screen), and no deadline fixes a mangled
+# program. The harness shares a filesystem with the TUI's shell, so
+# write the script to disk and type only the short invocation.
+with tempfile.NamedTemporaryFile(
+    "w", suffix="-osc-query.py", delete=False
+) as inner_script:
+    inner_script.write(inner_osc_query)
+    inner_script_path = inner_script.name
+write_all(fd, f"python3 {inner_script_path}\r".encode())
 wait_screen_contains(surface_id, "1313/1414/1515")
 print("inner OSC 11 query receives seeded background ok")
 write_all(fd, b"\x03")
