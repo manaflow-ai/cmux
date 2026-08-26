@@ -165,9 +165,11 @@ public struct ChromeSection: View {
         let raw = drafts.trimmedValue(for: token)
         if raw.isEmpty {
             drafts.stageCanonicalValue("", for: token)
-            var values = overrides.current.values
-            values.removeValue(forKey: token)
-            overrides.set(ChromeTokenOverrides(values))
+            overrides.update { current in
+                var values = current.values
+                values.removeValue(forKey: token)
+                return ChromeTokenOverrides(values)
+            }
             return
         }
         guard let color = ChromeColor(hex: raw) else {
@@ -175,8 +177,10 @@ public struct ChromeSection: View {
             return
         }
         drafts.stageCanonicalValue(color.hex, for: token)
-        var values = overrides.current.values
-        values[token] = color
-        overrides.set(ChromeTokenOverrides(values))
+        overrides.update { current in
+            var values = current.values
+            values[token] = color
+            return ChromeTokenOverrides(values)
+        }
     }
 }

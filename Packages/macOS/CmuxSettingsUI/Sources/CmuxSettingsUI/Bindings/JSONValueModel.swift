@@ -111,6 +111,28 @@ public final class JSONValueModel<Value: SettingCodable> {
         }
     }
 
+    /// Atomically transforms the latest persisted value and writes the result.
+    ///
+    /// Unlike ``set(_:)``, this operation does not base the write on the
+    /// view-model snapshot. It is intended for editors that merge one field
+    /// into a shared dictionary and must preserve concurrent changes.
+    ///
+    /// - Parameter transform: A pure transformation applied by the store actor.
+    public func update(_ transform: @escaping @Sendable (Value) -> Value) {
+        let keyID = key.id
+        Task { [weak self, store, key] in
+            do {
+                _ = try await store.update(key, transform: transform)
+                await MainActor.run { self?.lastWriteError = nil }
+            } catch {
+                await MainActor.run {
+                    self?.lastWriteError = error
+                    self?.errorLog.record(error, keyID: keyID)
+                }
+            }
+        }
+    }
+
     /// Removes the JSON entry (parents that become empty are pruned).
     /// ``current`` updates when the stream observes the reset.
     public func reset() {
