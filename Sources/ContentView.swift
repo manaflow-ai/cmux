@@ -10970,6 +10970,10 @@ struct VerticalTabsSidebar: View, Equatable {
     // publisher bursts cross into SwiftUI once per run-loop batch instead of
     // invalidating the full parent projection once per emitting workspace.
     @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
+    /// Last observed panel topology per workspace. A topology change is the
+    /// bounded signal that permits one full watcher-owner reconciliation;
+    /// metadata/status bursts stay on their scoped snapshot path.
+    @State private var sidebarPanelIdsByWorkspace: [UUID: Set<UUID>] = [:]
     // Parent-owned immutable workspace projections. Workspace publishers and
     // async observation streams terminate here, above the LazyVStack; rows
     // receive only values and action closures. This is the ownership boundary
@@ -11575,6 +11579,19 @@ struct VerticalTabsSidebar: View, Equatable {
             debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
         ) { workspaceId in
             guard isPresented else { return }
+            if renderContext.showsAgentActivity,
+               let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                let panelIDs = Set(workspace.panels.keys)
+                let topologyChanged = sidebarPanelIdsByWorkspace[workspaceId] != panelIDs
+                sidebarPanelIdsByWorkspace[workspaceId] = panelIDs
+                if topologyChanged {
+                    // Panel creation/move/restore can introduce an index-only
+                    // process binding while this sidebar remains mounted.
+                    // Reconcile all owners only for this infrequent topology
+                    // edge; ordinary metadata updates remain workspace-scoped.
+                    armSidebarProcessExitWatchersForCurrentPanels(renderContext: renderContext)
+                }
+            }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
         .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
@@ -11679,6 +11696,7 @@ struct VerticalTabsSidebar: View, Equatable {
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
+                sidebarPanelIdsByWorkspace.removeAll()
                 workspaceSnapshotRefreshCoalescer.cancel()
             } else if !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
@@ -11696,6 +11714,10 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         }
         .onChange(of: renderContext.workspaceIds) { _, _ in
+            let liveWorkspaceIDs = Set(renderContext.workspaceIds)
+            sidebarPanelIdsByWorkspace = sidebarPanelIdsByWorkspace.filter {
+                liveWorkspaceIDs.contains($0.key)
+            }
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
