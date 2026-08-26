@@ -16,7 +16,7 @@ extension AppDelegate {
         return NSApp.window(withWindowNumber: eventWindowNumber)
     }
 
-    private func matchConfiguredShortcut(
+    func matchConfiguredShortcut(
         event: NSEvent,
         shortcut: StoredShortcut
     ) -> Bool {
