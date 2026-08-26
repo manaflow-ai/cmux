@@ -1155,6 +1155,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE86520000000000000007 /* FilePreviewPDFZoomChromeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000008 /* FilePreviewPDFZoomChromeView.swift */; };
 		C0DE8652000000000000010D /* FilePreviewQLItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8652000000000000010E /* FilePreviewQLItem.swift */; };
 		C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */; };
+		C0DE10728000000000000001 /* FilePreviewQuickLookRetirementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10728000000000000002 /* FilePreviewQuickLookRetirementTests.swift */; };
 		DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */; };
 		C0DE8652000000000000010F /* FilePreviewQuickLookViewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000110 /* FilePreviewQuickLookViewCoordinator.swift */; };
 		C0DE86520000000000000012 /* FilePreviewReloadCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */; };
@@ -3984,6 +3985,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE86520000000000000008 /* FilePreviewPDFZoomChromeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFZoomChromeView.swift; sourceTree = "<group>"; };
 		C0DE8652000000000000010E /* FilePreviewQLItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQLItem.swift; sourceTree = "<group>"; };
 		C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookContainerView.swift; sourceTree = "<group>"; };
+		C0DE10728000000000000002 /* FilePreviewQuickLookRetirementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewQuickLookRetirementTests.swift; sourceTree = "<group>"; };
 		0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookSession.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000110 /* FilePreviewQuickLookViewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookViewCoordinator.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReloadCompletionTests.swift; sourceTree = "<group>"; };
@@ -8294,6 +8296,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C8349002C8349002C8349002 /* MainWindowCloseTerminationRoutingTests.swift */,
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
 				C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
+				C0DE10728000000000000002 /* FilePreviewQuickLookRetirementTests.swift */,
 				C0DE86520000000000000118 /* FilePreviewNativeRefreshStateTests.swift */,
 				C0DE86520000000000000011 /* FilePreviewReloadCompletionTests.swift */,
 				C0DE86520000000000000002 /* FilePreviewReloadTests.swift */,
@@ -11437,6 +11440,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE49950000000000000001 /* FilePreviewKindResolverTests.swift in Sources */,
 				C0DE86520000000000000117 /* FilePreviewNativeRefreshStateTests.swift in Sources */,
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
+				C0DE10728000000000000001 /* FilePreviewQuickLookRetirementTests.swift in Sources */,
 				C0DE86520000000000000012 /* FilePreviewReloadCompletionTests.swift in Sources */,
 				C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */,
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
