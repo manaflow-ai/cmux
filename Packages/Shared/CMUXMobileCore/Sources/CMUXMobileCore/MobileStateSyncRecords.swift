@@ -39,6 +39,10 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public struct Surface: Codable, Equatable, Sendable {
         /// Stable surface identifier.
         public let surfaceID: String
+        /// Restart-stable surface identity used by durable navigation links.
+        public let stableSurfaceID: String?
+        /// Stable pane identifier containing this surface, when reported.
+        public let paneID: String?
         /// Open surface-kind wire string.
         public let kind: String
         /// User-facing surface title.
@@ -57,9 +61,13 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             title: String,
             filePath: String?,
             todo: MobileTodoSnapshot? = nil,
-            isFocused: Bool = false
+            isFocused: Bool = false,
+            paneID: String? = nil,
+            stableSurfaceID: String? = nil
         ) {
             self.surfaceID = surfaceID
+            self.stableSurfaceID = stableSurfaceID
+            self.paneID = paneID
             self.kind = kind
             self.title = title
             self.isFocused = isFocused
@@ -70,6 +78,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             surfaceID = try container.decode(String.self, forKey: .surfaceID)
+            stableSurfaceID = try container.decodeIfPresent(String.self, forKey: .stableSurfaceID)
+            paneID = try container.decodeIfPresent(String.self, forKey: .paneID)
             kind = try container.decode(String.self, forKey: .kind)
             title = try container.decode(String.self, forKey: .title)
             isFocused = try container.decodeIfPresent(Bool.self, forKey: .isFocused) ?? false
@@ -79,6 +89,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
 
         private enum CodingKeys: String, CodingKey {
             case surfaceID = "surface_id"
+            case stableSurfaceID = "stable_surface_id"
+            case paneID = "pane_id"
             case kind
             case title
             case isFocused = "is_focused"
@@ -126,6 +138,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
 
     /// Stable workspace identifier.
     public let id: String
+    /// Restart-stable workspace identity used by durable navigation links.
+    public let stableID: String?
     /// Owning Mac window identifier, when reported.
     public let windowID: String?
     /// User-facing workspace title.
@@ -170,6 +184,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     /// Creates a workspace row from its wire fields.
     public init(
         id: String,
+        stableID: String? = nil,
         windowID: String?,
         title: String,
         customDescription: String? = nil,
@@ -189,6 +204,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
+        self.stableID = stableID
         self.windowID = windowID
         self.title = title
         self.customDescription = customDescription
@@ -211,6 +227,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
+        stableID = try container.decodeIfPresent(String.self, forKey: .stableID)
         windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
         title = try container.decode(String.self, forKey: .title)
         customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
@@ -238,6 +255,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case stableID = "stable_id"
         case windowID = "window_id"
         case title
         case customDescription = "description"

@@ -223,6 +223,7 @@ final class MobileStateSyncHost {
         )
         return WorkspaceSyncRecord(
             id: workspace.id.uuidString,
+            stableID: workspace.stableId.uuidString,
             windowID: windowID.uuidString,
             title: workspace.title,
             customDescription: description.value,

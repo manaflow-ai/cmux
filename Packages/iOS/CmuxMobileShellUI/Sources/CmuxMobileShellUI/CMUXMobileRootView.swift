@@ -308,6 +308,9 @@ struct CMUXMobileRootView: View {
         // mutation without allocating ID arrays on every body evaluation.
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
+            if MobileExternalNavigationURLPolicy.recognizes(pendingAttachURL) {
+                _ = consumePendingURLIfReady()
+            }
         }
         #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival
@@ -366,6 +369,36 @@ struct CMUXMobileRootView: View {
         .onOpenURL { url in
             let rawURL = url.absoluteString
             diagnosticLog?.recordAppEvent(.appOpenURLReceived)
+            #if os(iOS)
+            if MobileExternalNavigationURLPolicy.recognizes(rawURL),
+               (!isAuthenticated || authManager.isRestoringSession) {
+                pendingAttachURL = rawURL
+                diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
+                return
+            }
+            switch store.handleExternalNavigationURL(
+                url,
+                supportedSchemes: MobileExternalNavigationURLPolicy.supportedSchemes
+            ) {
+            case .notNavigation:
+                break
+            case .handled:
+                pendingAttachURL = nil
+                diagnosticLog?.recordAppEvent(.appOpenURLHandled)
+                return
+            case .deferred:
+                pendingAttachURL = rawURL
+                diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
+                return
+            case .invalid:
+                pendingAttachURL = nil
+                diagnosticLog?.recordAppEvent(
+                    .appOpenURLRejected,
+                    failure: .protocolViolation
+                )
+                return
+            }
+            #endif
             if MobileRootAuthGate.isAttachURL(url) {
                 connectAttachURL(rawURL)
                 return
@@ -1147,6 +1180,33 @@ struct CMUXMobileRootView: View {
             connectAttachURL(rawURL)
             return true
         }
+        #if os(iOS)
+        if MobileExternalNavigationURLPolicy.recognizes(rawURL) {
+            guard isAuthenticated, !authManager.isRestoringSession else { return false }
+        }
+        if let url = URL(string: rawURL) {
+            switch store.handleExternalNavigationURL(
+                url,
+                supportedSchemes: MobileExternalNavigationURLPolicy.supportedSchemes
+            ) {
+            case .handled:
+                pendingAttachURL = nil
+                diagnosticLog?.recordAppEvent(.appOpenURLHandled)
+                return true
+            case .deferred:
+                return false
+            case .invalid:
+                pendingAttachURL = nil
+                diagnosticLog?.recordAppEvent(
+                    .appOpenURLRejected,
+                    failure: .protocolViolation
+                )
+                return true
+            case .notNavigation:
+                break
+            }
+        }
+        #endif
         guard isAuthenticated else { return false }
         pendingAttachURL = nil
         startOpenURLConnection(rawURL, followUp: .reconnectIfDisconnected)

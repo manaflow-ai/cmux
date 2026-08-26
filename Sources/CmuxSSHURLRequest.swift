@@ -1,4 +1,54 @@
+import CMUXMobileCore
 import Foundation
+
+/// The macOS target's compatibility spelling for the shared navigation parser.
+typealias CmuxNavigationURLParseError = CmxNavigationURLParseError
+/// The macOS target's compatibility spelling for the shared navigation parser.
+typealias CmuxNavigationURLRequest = CmxNavigationURLRequest
+
+extension CmxNavigationURLRequest {
+    /// Schemes accepted by the currently running macOS app build.
+    static var activeSupportedSchemes: Set<String> {
+        [AuthEnvironment.callbackScheme.lowercased()]
+    }
+
+    /// Parses a navigation URL using the active macOS callback scheme.
+    static func parse(
+        _ url: URL
+    ) -> Result<CmxNavigationURLRequest?, CmxNavigationURLParseError> {
+        parse(url, supportedSchemes: activeSupportedSchemes)
+    }
+
+    /// Builds a workspace link using the active macOS callback scheme.
+    static func workspaceLink(workspaceId: UUID) -> String {
+        workspaceLink(workspaceId: workspaceId, scheme: AuthEnvironment.callbackScheme)
+    }
+
+    /// Builds a pane link using the active macOS callback scheme.
+    static func paneLink(workspaceId: UUID, paneId: UUID) -> String {
+        paneLink(
+            workspaceId: workspaceId,
+            paneId: paneId,
+            scheme: AuthEnvironment.callbackScheme
+        )
+    }
+
+    /// Builds a surface link using the active macOS callback scheme.
+    static func surfaceLink(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        stableWorkspaceId: UUID? = nil,
+        stableSurfaceId: UUID? = nil
+    ) -> String {
+        surfaceLink(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            stableWorkspaceId: stableWorkspaceId,
+            stableSurfaceId: stableSurfaceId,
+            scheme: AuthEnvironment.callbackScheme
+        )
+    }
+}
 
 enum CmuxSSHURLParseError: Error, Equatable {
     case missingDestination
@@ -518,219 +568,6 @@ struct CmuxSSHURLRequest: Equatable {
         }
         let prefix = String(name.prefix(64))
         return prefix.count == name.count ? name : "\(prefix)..."
-    }
-}
-
-enum CmuxNavigationURLParseError: Error, Equatable {
-    case unsupportedURLShape
-    case invalidIdentifier(String)
-}
-
-struct CmuxNavigationURLRequest: Equatable {
-    enum Target: Equatable {
-        case workspace(UUID)
-        case pane(workspaceId: UUID, paneId: UUID)
-        case surface(workspaceId: UUID, surfaceId: UUID)
-    }
-
-    static var activeSupportedSchemes: Set<String> {
-        [AuthEnvironment.callbackScheme.lowercased()]
-    }
-
-    let originalURL: URL
-    let target: Target
-    let stableFallbackWorkspaceId: UUID?
-    let stableFallbackSurfaceId: UUID?
-
-    static func parse(
-        _ url: URL,
-        supportedSchemes: Set<String> = activeSupportedSchemes
-    ) -> Result<CmuxNavigationURLRequest?, CmuxNavigationURLParseError> {
-        guard isSupportedScheme(url.scheme, supportedSchemes: supportedSchemes) else {
-            return .success(nil)
-        }
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return .failure(.unsupportedURLShape)
-        }
-
-        let route = routeComponents(from: components)
-        guard route.first?.lowercased() == "workspace" else {
-            return .success(nil)
-        }
-
-        guard components.user == nil,
-              components.password == nil,
-              components.port == nil,
-              components.percentEncodedFragment == nil else {
-            return .failure(.unsupportedURLShape)
-        }
-
-        guard route.count == 2 || route.count == 4 else {
-            return .failure(.unsupportedURLShape)
-        }
-        guard let workspaceId = UUID(uuidString: route[1]) else {
-            return .failure(.invalidIdentifier("workspace"))
-        }
-        if route.count == 2 {
-            let fallback: (workspaceId: UUID?, surfaceId: UUID?)?
-            switch parseStableFallback(from: components, allowedNames: ["stable_workspace_id"]) {
-            case .success(let parsedFallback):
-                fallback = parsedFallback
-            case .failure(let error):
-                return .failure(error)
-            }
-            return .success(CmuxNavigationURLRequest(
-                originalURL: url,
-                target: .workspace(workspaceId),
-                stableFallbackWorkspaceId: fallback?.workspaceId,
-                stableFallbackSurfaceId: fallback?.surfaceId
-            ))
-        }
-
-        let childKind = route[2].lowercased()
-        guard let childId = UUID(uuidString: route[3]) else {
-            switch childKind {
-            case "pane":
-                return .failure(.invalidIdentifier("pane"))
-            case "surface", "panel":
-                return .failure(.invalidIdentifier("surface"))
-            default:
-                return .failure(.unsupportedURLShape)
-            }
-        }
-
-        switch childKind {
-        case "pane":
-            if components.percentEncodedQuery != nil {
-                return .failure(.unsupportedURLShape)
-            }
-            return .success(
-                CmuxNavigationURLRequest(
-                    originalURL: url,
-                    target: .pane(workspaceId: workspaceId, paneId: childId),
-                    stableFallbackWorkspaceId: nil,
-                    stableFallbackSurfaceId: nil
-                )
-            )
-        case "surface", "panel":
-            let fallback: (workspaceId: UUID?, surfaceId: UUID?)?
-            switch parseStableFallback(
-                from: components,
-                allowedNames: ["stable_workspace_id", "stable_surface_id"]
-            ) {
-            case .success(let parsedFallback):
-                fallback = parsedFallback
-            case .failure(let error):
-                return .failure(error)
-            }
-            return .success(
-                CmuxNavigationURLRequest(
-                    originalURL: url,
-                    target: .surface(workspaceId: workspaceId, surfaceId: childId),
-                    stableFallbackWorkspaceId: fallback?.workspaceId,
-                    stableFallbackSurfaceId: fallback?.surfaceId
-                )
-            )
-        default:
-            return .failure(.unsupportedURLShape)
-        }
-    }
-
-    static func workspaceLink(workspaceId: UUID, scheme: String = AuthEnvironment.callbackScheme) -> String {
-        "\(scheme)://workspace/\(workspaceId.uuidString)"
-    }
-
-    static func paneLink(
-        workspaceId: UUID,
-        paneId: UUID,
-        scheme: String = AuthEnvironment.callbackScheme
-    ) -> String {
-        "\(scheme)://workspace/\(workspaceId.uuidString)/pane/\(paneId.uuidString)"
-    }
-
-    static func surfaceLink(
-        workspaceId: UUID,
-        surfaceId: UUID,
-        stableWorkspaceId: UUID? = nil,
-        stableSurfaceId: UUID? = nil,
-        scheme: String = AuthEnvironment.callbackScheme
-    ) -> String {
-        var link = "\(scheme)://workspace/\(workspaceId.uuidString)/surface/\(surfaceId.uuidString)"
-        var queryItems: [String] = []
-        if let stableWorkspaceId {
-            queryItems.append("stable_workspace_id=\(stableWorkspaceId.uuidString)")
-        }
-        if let stableSurfaceId {
-            queryItems.append("stable_surface_id=\(stableSurfaceId.uuidString)")
-        }
-        if !queryItems.isEmpty {
-            link += "?\(queryItems.joined(separator: "&"))"
-        }
-        return link
-    }
-
-    private static func isSupportedScheme(_ scheme: String?, supportedSchemes: Set<String>) -> Bool {
-        guard let scheme = scheme?.lowercased() else { return false }
-        return supportedSchemes.contains(scheme)
-    }
-
-    private static func routeComponents(from components: URLComponents) -> [String] {
-        var route: [String] = []
-        if let host = components.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !host.isEmpty {
-            route.append(host)
-        }
-        route += components.path
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
-        return route
-    }
-
-    private static func parseStableFallback(
-        from components: URLComponents,
-        allowedNames: Set<String>
-    ) -> Result<(workspaceId: UUID?, surfaceId: UUID?)?, CmuxNavigationURLParseError> {
-        guard components.percentEncodedQuery != nil else { return .success(nil) }
-        guard let items = components.queryItems, !items.isEmpty else {
-            return .failure(.unsupportedURLShape)
-        }
-
-        var stableWorkspaceId: UUID?
-        var stableSurfaceId: UUID?
-        var seenNames: Set<String> = []
-        for item in items {
-            guard allowedNames.contains(item.name),
-                  seenNames.insert(item.name).inserted,
-                  let value = item.value,
-                  !value.isEmpty else {
-                return .failure(.unsupportedURLShape)
-            }
-
-            guard let id = UUID(uuidString: value) else {
-                switch item.name {
-                case "stable_workspace_id":
-                    return .failure(.invalidIdentifier("stable_workspace"))
-                case "stable_surface_id":
-                    return .failure(.invalidIdentifier("stable_surface"))
-                default:
-                    return .failure(.unsupportedURLShape)
-                }
-            }
-
-            switch item.name {
-            case "stable_workspace_id":
-                stableWorkspaceId = id
-            case "stable_surface_id":
-                stableSurfaceId = id
-            default:
-                return .failure(.unsupportedURLShape)
-            }
-        }
-
-        return .success((
-            workspaceId: stableWorkspaceId,
-            surfaceId: stableSurfaceId
-        ))
     }
 }
 

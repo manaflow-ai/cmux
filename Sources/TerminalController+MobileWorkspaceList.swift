@@ -252,11 +252,15 @@ extension TerminalController {
         let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
             var payload: [String: Any] = [
                 "surface_id": surface.surfaceID,
+                "stable_surface_id": v2OrNull(surface.stableSurfaceID),
                 "kind": surface.kind,
                 "title": surface.title,
                 "is_focused": surface.isFocused,
                 "file_path": v2OrNull(surface.filePath),
             ]
+            if let paneID = surface.paneID {
+                payload["pane_id"] = paneID
+            }
             if let todo = surface.todo {
                 payload["todo"] = mobileTodoPayload(todo)
             }
@@ -272,6 +276,7 @@ extension TerminalController {
         )
         return [
             "id": workspace.id.uuidString,
+            "stable_id": workspace.stableId.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
             // Durable workspace identity stays separate from the live activity

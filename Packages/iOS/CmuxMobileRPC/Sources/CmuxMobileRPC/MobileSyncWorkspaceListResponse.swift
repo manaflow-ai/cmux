@@ -10,6 +10,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public struct Workspace: Decodable, Sendable {
         /// Stable workspace identifier.
         public let id: String
+        /// Restart-stable workspace identity, when reported by the Mac.
+        public let stableID: String?
         /// Stable Mac window identifier, when reported.
         public let windowID: String?
         /// User-facing workspace title.
@@ -55,6 +57,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 
         private enum CodingKeys: String, CodingKey {
             case id
+            case stableID = "stable_id"
             case windowID = "window_id"
             case title
             case customDescription = "description"
@@ -78,6 +81,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// record mirror through the same apply path as the wire response).
         public init(
             id: String,
+            stableID: String? = nil,
             windowID: String?,
             title: String,
             customDescription: String? = nil,
@@ -96,6 +100,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             simulators: [MobileSimulatorPanelDescriptor] = []
         ) {
             self.id = id
+            self.stableID = stableID
             self.windowID = windowID
             self.title = title
             self.customDescription = customDescription
@@ -117,6 +122,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
+            stableID = try container.decodeIfPresent(String.self, forKey: .stableID)
             windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
             title = try container.decode(String.self, forKey: .title)
             customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
@@ -143,6 +149,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public struct Surface: Decodable, Equatable, Sendable {
         /// Stable Mac-local surface identifier.
         public let surfaceID: String
+        /// Restart-stable surface identity, when reported by the Mac.
+        public let stableSurfaceID: String?
+        /// Stable Mac-local pane identifier containing this surface, when reported.
+        public let paneID: String?
         /// Open surface-kind wire value.
         public let kind: String
         /// User-facing surface title.
@@ -156,6 +166,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 
         private enum CodingKeys: String, CodingKey {
             case surfaceID = "surface_id"
+            case stableSurfaceID = "stable_surface_id"
+            case paneID = "pane_id"
             case kind
             case title
             case isFocused = "is_focused"
@@ -170,9 +182,13 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             title: String,
             filePath: String?,
             todo: MobileTodoSnapshot? = nil,
-            isFocused: Bool = false
+            isFocused: Bool = false,
+            paneID: String? = nil,
+            stableSurfaceID: String? = nil
         ) {
             self.surfaceID = surfaceID
+            self.stableSurfaceID = stableSurfaceID
+            self.paneID = paneID
             self.kind = kind
             self.title = title
             self.isFocused = isFocused
@@ -183,6 +199,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             surfaceID = try container.decode(String.self, forKey: .surfaceID)
+            stableSurfaceID = try container.decodeIfPresent(String.self, forKey: .stableSurfaceID)
+            paneID = try container.decodeIfPresent(String.self, forKey: .paneID)
             kind = try container.decode(String.self, forKey: .kind)
             title = try container.decode(String.self, forKey: .title)
             isFocused = try container.decodeIfPresent(Bool.self, forKey: .isFocused) ?? false

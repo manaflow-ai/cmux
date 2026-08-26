@@ -7,6 +7,7 @@ extension MobileWorkspacePreview {
     public init(remote: MobileSyncWorkspaceListResponse.Workspace) {
         self.init(
             id: ID(rawValue: remote.id),
+            stableID: remote.stableID.map(ID.init(rawValue:)),
             windowID: remote.windowID,
             name: remote.title,
             customDescription: remote.customDescription,
@@ -36,7 +37,9 @@ extension MobileSurfacePreview {
             title: remote.title,
             filePath: remote.filePath,
             todo: remote.todo,
-            isFocused: remote.isFocused
+            isFocused: remote.isFocused,
+            paneID: remote.paneID.map(ID.init(rawValue:)),
+            stableID: remote.stableSurfaceID.map(ID.init(rawValue:))
         )
     }
 }

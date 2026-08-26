@@ -369,6 +369,7 @@ extension MobileShellComposite {
         let workspaces = stateSyncMirror.workspaces.orderedRecords.map { record in
             MobileSyncWorkspaceListResponse.Workspace(
                 id: record.id,
+                stableID: record.stableID,
                 windowID: record.windowID,
                 title: record.title,
                 customDescription: record.customDescription,
@@ -397,7 +398,10 @@ extension MobileShellComposite {
                         kind: surface.kind,
                         title: surface.title,
                         filePath: surface.filePath,
-                        todo: surface.todo
+                        todo: surface.todo,
+                        isFocused: surface.isFocused,
+                        paneID: surface.paneID,
+                        stableSurfaceID: surface.stableSurfaceID
                     )
                 },
                 simulators: record.simulators
