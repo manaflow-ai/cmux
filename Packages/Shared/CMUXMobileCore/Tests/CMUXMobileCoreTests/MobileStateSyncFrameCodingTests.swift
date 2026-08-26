@@ -177,6 +177,58 @@ struct MobileStateSyncFrameCodingTests {
         #expect(decodedOlder.iconSymbol == nil)
     }
 
+    @Test func emptyGroupRecordCarriesExplicitEmptyStateWithoutWorkspaceAnchor() throws {
+        let group = GroupSyncRecord(
+            id: "group-empty",
+            name: "Pinned",
+            isCollapsed: false,
+            isPinned: true,
+            anchorWorkspaceID: nil,
+            sortIndex: 0,
+            isEmpty: true
+        )
+        let object = try MobileSyncFrameCoder().jsonObject(from: group)
+        #expect(object["is_empty"] as? Bool == true)
+        #expect(object["anchor_workspace_id"] as? String == "group-empty")
+
+        let decoded = try MobileSyncFrameCoder().decode(
+            GroupSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "group-empty",
+              "name": "Pinned",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "is_empty": true,
+              "anchor_workspace_id": "group-empty",
+              "sort_index": 0
+            }
+            """
+        )
+        #expect(decoded.isEmpty)
+        #expect(decoded.anchorWorkspaceID == "group-empty")
+    }
+
+    @Test func nullAnchorForcesEmptyStateWhenWireBitDisagrees() throws {
+        let decoded = try MobileSyncFrameCoder().decode(
+            GroupSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "group-null",
+              "name": "Pinned",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "is_empty": false,
+              "anchor_workspace_id": null,
+              "sort_index": 0
+            }
+            """
+        )
+
+        #expect(decoded.anchorWorkspaceID == nil)
+        #expect(decoded.isEmpty)
+    }
+
     @Test func deltaEventRoundTripsThroughJSONObject() throws {
         let event = MobileSyncDeltaEvent(
             epoch: "e1",

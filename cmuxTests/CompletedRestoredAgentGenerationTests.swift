@@ -299,6 +299,7 @@ struct CompletedRestoredAgentGenerationTests {
             updatedAt: updatedAt,
             provenance: .exactProcessBinding,
             processLiveness: .running,
+            hasRecordedProcessID: true,
             processIDs: [Int(identity.pid)],
             processIdentities: [Int(identity.pid): identity],
             agentProcessIDs: [Int(identity.pid)],

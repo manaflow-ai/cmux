@@ -55,6 +55,12 @@ export class NewlineFrameBuffer {
     this.release();
   }
 
+  /** Discard an incomplete frame while keeping the decoder usable. */
+  reset(): void {
+    if (this.stopped) return;
+    this.release();
+  }
+
   private appendTransient(chunk: Buffer): boolean {
     if (!this.checkFrameSize(chunk.byteLength)) return false;
     if (chunk.byteLength > 0) this.chunks.push(chunk);

@@ -17,8 +17,12 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     public let isCollapsed: Bool
     /// Whether the group is pinned.
     public let isPinned: Bool
-    /// The anchor workspace's identifier.
-    public let anchorWorkspaceID: UUID
+    /// The live anchor workspace's identifier, or `nil` for a header-only group.
+    /// The stable empty-header identity is intentionally not exposed as a
+    /// workspace handle.
+    public let anchorWorkspaceID: UUID?
+    /// Whether the group currently has no live workspace anchor.
+    public var isEmpty: Bool { anchorWorkspaceID == nil }
     /// The group's custom color override, if any.
     public let customColor: String?
     /// The group's custom icon symbol, if any.
@@ -33,7 +37,8 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     ///   - name: The group's display name.
     ///   - isCollapsed: Whether the group is collapsed.
     ///   - isPinned: Whether the group is pinned.
-    ///   - anchorWorkspaceID: The anchor workspace's identifier.
+    ///   - anchorWorkspaceID: The live anchor workspace's identifier, or `nil`
+    ///     for a header-only group.
     ///   - customColor: The custom color override, if any.
     ///   - iconSymbol: The custom icon symbol, if any.
     ///   - memberWorkspaceIDs: The member workspace identifiers, in tab order.
@@ -42,7 +47,7 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
-        anchorWorkspaceID: UUID,
+        anchorWorkspaceID: UUID?,
         customColor: String?,
         iconSymbol: String?,
         memberWorkspaceIDs: [UUID]

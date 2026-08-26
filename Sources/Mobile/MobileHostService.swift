@@ -97,6 +97,63 @@ private enum MobileHostEventSubscriptionTracker {
     #endif
 }
 
+/// The sibling Mac dev tags this Mac grants to its paired development phones.
+///
+/// A DEV iPhone build pairs only with its exact-tag Mac by default. This grant
+/// set — edited with `cmux mobile compatible-tags` against this Mac's debug
+/// socket — is advertised in authenticated host status and pushed live over
+/// `mobile.compatible_tags.changed`, so the phone can also discover the listed
+/// sibling Mac tags without a rebuild or re-pair. The tagged debug bundle id
+/// isolates `UserDefaults` per Mac tag, so one fixed key is per-tag already.
+enum MobileCompatibleMacTags {
+    static let defaultsKey = "CMUXMobileCompatibleMacTags"
+    /// Mirrors the phone-side allowlist bound (`MobileMacTagAllowlist`).
+    static let maximumTagCount = 32
+    /// Release lanes are never grantable to a development phone.
+    private static let reservedTags: Set<String> = [
+        "default", "nightly", "rc", "staging",
+    ]
+
+    /// The granted tags, sorted for stable payloads and CLI output.
+    nonisolated static func tags(in defaults: UserDefaults = .standard) -> [String] {
+        sanitized(defaults.stringArray(forKey: defaultsKey) ?? []).sorted()
+    }
+
+    /// Replaces the grant set and returns the sanitized result actually stored.
+    nonisolated static func set(
+        _ tags: [String],
+        in defaults: UserDefaults = .standard
+    ) -> [String] {
+        let sanitizedTags = sanitized(tags).sorted()
+        defaults.set(sanitizedTags, forKey: defaultsKey)
+        return sanitizedTags
+    }
+
+    /// Normalized rejects from the last `sanitized` pass, so the CLI can tell
+    /// the caller which requested tags were refused instead of silently
+    /// dropping them.
+    nonisolated static func rejectedTags(from tags: [String]) -> [String] {
+        var rejected: [String] = []
+        for tag in tags {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty else { continue }
+            if reservedTags.contains(normalized) { rejected.append(normalized) }
+        }
+        return rejected.sorted()
+    }
+
+    private nonisolated static func sanitized(_ tags: [String]) -> Set<String> {
+        var sanitized: Set<String> = []
+        for tag in tags {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty, !reservedTags.contains(normalized) else { continue }
+            sanitized.insert(normalized)
+            if sanitized.count == maximumTagCount { break }
+        }
+        return sanitized
+    }
+}
+
 enum MobileHostRequestActivity {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var activeRequestCount = 0
@@ -285,6 +342,12 @@ final class MobileHostService {
         )?.rawValue {
             payload["mac_client_namespace"] = clientNamespace
         }
+        // The sibling-tag grant set for development phones. Only this Mac's
+        // exact-tag phone adopts it (the phone ignores the field from any
+        // other reporter), so advertising it unconditionally is safe.
+        payload["mac_compatible_mac_tags"] = MobileCompatibleMacTags.tags(
+            in: phonePushDefaults
+        )
         payload["phone_push"] = [
             "forwarding_enabled": PhonePushConfiguration.forwardingEnabled(
                 in: phonePushDefaults
@@ -706,13 +769,15 @@ final class MobileHostService {
     /// User-default key for the preferred iOS pairing listener port.
     nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
 
-    /// The preferred TCP port the listener should try to bind, read from
-    /// settings.
+    /// The preferred port read from settings. Both iOS listeners try to bind
+    /// it: the legacy TCP pairing listener here and the Iroh endpoint's UDP
+    /// socket (`MobileHostIrohRuntime` passes it as the endpoint bind
+    /// preference).
     ///
     /// Falls back to the catalog default (which mirrors
     /// `CmxMobileDefaults.defaultHostPort`) when unset or outside the valid
-    /// `1...65535` range. The listener still falls back to an OS-assigned
-    /// ephemeral port if this port is unavailable at bind time.
+    /// `1...65535` range. Each listener still falls back independently to an
+    /// OS-assigned ephemeral port if this port is unavailable at bind time.
     nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
         let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
         guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {

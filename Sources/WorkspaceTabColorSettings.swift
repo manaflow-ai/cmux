@@ -134,6 +134,16 @@ enum WorkspaceTabColorSettings {
         return "#" + body.uppercased()
     }
 
+    /// Compares normalized hex values so persisted formatting cannot hide a match.
+    static func paletteEntryMatches(currentHex: String?, entryHex: String) -> Bool {
+        guard let currentHex,
+              let normalizedCurrent = normalizedHex(currentHex),
+              let normalizedEntry = normalizedHex(entryHex) else {
+            return false
+        }
+        return normalizedCurrent == normalizedEntry
+    }
+
     static func displayColor(
         hex: String,
         colorScheme: ColorScheme,

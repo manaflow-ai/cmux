@@ -181,7 +181,6 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var registrationSnapshotTask: Task<Void, Never>?
     @ObservationIgnored private var registrationRecoveryTask:
         Task<PushRegistrationSnapshot, Never>?
-    @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
     @ObservationIgnored private var hasRequestedRemoteRegistration = false
 
     /// Creates a push coordinator.
@@ -271,12 +270,18 @@ public final class MobilePushCoordinator {
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { enabledMirror }
 
-    /// Commits a Settings toggle choice synchronously, then reconciles OS and
+    /// Commits an opt-in/opt-out choice synchronously, then reconciles OS and
     /// backend state for that generation. A later choice invalidates every
     /// continuation of the older operation, so Settings never waits behind a
     /// stalled permission or registration call.
+    /// - Parameter trigger: The analytics surface that made the choice
+    ///   (`settings_toggle` for the Settings switch, `onboarding` for the
+    ///   onboarding push page).
     @discardableResult
-    public func setEnabledIntent(_ enabled: Bool) -> Task<Bool, Never> {
+    public func setEnabledIntent(
+        _ enabled: Bool,
+        trigger: String = "settings_toggle"
+    ) -> Task<Bool, Never> {
         settingsIntentTask?.cancel()
         let generation = beginSettingsIntent(enabled)
         let registration = registration
@@ -294,7 +299,7 @@ public final class MobilePushCoordinator {
             let result: Bool
             if enabled {
                 result = await self.reconcileEnable(
-                    trigger: "settings_toggle",
+                    trigger: trigger,
                     generation: generation,
                     registrationIntentOwnedByService: true
                 )
@@ -380,13 +385,18 @@ public final class MobilePushCoordinator {
 
     /// Opt in: request system authorization, register for remote notifications,
     /// and persist the flag. Returns whether authorization was granted.
+    /// - Parameter trigger: The analytics surface that opted in.
     @discardableResult
-    public func enable() async -> Bool {
-        await setEnabledIntent(true).value
+    public func enable(trigger: String = "settings_toggle") async -> Bool {
+        await setEnabledIntent(true, trigger: trigger).value
     }
 
-    /// Requests or recovers push only after the authenticated workspace shell
-    /// is mounted. An explicit app opt-out remains authoritative.
+    /// Recovers push registration after the authenticated workspace shell is
+    /// mounted. An explicit app opt-out remains authoritative, and an
+    /// undetermined OS status is left untouched: the first system permission
+    /// alert belongs to the onboarding push page (or the Settings toggle),
+    /// never to an automatic surface, so people see the value of notifications
+    /// before iOS burns the app's one prompt.
     public func workspaceListDidBecomeVisible() async {
         let initialSettingsGeneration = settingsIntentGeneration
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
@@ -408,16 +418,7 @@ public final class MobilePushCoordinator {
             // Preserve intent so Settings can explain the blocked OS gate and
             // a later foreground return can recover without another app launch.
             persistEnabledIntent()
-        case .notDetermined:
-            guard !workspaceAuthorizationRequestInFlight else { return }
-            workspaceAuthorizationRequestInFlight = true
-            defer { workspaceAuthorizationRequestInFlight = false }
-            let generation = beginSettingsIntent(true)
-            _ = await reconcileEnable(
-                trigger: "workspace_list",
-                generation: generation
-            )
-        case .unsupported:
+        case .notDetermined, .unsupported:
             break
         }
     }
