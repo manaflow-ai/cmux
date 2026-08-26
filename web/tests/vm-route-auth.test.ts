@@ -983,6 +983,7 @@ describe("VM REST auth", () => {
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
       deviceFingerprint: "fp-device-1",
+      callerPlanId: "pro",
     });
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
@@ -1036,6 +1037,7 @@ describe("VM REST auth", () => {
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
       invitationId: "inv_abc-123",
+      callerPlanId: "pro",
     });
   });
 

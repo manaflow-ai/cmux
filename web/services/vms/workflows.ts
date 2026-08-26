@@ -1592,11 +1592,13 @@ export function openVmCmuxRemote(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly deviceFingerprint?: string;
+  /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     if (!providers.openCmuxRemote) {
       return yield* Effect.fail(
@@ -1654,10 +1656,11 @@ export function approveVmCmuxRemoteEnrollment(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly invitationId: string;
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     if (!providers.approveCmuxRemoteEnrollment) {
       return yield* Effect.fail(
         new VmProviderOperationError({

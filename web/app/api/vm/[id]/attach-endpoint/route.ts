@@ -59,10 +59,14 @@ export async function POST(
             teamIds: user.teamIds,
             providerVmId: id,
             deviceFingerprint,
+            callerPlanId: account.entitlements.planId,
           }));
           return jsonResponse(endpoint);
         } catch (err) {
           if (isVmNotFoundError(err)) return notFoundVm(id);
+          if (isVmFreeAccessExpiredError(err)) {
+            return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+          }
           throw err;
         }
       }

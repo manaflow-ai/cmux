@@ -2,10 +2,11 @@ import {
   jsonResponse,
   notFoundVm,
   resolveVmRouteAccountScope,
+  vmFreeAccessExpiredResponse,
   withAuthedVmApiRoute,
 } from "../../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../../services/vms/errors";
+import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../../services/vms/errors";
 import { approveVmCmuxRemoteEnrollment, runVmWorkflow } from "../../../../../../services/vms/workflows";
 
 /**
@@ -45,11 +46,15 @@ export async function POST(
           teamIds: user.teamIds,
           providerVmId: id,
           invitationId,
+          callerPlanId: account.entitlements.planId,
         }));
         setSpanAttributes(span, { "cmux.vm.cmux_remote.approval_state": result.state });
         return jsonResponse(result);
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
+        if (isVmFreeAccessExpiredError(err)) {
+          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+        }
         throw err;
       }
     },
