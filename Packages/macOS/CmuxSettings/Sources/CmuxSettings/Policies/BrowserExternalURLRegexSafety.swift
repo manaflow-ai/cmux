@@ -6,7 +6,9 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
     let maximumTargetLength = 16_384
     /// Maximum regex expression text accepted by the matcher.
     private let maximumExpressionLength = 8_192
-    private let maximumQuantifierCount = 32
+    // Eight quantifiers keep even the worst non-nested optional sequence
+    // bounded while covering normal URL rules (`https?`, `.*`, and `\d+`).
+    private let maximumQuantifierCount = 8
     private let maximumAlternationCount = 32
 
     /// Returns whether `expression` has a bounded, supported shape.

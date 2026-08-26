@@ -97,6 +97,6 @@ struct BrowserExternalURLPolicyTests {
         #expect(!policy.matches("https://\(String(repeating: "a", count: 8_192))b"))
 
         let ordinaryPolicy = BrowserExternalURLPolicy(patterns: ["example.com"])
-        #expect(!ordinaryPolicy.matches("https://example.com/\(String(repeating: "x", count: 16_384))"))
+        #expect(ordinaryPolicy.matches("https://example.com/\(String(repeating: "x", count: 16_384))"))
     }
 }

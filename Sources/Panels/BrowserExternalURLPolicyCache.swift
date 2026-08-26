@@ -9,6 +9,7 @@ final class BrowserExternalURLPolicyCache {
     private let maximumInputValueCount = 512
     private let maximumTotalPatternLength = 65_536
     private var cachedSignature: String?
+    private var cachedRawObject: AnyObject?
     private var cachedPolicy: BrowserExternalURLPolicy?
 
     init(defaults: UserDefaults) {
@@ -17,12 +18,25 @@ final class BrowserExternalURLPolicyCache {
 
     /// Returns a compiled policy, rebuilding it only when its effective rules change.
     func currentPolicy() -> BrowserExternalURLPolicy {
-        let signature = signature(for: defaults.object(forKey: BrowserExternalURLPolicy.userDefaultsKey))
+        let rawValue = defaults.object(forKey: BrowserExternalURLPolicy.userDefaultsKey)
+        let rawObject = rawValue as AnyObject?
+        // UserDefaults returns immutable property-list snapshots. Reusing the
+        // same snapshot avoids re-normalizing on every link; the normalized
+        // signature below remains the fallback when a bridge returns a copy.
+        if let cachedPolicy,
+           ((cachedRawObject == nil && rawObject == nil) ||
+               (cachedRawObject != nil && cachedRawObject === rawObject)) {
+            return cachedPolicy
+        }
+
+        let signature = signature(for: rawValue)
         if let cachedPolicy, cachedSignature == signature {
+            cachedRawObject = rawObject
             return cachedPolicy
         }
         let policy = BrowserExternalURLPolicy(defaults: defaults)
         cachedSignature = signature
+        cachedRawObject = rawObject
         cachedPolicy = policy
         return policy
     }
