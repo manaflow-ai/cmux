@@ -204,16 +204,17 @@ extension ShortcutListModel {
             )
             return nil
         }
-        let originalEntries = rebased.compactMap { actionID, shortcut in
-                guard shortcut != current[actionID], let original = current[actionID] else {
-                    return nil
-                }
-                return RebasedChordSnapshot.Entry(
-                    actionID: actionID,
-                    original: original,
-                    wasPersisted: persisted.bindings[actionID] != nil
-                )
+        let originalEntries: [RebasedChordSnapshot.Entry] = rebased.compactMap { element in
+            let (actionID, shortcut) = element
+            guard shortcut != current[actionID], let original = current[actionID] else {
+                return nil
             }
+            return RebasedChordSnapshot.Entry(
+                actionID: actionID,
+                original: original,
+                wasPersisted: persisted.bindings[actionID] != nil
+            )
+        }
         let rebasedSnapshot = RebasedChordSnapshot(
             entries: originalEntries,
             migratedLegacyActionIDs: migratedLegacyActionIDs

@@ -135,7 +135,7 @@ final class ShortcutListModel {
 
     /// The effective focus `when` clause for `action`: its `shortcuts.when`
     /// override, or the built-in ``ShortcutAction/defaultFocusWhenClause``.
-    fileprivate func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
+    func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
         whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause
     }
 
@@ -221,7 +221,7 @@ final class ShortcutListModel {
     /// Entries absent from the snapshot resolve through the normal legacy and
     /// built-in fallback path, which lets prefix rebasing validate a complete
     /// candidate table before it reaches JSONConfigStore.
-    fileprivate func detectConflict(
+    func detectConflict(
         for action: ShortcutAction,
         stroke: StoredShortcut,
         overriding: [String: StoredShortcut]
@@ -234,21 +234,21 @@ final class ShortcutListModel {
                 effectiveWhenClause(for: other),
                 rhsHasPriority: other.hasPriorityShortcutRouting
             ) else { continue }
-            let effective: StoredShortcut?
+            let otherShortcut: StoredShortcut?
             if let candidate = overriding[other.rawValue] {
                 guard !candidate.isUnbound,
                       other.shortcutBindingPolicyResult(for: candidate) == .accepted else {
                     continue
                 }
-                effective = candidate.canonicalized()
+                otherShortcut = candidate.canonicalized()
             } else {
-                effective = effective(for: other)
+                otherShortcut = self.effective(for: other)
             }
-            guard let effective, !effective.isUnbound else { continue }
+            guard let otherShortcut, !otherShortcut.isUnbound else { continue }
             if ShortcutBindingConflict(
                 proposed: stroke,
                 proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
-                configured: effective,
+                configured: otherShortcut,
                 configuredUsesNumberedDigitMatching: other.usesNumberedDigitMatching
             ).exists {
                 return other
