@@ -4456,6 +4456,15 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "cmuxTests/swift_request_trailing_closure.swift",
+            (
+                'request("https://api.openai.com/v1/items") { response in\n'
+                "    handle(response)\n"
+                "}\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/requests_request.py",
             'requests.request("GET", "https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -5386,6 +5395,15 @@ def _self_test() -> int:
             (
                 'const client = axios.create({ baseURL: "https://api.openai.com" });\n'
                 'const helper = (client) => client.get("/local");\n'
+            ),
+        ),
+        (
+            "tests/n18y_httpx_function_scope_shadow.py",
+            (
+                'client = httpx.Client(base_url="https://api.openai.com")\n'
+                "def helper(client):\n"
+                "    if ready:\n"
+                '        client.get("/local")\n'
             ),
         ),
         # An explicit absolute request target overrides a stored base URL.
