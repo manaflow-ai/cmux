@@ -363,7 +363,7 @@ extension TerminalController {
             "open_workspace_ids": projections.map { $0.workspaceID.uuidString },
         ]
         if let agent = resource.agent {
-            payload["agent"] = ["state": agent.state, "source": agent.source ?? NSNull()]
+            payload["agent"] = ["state": agent.state, "source": agent.source ?? NSNull()] as [String: Any]
         } else {
             payload["agent"] = NSNull()
         }
