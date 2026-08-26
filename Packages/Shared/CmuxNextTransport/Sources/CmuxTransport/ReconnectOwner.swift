@@ -397,6 +397,10 @@ public actor ReconnectOwner {
             }
             let control = await conn.lane("ctl")
             for await frame in control.frames {
+                // stop() cancels this task, but a frame the iterator already
+                // dequeued (or one racing the cancellation's resume) still
+                // reaches this point — surface nothing after shutdown.
+                if Task.isCancelled { break }
                 if TransportDebugLog.enabled {
                     TransportDebugLog.core.notice(
                         """
