@@ -5,11 +5,18 @@ internal import GhosttyKit
 let terminalRendererEventCallback: @convention(c) (
     UnsafeMutableRawPointer?, ghostty_renderer_event_e
 ) -> Void = { userdata, event in
-    guard event == GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END,
-          let userdata else { return }
+    guard let userdata else { return }
     let context = Unmanaged<GhosttySurfaceCallbackContext>
         .fromOpaque(userdata)
         .takeUnretainedValue()
-    context.rendererMailboxDidDrain()
-    context.rendererFrameDidEnd()
+    switch event {
+    case GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END:
+        context.rendererMailboxDidDrain()
+    case GHOSTTY_RENDERER_EVENT_DRAW_FRAME_END:
+        // A reveal of unchanged terminal content draws without a state
+        // update, so the first-frame notice must key on the draw event.
+        context.rendererFrameDidEnd()
+    default:
+        break
+    }
 }
