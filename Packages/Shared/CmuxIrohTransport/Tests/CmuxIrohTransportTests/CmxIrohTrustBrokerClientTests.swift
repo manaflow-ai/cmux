@@ -49,6 +49,81 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(object["identityGeneration"] as? Int == 1)
     }
 
+    /// The DEBUG-only deployment-protection bypass rides every broker
+    /// request so a tagged test build can reach a protected preview.
+    @Test
+    func brokerRequestsCarryDebugProtectionBypassHeaderWhenActive() async throws {
+        UserDefaults.standard.set(
+            "test-bypass-token",
+            forKey: CmxIrohDebugBrokerBypassHeader.key
+        )
+        defer {
+            UserDefaults.standard.removeObject(
+                forKey: CmxIrohDebugBrokerBypassHeader.key
+            )
+        }
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let payload = try registrationPayload()
+        let signer = try registrationSigner()
+        _ = try await client.issueChallenge(
+            try signer.prepare(payload: payload).challengeRequest
+        )
+
+        let captured = try #require(await transport.requests().first)
+        #expect(
+            captured.value(forHTTPHeaderField: "x-vercel-protection-bypass")
+                == "test-bypass-token"
+        )
+    }
+
+    @Test
+    func brokerRequestsOmitProtectionBypassHeaderWhenInactive() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let payload = try registrationPayload()
+        let signer = try registrationSigner()
+        _ = try await client.issueChallenge(
+            try signer.prepare(payload: payload).challengeRequest
+        )
+
+        let captured = try #require(await transport.requests().first)
+        #expect(
+            captured.value(forHTTPHeaderField: "x-vercel-protection-bypass") == nil
+        )
+    }
+
+    /// Only bounded single-line tokens are usable as a bypass header value.
+    @Test(arguments: [
+        nil,
+        "",
+        "   ",
+        "two words",
+        "line\nbreak",
+        String(repeating: "a", count: 129),
+    ] as [String?])
+    func bypassRejectsUnusableValues(_ raw: String?) {
+        #expect(CmxIrohDebugBrokerBypassHeader.value(rawValue: raw) == nil)
+    }
+
+    @Test
+    func bypassTrimsAndAcceptsBoundedToken() {
+        #expect(
+            CmxIrohDebugBrokerBypassHeader.value(rawValue: " V4wToken123 ")
+                == "V4wToken123"
+        )
+    }
+
     @Test
     func combinedRegistrationUsesOneGateForBothHTTPLegs() async throws {
         let transport = RecordingBrokerTransport(responses: [

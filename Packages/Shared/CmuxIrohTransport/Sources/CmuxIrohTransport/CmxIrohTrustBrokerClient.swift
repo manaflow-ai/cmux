@@ -824,6 +824,14 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = requestTimeout
+        // A debug-only deployment-protection bypass lets a tagged test build
+        // reach a protected broker preview; nil in release builds.
+        if let bypass = CmxIrohDebugBrokerBypassHeader.activeValue() {
+            request.setValue(
+                bypass,
+                forHTTPHeaderField: CmxIrohDebugBrokerBypassHeader.headerField
+            )
+        }
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
