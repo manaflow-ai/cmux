@@ -46,6 +46,7 @@ final class CmuxPluginProcessSupervisor {
     private var processes: [String: RunningProcess] = [:]
     private var launchingPluginIDs: Set<String> = []
     private var pendingReconciliationPluginIDs: Set<String> = []
+    private var restartTasks: [String: Task<Void, Never>] = [:]
 
     init(snapshotter: CmuxPluginExecutionSnapshotter? = nil) {
         self.snapshotter = snapshotter ?? CmuxPluginExecutionSnapshotter()
@@ -94,6 +95,7 @@ final class CmuxPluginProcessSupervisor {
                 return
             }
             let pluginID = descriptor.plugin.manifest.id
+            restartTasks.removeValue(forKey: pluginID)?.cancel()
             guard processes[pluginID] == nil else { continue }
             guard launchingPluginIDs.insert(pluginID).inserted else {
                 pendingReconciliationPluginIDs.insert(pluginID)
@@ -173,6 +175,8 @@ final class CmuxPluginProcessSupervisor {
         processes.removeAll()
         launchingPluginIDs.removeAll()
         pendingReconciliationPluginIDs.removeAll()
+        restartTasks.values.forEach { $0.cancel() }
+        restartTasks.removeAll()
     }
 
     private func launch(
@@ -511,6 +515,7 @@ final class CmuxPluginProcessSupervisor {
                 "Plugin \(pluginID, privacy: .public) exited with status \(status)"
             )
         }
+        scheduleRestart(pluginID: pluginID, runtime: runtime)
     }
 
     private func stop(
@@ -544,17 +549,31 @@ final class CmuxPluginProcessSupervisor {
         identity: CmuxPluginProcessIdentity? = nil
     ) {
         guard processGroupID > 1 else { return }
-        if let expectedStart = identity?.startMicroseconds,
-           let currentStart = CmuxPluginRuntime.processStartMicroseconds(processGroupID),
-           currentStart != expectedStart {
-            // A new process has reused the root PID/PGID. Never signal it.
-            return
+        if let expectedStart = identity?.startMicroseconds {
+            guard CmuxPluginRuntime.processStartMicroseconds(processGroupID)
+                    == expectedStart else {
+                // A new process has reused the root PID/PGID, or the identity
+                // can no longer be verified. Never signal it.
+                return
+            }
         }
         guard process.isRunning || identity != nil else { return }
         _ = Darwin.kill(-processGroupID, SIGTERM)
         _ = Darwin.kill(-processGroupID, SIGKILL)
         if process.isRunning {
             process.terminate()
+        }
+    }
+
+    /// Restarts an unexpectedly exited enabled plugin through the same
+    /// authoritative registry/reconciliation path after a bounded backoff.
+    private func scheduleRestart(pluginID: String, runtime: CmuxPluginRuntime) {
+        restartTasks.removeValue(forKey: pluginID)?.cancel()
+        restartTasks[pluginID] = Task { @MainActor [weak self, weak runtime] in
+            try? await ContinuousClock().sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self, let runtime else { return }
+            self.restartTasks[pluginID] = nil
+            runtime.reload()
         }
     }
 

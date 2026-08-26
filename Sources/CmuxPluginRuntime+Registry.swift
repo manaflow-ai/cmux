@@ -24,6 +24,10 @@ extension CmuxPluginRuntime {
             await registry.reload()
         }
         await task.value
+        // A bounded cooldown folds a sustained filesystem storm into the
+        // stream's single pending signal instead of hashing the full plugin
+        // tree continuously.
+        try? await ContinuousClock().sleep(for: .seconds(2))
     }
 
     /// Approves all declarations for a plugin after an explicit Settings action.

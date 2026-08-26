@@ -75,6 +75,16 @@ extension KeyboardShortcutSettings {
                 conflicts[actionID] = builtInConflict.rawValue
                 continue
             }
+            if systemWideHotkeyConflicts(
+                with: shortcut,
+                excluding: .globalSearch
+            ) {
+                // `.globalSearch` was already checked in Action.allCases above;
+                // this reuses the system/hardcoded reservation policy without
+                // omitting any effective built-in conflict.
+                conflicts[actionID] = "system.reserved"
+                continue
+            }
             if let configuredConflict = configuredCmuxShortcuts.first(where: { _, configured in
                 shortcutsConflict(
                     shortcut,

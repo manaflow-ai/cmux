@@ -128,6 +128,36 @@ extension CmuxPluginRuntime {
         return resolved.authorization
     }
 
+    /// Positively classifies a peer as an ordinary cmux descendant or a
+    /// supervised plugin. A broken ancestry walk fails closed instead of
+    /// treating an unresolved plugin as a standard socket client.
+    func socketPeerPolicy(
+        forProcess processID: pid_t?,
+        isEventStreamRequest: Bool
+    ) -> CmuxPluginSocketPeerPolicy {
+        guard let processID else { return .denied }
+        if let authorization = processAuthorization(forProcess: processID) {
+            return Self.socketPeerPolicy(
+                processAuthorization: authorization,
+                isEventStreamRequest: isEventStreamRequest
+            )
+        }
+        var current = processID
+        var visited = Set<pid_t>()
+        let hostProcessID = getpid()
+        for _ in 0..<128 {
+            if current == hostProcessID { return .standard }
+            guard visited.insert(current).inserted,
+                  let parent = Self.parentProcessID(current),
+                  parent > 0,
+                  parent != current else {
+                return .denied
+            }
+            current = parent
+        }
+        return .denied
+    }
+
     /// Checks a resolved root while ``lock`` is held. Socket stream
     /// registration uses the same check to close the PID-reuse window.
     func processIdentityIsCurrentLocked(rootProcessID: pid_t) -> Bool {
