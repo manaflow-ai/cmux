@@ -9,7 +9,7 @@ That is the whole point: our fork notes live here, not in `CLAUDE.md` (which ups
 
 ## Remotes
 
-- `origin` -> `https://github.com/wasimjalali/cmux.git` (our fork)
+- `origin` -> `https://github.com/wasimjalali/cmux-fork.git` (our fork)
 - `upstream` -> `https://github.com/manaflow-ai/cmux.git` (the real cmux)
 
 ## Our custom features
