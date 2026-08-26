@@ -552,9 +552,13 @@ extension CMUXCLI {
             )
         }
         let legacyCommand = object["legacy_command"] as? String
+        let preparedArguments = object["prepared_arguments"] as? [String]
         let launchCommand: AgentLaunchCommand?
         do {
-            launchCommand = try restoreLaunchCommand(from: object["launch_command"])
+            launchCommand = try restoreLaunchCommand(
+                from: object["launch_command"],
+                allowEmptyWhenPreparedArgumentsExist: preparedArguments?.isEmpty == false
+            )
         } catch {
             guard legacyCommand != nil else {
                 throw loggedRestoreError(
@@ -576,7 +580,7 @@ extension CMUXCLI {
             workingDirectory: object["working_directory"] as? String,
             environment: object["environment"] as? [String: String] ?? [:],
             launchCommand: launchCommand,
-            preparedArguments: object["prepared_arguments"] as? [String],
+            preparedArguments: preparedArguments,
             preparedArgumentsWorkingDirectory:
                 object["prepared_arguments_working_directory"] as? String,
             permissionMode: object["permission_mode"] as? String,
@@ -584,9 +588,19 @@ extension CMUXCLI {
         )
     }
 
-    private func restoreLaunchCommand(from value: Any?) throws -> AgentLaunchCommand? {
+    private func restoreLaunchCommand(
+        from value: Any?,
+        allowEmptyWhenPreparedArgumentsExist: Bool = false
+    ) throws -> AgentLaunchCommand? {
         guard let object = value as? [String: Any] else { return nil }
-        guard let arguments = object["arguments"] as? [String], !arguments.isEmpty else {
+        guard let arguments = object["arguments"] as? [String] else {
+            throw CLIError(message: String(
+                localized: "cli.restore.error.malformedArguments",
+                defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+            ))
+        }
+        guard !arguments.isEmpty else {
+            if allowEmptyWhenPreparedArgumentsExist { return nil }
             throw CLIError(message: String(
                 localized: "cli.restore.error.malformedArguments",
                 defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."

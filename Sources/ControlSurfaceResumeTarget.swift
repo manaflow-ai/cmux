@@ -402,12 +402,10 @@ extension TerminalController {
                 source: compatibleAgent.source,
                 workingDirectory: workingDirectory,
                 environment: binding?.environment ?? [:],
-                launchCommand: launchCommand.map {
-                    controlAgentLaunchCommand(
-                        $0,
-                        replaySafeEnvironmentFor: agent.kind.rawValue
-                    )
-                },
+                launchCommand: structuredRestoreLaunchCommand(
+                    launchCommand,
+                    kind: agent.kind.rawValue
+                ),
                 preparedArguments: preparedArguments,
                 preparedArgumentsWorkingDirectory: preparedArguments == nil
                     ? nil
@@ -444,12 +442,10 @@ extension TerminalController {
             source: binding.source,
             workingDirectory: workingDirectory,
             environment: binding.environment ?? [:],
-            launchCommand: binding.launchCommand.map {
-                controlAgentLaunchCommand(
-                    $0,
-                    replaySafeEnvironmentFor: normalizedKind
-                )
-            },
+            launchCommand: structuredRestoreLaunchCommand(
+                binding.launchCommand,
+                kind: normalizedKind
+            ),
             preparedArguments: mode == .direct
                 ? binding.launchCommand?.arguments
                 : preparedArguments,
@@ -458,6 +454,21 @@ extension TerminalController {
                 : workingDirectory,
             permissionMode: binding.permissionMode,
             legacyCommand: compatibilityBinding?.inlineStartupInput
+        )
+    }
+
+    /// Returns structured launch data only when it contains a replayable argv.
+    /// Empty rejected captures remain useful as diagnostics, but `cmux restore`
+    /// consumes `preparedArguments` for them and intentionally rejects an empty
+    /// `launch_command` payload.
+    private func structuredRestoreLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: String
+    ) -> ControlAgentLaunchCommand? {
+        guard let launchCommand, !launchCommand.arguments.isEmpty else { return nil }
+        return controlAgentLaunchCommand(
+            launchCommand,
+            replaySafeEnvironmentFor: kind
         )
     }
 
