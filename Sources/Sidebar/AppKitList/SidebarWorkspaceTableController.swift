@@ -827,7 +827,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // route to top-level whole-group plans and are rejected cross-window.
         guard rows.indices.contains(row), let actions else { return nil }
         let rowConfiguration = rows[row]
-        let workspaceId = actions.workspaceIdForDrag(rowConfiguration.groupId, rowConfiguration.workspaceId)
+        // Only the group-header row represents the anchor. A grouped member
+        // carries the same groupId but must remain independently draggable.
+        let workspaceId = rowConfiguration.isGroupHeader
+            ? actions.workspaceIdForDrag(rowConfiguration.groupId, rowConfiguration.workspaceId)
+            : rowConfiguration.workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
         let item = NSPasteboardItem()
@@ -856,10 +860,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let row = draggedRows[itemIndex]
             guard rows.indices.contains(row) else { return }
             let rowConfiguration = rows[row]
-            let workspaceId = actions?.workspaceIdForDrag(
-                rowConfiguration.groupId,
-                rowConfiguration.workspaceId
-            ) ?? rowConfiguration.workspaceId
+            let workspaceId: UUID
+            if rowConfiguration.isGroupHeader {
+                workspaceId = actions?.workspaceIdForDrag(
+                    rowConfiguration.groupId,
+                    rowConfiguration.workspaceId
+                ) ?? rowConfiguration.workspaceId
+            } else {
+                workspaceId = rowConfiguration.workspaceId
+            }
             let count = actions?.movingWorkspaceCount?(workspaceId) ?? 1
             guard count > 1,
                   let image = workspaceDragImage(
