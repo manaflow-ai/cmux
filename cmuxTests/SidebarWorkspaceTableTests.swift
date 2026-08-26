@@ -52,9 +52,10 @@ struct SidebarWorkspaceTableTests {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let row = makeRowConfiguration()
+        var endWorkspaceDragCalls = 0
         controller.apply(
             rows: [row],
-            actions: makeTableActions(),
+            actions: makeTableActions(endWorkspaceDrag: { endWorkspaceDragCalls += 1 }),
             workspaceIds: [row.workspaceId],
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
@@ -69,6 +70,7 @@ struct SidebarWorkspaceTableTests {
 
         #expect(container.tableView.dataSource == nil)
         #expect(container.tableView.delegate == nil)
+        #expect(endWorkspaceDragCalls == 0)
     }
 #endif
 
@@ -730,6 +732,7 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeTableActions(
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        endWorkspaceDrag: @escaping () -> Void = {},
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -739,7 +742,7 @@ struct SidebarWorkspaceTableTests {
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
-            endWorkspaceDrag: {},
+            endWorkspaceDrag: endWorkspaceDrag,
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },
