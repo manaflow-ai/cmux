@@ -11696,7 +11696,9 @@ class TerminalController {
     /// Serves the v1 `iroh_diag` socket command: the host's Iroh Connection
     /// Report in the same plain-language format the Settings pane exports,
     /// read from the same `DiagnosticLog` snapshot path so the two can never
-    /// disagree.
+    /// disagree, plus an active-relay section (profile source and URLs) that
+    /// exists only in the local debug socket output because relay URLs are
+    /// deliberately excluded from the privacy-safe exported report.
     private nonisolated func irohDiagText() -> String {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var export = ""
@@ -11711,7 +11713,10 @@ class TerminalController {
             semaphore.signal()
         }
         semaphore.wait()
-        return export
+        // Appended outside the report so relay URLs never enter the
+        // privacy-safe DiagnosticLog pipeline; the mirror read is serialized
+        // and main-actor-free.
+        return export + "\n" + MobileHostIrohRuntime.relayDiagReportText() + "\n"
     }
 
     private nonisolated func readScreenText(_ args: String) -> String {

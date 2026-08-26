@@ -447,3 +447,65 @@ struct MobileHostMacScopedMutationAuthorizationTests {
 
 }
 #endif
+
+@Suite
+struct MobileHostIrohRelayDiagReportTests {
+    @Test func debugOverrideWinsOverInstalledPolicy() {
+        let text = MobileHostIrohRuntime.relayDiagReport(
+            policy: MobileHostIrohRuntime.RelayDiagState(
+                source: .managed,
+                usedCachedPolicy: false,
+                relayURLs: ["https://relay.cmux.io/"]
+            ),
+            debugOverrideRelayURL: "https://test-relay.example/"
+        )
+        #expect(text == """
+        Active relay profile
+        Source: debug override (CMUX_IROH_RELAY_URL_OVERRIDE)
+        Relays: https://test-relay.example/
+        """)
+    }
+
+    @Test func managedCatalogReportsCachednessAndURLs() {
+        let text = MobileHostIrohRuntime.relayDiagReport(
+            policy: MobileHostIrohRuntime.RelayDiagState(
+                source: .managed,
+                usedCachedPolicy: true,
+                relayURLs: ["https://a.example/", "https://b.example/"]
+            ),
+            debugOverrideRelayURL: nil
+        )
+        #expect(text == """
+        Active relay profile
+        Source: managed catalog (cached)
+        Relays: https://a.example/, https://b.example/
+        """)
+    }
+
+    @Test func customProfileReportsCustomSource() {
+        let text = MobileHostIrohRuntime.relayDiagReport(
+            policy: MobileHostIrohRuntime.RelayDiagState(
+                source: .custom,
+                usedCachedPolicy: false,
+                relayURLs: ["https://my-relay.example/"]
+            ),
+            debugOverrideRelayURL: nil
+        )
+        #expect(text == """
+        Active relay profile
+        Source: custom
+        Relays: https://my-relay.example/
+        """)
+    }
+
+    @Test func missingPolicyReportsNoneInstalled() {
+        let text = MobileHostIrohRuntime.relayDiagReport(
+            policy: nil,
+            debugOverrideRelayURL: nil
+        )
+        #expect(text == """
+        Active relay profile
+        Source: none installed (no relay policy this launch)
+        """)
+    }
+}
