@@ -781,15 +781,13 @@ final class SharedLiveAgentIndex {
 
     /// Cancels and detaches a refresh that outlived the ownership admission
     /// deadline. The loader runs in a detached task and may not observe
-    /// cancellation promptly, so generation tokens keep its eventual
-    /// completion from clearing or mutating a replacement refresh.
+    /// cancellation promptly, so retain the cancelled refresh handles and
+    /// generation tokens until their callbacks reap the loader. This keeps
+    /// every later refresh coalesced onto the one in-flight scan instead of
+    /// allowing repeated timeouts to overlap full process/filesystem walks.
     private func abandonOwnershipRefreshTasks() {
         refreshTask?.cancel()
-        refreshTask = nil
-        refreshTaskGeneration = nil
         forkAvailabilityRefreshTask?.cancel()
-        forkAvailabilityRefreshTask = nil
-        forkAvailabilityRefreshTaskGeneration = nil
         // Keep the detached loader handle until its synchronous probe actually
         // returns. Cancellation cannot interrupt that closure, and dropping it
         // here would let the next refresh start a second full scan while the
