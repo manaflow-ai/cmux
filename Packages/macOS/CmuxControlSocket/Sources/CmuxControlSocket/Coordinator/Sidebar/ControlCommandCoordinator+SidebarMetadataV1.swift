@@ -472,13 +472,37 @@ extension ControlCommandCoordinator {
         ) ?? false else {
             return "ERROR: Unsupported agent lifecycle key '\(key)'"
         }
+        let startsNewOccupant = parsed.options["new-occupant"] != nil
+        let preserveNotifications = parsed.options["preserve-notifications"] != nil
+        let requiresAcceptedOwner = parsed.options["require-accepted"] != nil
+        let preflightOnly = parsed.options["prepare-only"] != nil
+        guard !preflightOnly || requiresAcceptedOwner else {
+            return "ERROR: Usage: \(usage)"
+        }
+        if requiresAcceptedOwner {
+            let accepted = context?.controlSidebarApplyAgentLifecycleAndVerifyOwner(
+                target: target,
+                key: key,
+                lifecycleRawValue: lifecycleRawValue,
+                panelID: panelResolution.panelId,
+                sessionID: sessionID,
+                startsNewOccupant: startsNewOccupant,
+                expectedPIDKey: expectedPIDKey,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+                preflightOnly: preflightOnly,
+                clearNotifications: !preserveNotifications
+            ) ?? false
+            return accepted ? "OK:1" : "OK:0"
+        }
         context?.controlSidebarScheduleAgentLifecycle(
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
             panelID: panelResolution.panelId,
             sessionID: sessionID,
-            startsNewOccupant: parsed.options["new-occupant"] != nil,
+            startsNewOccupant: startsNewOccupant,
             expectedPIDKey: expectedPIDKey,
             expectedPID: expectedPID,
             expectedPIDStartSeconds: expectedPIDStartSeconds,
@@ -513,7 +537,7 @@ extension ControlCommandCoordinator {
     nonisolated func sidebarClearAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         let usage = context?.controlSidebarClearAgentPIDUsage()
-            ?? "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
+            ?? "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>] [--require-cleared]"
         guard let key = parsed.positional.first else {
             return "ERROR: Usage: \(usage)"
         }
@@ -570,16 +594,32 @@ extension ControlCommandCoordinator {
         case (nil, _?), (_?, nil):
             return "ERROR: Usage: \(usage)"
         }
+        let clearStatus = parsed.options["clear-status"] != nil
+        let requireOwnedKey = parsed.options["require-owned-key"] != nil
+        if parsed.options["require-cleared"] != nil {
+            let accepted = context?.controlSidebarClearAgentPIDAndVerifyOwner(
+                target: target,
+                key: key,
+                panelID: panelResolution.panelId,
+                clearStatus: clearStatus,
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+                requireOwnedKey: requireOwnedKey
+            ) ?? false
+            return accepted ? "OK:1" : "OK:0"
+        }
         context?.controlSidebarScheduleAgentPIDClear(
             target: target,
             key: key,
             panelID: panelResolution.panelId,
-            clearStatus: parsed.options["clear-status"] != nil,
+            clearStatus: clearStatus,
             expectedLifecycleSessionID: expectedLifecycleSessionID,
             expectedPID: expectedPID,
             expectedPIDStartSeconds: expectedPIDStartSeconds,
             expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
-            requireOwnedKey: parsed.options["require-owned-key"] != nil
+            requireOwnedKey: requireOwnedKey
         )
         return "OK"
     }

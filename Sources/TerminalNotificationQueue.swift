@@ -490,7 +490,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     title: notification.title,
                     subtitle: notification.subtitle,
                     body: notification.body,
-                    notificationGeneration: entry.notificationGeneration ?? 0
+                    notificationGeneration: entry.notificationGeneration ?? 0,
+                    agentMutationGuard: notification.agentMutationGuard
                 )
             case .clearAllNotifications(let boundary):
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false, throughNotificationGeneration: boundary)

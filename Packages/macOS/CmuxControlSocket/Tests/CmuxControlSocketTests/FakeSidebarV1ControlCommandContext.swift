@@ -49,6 +49,9 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         expectedPIDStartSeconds: Int64?,
         expectedPIDStartMicroseconds: Int64?
     )?
+    nonisolated(unsafe) var agentLifecycleAccepted = true
+    nonisolated(unsafe) var agentLifecycleClearNotifications = true
+    nonisolated(unsafe) var agentPIDClearAccepted = true
 
     nonisolated func controlSidebarScheduleStatusClear(
         target: ControlSidebarTabTarget,
@@ -118,6 +121,31 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         )
     }
 
+    nonisolated func controlSidebarClearAgentPIDAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        requireOwnedKey: Bool
+    ) -> Bool {
+        controlSidebarScheduleAgentPIDClear(
+            target: target,
+            key: key,
+            panelID: panelID,
+            clearStatus: clearStatus,
+            expectedLifecycleSessionID: expectedLifecycleSessionID,
+            expectedPID: expectedPID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+            requireOwnedKey: requireOwnedKey
+        )
+        return agentPIDClearAccepted
+    }
+
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         raw == "running" ? raw : nil
     }
@@ -154,6 +182,36 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
             expectedPIDStartSeconds,
             expectedPIDStartMicroseconds
         )
+    }
+
+    nonisolated func controlSidebarApplyAgentLifecycleAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        preflightOnly: Bool,
+        clearNotifications: Bool
+    ) -> Bool {
+        agentLifecycleClearNotifications = clearNotifications
+        controlSidebarScheduleAgentLifecycle(
+            target: target,
+            key: key,
+            lifecycleRawValue: lifecycleRawValue,
+            panelID: panelID,
+            sessionID: sessionID,
+            startsNewOccupant: startsNewOccupant,
+            expectedPIDKey: expectedPIDKey,
+            expectedPID: expectedPID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+        )
+        return agentLifecycleAccepted
     }
 
     func controlSidebarSetWorkspaceLoading(

@@ -45,6 +45,19 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    func acceptsAgentMutationGuard(
+        _ guardValue: ControlSidebarAgentMutationGuard
+    ) -> Bool {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            return ControlSidebarPanelOwner.workspace(workspace)
+                .acceptsAgentMutationGuard(guardValue, panelId: surfaceID)
+        case .dock(_, let dock, let surfaceID):
+            return ControlSidebarPanelOwner.dock(dock)
+                .acceptsAgentMutationGuard(guardValue, panelId: surfaceID)
+        }
+    }
+
     var restorableAgent: SessionRestorableAgentSnapshot? {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
@@ -525,6 +538,10 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
+        if let agentMutationGuard = inputs.agentMutationGuard,
+           !target.acceptsAgentMutationGuard(agentMutationGuard) {
+            return .setFailed
+        }
         guard let locatedBinding = target.registeredBinding(binding, inputs: inputs) else {
             return .setFailed
         }
@@ -534,6 +551,10 @@ extension TerminalController {
             return .approvalPending(message: surfaceResumeApprovalPendingMessage)
         case let .resolved(binding):
             effectiveBinding = binding
+        }
+        if let agentMutationGuard = inputs.agentMutationGuard,
+           !target.acceptsAgentMutationGuard(agentMutationGuard) {
+            return .setFailed
         }
         guard target.setBinding(effectiveBinding) else {
             return .emptyResumeCommand
@@ -571,7 +592,8 @@ extension TerminalController {
         expectedCheckpointID: String?,
         expectedSource: String?,
         agentSessionEnded: Bool,
-        expectedBindingUpdatedAt: Double?
+        expectedBindingUpdatedAt: Double?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -583,6 +605,10 @@ extension TerminalController {
             fallbackTabManager: tabManager
         ) else {
             return .surfaceNotFound
+        }
+        if let agentMutationGuard,
+           !target.acceptsAgentMutationGuard(agentMutationGuard) {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
         let bindingForClear = target.bindingForClear(
             expectedSource: expectedSource,

@@ -253,6 +253,10 @@ struct CampfireHookNotificationTests {
     }
 
     private func agentHookMockResponse(line: String, context: HookContext) -> String {
+        if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+           (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
+            return "OK:1"
+        }
         guard let payload = jsonObject(line) else {
             return "OK"
         }
@@ -269,7 +273,7 @@ struct CampfireHookNotificationTests {
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
         case "surface.resume.set":
-            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            return v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
         case "surface.resume.clear":
             return v2Response(id: id, ok: true, result: ["cleared": true])
         default:

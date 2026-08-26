@@ -232834,13 +232834,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
+            "value": "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>] [--require-cleared]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "clear_agent_pid <キー> [--tab=<ID>] [--panel=<ID>] [--clear-status] [--session-id=<ID>]"
+            "value": "clear_agent_pid <キー> [--tab=<ID>] [--panel=<ID>] [--clear-status] [--session-id=<ID>] [--require-cleared]"
           }
         }
       }
@@ -233028,6 +233028,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "agent_session_ended はブール値である必要があります"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.agentMutationGuardMustBeValid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid _cmux_agent_mutation_guard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "_cmux_agent_mutation_guard が指定されていないか、無効です"
           }
         }
       }

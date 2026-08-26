@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension CMUXCLI {
@@ -89,12 +90,27 @@ extension CMUXCLI {
         }
         var clearedRecords: [ClaudeHookSessionRecord] = []
         for record in records {
+            let pidKey = "\(statusKey).\(record.sessionId)"
+            let isRelayGeneration = record.sessionId.contains("#relay#")
+            let processIdentity = isRelayGeneration
+                ? nil
+                : AgentHookProcessIdentity(record: record)
+            guard let cleanupGuard = agentMutationGuard(
+                key: statusKey,
+                sessionID: record.sessionId,
+                expectedPIDKey: isRelayGeneration ? nil : pidKey,
+                expectedPID: isRelayGeneration ? nil : record.pid,
+                expectedProcessIdentity: processIdentity
+            ) else {
+                continue
+            }
             let resumeClearOutcome = clearAgentSurfaceResumeBindingOutcome(
                 client: client,
                 workspaceId: record.workspaceId,
                 surfaceId: record.surfaceId,
                 sessionId: record.sessionId,
-                expectedBindingUpdatedAt: record.resumeBindingUpdatedAt
+                expectedBindingUpdatedAt: record.resumeBindingUpdatedAt,
+                agentMutationGuard: cleanupGuard
             )
             guard resumeClearOutcome != .failed else {
                 continue
@@ -107,12 +123,21 @@ extension CMUXCLI {
                 clearedRecords.append(record)
                 continue
             }
-            let pidKey = "\(statusKey).\(record.sessionId)"
+            var clearCommand = "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)"
+                + "\(socketPanelOption(record.surfaceId)) --clear-status --require-cleared"
+            switch cleanupGuard {
+            case .session(_, let sessionID):
+                clearCommand += " --session-id=\(socketQuote(sessionID))"
+            case .process(_, let guardedPIDKey, let pid, let seconds, let microseconds):
+                guard guardedPIDKey == pidKey else { continue }
+                clearCommand += " --require-owned-key"
+                clearCommand += " --expected-pid=\(pid)"
+                clearCommand += " --expected-pid-start-seconds=\(seconds)"
+                clearCommand += " --expected-pid-start-microseconds=\(microseconds)"
+            }
             do {
-                _ = try sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key",
-                    client: client
-                )
+                let response = try sendV1Command(clearCommand, client: client)
+                guard response == "OK:1" else { continue }
                 clearedRecords.append(record)
             } catch {
                 continue

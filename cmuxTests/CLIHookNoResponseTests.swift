@@ -141,6 +141,10 @@ struct CLIHookNoResponseTests {
                 Self.jsonObject(line)?["method"] as? String == "feed.push"
             }
         ) { line in
+            if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+               (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
+                return "OK:1"
+            }
             guard let payload = Self.jsonObject(line) else {
                 return "OK"
             }
@@ -157,7 +161,11 @@ struct CLIHookNoResponseTests {
             case "surface.list":
                 return Self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
-                return Self.v2Response(id: id, ok: true, result: ["ok": true])
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             default:
                 return Self.v2Response(id: id, ok: false, error: [
                     "code": "unrecognized_method",

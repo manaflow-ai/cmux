@@ -9,6 +9,8 @@ public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     public let invalidExpectedUpdatedAt: String
     /// The message returned when `launch_command` is present but malformed.
     public let launchCommandMustBeValid: String
+    /// The message returned when the private agent occupant guard is malformed.
+    public let agentMutationGuardMustBeValid: String
 
     /// Creates the localized surface-resume message bundle.
     ///
@@ -18,13 +20,16 @@ public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     ///   - invalidExpectedUpdatedAt: The malformed internal binding-revision
     ///     guard message.
     ///   - launchCommandMustBeValid: The malformed `launch_command` message.
+    ///   - agentMutationGuardMustBeValid: The malformed private occupant-guard message.
     public init(
         agentSessionEndedMustBeBoolean: String,
         invalidExpectedUpdatedAt: String,
-        launchCommandMustBeValid: String
+        launchCommandMustBeValid: String,
+        agentMutationGuardMustBeValid: String
     ) {
         self.agentSessionEndedMustBeBoolean = agentSessionEndedMustBeBoolean
         self.invalidExpectedUpdatedAt = invalidExpectedUpdatedAt
         self.launchCommandMustBeValid = launchCommandMustBeValid
+        self.agentMutationGuardMustBeValid = agentMutationGuardMustBeValid
     }
 }

@@ -23,8 +23,8 @@ extension DockSplitStore {
             forTabId: workspaceId,
             surfaceId: panelId
         )
-        removeDetachedSurfaceTransfer(forPanelID: panelId)
         clearSessionRestoreState(panelId: panelId)
+        removeDetachedSurfaceTransfer(forPanelID: panelId)
 
         guard let panel = panels.removeValue(forKey: panelId) else { return nil }
         if let terminalPanel = panel as? TerminalPanel {

@@ -12266,7 +12266,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentMutationGuard: meta?.agentMutationGuard
             )
             return "OK"
         }
@@ -12302,7 +12303,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentMutationGuard: meta?.agentMutationGuard
             )
             return "OK"
         }
@@ -12335,7 +12337,7 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return "ERROR: TabManager not available" }
             guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
             guard parts.count >= 2 else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
-            guard deliver else { return "OK" }
+            guard deliver else { return meta?.agentMutationGuard == nil ? "OK" : "OK:1" }
 
             if let fastPath {
                 // The surface's current workspace wins over the claimed one (the
@@ -12343,14 +12345,23 @@ class TerminalController {
                 guard AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: fastPath.workspaceId, surfaceId: fastPath.panelId) != nil else {
                     return "ERROR: Panel not found"
                 }
+                if let agentMutationGuard = meta?.agentMutationGuard,
+                   !self.controlSidebarAgentMutationIsAuthorized(
+                       agentMutationGuard,
+                       claimedTabID: fastPath.workspaceId,
+                       panelID: fastPath.panelId
+                   ) {
+                    return "OK:0"
+                }
                 self.deliverNotificationSynchronously(
                     tabId: fastPath.workspaceId,
                     surfaceId: fastPath.panelId,
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    agentMutationGuard: meta?.agentMutationGuard
                 )
-                return "OK"
+                return meta?.agentMutationGuard == nil ? "OK" : "OK:1"
             }
 
             let tab: Tab?
@@ -12366,14 +12377,23 @@ class TerminalController {
                   AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tab.id, surfaceId: panelId) != nil else {
                 return "ERROR: Panel not found"
             }
+            if let agentMutationGuard = meta?.agentMutationGuard,
+               !self.controlSidebarAgentMutationIsAuthorized(
+                   agentMutationGuard,
+                   claimedTabID: tab.id,
+                   panelID: panelId
+               ) {
+                return "OK:0"
+            }
             self.deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentMutationGuard: meta?.agentMutationGuard
             )
-            return "OK"
+            return meta?.agentMutationGuard == nil ? "OK" : "OK:1"
         }
     }
 

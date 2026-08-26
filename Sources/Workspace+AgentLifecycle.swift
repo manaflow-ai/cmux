@@ -325,6 +325,7 @@ extension Workspace {
         recordAgentLifecycleChange(panelId: panelID)
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
@@ -334,10 +335,12 @@ extension Workspace {
         expectedPIDKey: String? = nil,
         expectedPID: Int32? = nil,
         expectedPIDStartSeconds: Int64? = nil,
-        expectedPIDStartMicroseconds: Int64? = nil
-    ) {
+        expectedPIDStartMicroseconds: Int64? = nil,
+        requireExistingOwner: Bool = false,
+        apply: Bool = true
+    ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        guard let targetPanelId, panels[targetPanelId] != nil else { return false }
         let expectedProcessIdentity: AgentPIDProcessIdentity?
         switch (expectedPID, expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
         case (nil, nil, nil):
@@ -349,39 +352,41 @@ extension Workspace {
                 startMicroseconds: startMicroseconds
             )
         case _:
-            return
+            return false
         }
+        let normalizedSessionID = normalizedAgentLifecycleSessionID(sessionID)
         let claimedPID: (key: String, pid: Int32)?
         switch (expectedPIDKey, expectedPID) {
         case let (expectedPIDKey?, expectedPID?):
             guard expectedPID > 0,
                   agentStatusKey(forAgentPIDKey: expectedPIDKey) == key else {
-                return
+                return false
             }
             if expectedProcessIdentity != nil {
                 claimedPID = (expectedPIDKey, expectedPID)
-            } else if startsNewOccupant, expectedPIDKey == key {
-                // A verified SessionStart for a shared PID key establishes
-                // lifecycle ownership and PID routing in this single
-                // main-actor mutation. Session-qualified PID keys retain the
-                // strict expected-PID guard below, so stale anonymous hooks
-                // cannot reclaim a replacement process.
+            } else if startsNewOccupant,
+                      expectedPIDKey == key
+                        || normalizedSessionID.map({ expectedPIDKey == "\(key).\($0)" }) == true {
+                // SessionStart establishes PID routing and lifecycle ownership
+                // in one main-actor commit. Anonymous claims require the exact
+                // process generation; durable session identity authorizes the
+                // legacy unversioned explicit-session form.
                 claimedPID = (expectedPIDKey, expectedPID)
             } else {
                 guard agentPIDPanelIdsByKey[expectedPIDKey] == targetPanelId,
                       agentPIDs[expectedPIDKey] == expectedPID else {
-                    return
+                    return false
                 }
                 claimedPID = nil
             }
         case (nil, nil):
-            guard expectedProcessIdentity == nil else { return }
+            guard expectedProcessIdentity == nil else { return false }
             claimedPID = nil
         case (nil, _?), (_?, nil):
-            return
+            return false
         }
-        let normalizedSessionID = normalizedAgentLifecycleSessionID(sessionID)
         let previous = agentLifecycleRecordsByPanelId[targetPanelId]?[key]
+        guard !requireExistingOwner || previous != nil else { return false }
         let hasDifferentAuthoritativeSession = previous?.sessionID != nil
             && normalizedSessionID != nil
             && previous?.sessionID != normalizedSessionID
@@ -389,15 +394,11 @@ extension Workspace {
         // authoritative occupant. Delayed turn/status hooks from an older
         // session must not reclaim the surface.
         if hasDifferentAuthoritativeSession && !startsNewOccupant {
-            return
+            return false
         }
-        // Session-start hooks may retry. Preserve an established authoritative
-        // occupant only when the retry carries the same session identity.
-        let isDuplicateAuthoritativeStart = startsNewOccupant
-            && normalizedSessionID != nil
-            && previous?.sessionID == normalizedSessionID
 
         var processGenerationReplacedOccupant = false
+        var matchedExistingProcessGeneration = false
         if let claimedPID {
             let outcome = recordAgentPIDOutcome(
                 key: claimedPID.key,
@@ -405,13 +406,25 @@ extension Workspace {
                 panelId: targetPanelId,
                 expectedPIDStartSeconds: expectedProcessIdentity?.startSeconds,
                 expectedPIDStartMicroseconds: expectedProcessIdentity?.startMicroseconds,
-                preservingLifecycleStatusKey: key
+                preservingLifecycleStatusKey: key,
+                commit: apply
             )
-            guard outcome.accepted else { return }
+            guard outcome.accepted else { return false }
+            matchedExistingProcessGeneration = outcome.matchedExistingProcessGeneration
             processGenerationReplacedOccupant = previous != nil
                 && expectedProcessIdentity != nil
                 && !outcome.matchedExistingProcessGeneration
         }
+        guard apply else { return true }
+
+        // Session-start hooks may retry. Preserve an established authoritative
+        // occupant when either durable session identity or exact anonymous
+        // process generation proves it is the same claimant.
+        let isDuplicateAuthoritativeStart = startsNewOccupant
+            && (
+                (normalizedSessionID != nil && previous?.sessionID == normalizedSessionID)
+                    || (normalizedSessionID == nil && matchedExistingProcessGeneration)
+            )
 
         let isReplacement = previous != nil
             && (
@@ -460,6 +473,7 @@ extension Workspace {
         if !isManual {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
+        return true
     }
 
     @discardableResult

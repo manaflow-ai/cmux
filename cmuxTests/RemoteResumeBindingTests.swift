@@ -91,7 +91,13 @@ private enum RemoteResumeHookSocketServer {
                     ]],
                 ],
             ]
-        case "surface.resume.set", "feed.push":
+        case "surface.resume.set":
+            result = [
+                "id": id,
+                "ok": true,
+                "result": ["resume_binding": ["updated_at": 123.25]],
+            ]
+        case "feed.push":
             result = ["id": id, "ok": true, "result": ["ok": true]]
         default:
             result = [

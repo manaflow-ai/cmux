@@ -6,21 +6,84 @@ import Foundation
 extension DockSplitStore {
     func agentWaitSurfaceSnapshot(panelID: UUID) -> AgentWaitSurfaceSnapshot? {
         guard panels[panelID] != nil else { return nil }
-        let occupants = detachedSurfaceTransfersByPanelId[panelID]?.agentLifecycleRecords
+        let authoritativeRecords = agentRuntimeByPanelId[panelID]?
+            .authoritativeAgentLifecycleRecords ?? [:]
+        let records = authoritativeRecords.isEmpty
+            ? detachedSurfaceTransfersByPanelId[panelID]?.agentLifecycleRecords ?? [:]
+            : authoritativeRecords
+        let occupants = records
             .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
             .map(\.value)
-            ?? []
         let occupant = occupants.count == 1 ? occupants[0] : nil
         return AgentWaitSurfaceSnapshot(
             workspaceID: workspaceId,
             surfaceID: panelID,
             paneID: paneId(forPanelId: panelID)?.id,
             occupant: occupant,
-            hasAuthoritativeLiveLifecycle: false
+            hasAuthoritativeLiveLifecycle: !authoritativeRecords.isEmpty
         )
     }
 
-    func clearSessionRestoreState(panelId: UUID) {
+    private func takeNextDockAgentLifecycleRevision() -> UInt64 {
+        let revision = nextAgentLifecycleRevision
+        nextAgentLifecycleRevision &+= 1
+        return revision
+    }
+
+    private func reserveDockAgentLifecycleRevisions(after revision: UInt64) {
+        guard nextAgentLifecycleRevision <= revision else { return }
+        nextAgentLifecycleRevision = revision &+ 1
+    }
+
+    private func publishDockAgentLifecycleTransition(
+        _ record: AgentLifecycleRecord,
+        state: AgentLifecyclePublicState,
+        previousState: AgentLifecyclePublicState?,
+        panelID: UUID
+    ) {
+        CmuxEventBus.shared.publishAgentStateChanged(
+            workspaceID: workspaceId,
+            surfaceID: panelID,
+            paneID: paneId(forPanelId: panelID)?.id,
+            record: record,
+            state: state,
+            previousState: previousState
+        )
+    }
+
+    private func publishRemovedDockAgentLifecycleRecords(
+        from recordsBeforeMutation: [UUID: [String: AgentLifecycleRecord]]
+    ) {
+        for (panelID, records) in recordsBeforeMutation {
+            for (key, record) in records where
+                agentRuntimeByPanelId[panelID]?
+                    .authoritativeAgentLifecycleRecords[key] == nil {
+                publishDockAgentLifecycleTransition(
+                    record,
+                    state: .exit,
+                    previousState: record.publicState,
+                    panelID: panelID
+                )
+            }
+        }
+    }
+
+    func clearSessionRestoreState(panelId: UUID, publishLifecycleExit: Bool = true) {
+        let authoritativeRecords = agentRuntimeByPanelId[panelId]?
+            .authoritativeAgentLifecycleRecords ?? [:]
+        let records = authoritativeRecords.isEmpty
+            ? detachedSurfaceTransfersByPanelId[panelId]?.agentLifecycleRecords ?? [:]
+            : authoritativeRecords
+        if publishLifecycleExit, !records.isEmpty {
+            for record in records.values {
+                publishDockAgentLifecycleTransition(
+                    record,
+                    state: .exit,
+                    previousState: record.publicState,
+                    panelID: panelId
+                )
+            }
+        }
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
@@ -30,7 +93,7 @@ extension DockSplitStore {
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-        agentRuntimeByPanelId.removeValue(forKey: panelId)
+        replaceAgentRuntime(nil, panelId: panelId)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -102,11 +165,12 @@ extension DockSplitStore {
         if let directory = detached.restoredResumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = directory
         }
-        if let runtime = detached.agentRuntime {
-            agentRuntimeByPanelId[detached.panelId] = runtime
-        } else {
-            agentRuntimeByPanelId.removeValue(forKey: detached.panelId)
+        let transferredRevisions = detached.agentLifecycleRecords.values.map(\.revision)
+            + (detached.agentRuntime?.authoritativeAgentLifecycleRecords.values.map(\.revision) ?? [])
+        if let maximumRevision = transferredRevisions.max() {
+            reserveDockAgentLifecycleRevisions(after: maximumRevision)
         }
+        replaceAgentRuntime(detached.agentRuntime, panelId: detached.panelId)
     }
 
     func configureAgentHibernationResume(for terminal: TerminalPanel) {
@@ -217,6 +281,29 @@ extension DockSplitStore {
         expectedPIDStartSeconds: Int64? = nil,
         expectedPIDStartMicroseconds: Int64? = nil
     ) -> Bool {
+        recordAgentPIDOutcome(
+            key: key,
+            pid: pid,
+            panelId: panelId,
+            expectedLifecycleSessionID: expectedLifecycleSessionID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+        ).didReplaceRuntime
+    }
+
+    private func recordAgentPIDOutcome(
+        key: String,
+        pid: pid_t,
+        panelId: UUID,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil,
+        commit: Bool = true
+    ) -> (
+        accepted: Bool,
+        didReplaceRuntime: Bool,
+        matchedExistingProcessGeneration: Bool
+    ) {
         if let expectedLifecycleSessionID {
             guard let runtime = agentRuntimeByPanelId[panelId],
                   runtime.agentPIDKeys.contains(key),
@@ -226,7 +313,7 @@ extension DockSplitStore {
                   ),
                   key == "\(statusKey).\(expectedLifecycleSessionID)",
                   runtime.agentLifecycleSessionIDs[statusKey] == expectedLifecycleSessionID else {
-                return false
+                return (false, false, false)
             }
         }
         let processIdentity = Workspace.agentPIDProcessIdentity(pid: pid)
@@ -241,36 +328,35 @@ extension DockSplitStore {
                 startMicroseconds: startMicroseconds
             )
         case (nil, _?), (_?, nil):
-            return false
+            return (false, false, false)
         }
         var didReplaceProcessGeneration = false
         var matchedExistingProcessGeneration = false
+        var staleOwnerPanelIDs: [UUID] = []
         if let expectedProcessIdentity {
-            for runtime in agentRuntimeByPanelId.values where
-                runtime.agentPIDKeys.contains(key)
-                    || runtime.agentPIDs[key] != nil
-                    || runtime.agentPIDProcessIdentities[key] != nil {
+            if let ownerPanelID = agentRuntimePanelIDByPIDKey[key],
+               let runtime = agentRuntimeByPanelId[ownerPanelID] {
                 if let previousIdentity = runtime.agentPIDProcessIdentities[key] {
                     if previousIdentity == expectedProcessIdentity {
                         matchedExistingProcessGeneration = true
                         guard runtime.agentPIDs[key] == nil || runtime.agentPIDs[key] == pid else {
-                            return false
+                            return (false, false, false)
                         }
                     } else {
                         guard previousIdentity.startedBefore(expectedProcessIdentity) else {
-                            return false
+                            return (false, false, false)
                         }
                         didReplaceProcessGeneration = true
                     }
                 } else if let previousPID = runtime.agentPIDs[key] {
                     if previousPID != pid {
                         guard Workspace.agentPIDProcessIdentity(pid: previousPID) == nil else {
-                            return false
+                            return (false, false, false)
                         }
                         didReplaceProcessGeneration = true
                     }
                 } else {
-                    return false
+                    return (false, false, false)
                 }
             }
 
@@ -285,16 +371,16 @@ extension DockSplitStore {
                         }
                         guard existingIdentity == expectedProcessIdentity
                                 || existingIdentity.startedBefore(expectedProcessIdentity) else {
-                            return false
+                            return (false, false, false)
                         }
                     } else if let existingPID = targetRuntime.agentPIDs[existingKey] {
                         if existingPID != pid {
                             guard Workspace.agentPIDProcessIdentity(pid: existingPID) == nil else {
-                                return false
+                                return (false, false, false)
                             }
                         }
                     } else {
-                        return false
+                        return (false, false, false)
                     }
                 }
 
@@ -309,7 +395,7 @@ extension DockSplitStore {
                         Self.agentStatusKey(forAgentPIDKey: $0, runtime: targetRuntime)
                             == lifecycleKey
                     }) else {
-                        return false
+                        return (false, false, false)
                     }
                 }
             }
@@ -318,21 +404,27 @@ extension DockSplitStore {
             // requiring a live kernel match for every new/replacing claim.
             guard matchedExistingProcessGeneration
                     || processIdentity == expectedProcessIdentity else {
-                return false
+                return (false, false, false)
             }
 
-            let staleOwnerPanelIDs = agentRuntimeByPanelId.compactMap { ownerPanelID, runtime in
-                ownerPanelID != panelId
-                    && (runtime.agentPIDKeys.contains(key)
-                        || runtime.agentPIDs[key] != nil
-                        || runtime.agentPIDProcessIdentities[key] != nil)
-                    ? ownerPanelID
-                    : nil
+            if let ownerPanelID = agentRuntimePanelIDByPIDKey[key],
+               ownerPanelID != panelId {
+                staleOwnerPanelIDs = [ownerPanelID]
             }
-            for staleOwnerPanelID in staleOwnerPanelIDs {
-                mutateAgentRuntime(panelId: staleOwnerPanelID) { runtime in
-                    _ = Self.clearAgentPID(key: key, clearStatus: true, runtime: &runtime)
-                }
+        }
+        guard commit else {
+            return (true, false, matchedExistingProcessGeneration)
+        }
+        var authoritativeRecordsBeforeMutation: [UUID: [String: AgentLifecycleRecord]] = [:]
+        for affectedPanelID in staleOwnerPanelIDs + [panelId] {
+            if let records = agentRuntimeByPanelId[affectedPanelID]?
+                .authoritativeAgentLifecycleRecords {
+                authoritativeRecordsBeforeMutation[affectedPanelID] = records
+            }
+        }
+        for staleOwnerPanelID in staleOwnerPanelIDs {
+            mutateAgentRuntime(panelId: staleOwnerPanelID) { runtime in
+                _ = Self.clearAgentPID(key: key, clearStatus: true, runtime: &runtime)
             }
         }
         let recordedProcessIdentity = expectedProcessIdentity ?? processIdentity
@@ -359,9 +451,17 @@ extension DockSplitStore {
             }
             runtime.agentPIDKeys.insert(key)
         }
-        return didReplaceRuntime || didReplaceProcessGeneration
+        publishRemovedDockAgentLifecycleRecords(
+            from: authoritativeRecordsBeforeMutation
+        )
+        return (
+            true,
+            didReplaceRuntime || didReplaceProcessGeneration,
+            matchedExistingProcessGeneration
+        )
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID,
@@ -371,8 +471,11 @@ extension DockSplitStore {
         expectedPIDKey: String? = nil,
         expectedPID: pid_t? = nil,
         expectedPIDStartSeconds: Int64? = nil,
-        expectedPIDStartMicroseconds: Int64? = nil
-    ) {
+        expectedPIDStartMicroseconds: Int64? = nil,
+        requireExistingOwner: Bool = false,
+        apply: Bool = true
+    ) -> Bool {
+        guard panels[panelId] != nil else { return false }
         let expectedProcessIdentity: AgentPIDProcessIdentity?
         switch (expectedPID, expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
         case (nil, nil, nil):
@@ -384,50 +487,159 @@ extension DockSplitStore {
                 startMicroseconds: startMicroseconds
             )
         case _:
-            return
+            return false
         }
+        let normalizedSessionID: String?
+        if let sessionID {
+            let trimmedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedSessionID.isEmpty else { return false }
+            normalizedSessionID = trimmedSessionID
+        } else {
+            normalizedSessionID = nil
+        }
+        var matchedExistingProcessGeneration = false
+        var processGenerationReplacedOccupant = false
+        var lifecycleRecordWasRemovedByPIDMutation = false
+        let previous = agentRuntimeByPanelId[panelId]?
+            .authoritativeAgentLifecycleRecords[key]
+        let transferredSessionOwner = normalizedSessionID.flatMap { sessionID in
+            agentRuntimeByPanelId[panelId]?.agentLifecycleSessionIDs[key]
+                .map { $0 == sessionID }
+        } == true
+        let transferredProcessOwner: Bool = {
+            guard let expectedProcessIdentity,
+                  let expectedPIDKey,
+                  let runtime = agentRuntimeByPanelId[panelId] else {
+                return false
+            }
+            return runtime.agentPIDProcessIdentities[expectedPIDKey] == expectedProcessIdentity
+        }()
+        guard !requireExistingOwner
+            || previous != nil
+            || transferredSessionOwner
+            || transferredProcessOwner else {
+            return false
+        }
+        let hasDifferentAuthoritativeSession = previous?.sessionID != nil
+            && normalizedSessionID != nil
+            && previous?.sessionID != normalizedSessionID
+        // Validate a delayed turn/status hook before its PID mutation can clear
+        // the current occupant's lifecycle record. Only SessionStart may rotate
+        // a different authoritative session.
+        if hasDifferentAuthoritativeSession && !startsNewOccupant {
+            return false
+        }
+        let lifecycleRecordBeforePIDMutation = agentRuntimeByPanelId[panelId]?
+            .authoritativeAgentLifecycleRecords[key]
         switch (expectedPIDKey, expectedPID) {
         case let (expectedPIDKey?, expectedPID?):
-            guard expectedPID > 0 else { return }
-            if let expectedProcessIdentity {
-                _ = recordAgentPID(
+            let currentRuntime = agentRuntimeByPanelId[panelId]
+            let expectedStatusKey = currentRuntime.map {
+                Self.agentStatusKey(forAgentPIDKey: expectedPIDKey, runtime: $0)
+            } ?? String(expectedPIDKey.prefix { $0 != "." })
+            guard expectedPID > 0, expectedStatusKey == key else { return false }
+            let establishesNewPIDOwner = startsNewOccupant
+                && (
+                    expectedPIDKey == key
+                        || normalizedSessionID.map({ expectedPIDKey == "\(key).\($0)" }) == true
+                )
+            if expectedProcessIdentity != nil || establishesNewPIDOwner {
+                let outcome = recordAgentPIDOutcome(
                     key: expectedPIDKey,
                     pid: expectedPID,
                     panelId: panelId,
-                    expectedPIDStartSeconds: expectedProcessIdentity.startSeconds,
-                    expectedPIDStartMicroseconds: expectedProcessIdentity.startMicroseconds
+                    expectedPIDStartSeconds: expectedProcessIdentity?.startSeconds,
+                    expectedPIDStartMicroseconds: expectedProcessIdentity?.startMicroseconds,
+                    commit: apply
                 )
-            }
-            guard let runtime = agentRuntimeByPanelId[panelId],
-                  runtime.agentPIDs[expectedPIDKey] == expectedPID,
-                  Self.agentStatusKey(forAgentPIDKey: expectedPIDKey, runtime: runtime) == key else {
-                return
-            }
-            if let expectedProcessIdentity,
-               runtime.agentPIDProcessIdentities[expectedPIDKey] != expectedProcessIdentity {
-                return
+                guard outcome.accepted else { return false }
+                matchedExistingProcessGeneration = outcome.matchedExistingProcessGeneration
+                processGenerationReplacedOccupant = expectedProcessIdentity != nil
+                    && !outcome.matchedExistingProcessGeneration
+                lifecycleRecordWasRemovedByPIDMutation = lifecycleRecordBeforePIDMutation != nil
+                    && agentRuntimeByPanelId[panelId]?
+                        .authoritativeAgentLifecycleRecords[key] == nil
+            } else {
+                guard let runtime = currentRuntime,
+                      runtime.agentPIDs[expectedPIDKey] == expectedPID else {
+                    return false
+                }
             }
         case (nil, nil):
-            guard expectedProcessIdentity == nil else { return }
+            guard expectedProcessIdentity == nil else { return false }
         case (nil, _?), (_?, nil):
-            return
+            return false
         }
-        if let sessionID {
-            guard let runtime = agentRuntimeByPanelId[panelId],
-                  runtime.agentPIDKeys.contains("\(key).\(sessionID)"),
-                  startsNewOccupant
-                    || runtime.agentLifecycleSessionIDs[key] == sessionID else {
-                return
+        if let normalizedSessionID {
+            let sessionPIDKey = "\(key).\(normalizedSessionID)"
+            let hasSessionPIDOwner = agentRuntimeByPanelId[panelId]?
+                .agentPIDKeys.contains(sessionPIDKey) == true
+                || (startsNewOccupant && expectedPIDKey == sessionPIDKey && expectedPID != nil)
+            let hasSessionOwner = agentRuntimeByPanelId[panelId]?
+                .agentLifecycleSessionIDs[key] == normalizedSessionID
+            // A durable hook record plus an exact live process generation can
+            // recover a Dock lifecycle owner after the runtime cache was lost;
+            // a session-only retry still needs the existing lifecycle owner.
+            let hasProcessBackedSessionOwner = expectedProcessIdentity != nil
+                && hasSessionPIDOwner
+            guard startsNewOccupant || hasSessionPIDOwner || hasSessionOwner,
+                  startsNewOccupant || hasSessionOwner || hasProcessBackedSessionOwner else {
+                return false
             }
+        }
+        guard apply else { return true }
+        let isDuplicateAuthoritativeStart = startsNewOccupant
+            && !processGenerationReplacedOccupant
+            && (
+                (normalizedSessionID != nil && previous?.sessionID == normalizedSessionID)
+                    || (normalizedSessionID == nil && matchedExistingProcessGeneration)
+            )
+        let isReplacement = previous != nil
+            && (hasDifferentAuthoritativeSession
+                || processGenerationReplacedOccupant
+                || (startsNewOccupant && !isDuplicateAuthoritativeStart))
+        if let previous, isReplacement, !lifecycleRecordWasRemovedByPIDMutation {
+            publishDockAgentLifecycleTransition(
+                previous,
+                state: .exit,
+                previousState: previous.publicState,
+                panelID: panelId
+            )
+        }
+        var authoritativeRecord: AgentLifecycleRecord
+        if var existing = previous, !isReplacement {
+            existing.state = lifecycle
+            if existing.sessionID == nil, normalizedSessionID != nil {
+                existing.sessionID = normalizedSessionID
+            }
+            authoritativeRecord = existing
+        } else {
+            authoritativeRecord = AgentLifecycleRecord(
+                agent: key,
+                state: lifecycle,
+                sessionID: normalizedSessionID,
+                revision: takeNextDockAgentLifecycleRevision()
+            )
         }
         mutateAgentRuntime(panelId: panelId) {
             $0.agentLifecycleStates[key] = lifecycle
-            if let sessionID {
-                $0.agentLifecycleSessionIDs[key] = sessionID
+            if let retainedSessionID = authoritativeRecord.sessionID {
+                $0.agentLifecycleSessionIDs[key] = retainedSessionID
             } else {
                 $0.agentLifecycleSessionIDs.removeValue(forKey: key)
             }
+            $0.authoritativeAgentLifecycleRecords[key] = authoritativeRecord
         }
+        if previous == nil || isReplacement || previous?.state != lifecycle
+            || previous?.sessionID != authoritativeRecord.sessionID {
+            publishDockAgentLifecycleTransition(
+                authoritativeRecord,
+                state: authoritativeRecord.publicState,
+                previousState: isReplacement ? nil : previous?.publicState,
+                panelID: panelId
+            )
+        }
+        return true
     }
 
     @discardableResult
@@ -443,13 +655,14 @@ extension DockSplitStore {
     ) -> Bool {
         if let expectedLifecycleSessionID {
             guard let runtime = agentRuntimeByPanelId[panelId],
-                  runtime.agentPIDKeys.contains(key),
                   let statusKey = Self.structuredAgentStatusKey(
                       forAgentPIDKey: key,
                       runtime: runtime
                   ),
                   key == "\(statusKey).\(expectedLifecycleSessionID)",
-                  runtime.agentLifecycleSessionIDs[statusKey] == expectedLifecycleSessionID else {
+                  runtime.agentLifecycleSessionIDs[statusKey] == expectedLifecycleSessionID,
+                  runtime.agentPIDKeys.contains(key)
+                      || runtime.authoritativeAgentLifecycleRecords[statusKey] != nil else {
                 return false
             }
         }
@@ -479,12 +692,31 @@ extension DockSplitStore {
            agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) != true {
             return false
         }
+        let removedStatusKey = agentRuntimeByPanelId[panelId].map {
+            Self.agentStatusKey(forAgentPIDKey: key, runtime: $0)
+        }
+        let removedLifecycleRecord = removedStatusKey.flatMap {
+            agentRuntimeByPanelId[panelId]?
+                .authoritativeAgentLifecycleRecords[$0]
+        }
         var didChange = false
         mutateAgentRuntime(panelId: panelId) {
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
                 runtime: &$0
+            )
+        }
+        if didChange,
+           let removedStatusKey,
+           let removedLifecycleRecord,
+           agentRuntimeByPanelId[panelId]?
+               .authoritativeAgentLifecycleRecords[removedStatusKey] == nil {
+            publishDockAgentLifecycleTransition(
+                removedLifecycleRecord,
+                state: .exit,
+                previousState: removedLifecycleRecord.publicState,
+                panelID: panelId
             )
         }
         return didChange
@@ -495,6 +727,8 @@ extension DockSplitStore {
         mutation: (inout Workspace.DetachedAgentRuntimeState) -> Void
     ) {
         guard panels[panelId] != nil else { return }
+        let previousAuthoritativeRecords = agentRuntimeByPanelId[panelId]?
+            .authoritativeAgentLifecycleRecords ?? [:]
         var runtime = agentRuntimeByPanelId[panelId] ?? Workspace.DetachedAgentRuntimeState(
             panelId: panelId,
             statusEntries: [:],
@@ -503,20 +737,101 @@ extension DockSplitStore {
             agentPIDKeys: []
         )
         mutation(&runtime)
-        let shouldKeep = !runtime.statusEntries.isEmpty
-            || !runtime.agentPIDs.isEmpty
-            || !runtime.agentPIDKeys.isEmpty
-            || !runtime.agentLifecycleStates.isEmpty
-            || !runtime.agentLifecycleSessionIDs.isEmpty
-        if shouldKeep {
+        let shouldKeep = Self.shouldKeepAgentRuntime(runtime)
+        let nextRuntime = shouldKeep ? runtime : nil
+        replaceAgentRuntime(nextRuntime, panelId: panelId)
+        let nextAuthoritativeRecords = nextRuntime?.authoritativeAgentLifecycleRecords ?? [:]
+        if nextAuthoritativeRecords != previousAuthoritativeRecords {
+            synchronizeTransferredLifecycleRecords(
+                panelID: panelId,
+                records: nextAuthoritativeRecords
+            )
+        }
+    }
+
+    /// Replaces one Dock runtime while keeping PID-key ownership O(1).
+    private func replaceAgentRuntime(
+        _ runtime: Workspace.DetachedAgentRuntimeState?,
+        panelId: UUID
+    ) {
+        let previousKeys = agentRuntimeByPanelId[panelId].map(Self.indexedPIDKeys) ?? []
+        let currentKeys = runtime.map(Self.indexedPIDKeys) ?? []
+        if runtime != nil {
+            for key in currentKeys {
+                guard let previousOwner = agentRuntimePanelIDByPIDKey[key],
+                      previousOwner != panelId,
+                      var previousRuntime = agentRuntimeByPanelId[previousOwner] else {
+                    continue
+                }
+                let recordsBeforeMutation = [
+                    previousOwner: previousRuntime.authoritativeAgentLifecycleRecords
+                ]
+                let previousAuthoritativeRecords = previousRuntime.authoritativeAgentLifecycleRecords
+                _ = Self.clearAgentPID(
+                    key: key,
+                    clearStatus: true,
+                    runtime: &previousRuntime
+                )
+                replaceAgentRuntime(
+                    Self.shouldKeepAgentRuntime(previousRuntime) ? previousRuntime : nil,
+                    panelId: previousOwner
+                )
+                if previousRuntime.authoritativeAgentLifecycleRecords != previousAuthoritativeRecords {
+                    synchronizeTransferredLifecycleRecords(
+                        panelID: previousOwner,
+                        records: previousRuntime.authoritativeAgentLifecycleRecords
+                    )
+                }
+                publishRemovedDockAgentLifecycleRecords(from: recordsBeforeMutation)
+            }
+        }
+        for key in previousKeys.subtracting(currentKeys)
+            where agentRuntimePanelIDByPIDKey[key] == panelId {
+            agentRuntimePanelIDByPIDKey.removeValue(forKey: key)
+        }
+        if let runtime {
             agentRuntimeByPanelId[panelId] = runtime
+            for key in currentKeys {
+                agentRuntimePanelIDByPIDKey[key] = panelId
+            }
         } else {
             agentRuntimeByPanelId.removeValue(forKey: panelId)
         }
         if var transfer = detachedSurfaceTransfersByPanelId[panelId] {
-            transfer.agentRuntime = shouldKeep ? runtime : nil
+            transfer.agentRuntime = runtime
             detachedSurfaceTransfersByPanelId[panelId] = transfer
         }
+    }
+
+    /// Keeps the transfer fallback in lockstep with authoritative Dock-owned
+    /// lifecycle mutations, without overwriting entry-time records during a
+    /// restore adoption that has no live runtime yet.
+    private func synchronizeTransferredLifecycleRecords(
+        panelID: UUID,
+        records: [String: AgentLifecycleRecord]
+    ) {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelID] else { return }
+        transfer.agentLifecycleRecords = records
+        detachedSurfaceTransfersByPanelId[panelID] = transfer
+    }
+
+    private static func indexedPIDKeys(
+        _ runtime: Workspace.DetachedAgentRuntimeState
+    ) -> Set<String> {
+        runtime.agentPIDKeys
+            .union(runtime.agentPIDs.keys)
+            .union(runtime.agentPIDProcessIdentities.keys)
+    }
+
+    private static func shouldKeepAgentRuntime(
+        _ runtime: Workspace.DetachedAgentRuntimeState
+    ) -> Bool {
+        !runtime.statusEntries.isEmpty
+            || !runtime.agentPIDs.isEmpty
+            || !runtime.agentPIDKeys.isEmpty
+            || !runtime.agentLifecycleStates.isEmpty
+            || !runtime.agentLifecycleSessionIDs.isEmpty
+            || !runtime.authoritativeAgentLifecycleRecords.isEmpty
     }
 
     @discardableResult
@@ -534,6 +849,9 @@ extension DockSplitStore {
             didChange = true
         }
         if runtime.agentLifecycleSessionIDs.removeValue(forKey: statusKey) != nil {
+            didChange = true
+        }
+        if runtime.authoritativeAgentLifecycleRecords.removeValue(forKey: statusKey) != nil {
             didChange = true
         }
         if clearStatus,

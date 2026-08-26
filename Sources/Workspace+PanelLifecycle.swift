@@ -220,7 +220,8 @@ extension Workspace {
         expectedLifecycleSessionID: String? = nil,
         expectedPIDStartSeconds: Int64? = nil,
         expectedPIDStartMicroseconds: Int64? = nil,
-        preservingLifecycleStatusKey: String? = nil
+        preservingLifecycleStatusKey: String? = nil,
+        commit: Bool = true
     ) -> (
         accepted: Bool,
         didReplaceRuntime: Bool,
@@ -322,6 +323,9 @@ extension Workspace {
                     || processIdentity == expectedProcessIdentity else {
                 return (false, false, false)
             }
+        }
+        guard commit else {
+            return (true, false, matchedExistingProcessGeneration)
         }
         let didReplaceRecordedProcessGeneration = expectedProcessIdentity != nil
             && (previous.panelId != nil || previous.pid != nil || previous.identity != nil)

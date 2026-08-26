@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import Darwin
 import Foundation
 
@@ -189,6 +190,10 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let surfaceId: UUID?
     let panelId: UUID?
     let retargetsToLiveSurfaceOwner: Bool
+    /// Occupant identity captured by an agent hook. This must survive policy
+    /// suspension and be revalidated against the live panel owner immediately
+    /// before the notification is applied.
+    let agentMutationGuard: ControlSidebarAgentMutationGuard?
     let correlationKey: String?
     let title: String
     let subtitle: String
@@ -201,6 +206,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         surfaceId: UUID?,
         panelId: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = false,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil,
         correlationKey: String? = nil,
         title: String,
         subtitle: String,
@@ -213,6 +219,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.surfaceId = surfaceId
         self.panelId = panelId
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.agentMutationGuard = agentMutationGuard
         self.correlationKey = correlationKey
         self.title = title
         self.subtitle = subtitle

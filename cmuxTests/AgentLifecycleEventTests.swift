@@ -56,6 +56,24 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func explicitSessionMutationGuardFallsBackWhenProcessGenerationIsUnavailable() {
+        let guardValue = CMUXCLI(args: []).agentMutationGuard(
+            key: "claude",
+            sessionID: "provider-session",
+            expectedPIDKey: "claude.provider-session",
+            expectedPID: 62_6262,
+            expectedProcessIdentity: nil
+        )
+
+        #expect(
+            guardValue == .session(
+                statusKey: "claude",
+                sessionID: "provider-session"
+            )
+        )
+    }
+
+    @Test
     func staleRelayAttemptCannotReclaimLifecycleOwner() throws {
         let fixture = try Fixture()
         let terminal = try #require(
@@ -74,6 +92,16 @@ struct AgentLifecycleEventTests {
             panelId: fixture.surfaceID,
             lifecycle: .running,
             sessionID: currentSessionID,
+            startsNewOccupant: true
+        ))
+
+        let sameProcessAlias = "alias#relay#\(terminalLifecycleID.uuidString)"
+            + "#\(currentAttemptID.uuidString)#43210#123#456"
+        #expect(owner.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: sameProcessAlias,
             startsNewOccupant: true
         ))
 
@@ -97,8 +125,36 @@ struct AgentLifecycleEventTests {
         ))
         #expect(
             fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"]?
-                .sessionID == currentSessionID
+                .sessionID == sameProcessAlias
         )
+    }
+
+    @Test
+    func nonStartLifecycleMutationCannotRecreateClearedOwner() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-one",
+            startsNewOccupant: true
+        )
+        #expect(fixture.workspace.clearAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            expectedSessionID: "session-one"
+        ))
+        let sequence = CmuxEventBus.shared.latestSequence
+
+        #expect(!fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            sessionID: "session-one",
+            requireExistingOwner: true
+        ))
+        #expect(fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["codex"] == nil)
+        #expect(fixture.agentEvents(after: sequence).isEmpty)
     }
 
     @Test
@@ -1315,6 +1371,39 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func closingDockPanelPublishesExitForTransferredLifecycleOwner() throws {
+        let fixture = try Fixture()
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-transferred-close",
+            startsNewOccupant: true
+        )
+        let detached = try #require(
+            fixture.workspace.detachSurface(panelId: fixture.surfaceID)
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(
+            dock.attachDetachedSurface(detached, inPane: paneID, focus: false)
+        )
+        let sequence = CmuxEventBus.shared.latestSequence
+
+        _ = dock.discardPanelStateAndClose(panelId: fixture.surfaceID)
+
+        let exits = fixture.agentEvents(after: sequence)
+            .compactMap { $0["payload"] as? [String: Any] }
+            .filter { ($0["state"] as? String) == "exit" }
+        #expect(exits.count == 1)
+        #expect(exits.first?["session_id"] as? String == "session-transferred-close")
+    }
+
+    @Test
     func dockLifecycleReportsDriveWaitAndPublishExit() throws {
         let fixture = try Fixture()
         let pidKey = "codex.session-dock-live"
@@ -1400,6 +1489,9 @@ struct AgentLifecycleEventTests {
             .compactMap { $0["payload"] as? [String: Any] }
         #expect(exitPayloads.compactMap { $0["state"] as? String } == ["exit"])
         #expect(exitPayloads.first?["session_id"] as? String == "session-dock-live")
+        #expect(
+            dock.agentWaitSurfaceSnapshot(panelID: fixture.surfaceID)?.occupant == nil
+        )
     }
 
     private struct Fixture {

@@ -123,6 +123,43 @@ public protocol ControlSidebarContext: AnyObject {
         expectedPIDStartMicroseconds: Int64?
     )
 
+    /// Validates or applies a lifecycle mutation synchronously and reports
+    /// whether the requested session or process generation owns the resolved
+    /// panel. SessionStart uses a side-effect-free preflight before its durable
+    /// write, followed by an apply-and-verify commit.
+    ///
+    /// - Parameters:
+    ///   - target: Workspace or caller-relative mutation target.
+    ///   - key: Lifecycle/status key owned by the agent.
+    ///   - lifecycleRawValue: Canonical lifecycle value produced by the app.
+    ///   - panelID: Exact panel the hook claims.
+    ///   - sessionID: Durable session owner, when the agent provides one.
+    ///   - startsNewOccupant: Whether this report may replace an older owner.
+    ///   - expectedPIDKey: Anonymous process-routing key.
+    ///   - expectedPID: Anonymous process identifier.
+    ///   - expectedPIDStartSeconds: Whole seconds in the process birth time.
+    ///   - expectedPIDStartMicroseconds: Microsecond component of the process birth time.
+    ///   - preflightOnly: Whether to validate without mutating app state.
+    ///   - clearNotifications: Whether a replacement claim should clear the
+    ///     panel's visible notifications. Nested/managed hooks set this to
+    ///     `false` while retaining the ownership claim.
+    /// - Returns: `true` only when the applied owner still matches the exact
+    ///   requested session or process generation.
+    nonisolated func controlSidebarApplyAgentLifecycleAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        preflightOnly: Bool,
+        clearNotifications: Bool
+    ) -> Bool
+
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
     /// marks the manual loader `key` running on the workspace; `off` clears it
     /// from every panel so it turns off regardless of which surface invoked it.
@@ -153,6 +190,21 @@ public protocol ControlSidebarContext: AnyObject {
         expectedPIDStartMicroseconds: Int64?,
         requireOwnedKey: Bool
     )
+
+    /// Clears an agent PID/lifecycle record synchronously and reports whether
+    /// the exact guarded owner was removed. Hook cleanup uses this witness so a
+    /// relay-only lifecycle owner is not acknowledged before its mutation runs.
+    nonisolated func controlSidebarClearAgentPIDAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        requireOwnedKey: Bool
+    ) -> Bool
 
     /// Enqueues the `report_meta_block` upsert mutation.
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

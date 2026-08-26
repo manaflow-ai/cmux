@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxNotifications
+import CmuxControlSocket
 import AppKit
 import Combine
 import Foundation
@@ -894,7 +895,8 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
-        preRegisteredPolicyRequestId: UUID? = nil
+        preRegisteredPolicyRequestId: UUID? = nil,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -936,6 +938,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: subtitle,
             body: body,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            agentMutationGuard: agentMutationGuard,
             correlationKey: cooldownKey,
             resolvedHooks: resolvedHooks
         )
@@ -1103,6 +1106,7 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         retargetsToLiveSurfaceOwner: Bool,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil,
         correlationKey: String?,
         resolvedHooks: [CmuxResolvedNotificationHook]?
     ) -> NotificationPolicyContext {
@@ -1139,6 +1143,7 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: surfaceId,
                 panelId: panelId,
                 retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+                agentMutationGuard: agentMutationGuard,
                 correlationKey: correlationKey,
                 title: title,
                 subtitle: subtitle,
@@ -1169,6 +1174,7 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: request.surfaceId,
                 panelId: request.panelId,
                 retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
+                agentMutationGuard: request.agentMutationGuard,
                 correlationKey: request.correlationKey,
                 title: payload.title,
                 subtitle: payload.subtitle,
@@ -1195,6 +1201,17 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         guard inFlightPolicyRequests.claim(policyRequestId) else { return }
         guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
+        if let agentMutationGuard = request.agentMutationGuard {
+            guard let surfaceId = request.surfaceId,
+                  TerminalController.shared.controlSidebarAgentMutationIsAuthorized(
+                      agentMutationGuard,
+                      claimedTabID: request.tabId,
+                      panelID: surfaceId
+                  ) else {
+                restoreCooldownReservation(cooldownReservation)
+                return
+            }
+        }
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId

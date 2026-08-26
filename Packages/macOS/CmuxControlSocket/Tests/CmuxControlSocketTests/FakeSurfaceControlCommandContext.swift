@@ -10,10 +10,12 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeClearAgentSessionEnded: Bool?
     var resumeClearExpectedBindingUpdatedAt: Double?
+    var resumeClearAgentMutationGuard: ControlSidebarAgentMutationGuard?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
         invalidExpectedUpdatedAt: "invalid expected updated at",
-        launchCommandMustBeValid: "launch_command must be valid"
+        launchCommandMustBeValid: "launch_command must be valid",
+        agentMutationGuardMustBeValid: "agent mutation guard must be valid"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -81,10 +83,12 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         expectedCheckpointID: String?,
         expectedSource: String?,
         agentSessionEnded: Bool,
-        expectedBindingUpdatedAt: Double?
+        expectedBindingUpdatedAt: Double?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded
         resumeClearExpectedBindingUpdatedAt = expectedBindingUpdatedAt
+        resumeClearAgentMutationGuard = agentMutationGuard
         return resumeResolution
     }
 

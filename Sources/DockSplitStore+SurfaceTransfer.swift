@@ -292,10 +292,12 @@ extension DockSplitStore {
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,
-            // The Dock cannot refresh structured lifecycle records. Keep the
-            // live runtime routing above, but never promote its entry-time
-            // lifecycle cache back into an authoritative Workspace record.
-            agentLifecycleRecords: [:],
+            // Only reports accepted while Dock-owned are authoritative. The
+            // runtime keeps entry-time lifecycle values for guard routing, but
+            // those cached values never enter this transfer record map.
+            agentLifecycleRecords: agentProvenExited
+                ? [:]
+                : cachedRuntime?.authoritativeAgentLifecycleRecords ?? [:],
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
             remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,
@@ -306,7 +308,7 @@ extension DockSplitStore {
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
-        clearSessionRestoreState(panelId: panelId)
+        clearSessionRestoreState(panelId: panelId, publishLifecycleExit: false)
         return detached
     }
 
@@ -355,7 +357,7 @@ extension DockSplitStore {
         ) else {
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId, publishLifecycleExit: false)
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
@@ -452,7 +454,7 @@ extension DockSplitStore {
             surfaceIdToPanelId.removeValue(forKey: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId, publishLifecycleExit: false)
             return nil
         }
         if let browser = panel as? BrowserPanel {

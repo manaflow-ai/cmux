@@ -120,7 +120,7 @@ extension TerminalController: ControlSidebarContext {
     nonisolated func controlSidebarClearAgentPIDUsage() -> String {
         String(
             localized: "socket.sidebar.clearAgentPID.usage",
-            defaultValue: "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
+            defaultValue: "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>] [--require-cleared]"
         )
     }
 
@@ -192,6 +192,78 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
+    nonisolated func controlSidebarApplyAgentLifecycleAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        preflightOnly: Bool,
+        clearNotifications: Bool
+    ) -> Bool {
+        guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue),
+              let panelID else {
+            return false
+        }
+        let guardValue: ControlSidebarAgentMutationGuard
+        if let sessionID {
+            guardValue = .session(statusKey: key, sessionID: sessionID)
+        } else if let pidKey = expectedPIDKey,
+                  let pid = expectedPID,
+                  let seconds = expectedPIDStartSeconds,
+                  let microseconds = expectedPIDStartMicroseconds {
+            guardValue = .process(
+                statusKey: key,
+                pidKey: pidKey,
+                pid: pid,
+                startSeconds: seconds,
+                startMicroseconds: microseconds
+            )
+        } else {
+            return false
+        }
+
+        return v2MainSync {
+            guard let owner = self.controlSidebarResolvePanelOwner(
+                target: target,
+                panelID: panelID
+            ) else {
+                return false
+            }
+            let accepted = owner.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                sessionID: sessionID,
+                startsNewOccupant: startsNewOccupant,
+                expectedPIDKey: expectedPIDKey,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+                requireExistingOwner: !startsNewOccupant,
+                apply: !preflightOnly
+            )
+            guard accepted else { return false }
+            if preflightOnly { return true }
+            guard owner.acceptsAgentMutationGuard(guardValue, panelId: panelID) else {
+                return false
+            }
+            if startsNewOccupant, clearNotifications {
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: owner.id,
+                    surfaceId: panelID,
+                    discardQueuedNotifications: false
+                )
+            }
+            return true
+        }
+    }
+
     func controlSidebarSetWorkspaceLoading(
         tabArg: String?,
         key: String,
@@ -257,6 +329,37 @@ extension TerminalController: ControlSidebarContext {
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             owner.clearAgentPID(
+                key: key,
+                panelId: panelID,
+                clearStatus: clearStatus,
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+                requireOwnedKey: requireOwnedKey
+            )
+        }
+    }
+
+    nonisolated func controlSidebarClearAgentPIDAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        requireOwnedKey: Bool
+    ) -> Bool {
+        v2MainSync {
+            guard let owner = self.controlSidebarResolvePanelOwner(
+                target: target,
+                panelID: panelID
+            ) else {
+                return false
+            }
+            return owner.clearAgentPID(
                 key: key,
                 panelId: panelID,
                 clearStatus: clearStatus,

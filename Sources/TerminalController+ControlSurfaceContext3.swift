@@ -21,6 +21,10 @@ extension TerminalController {
             launchCommandMustBeValid: String(
                 localized: "socket.surface.resume.launchCommandMustBeValid",
                 defaultValue: "launch_command.arguments must be a non-empty array of strings"
+            ),
+            agentMutationGuardMustBeValid: String(
+                localized: "socket.surface.resume.agentMutationGuardMustBeValid",
+                defaultValue: "Missing or invalid _cmux_agent_mutation_guard"
             )
         )
     }

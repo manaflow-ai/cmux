@@ -5,6 +5,26 @@ extension ClaudeHookSessionStore {
     private static let maxPendingSupersededCleanupRecords = 128
     private static let maxSupersededCleanupAttempts = 8
 
+    /// Demotes same-process session aliases only after the replacement's app
+    /// lifecycle claim has committed. Keeping this outside the reversible
+    /// session-start write makes rollback local to one durable record.
+    func supersedeSameProcessSessions(
+        keepingSessionId: String,
+        expectedProcessIdentity: AgentHookProcessIdentity
+    ) throws -> [ClaudeHookSessionRecord] {
+        try withLockedState { state in
+            guard let owner = state.sessions[keepingSessionId],
+                  AgentHookProcessIdentity(record: owner) == expectedProcessIdentity else {
+                return []
+            }
+            return supersededSessionCleanupCandidates(
+                in: &state,
+                keepingSessionId: keepingSessionId,
+                owner: owner
+            )
+        }
+    }
+
     func supersededSessionCleanupCandidates(
         in state: inout ClaudeHookSessionStoreFile,
         keepingSessionId: String,
@@ -17,12 +37,26 @@ extension ClaudeHookSessionStore {
             return []
         }
         // Demote every superseded claimant in the locked store transaction;
-        // only the external socket cleanup is deliberately batch-limited.
-        let superseded = state.sessions.values.filter {
-            $0.sessionId != keepingSessionId
-                && $0.pid == pid
-                && $0.pidStartSeconds == startSeconds
-                && $0.pidStartMicroseconds == startMicroseconds
+        // only the external socket cleanup is deliberately batch-limited. A
+        // pre-generation OMP record has no birth fields, so a same-PID legacy
+        // alias is migrated to the already-verified owner's identity before it
+        // enters the retry queue. This keeps old aliases from remaining live
+        // forever while limiting the fallback to one process-owned OMP store.
+        var superseded: [ClaudeHookSessionRecord] = []
+        for candidate in state.sessions.values where candidate.sessionId != keepingSessionId {
+            let exactGeneration = candidate.pid == pid
+                && candidate.pidStartSeconds == startSeconds
+                && candidate.pidStartMicroseconds == startMicroseconds
+            let legacyGeneration = candidate.pid == pid
+                && candidate.pidStartSeconds == nil
+                && candidate.pidStartMicroseconds == nil
+            guard exactGeneration || legacyGeneration else { continue }
+            var migrated = candidate
+            if legacyGeneration {
+                migrated.pidStartSeconds = startSeconds
+                migrated.pidStartMicroseconds = startMicroseconds
+            }
+            superseded.append(migrated)
         }
         let supersededIDs = Set(superseded.map(\.sessionId))
         let enqueuedAt = Date().timeIntervalSince1970
@@ -58,6 +92,22 @@ extension ClaudeHookSessionStore {
         owner: ClaudeHookSessionRecord
     ) -> [ClaudeHookSessionRecord] {
         normalizePendingSupersededSessionCleanupMetadata(in: &state)
+        if let ownerIdentity = AgentHookProcessIdentity(record: owner) {
+            // Older persisted retry entries may predate birth-time capture.
+            // Stamp only same-PID entries from this OMP store with the owner
+            // generation so they can take the normal guarded cleanup path.
+            for sessionId in Array(state.pendingSupersededSessionCleanup.keys) {
+                guard var record = state.pendingSupersededSessionCleanup[sessionId],
+                      record.pid == ownerIdentity.pid,
+                      record.pidStartSeconds == nil,
+                      record.pidStartMicroseconds == nil else {
+                    continue
+                }
+                record.pidStartSeconds = ownerIdentity.startSeconds
+                record.pidStartMicroseconds = ownerIdentity.startMicroseconds
+                state.pendingSupersededSessionCleanup[sessionId] = record
+            }
+        }
         trimPendingSupersededSessionCleanup(in: &state)
         let orderedRecords = state.pendingSupersededSessionCleanup.values.sorted {
             switch ($0.supersededCleanupLastAttemptAt, $1.supersededCleanupLastAttemptAt) {

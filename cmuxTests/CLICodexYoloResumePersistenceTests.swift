@@ -92,7 +92,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     return self.v2Response(id: id, ok: true, result: [
                         "terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]],
                     ])
-                case "surface.resume.set": return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "surface.resume.set":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: ["resume_binding": ["updated_at": 123.25]]
+                    )
                 case "feed.push": return self.v2Response(id: id, ok: true, result: [:])
                 default:
                     return self.v2Response(id: id, ok: false, error: [

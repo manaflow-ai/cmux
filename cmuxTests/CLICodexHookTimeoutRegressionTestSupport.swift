@@ -173,8 +173,8 @@ func handleCodexHookMockSocketClient(
 }
 
 func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
-    if line.hasPrefix("set_agent_lifecycle "),
-       line.contains(" --require-accepted") {
+    if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+       (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
         return "OK:1"
     }
     guard let payload = codexHookJSONObject(line),

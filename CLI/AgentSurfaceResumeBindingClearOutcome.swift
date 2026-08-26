@@ -1,4 +1,5 @@
 import Foundation
+import CmuxControlSocket
 
 extension CMUXCLI {
     /// The ownership result returned by a guarded agent resume-binding clear.
@@ -14,9 +15,11 @@ extension CMUXCLI {
         surfaceId: String,
         sessionId: String?,
         sessionDidEnd: Bool = false,
-        expectedBindingUpdatedAt: TimeInterval? = nil
+        expectedBindingUpdatedAt: TimeInterval? = nil,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) -> AgentSurfaceResumeBindingClearOutcome {
         let normalizedSessionId = normalizedHookValue(sessionId)
+            .map(agentHookResumeSessionID)
         var params: [String: Any] = [
             "surface_id": surfaceId,
             "source": "agent-hook"
@@ -29,6 +32,9 @@ extension CMUXCLI {
         }
         if let expectedBindingUpdatedAt, expectedBindingUpdatedAt.isFinite {
             params["_cmux_expected_updated_at"] = expectedBindingUpdatedAt
+        }
+        if let agentMutationGuard {
+            params["_cmux_agent_mutation_guard"] = agentMutationGuard.socketEnvelope
         }
         do {
             let result = try client.sendV2(method: "surface.resume.clear", params: params)

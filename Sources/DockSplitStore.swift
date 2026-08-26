@@ -54,6 +54,11 @@ final class DockSplitStore: BonsplitDelegate {
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
+    /// Direct owner lookup for structured PID keys, maintained with the runtime map.
+    @ObservationIgnored var agentRuntimePanelIDByPIDKey: [String: UUID] = [:]
+    /// Monotonic revisions for lifecycle reports accepted while Dock-owned.
+    /// Transferred revisions reserve this counter before any fresh report.
+    @ObservationIgnored var nextAgentLifecycleRevision: UInt64 = 1
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
     @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]

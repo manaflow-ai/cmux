@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -14,7 +15,8 @@ extension TerminalController {
         title: String,
         subtitle: String,
         body: String,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -55,7 +57,8 @@ extension TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            agentMutationGuard: agentMutationGuard
         )
     }
 }
@@ -72,7 +75,8 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
-        notificationGeneration: UInt64
+        notificationGeneration: UInt64,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -97,7 +101,8 @@ extension TerminalNotificationStore {
             subtitle: subtitle,
             body: body,
             retargetsToLiveSurfaceOwner: true,
-            notificationGeneration: notificationGeneration
+            notificationGeneration: notificationGeneration,
+            agentMutationGuard: agentMutationGuard
         )
     }
 
@@ -116,6 +121,7 @@ extension TerminalNotificationStore {
             surfaceId: target.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: true,
+            agentMutationGuard: request.agentMutationGuard,
             correlationKey: request.correlationKey,
             title: request.title,
             subtitle: request.subtitle,

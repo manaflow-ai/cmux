@@ -85,7 +85,7 @@ extension ControlSidebarContext {
     }
 
     nonisolated func controlSidebarClearAgentPIDUsage() -> String {
-        "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
+        "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>] [--require-cleared]"
     }
 
     nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
@@ -107,6 +107,21 @@ extension ControlSidebarContext {
         expectedPIDStartMicroseconds: Int64?
     ) {}
 
+    nonisolated func controlSidebarApplyAgentLifecycleAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        preflightOnly: Bool,
+        clearNotifications: Bool
+    ) -> Bool { false }
+
     func controlSidebarSetWorkspaceLoading(
         tabArg: String?,
         key: String,
@@ -126,6 +141,18 @@ extension ControlSidebarContext {
         expectedPIDStartMicroseconds: Int64?,
         requireOwnedKey: Bool
     ) {}
+
+    nonisolated func controlSidebarClearAgentPIDAndVerifyOwner(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?,
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
+        requireOwnedKey: Bool
+    ) -> Bool { false }
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(
         target: ControlSidebarTabTarget,

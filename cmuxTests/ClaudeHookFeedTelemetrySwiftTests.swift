@@ -309,7 +309,7 @@ private func response(
             ]],
         ])
     case "surface.resume.set":
-        return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        return v2Response(id: id, ok: true, result: ["resume_binding": ["updated_at": 123.25]])
     default:
         return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": method])
     }

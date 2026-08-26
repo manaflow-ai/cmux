@@ -3207,7 +3207,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3354,7 +3358,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
                 )
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3469,7 +3477,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": ttySurfaceId]]]
                 )
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3557,7 +3569,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": ttySurfaceId]]]
                 )
             case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["resume_binding": ["updated_at": 123.25]]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3645,7 +3661,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
                 )
             case "surface.resume.set", "surface.resume.clear":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "resume_binding": ["updated_at": 123.25],
+                        "cleared": true,
+                    ]
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:

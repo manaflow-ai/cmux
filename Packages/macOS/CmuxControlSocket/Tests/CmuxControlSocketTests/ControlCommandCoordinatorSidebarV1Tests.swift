@@ -89,6 +89,75 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentLifecycleCall?.expectedPIDStartMicroseconds == 456)
     }
 
+    @Test func lifecycleAcceptanceOptionReturnsAppliedOwnerResult() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        for accepted in [true, false] {
+            let context = FakeSidebarV1ControlCommandContext()
+            context.agentLifecycleAccepted = accepted
+            let coordinator = ControlCommandCoordinator(context: context)
+            let response = coordinator.handleSidebarV1(
+                command: "set_agent_lifecycle",
+                args: "kiro unknown --tab=\(workspaceID.uuidString) "
+                    + "--panel=\(panelID.uuidString) --new-occupant "
+                    + "--expected-pid-key=kiro.surface --expected-pid=43210 "
+                    + "--expected-pid-start-seconds=123 "
+                    + "--expected-pid-start-microseconds=456 --require-accepted"
+            )
+
+            #expect(response == (accepted ? "OK:1" : "OK:0"))
+            #expect(context.agentLifecycleCall?.target == .workspace(workspaceID))
+            #expect(context.agentLifecycleCall?.panelID == panelID)
+            #expect(context.agentLifecycleCall?.startsNewOccupant == true)
+        }
+    }
+
+    @Test func lifecycleAcceptanceCanPreserveVisibleNotifications() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        for preserve in [false, true] {
+            let context = FakeSidebarV1ControlCommandContext()
+            let coordinator = ControlCommandCoordinator(context: context)
+            let preserveOption = preserve ? " --preserve-notifications" : ""
+            let response = coordinator.handleSidebarV1(
+                command: "set_agent_lifecycle",
+                args: "kiro unknown --tab=\(workspaceID.uuidString) "
+                    + "--panel=\(panelID.uuidString) --new-occupant "
+                    + "--expected-pid-key=kiro.surface --expected-pid=43210 "
+                    + "--expected-pid-start-seconds=123 "
+                    + "--expected-pid-start-microseconds=456 --require-accepted"
+                    + preserveOption
+            )
+
+            #expect(response == "OK:1")
+            #expect(context.agentLifecycleClearNotifications == !preserve)
+        }
+    }
+
+    @Test func clearAgentPIDRequireClearedReturnsAppliedOwnerResult() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        for accepted in [true, false] {
+            let context = FakeSidebarV1ControlCommandContext()
+            context.agentPIDClearAccepted = accepted
+            let coordinator = ControlCommandCoordinator(context: context)
+            let response = coordinator.handleSidebarV1(
+                command: "clear_agent_pid",
+                args: "omp.session-1 --tab=\(workspaceID.uuidString) "
+                    + "--panel=\(panelID.uuidString) --clear-status "
+                    + "--session-id=session-1 --require-cleared"
+            )
+
+            #expect(response == (accepted ? "OK:1" : "OK:0"))
+            #expect(context.agentPIDClearCall?.target == .workspace(workspaceID))
+            #expect(context.agentPIDClearCall?.panelID == panelID)
+            #expect(context.agentPIDClearCall?.expectedLifecycleSessionID == "session-1")
+        }
+    }
+
     @Test func anonymousLifecycleMutationsRejectPartialProcessGenerations() {
         for option in [
             "--expected-pid-start-seconds=123",

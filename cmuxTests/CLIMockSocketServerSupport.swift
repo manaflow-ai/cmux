@@ -347,7 +347,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state: state,
             fulfillWhen: fulfillWhen
         ) { line in
-            handler(line)
+            let response = handler(line)
+            if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+               (line.contains(" --require-accepted") || line.contains(" --require-cleared")),
+               response == "OK" {
+                return "OK:1"
+            }
+            return response
         }
     }
 
@@ -371,7 +377,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 if fulfillWhen?(line) == true {
                     fulfillmentGate.fulfill(handled)
                 }
-                return handler(line)
+                let response = handler(line)
+                guard let response else { return nil }
+                if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+                   (line.contains(" --require-accepted") || line.contains(" --require-cleared")),
+                   response == "OK" {
+                    return "OK:1"
+                }
+                return response
             }
         }, onListenerClosed: {
             // Unblock the waiter if the listener is torn down before any client
@@ -394,7 +407,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             defer { Darwin.close(clientFD) }
             cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                 state.append(line)
-                return handler(line)
+                let response = handler(line)
+                if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+                   (line.contains(" --require-accepted") || line.contains(" --require-cleared")),
+                   response == "OK" {
+                    return "OK:1"
+                }
+                return response
             }
         }, onListenerClosed: {})
     }
@@ -438,6 +457,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func agentHookMockResponse(line: String, surfaceId: String) -> String {
+        if (line.hasPrefix("set_agent_lifecycle ") || line.hasPrefix("clear_agent_pid ")),
+           (line.contains(" --require-accepted") || line.contains(" --require-cleared")) {
+            return "OK:1"
+        }
         guard let payload = jsonObject(line) else {
             return "OK"
         }
