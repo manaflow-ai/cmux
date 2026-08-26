@@ -4,6 +4,67 @@ import Testing
 
 @Suite("Claude automatic-team task sync", .serialized)
 struct ClaudeAutomaticTeamTaskSyncHookTests {
+    @Test("A first-sighting automatic-team hook publishes its initial snapshot")
+    func publishesFirstSightingAutomaticTeamSnapshot() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-first-sighting-team"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "05010101-0101-0101-0101-010101010101"
+        let surfaceId = "05020202-0202-0202-0202-020202020202"
+        let sessionId = "first-sighting-team-leader"
+        let agentId = "first-sighting-team-agent"
+        let teamName = "First_Sighting_Team"
+        let teamDirectory = context.root.appendingPathComponent(
+            ".claude/teams/first-sighting-team",
+            isDirectory: true
+        )
+        let taskDirectory = context.root.appendingPathComponent(
+            ".claude/tasks/\(teamName)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: teamDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTeamConfig(
+            name: teamName,
+            leaderSessionID: sessionId,
+            agentID: agentId,
+            to: teamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"First team task","status":"pending"}"#,
+            to: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            agentID: agentId
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let delivery = try #require(reconcileRequests(in: context).last)
+        #expect(delivery["owner_id"] as? String == taskOwnerID(
+            directoryName: teamName,
+            tasksRootURL: taskDirectory.deletingLastPathComponent()
+        ))
+        #expect((delivery["items"] as? [[String: Any]])?.compactMap {
+            $0["text"] as? String
+        } == ["First team task"])
+    }
+
     @Test("Same-named teams in independent Claude profiles keep distinct owners")
     func isolatesTaskStoresWithTheSameTeamName() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-profiles")

@@ -481,6 +481,61 @@ struct ClaudeTaskSyncHookTests {
         )
     }
 
+    @Test("A first-sighting configured list rolls back durable state when Feed rejects")
+    func rollsBackConfiguredStateAfterFeedRejection() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-configured-feed-rejection"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "3c3c3c3c-3c3c-3c3c-3c3c-3c3c3c3c3c3c"
+        let surfaceId = "3d3d3d3d-3d3d-3d3d-3d3d-3d3d3d3d3d3d"
+        let sessionId = "configured-feed-rejection-session"
+        let taskListID = "configured-feed-rejection-list"
+        let tasksRoot = context.root.appendingPathComponent(
+            ".claude/tasks",
+            isDirectory: true
+        )
+        let taskDirectory = tasksRoot.appendingPathComponent(taskListID, isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Rejected configured task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            feedPushSucceeds: false
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CLAUDE_CODE_TASK_LIST_ID"] = taskListID
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: sessionId
+            ) == nil,
+            "A rejected first-sighting Feed snapshot must not leave a session binding"
+        )
+        #expect(
+            try taskListDestinationRecords(in: context.storeURL).isEmpty,
+            "A rejected first-sighting Feed snapshot must not leave a destination proof"
+        )
+    }
+
     @Test("Namespaced delivery removes a legacy owner exactly once")
     func migratesLegacyChecklistOwnerBeforeDelivery() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-owner-migration")
