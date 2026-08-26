@@ -5,6 +5,9 @@ public import AppKit
 public struct CmuxResolvedIconRequest {
     /// The source image to resolve and draw.
     public let source: CmuxResolvedIconSource
+    /// Optional source used when the primary source is unavailable or draws
+    /// no visible pixels during an AppKit lifecycle transition.
+    public let fallbackSource: CmuxResolvedIconSource?
     /// Final icon size in points.
     public let size: NSSize
     /// Optional explicit tint. When set, the source alpha is used as the mask.
@@ -17,6 +20,7 @@ public struct CmuxResolvedIconRequest {
     /// Creates an icon render request.
     /// - Parameters:
     ///   - source: Source image to resolve.
+    ///   - fallbackSource: Source to try when `source` is unavailable or blank.
     ///   - size: Final icon size in points.
     ///   - tintColor: Optional tint applied while drawing under the effective appearance.
     ///   - symbolWeight: SF Symbol weight for symbol sources.
@@ -26,9 +30,11 @@ public struct CmuxResolvedIconRequest {
         size: NSSize,
         tintColor: NSColor? = nil,
         symbolWeight: NSFont.Weight = .regular,
-        accessibilityDescription: String? = nil
+        accessibilityDescription: String? = nil,
+        fallbackSource: CmuxResolvedIconSource? = nil
     ) {
         self.source = source
+        self.fallbackSource = fallbackSource
         self.size = size
         self.tintColor = tintColor
         self.symbolWeight = symbolWeight

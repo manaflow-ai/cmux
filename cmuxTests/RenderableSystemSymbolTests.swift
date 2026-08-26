@@ -111,7 +111,24 @@ struct RenderableSystemSymbolTests {
         #expect(image.isTemplate)
         #expect(image.representations.count == 2)
         #expect(image.representations.allSatisfy { $0 is NSBitmapImageRep })
+        #expect(image.representations
+            .compactMap { $0 as? NSBitmapImageRep }
+            .allSatisfy { RenderableSystemSymbol.containsVisiblePixels(in: $0) })
         #expect(image.tiffRepresentation != nil)
+    }
+
+    /// Blank materializations are rejected instead of becoming reusable cache entries.
+    @Test @MainActor func transparentBitmapIsNotConsideredRenderable() throws {
+        let bitmap = try #require(Self.bitmap(pixels: 8))
+        #expect(RenderableSystemSymbol.containsVisiblePixels(in: bitmap) == false)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        NSColor.systemBlue.setFill()
+        NSRect(origin: .zero, size: bitmap.size).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        #expect(RenderableSystemSymbol.containsVisiblePixels(in: bitmap))
     }
 
     @MainActor
@@ -274,6 +291,26 @@ struct RenderableSystemSymbolTests {
             respectFlipped: true,
             hints: nil
         )
+        return bitmap
+    }
+
+    @MainActor
+    private static func bitmap(pixels: Int) -> NSBitmapImageRep? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixels,
+            pixelsHigh: pixels,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+        bitmap.size = NSSize(width: pixels, height: pixels)
         return bitmap
     }
 }

@@ -239,6 +239,12 @@ enum RenderableSystemSymbol {
             guard let bitmap = materializedBitmap(source, size: size, pixelScale: pixelScale) else {
                 return nil
             }
+            // A symbol provider can resolve successfully while still drawing
+            // a transparent bitmap during an AppKit window/appearance pass.
+            // Never put that transient result in the process-wide cache.
+            guard containsVisiblePixels(in: bitmap) else {
+                return nil
+            }
             image.addRepresentation(bitmap)
         }
         image.cacheMode = .never
@@ -291,6 +297,22 @@ enum RenderableSystemSymbol {
             hints: nil
         )
         return bitmap
+    }
+
+    /// Reports whether a bitmap contains any visible symbol pixels.
+    ///
+    /// This is intentionally shared by materialization and tests so a blank
+    /// first draw cannot become a reusable cached image.
+    @MainActor
+    static func containsVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.01 {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     static func symbolImageSize(_ naturalSize: NSSize, fallbackDimension: CGFloat) -> NSSize {
@@ -380,9 +402,19 @@ struct CmuxSystemSymbolImage: View {
                 .renderingMode(.template)
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)
         } else {
-            Color.clear
-                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
-                .accessibilityHidden(true)
+            // Keep a lazy SwiftUI provider as a one-pass fallback when the
+            // concrete AppKit draw was transiently blank. The materialized
+            // cache remains untouched, so a later body/lifecycle pass can
+            // retry instead of reusing a blank bitmap.
+            if RenderableSystemSymbol.isRenderable(systemName) {
+                Image(systemName: systemName)
+                    .font(.system(size: rasterSize, weight: weight ?? .regular))
+                    .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+            } else {
+                Color.clear
+                    .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }

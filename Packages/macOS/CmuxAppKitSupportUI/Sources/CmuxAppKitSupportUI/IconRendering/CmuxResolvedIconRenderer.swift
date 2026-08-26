@@ -32,44 +32,54 @@ public final class CmuxResolvedIconRenderer {
         }
         var output: NSImage?
         var failure = CmuxResolvedIconRenderFailure.sourceUnavailable
+        var sources = [request.source]
+        if let fallbackSource = request.fallbackSource {
+            sources.append(fallbackSource)
+        }
         appearance.performAsCurrentDrawingAppearance {
-            guard let sourceImage = resolvedSourceImage(for: request),
-                  let bitmap = bitmapRepresentation(size: imageSize) else {
-                failure = .sourceUnavailable
+            for source in sources {
+                guard let sourceImage = resolvedSourceImage(for: source, request: request),
+                      let bitmap = bitmapRepresentation(size: imageSize) else {
+                    continue
+                }
+                bitmap.size = imageSize
+                guard let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+                    continue
+                }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = graphicsContext
+
+                NSColor.clear.setFill()
+                NSRect(origin: .zero, size: imageSize).fill()
+                NSGraphicsContext.current?.imageInterpolation = .high
+
+                let drawRect = drawingRect(for: sourceImage.size, in: imageSize)
+                sourceImage.draw(
+                    in: drawRect,
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1,
+                    respectFlipped: true,
+                    hints: nil
+                )
+
+                if let tintColor = request.tintColor {
+                    tintColor.setFill()
+                    NSRect(origin: .zero, size: imageSize).fill(using: .sourceAtop)
+                }
+                let isVisible = containsVisiblePixels(in: bitmap)
+                NSGraphicsContext.restoreGraphicsState()
+                guard isVisible else {
+                    failure = .blankOutput
+                    continue
+                }
+                let rendered = NSImage(size: imageSize)
+                rendered.addRepresentation(bitmap)
+                rendered.cacheMode = .never
+                rendered.isTemplate = false
+                output = rendered
                 return
             }
-            bitmap.size = imageSize
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-            defer { NSGraphicsContext.restoreGraphicsState() }
-
-            NSColor.clear.setFill()
-            NSRect(origin: .zero, size: imageSize).fill()
-            NSGraphicsContext.current?.imageInterpolation = .high
-
-            let drawRect = drawingRect(for: sourceImage.size, in: imageSize)
-            sourceImage.draw(
-                in: drawRect,
-                from: .zero,
-                operation: .sourceOver,
-                fraction: 1,
-                respectFlipped: true,
-                hints: nil
-            )
-
-            if let tintColor = request.tintColor {
-                tintColor.setFill()
-                NSRect(origin: .zero, size: imageSize).fill(using: .sourceAtop)
-            }
-            guard containsVisiblePixels(in: bitmap) else {
-                failure = .blankOutput
-                return
-            }
-            let rendered = NSImage(size: imageSize)
-            rendered.addRepresentation(bitmap)
-            rendered.cacheMode = .never
-            rendered.isTemplate = false
-            output = rendered
         }
         if let output {
             return .success(output)
@@ -87,8 +97,11 @@ public final class CmuxResolvedIconRenderer {
         return representation.representation(using: .png, properties: [:])
     }
 
-    private func resolvedSourceImage(for request: CmuxResolvedIconRequest) -> NSImage? {
-        switch request.source {
+    private func resolvedSourceImage(
+        for source: CmuxResolvedIconSource,
+        request: CmuxResolvedIconRequest
+    ) -> NSImage? {
+        switch source {
         case .systemSymbol(let name, let accessibilityDescription):
             guard let baseImage = NSImage(
                 systemSymbolName: name,
@@ -112,6 +125,8 @@ public final class CmuxResolvedIconRenderer {
         case .image(let image):
             image.recache()
             return copiedImage(image)
+        case .workspaceIcon(let type):
+            return copiedImage(NSWorkspace.shared.icon(for: type))
         }
     }
 

@@ -272,29 +272,6 @@ struct SessionIndexView: View {
     }
 }
 
-private struct AgentIconImage: View, Equatable {
-    let agent: SessionAgent
-    let size: CGFloat
-
-    var body: some View {
-        if let assetName = agent.assetName {
-            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
-                source: .asset(name: assetName, bundle: .main),
-                size: NSSize(width: size, height: size)
-            ))
-            .frame(width: size, height: size)
-        } else {
-            CmuxSystemSymbolImage(
-                magnified: agent.systemImageName ?? "person.crop.circle",
-                pointSize: max(size - 2, 10),
-                weight: .regular
-            )
-                .foregroundColor(.secondary)
-                .frame(width: size, height: size)
-        }
-    }
-}
-
 private struct GroupingButton: View {
     let mode: SessionGrouping
     let isSelected: Bool
@@ -497,16 +474,8 @@ struct IndexSectionView: View, Equatable {
         }
     }
 
-    @ViewBuilder
     private var sectionIconView: some View {
-        switch section.icon {
-        case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
-        case .folder:
-            CmuxSystemSymbolImage(magnified: "folder", pointSize: 12, weight: .regular)
-                .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
-        }
+        SessionIndexSectionIconImage(icon: section.icon, size: 14)
     }
 }
 
@@ -600,7 +569,7 @@ private struct SessionRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
+            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
             Text(entry.displayTitle)
                 .cmuxFont(size: 13)
                 .foregroundColor(.primary.opacity(0.92))
@@ -762,7 +731,7 @@ struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            AgentIconImage(agent: entry.agent, size: 14)
+            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .cmuxFont(size: 13, weight: .semibold)
@@ -2282,16 +2251,8 @@ struct SectionPopoverView: View {
         return .directory(nil)
     }
 
-    @ViewBuilder
     private var sectionIconView: some View {
-        switch section.icon {
-        case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
-        case .folder:
-            CmuxSystemSymbolImage(magnified: "folder", pointSize: 12, weight: .regular)
-                .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
-        }
+        SessionIndexSectionIconImage(icon: section.icon, size: 14)
     }
 }
 
@@ -2334,7 +2295,7 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
+            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
