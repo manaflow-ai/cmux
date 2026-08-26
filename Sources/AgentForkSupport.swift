@@ -199,6 +199,9 @@ enum AgentForkSupport {
 
     private static func forkCommandIdentityParts(snapshot: SessionRestorableAgentSnapshot) -> [String]? {
         guard snapshot.kind.restoreMode == .resumeSession,
+              snapshot.effectiveRestoreWorkingDirectorySelection(
+                  .recordedFallback(preferred: nil)
+              ).permitsResume,
               forkCommandCanRenderWithoutFilesystem(snapshot),
               normalized(snapshot.sessionId) != nil else {
             return nil

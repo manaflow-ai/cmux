@@ -34,10 +34,11 @@ extension SurfaceResumeBindingSnapshot {
                 Workspace.restorableAgentForSessionRestore($0, resumeBinding: registered)
             }
             let kind = matchingRestorableAgent?.kind.rawValue ?? registered.kind ?? ""
-            if registered.cwd != nil {
+            if matchingRestorableAgent?.registration?.cwd == .ignore {
+                registered.restoreWorkingDirectorySelection = .exact(nil)
+            } else if registered.cwd != nil {
                 registered.restoreWorkingDirectorySelection = .exact(registered.cwd)
-            } else if matchingRestorableAgent?.registration?.cwd == .ignore ||
-                        AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind) == .cwdInFile {
+            } else if AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind) == .cwdInFile {
                 registered.restoreWorkingDirectorySelection = .exact(nil)
             } else {
                 registered.restoreWorkingDirectorySelection = .unavailable
