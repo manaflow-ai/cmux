@@ -850,6 +850,38 @@ import Testing
         }
     }
 
+    @Test func sessionMismatchIsUnresolvedAndNonterminal() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                workspace.surfaceResumeBindingsByPanelId[panelId] = SurfaceResumeBindingSnapshot(
+                    kind: "codex",
+                    command: "codex resume current-session",
+                    checkpointId: "current-session",
+                    source: "agent-hook",
+                    autoResume: true
+                )
+
+                let result = try #require(call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "expected_session_id": "stale-session",
+                    "title": "Stale session topic",
+                ])["result"] as? [String: Any])
+
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_apply_skipped"] as? Bool == true)
+                #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+                #expect(result["panel_apply_skipped"] as? Bool == true)
+                #expect(result["target_unresolved"] as? Bool == true)
+                #expect(result["terminal_skip"] as? Bool == false)
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.panelCustomTitles[panelId] == nil)
+            }
+        }
+    }
+
     @Test func malformedParamsProduceCleanErrors() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in

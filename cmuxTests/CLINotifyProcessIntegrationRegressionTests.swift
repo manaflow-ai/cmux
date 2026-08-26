@@ -594,7 +594,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 line: line,
                 context: context,
                 workspaceApplied: true,
-                panelApplySkipped: false
+                panelApplySkipped: false,
+                terminalSkip: true,
+                targetUnresolved: true
             )
         }
         let unresolvedStop = runClaudeHookWithoutServer(
@@ -11928,6 +11930,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         panelApplied: Bool? = nil,
         panelApplySkipped: Bool = false,
         workspaceUserOwned: Bool = false,
+        terminalSkip: Bool = false,
+        targetUnresolved: Bool = false,
         expectedTitle: String = "Fix auth bug"
     ) -> String {
         guard let payload = jsonObject(line),
@@ -11955,6 +11959,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "workspace_apply_skipped": workspaceApplySkipped,
                 "panel_applied": panelApplied ?? NSNull(),
                 "panel_apply_skipped": panelApplySkipped,
+                "terminal_skip": terminalSkip,
+                "target_unresolved": targetUnresolved,
             ])
         default:
             return v2Response(
