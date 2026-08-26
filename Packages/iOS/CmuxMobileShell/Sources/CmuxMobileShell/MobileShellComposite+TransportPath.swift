@@ -20,6 +20,7 @@ extension MobileShellComposite {
                       self.transportPathObservationClientID == clientID else { return }
                 self.transportPathObservationTask = nil
                 self.transportPathObservationClientID = nil
+                self.activeTransportPath = .unavailable
             }
             let initial = await client.currentTransportPath()
             guard !Task.isCancelled,

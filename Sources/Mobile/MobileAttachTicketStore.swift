@@ -247,21 +247,11 @@ final class MobileAttachTicketStore {
             }) else {
                 throw MobileAttachTicketStoreError.routeUnavailable
             }
-            // A mixed Iroh/Tailscale ticket must retain an encrypted Iroh
-            // bootstrap for a phone that selected LAN Only or iroh Only before
-            // scanning. Use the compact grammar with LAN removed: released
-            // phones know Iroh and Tailscale route kinds, while current phones
-            // recover the LAN metadata from authenticated host status.
-            if ticket.routes.contains(where: { $0.kind == .iroh }),
-               ticket.routes.contains(where: { $0.kind == .tailscale }),
-               let pairingURL = try mixedPhysicalDeviceCompatibilityAttachURL(
-                   for: ticket,
-                   pairingURLScheme: pairingURLScheme
-               ) {
-                return pairingURL
-            }
-            // A Tailscale-only ticket can use the smaller v2 grammar that old
-            // iOS releases already understand.
+            // Keep the released-client Tailscale grammar whenever a compatible
+            // route exists. Older phones cannot decode compact v1 payloads or
+            // the newer `.lan` route kind; current phones recover the complete
+            // LAN/Iroh route set from authenticated host status after this
+            // compatibility dial succeeds.
             if let pairingURL = tailscaleCompatibilityAttachURL(
                 for: ticket,
                 pairingURLScheme: pairingURLScheme
@@ -348,39 +338,6 @@ final class MobileAttachTicketStore {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
-    }
-
-    private func mixedPhysicalDeviceCompatibilityAttachURL(
-        for ticket: CmxAttachTicket,
-        pairingURLScheme: CmxPairingURLScheme?
-    ) throws -> URL? {
-        let routes = try MobileAttachTarget.physicalDeviceCompatibilityQRRoutes(
-            from: ticket.routes
-        )
-        guard routes.contains(where: { $0.kind == .iroh }),
-              routes.contains(where: { $0.kind == .tailscale }) else {
-            return nil
-        }
-        let compatibilityTicket = try CmxAttachTicket(
-            version: ticket.version,
-            workspaceID: ticket.workspaceID,
-            terminalID: ticket.terminalID,
-            macDeviceID: ticket.macDeviceID,
-            macDisplayName: ticket.macDisplayName,
-            macUserEmail: nil,
-            macUserID: ticket.macUserID,
-            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
-            macAppVersion: ticket.macAppVersion,
-            macAppBuild: ticket.macAppBuild,
-            routes: routes,
-            expiresAt: nil,
-            authToken: nil
-        )
-        return try compactAttachURL(
-            for: compatibilityTicket,
-            routeDisclosureMode: .legacyPrivateNetworkCompatibility,
-            pairingURLScheme: pairingURLScheme
-        )
     }
 
     private func legacyCompatibleCompactTicket(

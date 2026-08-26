@@ -48,22 +48,6 @@ enum MobileAttachTarget: String, Sendable {
         return selected
     }
 
-    /// Returns physical-device QR routes that every released route grammar can
-    /// understand while retaining an encrypted bootstrap for current pinned
-    /// modes. The legacy compact decoder knows Iroh and Tailscale but not the
-    /// newer `.lan` kind, so LAN metadata is recovered from authenticated host
-    /// status after the first connection instead of being placed in the QR.
-    static func physicalDeviceCompatibilityQRRoutes(
-        from routes: [CmxAttachRoute]
-    ) throws -> [CmxAttachRoute] {
-        let selected = try physicalDevice.selectRoutes(from: routes)
-        let compatible = selected.filter { $0.kind != .lan }
-        guard !compatible.isEmpty else {
-            throw MobileAttachTicketStoreError.routeUnavailable
-        }
-        return compatible
-    }
-
     /// The non-loopback Tailscale routes of `routes`, reindexed to the
     /// canonical id/priority sequence the v2 pairing decoder resynthesizes.
     ///
