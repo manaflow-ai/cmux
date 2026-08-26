@@ -14395,6 +14395,40 @@
         }
       }
     },
+    "mobile.workspace.unreadCountFormat.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読 1 件"
+          }
+        }
+      }
+    },
+    "mobile.workspace.unreadCountFormat.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読 %d 件"
+          }
+        }
+      }
+    },
     "mobile.workspaceGroup.collapse.a11y": {
       "extractionState": "manual",
       "localizations": {

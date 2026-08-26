@@ -47,13 +47,13 @@ extension WorkspaceListView {
         return items
     }
 
-    func workspaceTableGroupHasUnreadByID(
+    func workspaceTableGroupUnreadByID(
         groupedItems: [MobileWorkspaceListItem]
-    ) -> [MobileWorkspaceGroupPreview.ID: Bool] {
-        var result: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+    ) -> [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] {
+        var result: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] = [:]
         for item in groupedItems {
-            if case .groupHeader(let group, let hasUnread) = item {
-                result[group.id] = hasUnread
+            if case .groupHeader(let group, let unread) = item {
+                result[group.id] = unread
             }
         }
         return result
@@ -78,7 +78,7 @@ extension WorkspaceListView {
             items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: workspacesByID,
             groupsByID: groupsByID,
-            groupHasUnreadByID: workspaceTableGroupHasUnreadByID(
+            groupUnreadByID: workspaceTableGroupUnreadByID(
                 groupedItems: groupedItems
             ),
             filter: activeFilter,

@@ -2,7 +2,7 @@ import CmuxMobileShellModel
 
 struct WorkspaceGroupHeaderRowValue: Equatable {
     let group: MobileWorkspaceGroupPreview
-    let hasUnread: Bool
+    let unread: MobileWorkspaceUnreadState
     let navigationStyle: WorkspaceNavigationStyle
     let isAnchorSelected: Bool
     let canCreateWorkspaceInGroup: Bool

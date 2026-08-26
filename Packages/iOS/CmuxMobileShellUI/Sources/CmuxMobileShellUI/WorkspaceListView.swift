@@ -980,12 +980,12 @@ struct WorkspaceListView: View {
         let groupLookup = groupsByID
         ForEach(items, id: \.id) { item in
             switch item {
-            case .groupHeader(let group, let hasUnread):
+            case .groupHeader(let group, let unread):
                 let anchorCapabilities = workspacesByID[group.anchorWorkspaceID]?.actionCapabilities ?? .none
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
-                        hasUnread: hasUnread,
+                        unread: unread,
                         navigationStyle: navigationStyle,
                         isAnchorSelected: navigationStyle == .sidebar
                             && selectedWorkspaceID == group.anchorWorkspaceID,

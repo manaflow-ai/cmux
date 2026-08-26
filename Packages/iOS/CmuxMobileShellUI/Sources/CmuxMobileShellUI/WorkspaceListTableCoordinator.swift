@@ -1039,7 +1039,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
-                        hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
+                        unread: configuration.groupUnreadByID[groupID, default: .read],
                         navigationStyle: configuration.navigationStyle,
                         isAnchorSelected: configuration.navigationStyle == .sidebar
                             && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
@@ -1248,9 +1248,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let isAnchorSelected = next.navigationStyle == .sidebar
                 && next.selectedWorkspaceID == nextAnchorID
             return previous.groupsByID[id] != next.groupsByID[id]
-                || previous.groupHasUnreadByID[id] != next.groupHasUnreadByID[id]
-                || previousAnchorID.flatMap { previous.workspacesByID[$0]?.hasUnread }
-                    != nextAnchorID.flatMap { next.workspacesByID[$0]?.hasUnread }
+                || previous.groupUnreadByID[id] != next.groupUnreadByID[id]
+                || previousAnchorID.flatMap { previous.workspacesByID[$0]?.unreadState }
+                    != nextAnchorID.flatMap { next.workspacesByID[$0]?.unreadState }
                 || previousAnchorID.map { previous.workspacesByID[$0]?.actionCapabilities }
                     != nextAnchorID.map { next.workspacesByID[$0]?.actionCapabilities }
                 || wasAnchorSelected != isAnchorSelected

@@ -46,7 +46,7 @@ import UIKit
             items: items,
             workspacesByID: [anchorID: anchor, moverID: mover],
             groupsByID: [groupID: group],
-            groupHasUnreadByID: [:],
+            groupUnreadByID: [:],
             filter: .all,
             selectedWorkspaceID: nil,
             navigationStyle: .push,

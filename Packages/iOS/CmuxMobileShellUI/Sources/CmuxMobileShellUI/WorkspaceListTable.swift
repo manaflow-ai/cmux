@@ -10,7 +10,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
-    let groupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool]
+    let groupUnreadByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState]
     let filter: MobileWorkspaceListFilter
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let navigationStyle: WorkspaceNavigationStyle

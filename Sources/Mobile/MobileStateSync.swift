@@ -216,6 +216,7 @@ final class MobileStateSyncHost {
             simulators = []
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
+        let unreadCount = notificationStore?.unreadCount(forTabId: workspace.id) ?? 0
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
             cachedDescriptionProjection(for: workspace),
@@ -235,7 +236,8 @@ final class MobileStateSyncHost {
             preview: preview?.text,
             previewAt: preview?.epochSeconds,
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
-            hasUnread: notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            hasUnread: unreadCount > 0,
+            unreadCount: unreadCount,
             sortIndex: sortIndex,
             terminals: terminals,
             surfaces: controller.mobileSurfaceDescriptors(in: workspace),
