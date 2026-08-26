@@ -319,6 +319,7 @@ extension MobileShellComposite {
         surfaceID: String,
         endSequence: UInt64? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = .natural,
+        replayVerificationPolicy: TerminalOutputDelivery.ReplayVerificationPolicy = .automatic,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
         return deliverTerminalOutput(
@@ -326,7 +327,8 @@ extension MobileShellComposite {
                 bytes: bytes,
                 replaceable: false,
                 viewportPolicy: viewportPolicy,
-                endSequence: endSequence
+                endSequence: endSequence,
+                replayVerificationPolicy: replayVerificationPolicy
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -483,6 +485,9 @@ extension MobileShellComposite {
     /// streaming output from stalling a locally scrolling viewport. Fulls and
     /// alternate-screen frames keep the verified pipeline.
     private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
+        if delivery.replayVerificationPolicy == .bestEffortCompatibility {
+            return false
+        }
         guard terminalOutputTransport == .renderGrid,
               supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability) else {
             return false

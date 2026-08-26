@@ -198,7 +198,11 @@ import Testing
         !replacementChunk.requiresVerifiedReplay,
         "a best-effort compatibility replacement must use the legacy application path"
     )
-    #expect(replacementText.hasPrefix("\u{1B}c"))
+    #expect(
+        replacementText.hasPrefix("\u{1B}[H"),
+        "an unknown active screen must be cleared without selecting a buffer"
+    )
+    #expect(!replacementText.contains("\u{1B}[?1049h"))
     #expect(replacementText.contains(
         "snapshot-attempt-\(MobileShellComposite.maxTerminalReplayFailureRetries)"
     ))

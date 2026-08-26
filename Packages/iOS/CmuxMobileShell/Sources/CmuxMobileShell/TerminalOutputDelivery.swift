@@ -4,6 +4,17 @@ import Foundation
 
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
 struct TerminalOutputDelivery: Equatable, Sendable {
+    /// Selects how a byte delivery is admitted to the mounted terminal.
+    ///
+    /// `automatic` derives the verified-replay requirement from the negotiated
+    /// transport. `bestEffortCompatibility` is reserved for the bounded
+    /// retry-exhaustion replacement, whose payload is intentionally unverified
+    /// but still must be applied so the barrier can release.
+    enum ReplayVerificationPolicy: Equatable, Sendable {
+        case automatic
+        case bestEffortCompatibility
+    }
+
     enum ReplacementScope: Equatable, Sendable {
         case byteViewport
         case renderGridViewport
@@ -21,6 +32,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
     var endSequence: UInt64?
+    var replayVerificationPolicy: ReplayVerificationPolicy
 
     var replaceable: Bool {
         replacementScope != nil
@@ -31,12 +43,14 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        endSequence: UInt64? = nil
+        endSequence: UInt64? = nil,
+        replayVerificationPolicy: ReplayVerificationPolicy = .automatic
     ) {
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.endSequence = endSequence
+        self.replayVerificationPolicy = replayVerificationPolicy
     }
 
     init(theme frame: MobileTerminalRenderGridFrame) {
@@ -44,6 +58,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
         self.endSequence = nil
+        self.replayVerificationPolicy = .automatic
     }
 
     init(
@@ -56,6 +71,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.endSequence = frame.stateSeq
+        self.replayVerificationPolicy = .automatic
     }
 
     var bytes: Data {

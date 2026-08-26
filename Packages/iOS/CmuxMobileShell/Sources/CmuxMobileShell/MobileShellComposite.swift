@@ -13234,7 +13234,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ snapshotBytes: Data,
         activeScreen: MobileTerminalRenderGridFrame.Screen?
     ) -> Data {
-        var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
+        // Do not select a screen when the compatibility payload has no
+        // authoritative discriminator. Clearing the currently active buffer
+        // preserves the local screen across an unknown transition; a reset
+        // (and explicit alternate-screen re-entry) is safe only when the host
+        // supplied authoritative screen metadata.
+        var bytes = Data()
+        if activeScreen != nil {
+            bytes.append(Data("\u{1B}c".utf8))
+        }
+        bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8))
         if activeScreen == .alternate {
             // Ghostty's active VT export contains rows and styles, but not the
             // DEC screen switch that owns a TUI's state. Re-enter the
@@ -13247,17 +13256,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func terminalReplayFallbackScreen(
-        payload: MobileTerminalReplayResponse?,
-        surfaceID: String
+        payload: MobileTerminalReplayResponse?
     ) -> MobileTerminalRenderGridFrame.Screen? {
-        payload?.activeScreen ?? terminalActiveScreenBySurfaceID[surfaceID]
+        // Compatibility payloads intentionally omit this field when the host
+        // cannot capture it atomically. Never substitute the last delivered
+        // render-grid value: a dropped screen-switch frame can make that value
+        // older than the fallback response.
+        payload?.activeScreen
     }
 
     private func terminalReplayFallbackViewportPolicy(
-        payload: MobileTerminalReplayResponse?,
-        surfaceID: String
+        payload: MobileTerminalReplayResponse?
     ) -> MobileTerminalOutputViewportPolicy {
-        guard terminalReplayFallbackScreen(payload: payload, surfaceID: surfaceID) == .alternate else {
+        guard terminalReplayFallbackScreen(payload: payload) == .alternate else {
             return .natural
         }
         guard let columns = payload?.columns,
@@ -13697,6 +13708,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             startedAt: diagnosticStartedAt,
                             failure: .protocolViolation
                         )
+                        if let replayBarrierTokenForRequest {
+                            self.resolveTerminalReplayFailureBarrier(
+                                surfaceID: surfaceID,
+                                token: replayBarrierTokenForRequest
+                            )
+                        }
                         return
                     }
                     // The bounded retry budget is exhausted and the barrier has
@@ -13747,12 +13764,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 let deliverBytes: Data?
                 let fallbackScreen = self.terminalReplayFallbackScreen(
-                    payload: payload,
-                    surfaceID: surfaceID
+                    payload: payload
                 )
                 let fallbackViewportPolicy = self.terminalReplayFallbackViewportPolicy(
-                    payload: payload,
-                    surfaceID: surfaceID
+                    payload: payload
                 )
                 if let renderGrid {
                     deliverBytes = nil
@@ -13865,6 +13880,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceID: surfaceID,
                     endSequence: replaySeq,
                     viewportPolicy: fallbackViewportPolicy,
+                    replayVerificationPolicy: deliverCompatFallbackAsReplacement
+                        ? .bestEffortCompatibility
+                        : .automatic,
                     bypassReplayBarrier: replayBarrierTokenForRequest != nil
                 )
                 if accepted,
