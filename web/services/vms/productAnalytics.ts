@@ -256,6 +256,37 @@ export function captureVmLimitHit(
   );
 }
 
+/**
+ * Workflow-layer: a suspended VM was woken by a user-facing verb. Captured for
+ * every control-plane resume (the persisted `vm.resumed` usage event is only
+ * recorded for reserved team resumes), so wake latency is measurable per
+ * provider and per triggering verb.
+ */
+export function captureVmWakeCompleted(
+  input: {
+    readonly userId: string;
+    readonly provider: string;
+    readonly source: string;
+    readonly durationMs: number;
+    readonly reserved: boolean;
+  },
+  options: VmAnalyticsOptions = {},
+): void {
+  void captureVmAnalyticsEvent(
+    {
+      event: "vm.wake.completed",
+      distinctId: input.userId,
+      properties: {
+        provider: input.provider,
+        source: input.source,
+        duration_ms: Math.round(input.durationMs),
+        reserved: input.reserved,
+      },
+    },
+    options,
+  );
+}
+
 /** Route-layer: a port open that produced a cmux desktop (noVNC) wrapper URL. */
 export function captureVmDesktopOpened(
   input: {

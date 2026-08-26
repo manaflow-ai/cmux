@@ -1,5 +1,7 @@
 # Cloud VMs service
 
+Telemetry (Axiom spans, PostHog product events, env gates, every event and span with its properties) is documented in [TELEMETRY.md](./TELEMETRY.md).
+
 Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Freestyle and E2B prefer `cmuxd-remote` WebSocket PTY with short-lived leases; older Freestyle VMs can fall back to its SSH gateway.
 
 ## Layout

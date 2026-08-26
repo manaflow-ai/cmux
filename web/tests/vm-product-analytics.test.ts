@@ -4,6 +4,7 @@ import {
   captureVmAnalyticsEvent,
   captureVmLimitHit,
   captureVmUsageEvents,
+  captureVmWakeCompleted,
   sanitizedVmEventProperties,
   vmAnalyticsEnabled,
 } from "../services/vms/productAnalytics";
@@ -184,6 +185,31 @@ describe("usage-event chokepoint mirror", () => {
       ),
     ).not.toThrow();
     await settled();
+  });
+});
+
+describe("wake latency", () => {
+  test("vm.wake.completed rounds the latency and keeps the triggering verb", async () => {
+    const captured: CapturedRequest[] = [];
+    captureVmWakeCompleted(
+      {
+        userId: "user-1",
+        provider: "freestyle",
+        source: "attach",
+        durationMs: 1234.56,
+        reserved: false,
+      },
+      { fetchImpl: recordingFetch(captured), env: enabledEnv },
+    );
+    await settled();
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.body.event).toBe("vm.wake.completed");
+    expect(captured[0]!.body.distinct_id).toBe("user-1");
+    const properties = captured[0]!.body.properties as Record<string, unknown>;
+    expect(properties.provider).toBe("freestyle");
+    expect(properties.source).toBe("attach");
+    expect(properties.duration_ms).toBe(1235);
+    expect(properties.reserved).toBe(false);
   });
 });
 

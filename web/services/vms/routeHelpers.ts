@@ -79,6 +79,9 @@ export async function withAuthedVmApiRoute(
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
+        // OTel semantic convention for the authenticated principal; lets Axiom
+        // slice VM API traces per user without joining another dataset.
+        span.setAttribute("enduser.id", user.id);
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return mutationForbidden;
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
