@@ -18,6 +18,19 @@ struct MachineSnapshot: Equatable, Identifiable {
         case attention(String)
     }
 
+    /// Where a machine stands in the free plan's access window. The backend is
+    /// the enforcement point (402 on access verbs); this mirrors it so the row
+    /// can show the countdown and route a locked machine to the upgrade flow
+    /// instead of a doomed connect.
+    enum FreeAccessState: Equatable {
+        /// Paid plan, or the window is disabled server-side.
+        case unrestricted
+        /// Reachable, with this many whole-or-partial days remaining.
+        case active(daysLeft: Int)
+        /// Past the window: preserved but locked until the plan is upgraded.
+        case expired
+    }
+
     let id: String
     let provider: String
     let image: String
@@ -26,6 +39,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     let createdAt: Date?
     /// User-chosen label; nil when the machine has no label.
     let label: String?
+    /// Free-plan access window position; `.unrestricted` on paid plans.
+    var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
     var stats: VMStats?
 
@@ -60,19 +75,73 @@ struct MachinePlanSnapshot: Equatable {
 }
 
 enum MachineSnapshotBuilder {
-    static func snapshot(from summary: VMSummary) -> MachineSnapshot {
-        MachineSnapshot(
+    static func snapshot(
+        from summary: VMSummary,
+        freeAccessWindowDays: Int = 0,
+        now: Date = Date()
+    ) -> MachineSnapshot {
+        let createdAt = summary.createdAt > 0
+            ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
+            : nil
+        return MachineSnapshot(
             id: summary.id,
             provider: summary.provider,
             image: summary.image,
             isDesktop: summary.image.contains("xfce-vnc"),
             activity: activity(fromStatus: summary.status),
-            createdAt: summary.createdAt > 0
-                ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
-                : nil,
+            createdAt: createdAt,
             label: summary.displayName,
+            freeAccess: freeAccessState(createdAt: createdAt, windowDays: freeAccessWindowDays, now: now),
             stats: nil
         )
+    }
+
+    /// Mirrors the backend's window math (created + windowDays vs now); the
+    /// backend stays the enforcement point, this only drives the row UI.
+    static func freeAccessState(
+        createdAt: Date?,
+        windowDays: Int,
+        now: Date = Date()
+    ) -> MachineSnapshot.FreeAccessState {
+        guard windowDays > 0, let createdAt else { return .unrestricted }
+        let remaining = createdAt.addingTimeInterval(TimeInterval(windowDays) * 86_400).timeIntervalSince(now)
+        if remaining <= 0 { return .expired }
+        return .active(daysLeft: Int((remaining / 86_400).rounded(.up)))
+    }
+
+    /// The next instant at which a machine's free-access presentation changes:
+    /// each day-boundary where the "N days left" label decrements, and finally
+    /// the expiry itself. Nil once expired (or when no window applies) — there
+    /// is nothing left to wait for. Expiry is a *known future timestamp*, so
+    /// the panel arms a one-shot timer at exactly this instant instead of
+    /// discovering the transition on a poll sweep.
+    static func nextFreeAccessTransition(
+        createdAt: Date?,
+        windowDays: Int,
+        now: Date = Date()
+    ) -> Date? {
+        guard windowDays > 0, let createdAt else { return nil }
+        let expiry = createdAt.addingTimeInterval(TimeInterval(windowDays) * 86_400)
+        let remaining = expiry.timeIntervalSince(now)
+        guard remaining > 0 else { return nil }
+        let daysLeft = Int((remaining / 86_400).rounded(.up))
+        // The label decrements when remaining crosses (daysLeft - 1) whole days;
+        // for the final day that crossing IS the expiry.
+        return expiry.addingTimeInterval(-TimeInterval(daysLeft - 1) * 86_400)
+    }
+
+    /// Recomputes only the free-access facet of existing snapshots against a
+    /// fresh clock — no network, stats and identity preserved.
+    static func applyingFreeAccess(
+        to snapshots: [MachineSnapshot],
+        windowDays: Int,
+        now: Date = Date()
+    ) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            var next = snapshot
+            next.freeAccess = freeAccessState(createdAt: snapshot.createdAt, windowDays: windowDays, now: now)
+            return next
+        }
     }
 
     static func activity(fromStatus status: String) -> MachineSnapshot.Activity {
@@ -124,6 +193,12 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
+    /// One-shot timer armed at the exact next free-access transition (a
+    /// countdown day-boundary or an expiry). Expiry is client-computable from
+    /// createdAt + window, so rows flip at the boundary itself — scheduling,
+    /// not polling; the slow poll only covers changes made elsewhere.
+    private var freeAccessTransitionTask: Task<Void, Never>?
+    private var freeAccessWindowDays = 0
     private var authSignOutObserver: NSObjectProtocol?
     private static let statsInterval: Duration = .seconds(20)
 
@@ -197,6 +272,30 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask = nil
         statsTask?.cancel()
         statsTask = nil
+        freeAccessTransitionTask?.cancel()
+        freeAccessTransitionTask = nil
+    }
+
+    /// Sleeps until the earliest upcoming transition across the fleet, then
+    /// recomputes the free-access facet locally and re-arms for the next one.
+    private func scheduleFreeAccessTransition(now: Date = Date()) {
+        freeAccessTransitionTask?.cancel()
+        freeAccessTransitionTask = nil
+        guard freeAccessWindowDays > 0 else { return }
+        let windowDays = freeAccessWindowDays
+        let next = machines
+            .compactMap { MachineSnapshotBuilder.nextFreeAccessTransition(createdAt: $0.createdAt, windowDays: windowDays, now: now) }
+            .min()
+        guard let next else { return }
+        // A hair past the boundary so the recompute lands on the new side.
+        let delay = max(next.timeIntervalSince(now), 0) + 0.5
+        freeAccessTransitionTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            let now = Date()
+            self.machines = MachineSnapshotBuilder.applyingFreeAccess(to: self.machines, windowDays: windowDays, now: now)
+            self.scheduleFreeAccessTransition(now: now)
+        }
     }
 
     /// Drop every locally cached machine and in-flight sample when auth ends.
@@ -208,6 +307,9 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshTask = nil
         statsTask?.cancel()
         statsTask = nil
+        freeAccessTransitionTask?.cancel()
+        freeAccessTransitionTask = nil
+        freeAccessWindowDays = 0
         machines = []
         plan = nil
         activeOperation = nil
@@ -224,11 +326,16 @@ final class MachinesPanelViewModel: ObservableObject {
         do {
             let page = try await client.listPage()
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
-            var snapshots = page.vms.map(MachineSnapshotBuilder.snapshot(from:))
+            let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
+            self.freeAccessWindowDays = freeAccessWindowDays
+            var snapshots = page.vms.map {
+                MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: freeAccessWindowDays)
+            }
             for index in snapshots.indices {
                 snapshots[index].stats = previous[snapshots[index].id] ?? nil
             }
             machines = snapshots
+            scheduleFreeAccessTransition()
             refreshStats()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits)
             lastErrorDescription = nil

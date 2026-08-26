@@ -123760,6 +123760,23 @@
         }
       }
     },
+    "machines.menu.upgradeToReconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Reconnect\u2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードして再接続\u2026"
+          }
+        }
+      }
+    },
     "machines.rename.confirm": {
       "extractionState": "manual",
       "localizations": {
@@ -123841,6 +123858,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシンを削除"
+          }
+        }
+      }
+    },
+    "machines.row.dayLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 day left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り1日"
+          }
+        }
+      }
+    },
+    "machines.row.daysLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d days left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り%d日"
+          }
+        }
+      }
+    },
+    "machines.row.locked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック中"
           }
         }
       }

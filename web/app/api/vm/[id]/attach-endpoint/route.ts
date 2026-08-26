@@ -1,11 +1,12 @@
 import {
   jsonResponse,
   notFoundVm,
+  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
+import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openAttachEndpoint, openVmCmuxRemote, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 
@@ -58,10 +59,14 @@ export async function POST(
             teamIds: user.teamIds,
             providerVmId: id,
             deviceFingerprint,
+            callerPlanId: account.entitlements.planId,
           }));
           return jsonResponse(endpoint);
         } catch (err) {
           if (isVmNotFoundError(err)) return notFoundVm(id);
+          if (isVmFreeAccessExpiredError(err)) {
+            return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+          }
           throw err;
         }
       }
@@ -77,6 +82,7 @@ export async function POST(
         const endpoint = await runVmWorkflow(openAttachEndpoint({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
           sessionTitle,
@@ -85,6 +91,9 @@ export async function POST(
         setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
         return jsonResponse(endpoint);
       } catch (err) {
+        if (isVmFreeAccessExpiredError(err)) {
+          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+        }
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
       }

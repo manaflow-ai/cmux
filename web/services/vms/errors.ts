@@ -20,6 +20,12 @@ export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoun
   readonly snapshotId: string;
 }> {}
 
+/** A free-plan machine whose access window has lapsed; upgrading unlocks it. */
+export class VmFreeAccessExpiredError extends Data.TaggedError("VmFreeAccessExpiredError")<{
+  readonly vmId: string;
+  readonly windowDays: number;
+}> {}
+
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
   readonly idempotencyKey: string;
 }> {}
@@ -75,6 +81,7 @@ export type VmWorkflowError =
   | VmProviderOperationError
   | VmNotFoundError
   | VmSnapshotNotFoundError
+  | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
   | VmCreateDisabledError
@@ -91,6 +98,10 @@ export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmSnapshotNotFoundError";
+}
+
+export function isVmFreeAccessExpiredError(err: unknown): err is VmFreeAccessExpiredError {
+  return (err as { _tag?: string } | null)?._tag === "VmFreeAccessExpiredError";
 }
 
 export function isVmCreateInProgressError(err: unknown): err is VmCreateInProgressError {
@@ -145,6 +156,7 @@ const vmWorkflowErrorTags = new Set([
   "VmDatabaseError",
   "VmProviderOperationError",
   "VmNotFoundError",
+  "VmFreeAccessExpiredError",
   "VmCreateInProgressError",
   "VmCreateFailedError",
   "VmCreateDisabledError",

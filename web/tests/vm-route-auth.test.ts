@@ -410,12 +410,12 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 15,
+      maxActiveVms: 5,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
       idempotencyKey: "idem-1",
-      memoryMb: 8192,
+      memoryMb: 24576,
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
@@ -477,7 +477,7 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 8192 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
       }),
     );
 
@@ -485,7 +485,7 @@ describe("VM REST auth", () => {
     const payload = await response.json();
     expect(payload).toMatchObject({
       error: "vm_memory_exceeds_plan",
-      details: { requestedMemoryMb: 8192, maxMemoryMb: 4096, planId: "free" },
+      details: { requestedMemoryMb: 32768, maxMemoryMb: 24576, planId: "free" },
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
@@ -658,7 +658,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 3,
+      maxActiveVms: 1,
     }));
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
@@ -715,7 +715,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 3,
+      maxActiveVms: 1,
     }));
   });
 
@@ -878,7 +878,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 15,
+      maxActiveVms: 5,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
@@ -983,6 +983,7 @@ describe("VM REST auth", () => {
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
       deviceFingerprint: "fp-device-1",
+      callerPlanId: "pro",
     });
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
@@ -1036,6 +1037,7 @@ describe("VM REST auth", () => {
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
       invitationId: "inv_abc-123",
+      callerPlanId: "pro",
     });
   });
 
@@ -1121,6 +1123,7 @@ describe("VM REST auth", () => {
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
+      callerPlanId: "pro",
     });
 
     runVmWorkflow.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" });
@@ -1137,6 +1140,7 @@ describe("VM REST auth", () => {
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
+      callerPlanId: "pro",
       command: "true",
       timeoutMs: 30_000,
     });
