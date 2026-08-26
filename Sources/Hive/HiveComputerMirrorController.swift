@@ -184,6 +184,17 @@ final class HiveComputerMirrorController {
             cmuxDebugLog("hive.mirror.attach.noSession device=\(deviceID.prefix(8))")
             return nil
         }
+        // Another Open/Retry call may have installed the same mirror while
+        // embeddedSession() suspended. Reuse that winner instead of creating
+        // an unreachable duplicate with live tasks and workspaces.
+        if let winner = mirrorsByKey[key] {
+            if let firstId = winner.workspaceIdByRemoteID.values.first,
+               let workspace = tabManager.workspacesById[firstId] {
+                tabManager.selectWorkspace(workspace)
+                return firstId
+            }
+            return nil
+        }
         let mirror = DeviceMirror(deviceID: deviceID)
         mirror.tabManager = tabManager
         mirror.computerName = HiveComputersService.shared.directory?.computers

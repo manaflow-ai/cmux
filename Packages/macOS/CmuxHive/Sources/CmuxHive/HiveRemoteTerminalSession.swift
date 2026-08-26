@@ -15,6 +15,11 @@ public import Observation
 @MainActor
 @Observable
 public final class HiveRemoteTerminalSession {
+    private struct FrameSubscription {
+        let stream: AsyncStream<MobileTerminalRenderGridFrame>
+        let cancel: @MainActor () -> Void
+    }
+
     /// The attach lifecycle state.
     public enum Phase: Equatable, Sendable {
         /// Not attached yet.
@@ -53,6 +58,7 @@ public final class HiveRemoteTerminalSession {
     @ObservationIgnored private var attachTask: Task<Void, Never>?
     @ObservationIgnored private var replayTask: Task<Void, Never>?
     @ObservationIgnored private var replayInFlight = false
+    @ObservationIgnored private var replayRetryAttempt = 0
     @ObservationIgnored private var frameApplyTask: Task<Void, Never>?
     @ObservationIgnored private var pendingFrames: [MobileTerminalRenderGridFrame] = []
     @ObservationIgnored private var frameQueueNeedsReplay = false
@@ -115,7 +121,9 @@ public final class HiveRemoteTerminalSession {
 
     /// Re-request a full replay snapshot, e.g. after the local mirror surface
     /// first applies its real size (a replay delivered to a zero-sized manual
-    /// surface renders nothing until the next full frame).
+    /// surface renders nothing until the next full frame). A failed request is
+    /// retried through the injected reconnect backoff so a known frame gap
+    /// cannot leave a live terminal permanently stale.
     public func refreshReplay() {
         guard phase != .idle else { return }
         guard !replayInFlight, replayTask == nil else {
@@ -124,16 +132,31 @@ public final class HiveRemoteTerminalSession {
         }
         replayTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                self.replayTask = nil
+                if !Task.isCancelled {
+                    self.scheduleReplayIfNeeded()
+                }
+            }
             do {
                 try await self.requestReplay()
+                self.replayRetryAttempt = 0
+                if self.phase == .reattaching {
+                    self.phase = .live
+                }
             } catch is CancellationError {
                 return
             } catch {
-                // The attach loop owns recovery; a manual refresh is best
-                // effort and must not create a second recovery loop.
+                // A dropped delta is a known consistency failure. Keep the
+                // replay-required flag set and retry through the injected
+                // backoff instead of leaving a live session on a gapped grid.
+                self.frameQueueNeedsReplay = true
+                self.phase = .reattaching
+                self.replayRetryAttempt += 1
+                let attempt = self.replayRetryAttempt
+                await self.retryDelay(attempt)
+                if Task.isCancelled { return }
             }
-            self.replayTask = nil
-            self.scheduleReplayIfNeeded()
         }
     }
 
@@ -244,15 +267,23 @@ public final class HiveRemoteTerminalSession {
     private func runAttachLoop() async {
         var consecutiveFailures = 0
         while !Task.isCancelled {
-            let stream: AsyncStream<MobileTerminalRenderGridFrame>
+            let subscription: FrameSubscription
             do {
                 // Register the local listener BEFORE the replay so no frame
                 // emitted between the replay response and the subscription is
                 // lost. A Mac session supplies one shared router; direct test
                 // clients retain the legacy per-session subscription path.
-                stream = try await subscribeToFrames()
-                try await requestReplay()
-                guard !Task.isCancelled else { return }
+                subscription = try await subscribeToFrames()
+                do {
+                    try await requestReplay()
+                } catch {
+                    subscription.cancel()
+                    throw error
+                }
+                guard !Task.isCancelled else {
+                    subscription.cancel()
+                    return
+                }
                 consecutiveFailures = 0
                 phase = .live
                 startInputWorkerIfNeeded()
@@ -265,10 +296,16 @@ public final class HiveRemoteTerminalSession {
                 await retryDelay(consecutiveFailures)
                 continue
             }
-            for await frame in stream {
-                guard !Task.isCancelled else { return }
+            for await frame in subscription.stream {
+                guard !Task.isCancelled else {
+                    subscription.cancel()
+                    return
+                }
                 enqueueFrame(frame)
             }
+            // Covers both transport EOF and cancellation before the next
+            // attach attempt; cancellation is idempotent after normal EOF.
+            subscription.cancel()
             // Stream finished: transport died. Re-subscribe + re-replay.
             if Task.isCancelled { return }
             phase = .reattaching
@@ -277,11 +314,12 @@ public final class HiveRemoteTerminalSession {
         }
     }
 
-    private func subscribeToFrames() async throws -> AsyncStream<MobileTerminalRenderGridFrame> {
+    private func subscribeToFrames() async throws -> FrameSubscription {
         if let renderGridRouter {
-            return renderGridRouter.stream(for: terminalID) { [weak self] in
+            let subscription = renderGridRouter.subscription(for: terminalID) { [weak self] in
                 self?.renderGridOverflowed()
             }
+            return FrameSubscription(stream: subscription.stream, cancel: subscription.cancel)
         }
 
         let envelopes = await client.subscribe(to: ["terminal.render_grid"])
@@ -311,12 +349,20 @@ public final class HiveRemoteTerminalSession {
             continuation.finish()
         }
         continuation.onTermination = { _ in task.cancel() }
-        return stream
+        return FrameSubscription(
+            stream: stream,
+            cancel: { @MainActor in
+                continuation.finish()
+                task.cancel()
+            }
+        )
     }
 
     private func requestReplay() async throws {
         guard !replayInFlight else { return }
         replayInFlight = true
+        frameQueueNeedsReplay = false
+        var replaySucceeded = false
         let allowingFullReset = phase != .live
         let previousApplyTask = frameApplyTask
         frameApplyTask = nil
@@ -326,10 +372,14 @@ public final class HiveRemoteTerminalSession {
         let replayFloor = grid.stateSeq
         defer {
             replayInFlight = false
-            if frameQueueNeedsReplay {
-                scheduleReplayIfNeeded()
+            if !replaySucceeded {
+                frameQueueNeedsReplay = true
             } else {
-                startFrameApplyIfNeeded()
+                if frameQueueNeedsReplay {
+                    scheduleReplayIfNeeded()
+                } else {
+                    startFrameApplyIfNeeded()
+                }
             }
         }
         let request = try MobileCoreRPCClient.requestData(
@@ -362,6 +412,7 @@ public final class HiveRemoteTerminalSession {
         where bufferedFrame.stateSeq > grid.stateSeq {
             applyFrame(bufferedFrame)
         }
+        replaySucceeded = true
     }
 
     private func enqueueFrame(_ frame: MobileTerminalRenderGridFrame) {

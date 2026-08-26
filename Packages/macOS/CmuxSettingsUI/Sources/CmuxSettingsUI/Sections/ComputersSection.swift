@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -150,7 +151,7 @@ public struct ComputersSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(isPairingCode || codeInput.filter(\.isNumber).count != 6)
+                .disabled(isPairingCode || CmxPairingCode.normalizedClaimInput(codeInput) == nil)
                 .accessibilityIdentifier("SettingsComputersPairingCodePairButton")
             }
         }
@@ -284,7 +285,7 @@ public struct ComputersSection: View {
 
     private func pairFromCode() {
         let code = codeInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !isPairingCode, code.filter(\.isNumber).count == 6 else { return }
+        guard !isPairingCode, CmxPairingCode.normalizedClaimInput(code) != nil else { return }
         isPairingCode = true
         pairResult = nil
         Task {

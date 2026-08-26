@@ -10,6 +10,12 @@ import Foundation
 /// surface avoids decoding the same event once per mounted terminal.
 @MainActor
 public final class HiveRemoteRenderGridRouter {
+    /// An individually cancellable surface subscription.
+    struct Subscription {
+        let stream: AsyncStream<MobileTerminalRenderGridFrame>
+        let cancel: @MainActor () -> Void
+    }
+
     private struct Listener {
         let surfaceID: String
         let continuation: AsyncStream<MobileTerminalRenderGridFrame>.Continuation
@@ -39,6 +45,22 @@ public final class HiveRemoteRenderGridRouter {
         for surfaceID: String,
         onOverflow: @escaping () -> Void = {}
     ) -> AsyncStream<MobileTerminalRenderGridFrame> {
+        subscription(for: surfaceID, onOverflow: onOverflow).stream
+    }
+
+    /// Creates a surface stream with an explicit cancellation handle.
+    ///
+    /// The handle is required when an initial replay fails before the caller
+    /// begins iterating the stream; dropping an ``AsyncStream`` value alone
+    /// does not release the router's continuation.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: The terminal surface to route.
+    ///   - onOverflow: Called when the bounded stream drops a frame.
+    func subscription(
+        for surfaceID: String,
+        onOverflow: @escaping () -> Void = {}
+    ) -> Subscription {
         let id = UUID()
         let (stream, continuation) = AsyncStream<MobileTerminalRenderGridFrame>.makeStream(
             bufferingPolicy: .bufferingNewest(256)
@@ -54,7 +76,12 @@ public final class HiveRemoteRenderGridRouter {
             }
         }
         startSourceIfNeeded()
-        return stream
+        return Subscription(
+            stream: stream,
+            cancel: { [weak self] in
+                self?.removeListener(id: id)
+            }
+        )
     }
 
     /// Stop the shared listener and finish every surface stream.
@@ -72,6 +99,16 @@ public final class HiveRemoteRenderGridRouter {
         let client = self.client
         sourceTask = Task { [weak self] in
             let source = await client.subscribe(to: ["terminal.render_grid"])
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.events.subscribe",
+                    params: ["topics": ["terminal.render_grid"]]
+                )
+                _ = try await client.sendRequest(request)
+            } catch {
+                self?.finishSource(generation: generation)
+                return
+            }
             for await envelope in source {
                 guard !Task.isCancelled,
                       let payload = envelope.payloadJSON else { continue }
@@ -110,7 +147,8 @@ public final class HiveRemoteRenderGridRouter {
     }
 
     private func removeListener(id: UUID) {
-        listeners.removeValue(forKey: id)
+        guard let listener = listeners.removeValue(forKey: id) else { return }
+        listener.continuation.finish()
         if listeners.isEmpty {
             stop()
         }

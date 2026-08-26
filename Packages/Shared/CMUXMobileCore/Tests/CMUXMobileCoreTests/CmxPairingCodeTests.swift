@@ -62,6 +62,7 @@ struct CmxPairingCodeTests {
         #expect(CmxPairingCode.normalizedClaimInput("042-117") == "042117")
         #expect(CmxPairingCode.normalizedClaimInput("42117") == nil)
         #expect(CmxPairingCode.normalizedClaimInput("0421178") == nil)
+        #expect(CmxPairingCode.normalizedClaimInput("０４２１１７") == nil)
         #expect(CmxPairingCode.normalizedClaimInput("") == nil)
     }
 }

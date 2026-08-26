@@ -91,7 +91,14 @@ public struct CmxPairingCode: Equatable, Sendable {
     /// - Returns: The digit string, or `nil` unless exactly 6 digits remain.
     // lint:allow namespace-type — normalization is part of this value's claim grammar.
     public static func normalizedClaimInput(_ rawInput: String) -> String? {
-        let digits = rawInput.filter(\.isNumber)
+        let digits = String(rawInput.compactMap { character -> Character? in
+            guard character.unicodeScalars.count == 1,
+                  let scalar = character.unicodeScalars.first,
+                  (48...57).contains(scalar.value) else {
+                return nil
+            }
+            return character
+        })
         return digits.count == 6 ? digits : nil
     }
 
