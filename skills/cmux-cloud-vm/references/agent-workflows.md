@@ -8,9 +8,11 @@ The routed path — no machine id anywhere:
 
 ```bash
 cmux vm run --sync -- bun install                                # --sync runs the command inside the synced work/<dir>
-cmux vm run --sync -- sh -c 'nohup bun run dev > /tmp/dev.log 2>&1 &'
-# wait for the port, not a fixed delay; fail loudly with the log if it never comes up
-cmux vm run -- sh -c 'for i in $(seq 1 60); do wget -qO- http://localhost:3000 >/dev/null 2>&1 && exit 0; sleep 1; done; tail -n 20 /tmp/dev.log; exit 1'
+# idempotent start: reuse a live server on the port, otherwise launch one with a
+# workspace-scoped pidfile/log so a later run can tell whose server it is talking to
+cmux vm run --sync -- sh -c 'if wget -qO- http://localhost:3000 >/dev/null 2>&1; then echo "dev server already up (pid $(cat .cmux-dev.pid 2>/dev/null))"; else rm -f .cmux-dev.log; nohup bun run dev > .cmux-dev.log 2>&1 & echo $! > .cmux-dev.pid; fi'
+# wait for the port, not a fixed delay; fail loudly with this run's log if it never comes up
+cmux vm run --sync -- sh -c 'for i in $(seq 1 60); do wget -qO- http://localhost:3000 >/dev/null 2>&1 && exit 0; sleep 1; done; tail -n 20 .cmux-dev.log; exit 1'
 id=$(cmux vm run --json -- true | jq -r '.machine')             # the machine the router bound
 cmux vm open "$id" 3000 --print                                 # tokened URL to give the user
 ```
@@ -43,11 +45,13 @@ Public repos can just clone on the machine: `cmux vm exec <id> -- git clone http
 ## 3. Builds and tests in the cloud instead of the local Mac
 
 ```bash
-cmux vm exec <id> -- sh -c 'cd work/app && nohup sh -c "make test > /tmp/test.log 2>&1; echo \$? > /tmp/test.status" >/dev/null 2>&1 &'
-# poll instead of holding a long exec open: the status file appears only when the
-# run finishes and holds its exit code, so pass/fail is never ambiguous
-cmux vm exec <id> -- sh -c 'cat /tmp/test.status 2>/dev/null || echo running'
-cmux vm exec <id> -- tail -n 30 /tmp/test.log
+# run-scoped paths: a reused machine may hold an older run's log and status
+run=test-$(date +%s)
+cmux vm exec <id> -- sh -c "cd work/app && rm -f /tmp/$run.log /tmp/$run.status && nohup sh -c 'make test > /tmp/$run.log 2>&1; echo \$? > /tmp/$run.status.tmp && mv /tmp/$run.status.tmp /tmp/$run.status' >/dev/null 2>&1 &"
+# poll instead of holding a long exec open: the status file appears (atomically) only
+# when this run finishes and holds its exit code, so pass/fail is never ambiguous
+cmux vm exec <id> -- sh -c "cat /tmp/$run.status 2>/dev/null || echo running"
+cmux vm exec <id> -- tail -n 30 /tmp/$run.log
 # bring artifacts home
 cmux vm pull <id> work/app/dist ./dist-from-cloud
 ```

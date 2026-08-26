@@ -861,6 +861,33 @@ extension CMUXCLI {
         try? data.write(to: storeURL, options: [.atomic])
     }
 
+    /// Read-modify-write on the pool store under an exclusive advisory lock, so
+    /// two `vm run` processes provisioning at once cannot each write a set that
+    /// only contains its own machine (atomic replacement alone loses the other
+    /// id). The lock file sits beside the store; `flock` releases it on close
+    /// even if the process dies mid-update.
+    static func updateVMRunPool(at url: URL? = nil, _ mutate: (inout Set<String>) -> Void) {
+        let storeURL = url ?? vmRunPoolStoreURL()
+        try? FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let lockPath = storeURL.path + ".lock"
+        let lockFD = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        if lockFD >= 0 {
+            _ = flock(lockFD, LOCK_EX)
+        }
+        defer {
+            if lockFD >= 0 {
+                _ = flock(lockFD, LOCK_UN)
+                close(lockFD)
+            }
+        }
+        var machines = loadVMRunPool(from: storeURL)
+        mutate(&machines)
+        saveVMRunPool(machines, to: storeURL)
+    }
+
     /// Routing policy, in order:
     /// 1. `--machine` bypasses routing entirely.
     /// 2. Awake pool machines under the busy threshold, least-loaded first.
@@ -893,7 +920,9 @@ extension CMUXCLI {
             let liveIDs = Set(vms.compactMap { $0["id"] as? String })
             let prunedPoolIDs = poolIDs.intersection(liveIDs)
             if prunedPoolIDs != poolIDs {
-                Self.saveVMRunPool(prunedPoolIDs)
+                // Only drop ids that are gone; a concurrent create may have added
+                // one between our load and this write.
+                Self.updateVMRunPool { machines in machines.formIntersection(liveIDs) }
             }
             let pool = vms.filter { vm in
                 guard let id = vm["id"] as? String else { return false }
@@ -966,7 +995,7 @@ extension CMUXCLI {
         }
         // Membership is recorded before anything else can fail: this is what
         // makes the machine eligible for reuse by later runs.
-        Self.saveVMRunPool(Self.loadVMRunPool().union([id]))
+        Self.updateVMRunPool { machines in machines.insert(id) }
         // The label is cosmetic (membership is already recorded), but without it
         // the machine is not recognizable as pool in `vm ls`, so say so.
         do {

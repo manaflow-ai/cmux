@@ -44,6 +44,8 @@ cmux vm run -- <command...>
 cmux vm run --sync -- bun test                 # push cwd to work/<basename>, run there
 cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
 cmux vm run --machine <id> -- <command...>     # pin; --new forces a fresh pool machine
+# --sync is additive: files that exist only on the machine are kept. For a clean
+# slate use --new, or `cmux vm run -- rm -rf work/<dir>` before syncing again.
 cmux vm run --size 16g --new -- <command...>   # size applies to machines this run creates
 
 cmux vm exec <id> -- <command...>      # run a command; remote exit code passes through

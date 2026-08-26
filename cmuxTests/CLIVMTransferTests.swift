@@ -429,6 +429,90 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(pool?["machines"] as? [String], ["fresh-1"], "membership must be persisted, not inferred from the label")
     }
 
+    /// Two routers provisioning at the same moment must both end up in the pool
+    /// store; a plain load-modify-save would let the last writer drop the other id.
+    func testVMRunConcurrentProvisionsKeepBothMachinesInPool() throws {
+        let cliPath = try bundledCLIPath()
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-run-home-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: isolatedHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
+        var sockets: [(path: String, fd: Int32, state: MockSocketServerState, handled: XCTestExpectation)] = []
+        defer {
+            for socket in sockets {
+                Darwin.close(socket.fd)
+                unlink(socket.path)
+            }
+        }
+        for machine in ["fresh-a", "fresh-b"] {
+            let socketPath = makeSocketPath("vm-run-race-\(machine)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                if line.hasPrefix("auth ") { return "OK" }
+                guard let request = self.jsonObject(line),
+                      let id = request["id"] as? String,
+                      let method = request["method"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                switch method {
+                case "vm.list":
+                    return self.v2Response(id: id, ok: true, result: ["vms": []])
+                case "vm.create":
+                    // Hold the create open so both processes are provisioning at once.
+                    Thread.sleep(forTimeInterval: 1.0)
+                    return self.v2Response(id: id, ok: true, result: ["id": machine, "provider": "blaxel", "status": "running", "image": "blaxel/base-image:latest"])
+                case "vm.rename":
+                    return self.v2Response(id: id, ok: true, result: ["id": machine, "displayName": "agent-pool"])
+                case "vm.status":
+                    return self.v2Response(id: id, ok: true, result: ["id": machine, "provider": "blaxel", "status": "running"])
+                case "vm.exec":
+                    return self.vmExecOKResponse(id: id, stdout: "\(machine)\n")
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+                }
+            }
+            sockets.append((socketPath, listenerFD, state, handled))
+        }
+
+        let group = DispatchGroup()
+        let resultsLock = NSLock()
+        var results: [ProcessResult] = []
+        for socket in sockets {
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socket.path
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            environment["HOME"] = isolatedHome.path
+            group.enter()
+            DispatchQueue.global().async {
+                let result = self.runProcess(
+                    executablePath: cliPath,
+                    arguments: ["vm", "run", "--new", "--", "hostname"],
+                    environment: environment,
+                    timeout: 60
+                )
+                resultsLock.lock()
+                results.append(result)
+                resultsLock.unlock()
+                group.leave()
+            }
+        }
+        XCTAssertEqual(group.wait(timeout: .now() + 90), .success, "both routers should finish")
+        wait(for: sockets.map(\.handled), timeout: 30)
+        for result in results {
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        }
+        let poolData = try Data(contentsOf: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
+        let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
+        XCTAssertEqual(
+            Set((pool?["machines"] as? [String]) ?? []),
+            ["fresh-a", "fresh-b"],
+            "a concurrent create must not drop the other router's machine from the pool"
+        )
+    }
+
     func testVMRunPrefersStickyBoundMachine() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-run-sticky")
