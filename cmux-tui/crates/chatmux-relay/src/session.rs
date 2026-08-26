@@ -289,6 +289,14 @@ impl OutboundSink {
         self.try_critical_value_with_token_pending(frame, None, PendingBytes::none())
     }
 
+    pub(crate) fn try_critical_value_with_pending(
+        &self,
+        frame: Value,
+        pending: PendingBytes,
+    ) -> Result<(), ()> {
+        self.try_critical_value_with_token_pending(frame, None, pending)
+    }
+
     pub(crate) fn try_critical_value_with_token(
         &self,
         frame: Value,

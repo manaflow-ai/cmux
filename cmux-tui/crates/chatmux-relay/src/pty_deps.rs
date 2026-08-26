@@ -769,7 +769,7 @@ impl PtyDeps for RealPtyDeps {
             if dir.as_os_str().is_empty() {
                 continue;
             }
-            let candidate = Path::new(dir).join("cmux-tui");
+            let candidate = dir.join("cmux-tui");
             if is_executable(&candidate).await {
                 return Some(CmuxTui {
                     file: candidate.to_string_lossy().into_owned(),
