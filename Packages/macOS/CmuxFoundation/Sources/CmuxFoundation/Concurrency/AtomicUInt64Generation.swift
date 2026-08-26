@@ -33,6 +33,14 @@ public final class AtomicUInt64Generation: @unchecked Sendable {
         CmuxAtomicUInt64LoadRelaxed(storage)
     }
 
+    /// Returns the current generation with acquire ordering.
+    ///
+    /// Use this when a generation also publishes lifecycle state written by
+    /// the thread that advanced it.
+    public func loadAcquire() -> UInt64 {
+        CmuxAtomicUInt64LoadAcquire(storage)
+    }
+
     /// Atomically advances the generation and returns its new value.
     ///
     /// The counter saturates at `UInt64.max` instead of wrapping, preserving
@@ -43,5 +51,15 @@ public final class AtomicUInt64Generation: @unchecked Sendable {
     @inline(__always)
     public func advanceRelaxed() -> UInt64 {
         CmuxAtomicUInt64AdvanceRelaxed(storage)
+    }
+
+    /// Advances the generation with release ordering and returns its new value.
+    ///
+    /// A matching ``loadAcquire()`` observes the publication boundary.
+    ///
+    /// - Returns: The generation immediately following the prior value, or
+    ///   ``UInt64.max`` when the counter is already saturated.
+    public func advanceRelease() -> UInt64 {
+        CmuxAtomicUInt64AdvanceRelease(storage)
     }
 }

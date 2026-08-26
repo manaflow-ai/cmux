@@ -64,7 +64,7 @@ actor GhosttyPointerStyleIngress {
     /// Registers a native runtime before Ghostty can emit its first action.
     @discardableResult
     nonisolated func activate(runtimeLifetimeId: UUID, surfaceId: UUID) -> UInt64 {
-        let generation = runtimeGeneration.advanceRelaxed()
+        let generation = runtimeGeneration.advanceRelease()
         Task {
             await self.activateIsolated(
                 runtimeLifetimeId: runtimeLifetimeId,
@@ -79,7 +79,7 @@ actor GhosttyPointerStyleIngress {
         // Retirement only tombstones the lifetime. The next activation owns
         // generation advancement; an old delayed teardown must not invalidate
         // callbacks from the replacement runtime.
-        let generation = runtimeGeneration.loadRelaxed()
+        let generation = runtimeGeneration.loadAcquire()
         Task {
             await self.retireIsolated(
                 runtimeLifetimeId: runtimeLifetimeId,
@@ -100,17 +100,17 @@ actor GhosttyPointerStyleIngress {
 
     /// Captures one callback without waiting for the main actor.
     nonisolated func submit(_ request: GhosttyPointerStyleIngressRequest) {
-        guard request.runtimeGeneration == runtimeGeneration.loadRelaxed() else {
+        guard request.runtimeGeneration == runtimeGeneration.loadAcquire() else {
             return
         }
         var request = request
         request.focusGeneration = focusGeneration.loadRelaxed()
-        request.sequence = submissionSequence.advanceRelaxed()
+        request.sequence = submissionSequence.advanceRelease()
         switch request.event {
         case .runtimeReset, .runtimeEnded:
             // Lifecycle transitions use a separate bounded channel so a
             // burst of shape/link callbacks cannot evict a required reset.
-            request.lifecycleSequence = lifecycleSubmissionSequence.advanceRelaxed()
+            request.lifecycleSequence = lifecycleSubmissionSequence.advanceRelease()
             lifecycleContinuation.yield(request)
         case .activate, .retire(_), .shape, .linkHover:
             continuation.yield(request)
@@ -268,7 +268,7 @@ actor GhosttyPointerStyleIngress {
         guard !state.drainScheduled else { return }
         state.drainScheduled = true
         let surfaceView = self.surfaceView
-        let lifecycleBarrier = lifecycleSubmissionSequence.loadRelaxed()
+        let lifecycleBarrier = lifecycleSubmissionSequence.loadAcquire()
         Task { @MainActor [weak self, weak surfaceView] in
             guard let self else { return }
             let pending = await self.takePending(
@@ -305,9 +305,10 @@ actor GhosttyPointerStyleIngress {
                         continue
                     }
                     let eventFocusGeneration: UInt64?
-                    if case .linkHover = request.event {
+                    switch request.event {
+                    case .shape, .linkHover:
                         eventFocusGeneration = request.focusGeneration
-                    } else {
+                    case .activate, .retire(_), .runtimeReset, .runtimeEnded:
                         eventFocusGeneration = nil
                     }
                     surfaceView.applyTerminalPointerStyle(
