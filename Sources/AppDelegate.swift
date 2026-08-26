@@ -1393,6 +1393,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Composition root for the Cloud tree: the Machines panel and the pane drop path
+        // resolve the service through this accessor; the `vm.*` socket verbs use the
+        // same instance, so every entrypoint shares one open path.
+        CloudTreeServiceAccess.shared = CloudTreeService.shared
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(
@@ -8563,14 +8567,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         for manager in managers {
             let doomed = manager.tabs.filter { workspace in
-                workspace.remoteConfiguration?.managedCloudVMID?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased() == target
+                workspace.cloudVMID?.lowercased() == target
             }
             for workspace in doomed {
                 manager.closeWorkspace(workspace)
             }
         }
+        // The sidebar's headless link to that machine has nothing left to talk to.
+        CloudTreeService.shared.machineWasDeleted(vmID.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The local workspace attached to a cloud machine, through either transport: the
+    /// legacy remote configuration or the cmux-tui binding. Base wins over other
+    /// workspaces of the same machine.
+    func workspace(forCloudVMID vmID: String) -> Workspace? {
+        let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !target.isEmpty else { return nil }
+        let candidates = liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager)
+            .flatMap(\.tabs)
+            .filter { $0.cloudVMID?.lowercased() == target }
+        return candidates.first(where: { $0.cloudVMBinding?.isBase == true }) ?? candidates.first
+    }
+
+    /// The workspace that currently hosts a surface, across every window.
+    func workspace(containingSurfaceID surfaceID: UUID) -> Workspace? {
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager) {
+            if let workspace = manager.tabs.first(where: { $0.panels[surfaceID] != nil }) {
+                return workspace
+            }
+        }
+        return nil
     }
 
     /// Tear down every local Cloud VM attachment before the auth session is
@@ -8619,13 +8645,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentCloudVMId(tabManager: TabManager) -> String? {
         guard let workspaceId = tabManager.selectedTabId,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let vmID = workspace.remoteConfiguration?.managedCloudVMID?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !vmID.isEmpty else {
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
             return nil
         }
-        return vmID
+        return workspace.cloudVMID
     }
 
     private func promptForCloudVMSnapshotId(preferredWindow: NSWindow?) -> String? {

@@ -6954,11 +6954,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     var isManagedCloudVMWorkspace: Bool {
-        guard let managedCloudVMID = remoteConfiguration?.managedCloudVMID?
-            .trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return false
+        cloudVMID != nil
+    }
+
+    /// The cloud machine this workspace hosts, through either transport: the legacy
+    /// remote configuration (`managedCloudVMID`) or the cmux-tui binding. Nil for
+    /// workspaces that are not cloud machines.
+    var cloudVMID: String? {
+        if let managedCloudVMID = remoteConfiguration?.managedCloudVMID?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !managedCloudVMID.isEmpty {
+            return managedCloudVMID
         }
-        return !managedCloudVMID.isEmpty
+        return cloudVMBinding?.vmID
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {

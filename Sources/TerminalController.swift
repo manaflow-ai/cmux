@@ -2832,6 +2832,12 @@ class TerminalController {
             "vm.ssh_info",
             "vm.sessions",
             "vm.session_attach_info",
+            "vm.tree",
+            "vm.terminal_open",
+            "vm.terminal_new",
+            "vm.desktop_open",
+            "vm.port_open",
+            "vm.link_socket",
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
@@ -7110,7 +7116,10 @@ class TerminalController {
         return resolveBrowserNavigableURL(trimmed) ?? URL(string: trimmed)
     }
 
-    private func v2BrowserOpenSplit(
+    // Internal (not private): `CloudTreeService.openDesktop/openPort` open the same browser
+    // split the socket verb does, so the sidebar, `cmux vm desktop`, and `cmux vm open` share
+    // one path.
+    func v2BrowserOpenSplit(
         params: [String: Any],
         diffViewerRegistration: DiffViewerSessionPreparation
     ) -> V2CallResult {
