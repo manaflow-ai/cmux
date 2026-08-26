@@ -33,6 +33,16 @@ import Testing
         #expect(url?.absoluteString == "https://github.com/owner/repo/blob/feat/foo/README.md")
     }
 
+    @Test func branchSegmentWithHashIsPercentEncoded() {
+        let url = GitMetadataService.githubWebURL(
+            slug: "owner/repo",
+            branch: "feature#123",
+            relativePathFromWorkTreeRoot: "README.md",
+            resource: .file
+        )
+        #expect(url?.absoluteString == "https://github.com/owner/repo/blob/feature%23123/README.md")
+    }
+
     @Test func pathSegmentWithSpaceIsPercentEncoded() {
         let url = GitMetadataService.githubWebURL(
             slug: "owner/repo",
