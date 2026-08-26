@@ -514,7 +514,7 @@ struct AgentArtifactCaptureCoordinatorTests {
                         output: "notes.md",
                         exitCode: 0,
                         isRunning: false
-                    ))
+                    )))
                 ],
                 updated: [],
                 discoveredTitle: nil

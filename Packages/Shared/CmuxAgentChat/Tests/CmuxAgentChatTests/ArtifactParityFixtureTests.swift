@@ -117,15 +117,15 @@ struct ArtifactParityFixtureTests {
         try expectCodex("/private/tmp/parity/A2-new.txt", provenance: .created)
     }
 
-    @Test("A3 old custom apply-patch markers are Created")
+    @Test("A3 old custom apply-patch markers remain referenced")
     func a3() throws {
-        try expectCodex("/private/tmp/parity/A3-add.txt", provenance: .created)
-        try expectCodex("/private/tmp/parity/A3-update.txt", provenance: .created)
+        try expectCodex("/private/tmp/parity/A3-add.txt", provenance: .referenced)
+        try expectCodex("/private/tmp/parity/A3-update.txt", provenance: .referenced)
     }
 
-    @Test("A4 deleted-later file remains lexical")
+    @Test("A4 deleted-later file remains a reference")
     func a4() throws {
-        try expectCodex("/private/tmp/parity/A4-deleted.txt", provenance: .created)
+        try expectCodex("/private/tmp/parity/A4-deleted.txt", provenance: .referenced)
     }
 
     @Test("N1 tmp aliases merge")

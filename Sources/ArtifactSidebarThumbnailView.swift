@@ -59,7 +59,7 @@ struct ArtifactSidebarThumbnailView: View {
                 for: fileURL,
                 artifactRoot: artifactRoot
             )
-            guard let temporaryURL else { return }
+            guard temporaryURL != nil else { return }
         } else {
             temporaryURL = nil
         }

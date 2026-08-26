@@ -31,7 +31,6 @@ extension ContentView {
             NSSound.beep()
             return
         }
-        let safeURL = openedFile.sourceURL
         sidebarSelectionState.selection = .tabs
         switch artifact.fileKind {
         case .html:
