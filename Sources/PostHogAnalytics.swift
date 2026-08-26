@@ -120,6 +120,11 @@ final class PostHogAnalytics: @unchecked Sendable {
         let config = PostHogConfig(apiKey: apiKey, host: host)
         config.captureApplicationLifecycleEvents = false
         config.captureScreenViews = false
+        // CmuxFeatureFlags is the flag control plane (via /api/client-config).
+        // Nothing reads SDK-loaded flags at runtime, so the SDK's own startup
+        // /flags request is a duplicate billable PostHog feature-flag request
+        // per launch across the whole fleet.
+        config.preloadFeatureFlags = false
 #if DEBUG
         config.debug = ProcessInfo.processInfo.environment["CMUX_POSTHOG_DEBUG"] == "1"
 #endif
