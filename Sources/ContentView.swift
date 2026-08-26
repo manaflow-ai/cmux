@@ -11972,10 +11972,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-        private func workspaceTableActions(
+    private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
-        SidebarWorkspaceTableActions(
+        var actions = SidebarWorkspaceTableActions(
             attachScrollView: { scrollView in
                 dragAutoScrollController.attach(scrollView: scrollView)
             },
@@ -12107,13 +12107,13 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             setBonsplitDropIndicator: { indicator in
                 dragState.setDropIndicator(indicator)
-            },
-            workspaceIdForDrag: { [weak tabManager] rowId, fallbackId in
-                guard case .group(let groupId) = rowId else { return fallbackId }
-                return tabManager?.workspaceGroupAnchor(for: groupId)?.id ?? fallbackId
             }
         )
-
+        actions.workspaceIdForDrag = { [weak tabManager] rowId, fallbackId in
+            guard case .group(let groupId) = rowId else { return fallbackId }
+            return tabManager?.workspaceGroupAnchor(for: groupId)?.id ?? fallbackId
+        }
+        return actions
     }
 
     /// Builds one pure-AppKit workspace row from the container-projected
