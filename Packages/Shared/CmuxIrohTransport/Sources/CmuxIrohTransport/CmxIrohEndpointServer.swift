@@ -226,7 +226,14 @@ public actor CmxIrohEndpointServer {
                     await incoming.abandon()
                     return
                 }
-                startAdmission(incoming: incoming, generation: generation)
+                guard startAdmission(incoming: incoming, generation: generation) else {
+                    // Admission is full. Abandoning here, on the loop, is
+                    // deliberate backpressure: rejection work stays bounded to
+                    // one attempt at a time instead of a remote flood minting
+                    // unowned tasks.
+                    await incoming.abandon()
+                    continue
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -250,13 +257,14 @@ public actor CmxIrohEndpointServer {
         }
     }
 
+    /// Starts one admission, or returns `false` when admission is at capacity
+    /// and the caller must abandon the attempt itself.
     private func startAdmission(
         incoming: any CmxIrohIncomingConnection,
         generation: UInt64
-    ) {
+    ) -> Bool {
         guard pendingAdmissions.count < maximumPendingAdmissions else {
-            Task { await incoming.abandon() }
-            return
+            return false
         }
         let id = UUID()
         let handler = handler
@@ -311,6 +319,7 @@ public actor CmxIrohEndpointServer {
             handlerTask: handlerTask,
             deadlineTask: deadlineTask
         )
+        return true
     }
 
     /// Records a completed handshake against its pending admission and applies
