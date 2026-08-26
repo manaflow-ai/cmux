@@ -48,7 +48,7 @@ struct SidebarWorkspaceTableTests {
 #if DEBUG
     @Test
     @MainActor
-    func pendingNativeWorkspaceDragKeepsTableControllerAttachedBeforeWillBegin() async throws {
+    func abandonedWorkspaceDragWriterDoesNotRetainADeadSession() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let row = makeRowConfiguration()
@@ -62,14 +62,11 @@ struct SidebarWorkspaceTableTests {
         await flushStagedTableMutations()
 
         // AppKit asks for the writer before it invokes willBeginAt. A
-        // reconstruction in this interval must still retain the source pair.
+        // reconstruction in this interval has no native session to complete,
+        // so the provisional writer must not retain a dead source pair.
         #expect(controller.tableView(container.tableView, pasteboardWriterForRow: 0) != nil)
         controller.dismantleContainerView(container)
 
-        #expect(container.tableView.dataSource === controller)
-        #expect(container.tableView.delegate === controller)
-
-        controller.workspaceDragSessionDidEnd()
         #expect(container.tableView.dataSource == nil)
         #expect(container.tableView.delegate == nil)
     }

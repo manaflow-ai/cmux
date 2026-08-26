@@ -16899,6 +16899,19 @@ struct SidebarTabDropDelegate: DropDelegate {
         } == true
     }
 
+    /// A sidebar UTI is only a hint. SwiftUI row drops must carry the same
+    /// token as the registry's current native workspace session, otherwise a
+    /// late payload from an older drag could be applied to a newer one.
+    private func acceptsLiveSidebarPayload() -> Bool {
+        guard let currentSessionId = dragState.currentWorkspaceDragSessionId,
+              let payloadSessionId = SidebarTabDragPayload.sessionId(
+                  from: NSPasteboard(name: .drag)
+              ) else {
+            return false
+        }
+        return payloadSessionId == currentSessionId
+    }
+
     /// The destination's top-level sidebar ids (each group is represented by its
     /// anchor; members are folded into the run). A workspace moved in from
     /// another window arrives ungrouped and `attachWorkspace` normalizes it to a
@@ -16950,12 +16963,11 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     /// Mirror a foreign drag's identity into this window's `SidebarDragState`
-    /// so the existing drop-indicator, frame-anchor, and failsafe machinery —
-    /// all gated on `draggedTabId != nil` — activate unchanged. The id matches
-    /// no local row, so no row dims, and the failsafe monitor clears it on
-    /// mouse-up (and `performDrop` clears it on a successful drop).
+    /// so the existing drop-indicator and frame-anchor machinery can activate.
+    /// The native source completion clears the mirrored presentation.
     private func activateForeignDragIfNeeded() {
         guard dragState.draggedTabId == nil,
+              acceptsLiveSidebarPayload(),
               let foreignId = dragState.currentWorkspaceDragId,
               isCrossWindowDrag(foreignId),
               !isCrossWindowGroupAnchorDrag(foreignId) else { return }
@@ -16969,7 +16981,7 @@ struct SidebarTabDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         let hasType = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-        guard hasType, let draggedTabId = effectiveDraggedTabId else {
+        guard hasType, acceptsLiveSidebarPayload(), let draggedTabId = effectiveDraggedTabId else {
             #if DEBUG
             cmuxDebugLog(
                 "sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
@@ -17078,6 +17090,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         #if DEBUG
         cmuxDebugLog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
         #endif
+        guard acceptsLiveSidebarPayload() else { return false }
         guard let draggedTabId = effectiveDraggedTabId else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=missingDraggedTab")

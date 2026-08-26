@@ -54,7 +54,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var hasPendingOrActiveWorkspaceDrag: Bool {
         isWorkspaceDragSourceActive
             || pendingWorkspaceDragSessionId != nil
-            || pendingWorkspaceDragWorkspaceId != nil
     }
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
@@ -851,36 +850,30 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
         // Group headers intentionally mint their anchor payload: anchor drags
         // route to top-level whole-group plans and are rejected cross-window.
+        _ = tableView
         guard rows.indices.contains(row), let actions else { return nil }
         let rowConfiguration = rows[row]
         let workspaceId = actions.workspaceIdForDrag?(
             rowConfiguration.id,
             rowConfiguration.workspaceId
         ) ?? rowConfiguration.workspaceId
-        let currentSessionId = actions.currentWorkspaceDragSessionId?()
-        let sessionId: UUID?
-        if let pendingWorkspaceDragSessionId,
-           pendingWorkspaceDragSessionId == currentSessionId,
-           pendingWorkspaceDragWorkspaceId != nil {
-            // NSTableView may ask for one writer per selected row. One native
-            // drag has one coordinator token; reuse it instead of superseding
-            // the session for every item.
-            sessionId = pendingWorkspaceDragSessionId
-        } else {
-            actions.beginWorkspaceDrag(workspaceId)
-            sessionId = actions.currentWorkspaceDragSessionId?()
+        if pendingWorkspaceDragWorkspaceId == nil {
+            // AppKit asks for the writer before it creates an NSDraggingSession.
+            // Keep only the row identity here; the live coordinator session is
+            // created in `willBeginAt`, so a writer that is abandoned during a
+            // reconstruction cannot leave a dead registry entry behind.
             pendingWorkspaceDragWorkspaceId = workspaceId
         }
-        pendingWorkspaceDragSessionId = sessionId
-        retainWorkspaceDragSource(tableView)
         let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
-        return SidebarTabDragPayload(tabId: payloadWorkspaceId, sessionId: sessionId).pasteboardItem()
+        return SidebarTabDragPayload(
+            tabId: payloadWorkspaceId,
+            sessionId: pendingWorkspaceDragSessionId
+        ).pasteboardItem()
     }
 
-    /// Retains the table/controller pair as soon as AppKit asks for a drag
-    /// writer. This closes the small window before `willBeginAt` where a
-    /// fullscreen/display rebuild could otherwise dismantle the representable
-    /// and release the delegate before AppKit's terminal callback.
+    /// Retains the table/controller pair once AppKit has created the native
+    /// session. This keeps the delegate alive through fullscreen/display
+    /// reconstruction until AppKit's terminal callback.
     private func retainWorkspaceDragSource(_ tableView: NSTableView) {
         guard let tableView = tableView as? SidebarWorkspaceTableViewImpl else { return }
         activeWorkspaceDragTableView = tableView
@@ -1027,6 +1020,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         restoreVisibleCellPaint()
+    }
+
+    /// Drops a provisional writer identity before a new mouse gesture. A
+    /// writer can be requested before AppKit creates a native session; if that
+    /// gesture is abandoned, the next press must not reuse its workspace id.
+    func prepareForMouseDown() {
+        guard !isWorkspaceDragSourceActive else { return }
+        pendingWorkspaceDragSessionId = nil
+        pendingWorkspaceDragWorkspaceId = nil
     }
 
     func workspaceDragSessionDidEnd() {

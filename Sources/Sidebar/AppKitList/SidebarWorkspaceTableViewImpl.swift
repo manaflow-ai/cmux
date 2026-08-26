@@ -52,6 +52,7 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        workspaceController?.prepareForMouseDown()
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
         // No selection paint on press: the highlight applies on down-then-up
