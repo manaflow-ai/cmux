@@ -6537,6 +6537,19 @@ struct CMUXCLI {
                     client: client,
                     explicitPassword: socketPasswordArg
                 )
+            } catch let error as CLIError {
+                let originalStatus = SSHPTYAttachExitCode(rawValue: error.exitCode)
+                if sshPTYAttachManagedReconnectPresentation(),
+                   let originalStatus,
+                   sshPTYAttachWrapperWillRetry(originalStatus) {
+                    let managedStatus = originalStatus.managedRetryStatus(for: error.message)
+                    cliDebugLog(
+                        "ssh.pty.attach.retry status=\(managedStatus.rawValue) " +
+                            "original=\(originalStatus.rawValue) detail=\(error.message)"
+                    )
+                    Darwin.exit(managedStatus.rawValue)
+                }
+                throw error
             }
         case "ssh-session-list":
             try runSSHSessionList(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -11377,8 +11390,8 @@ struct CMUXCLI {
                 options: sshOptions,
                 remoteShellCommand: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
-                passwordCredential: sshOptions.passwordCredential,
-                controlPathPreflightShellFunction: controlPathPreflightShellFunction
+                foregroundAuthToken: deferredRemoteReconnectToken,
+                passwordCredential: sshOptions.passwordCredential
             )
             initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
@@ -12438,87 +12451,35 @@ struct CMUXCLI {
         options: SSHCommandOptions,
         remoteShellCommand: String,
         localCommandScript: String?,
-        passwordCredential: String?,
-        controlPathPreflightShellFunction: String?
+        foregroundAuthToken: String,
+        passwordCredential: String?
     ) -> String {
-        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
-        var authArguments = sshArgumentsOverridingHostRemoteCommand(
-            baseSSHArguments(invocationOptions)
-        )
-        authArguments += ["-T", options.destination, "true"]
-        let authCommand = authArguments.map(shellQuote).joined(separator: " ")
-        let attachAttemptScript = buildSSHPTYAttachScriptBody(
-            remoteShellCommand: remoteShellCommand
-        )
-        let attachAttemptCommand = "/bin/sh -c \(shellQuote(attachAttemptScript))"
-        let registeredAttachAttemptCommand = [
-            "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi",
-            attachAttemptCommand,
-        ].joined(separator: "\n")
-        let attachScript = SSHPTYAttachExitCode.noProgressRetryLoopLines(
-            command: registeredAttachAttemptCommand
-        ).joined(separator: "\n")
-        var authScriptLines: [String] = []
-        let sharingOptions = SSHConnectionSharingOptions()
-        let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(
+        let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: options.destination,
             port: options.port,
-            options: effectiveSSHOptions(options.sshOptions, remoteRelayPort: options.remoteRelayPort)
+            identityFile: normalizedSSHIdentityPath(options.identityFile),
+            sshOptions: effectiveSSHOptions(
+                options.sshOptions,
+                remoteRelayPort: options.remoteRelayPort
+            ),
+            token: foregroundAuthToken,
+            postAuthenticationCommand: localCommandScript
         )
-        if let lockPath = authenticationLockPath {
-            let inFlightPath = lockPath + ".inflight"
-            authScriptLines += [
-                "umask 077",
-                "cmux_ssh_auth_inflight_path=\(shellQuote(inFlightPath))",
-                "cmux_ssh_auth_lock_path=\(shellQuote(lockPath))",
-                "printf '%s\\n' \"$$\" > \"$cmux_ssh_auth_inflight_path\" || exit 255",
-                "cmux_ssh_clear_auth_inflight() { if [ \"$(/bin/cat -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true)\" = \"$$\" ]; then /bin/rm -f -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true; fi; }",
-                "trap 'cmux_ssh_clear_auth_inflight' EXIT",
-                "trap 'cmux_ssh_clear_auth_inflight; exit 129' HUP",
-                "trap 'cmux_ssh_clear_auth_inflight; exit 130' INT",
-                "trap 'cmux_ssh_clear_auth_inflight; exit 143' TERM",
-                ": >> \"$cmux_ssh_auth_lock_path\" || exit 255",
-                "zmodload zsh/system || exit 255",
-                "zsystem flock -t 45 -e -f cmux_ssh_auth_lock_fd \"$cmux_ssh_auth_lock_path\" || exit 255",
-            ]
-            if let controlPathPreflightShellFunction {
-                authScriptLines.append(controlPathPreflightShellFunction)
-            }
-        }
-        if controlPathPreflightShellFunction != nil {
-            authScriptLines.append("cmux_ssh_preflight_control_path")
-        }
-        authScriptLines += [
-            "command \(authCommand) <&0",
-            "cmux_auth_status=$?",
-            "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
-        ]
-        if authenticationLockPath != nil {
-            authScriptLines += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
-        }
-        authScriptLines.append("exit 0")
-        let authScript = SSHForegroundAuthenticationRetryPolicy().classifyingTransientFailure(
-            in: authScriptLines.joined(separator: "\n")
+        let attachCommand = SSHPTYAttachStartupCommandBuilder.command(
+            foregroundAuth: foregroundAuth,
+            remoteCommand: remoteShellCommand,
+            requireExisting: false
         )
-        var foregroundAuthScriptLines = [
-            authScript,
-            "cmux_auth_status=$?",
-            "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
-        ]
-        if let localCommandScript = localCommandScript?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !localCommandScript.isEmpty {
-            foregroundAuthScriptLines.append(localCommandScript)
-        }
         return buildReusableSSHStartupCommand(
-            sshCommand: attachScript,
+            sshCommand: attachCommand,
             shellFeatures: "",
             remoteRelayPort: options.remoteRelayPort,
-            isShellSnippet: true,
+            isShellSnippet: false,
             passwordCredential: passwordCredential,
-            controlPathPreflightShellFunction: controlPathPreflightShellFunction,
-            oneTimeCommand: foregroundAuthScriptLines.joined(separator: "\n"),
-            retryPTYAttachStatus: true
+            controlPathPreflightShellFunction: nil,
+            oneTimeCommand: nil,
+            retryPTYAttachStatus: true,
+            retryOnFailure: false
         )
     }
 
@@ -14796,6 +14757,14 @@ struct CMUXCLI {
               !sessionID.isEmpty else {
             throw CLIError(message: "ssh-pty-attach requires --session-id <id>")
         }
+        let suppressReplay = Self.normalizedEnvValue(
+            ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY"]
+        ) == "1" && requireExisting
+        let replayState = SSHPTYAttachReplayState(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )
+        let previousReplaySnapshot = suppressReplay ? replayState.loadSnapshot() : nil
         let environmentSurfaceID = Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
         let explicitAttachmentID = Self.normalizedEnvValue(attachmentIDOpt)
         let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
@@ -14821,22 +14790,6 @@ struct CMUXCLI {
                 )
             return decoded
         }
-        let discardsReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
-        var terminalInputMode: SSHPTYTerminalInputMode?
-        if discardsReconnectInput {
-            guard let disconnectedMode = SSHPTYTerminalInputMode(phase: .disconnected) else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.sshPtyAttach.terminalInputGuardFailed",
-                        defaultValue: "SSH reattach stopped because queued terminal input could not be protected.",
-                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
-                    ),
-                    exitCode: SSHPTYAttachExitCode.retryableTransient
-                )
-            }
-            terminalInputMode = disconnectedMode
-        }
-        defer { _ = terminalInputMode?.restore(flushInput: discardsReconnectInput) }
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
         var wrapperWillRetrySameSurface = false
@@ -14900,6 +14853,18 @@ struct CMUXCLI {
                             && !wrapperWillRetrySameSurface
                             && !preserveLifecycleForRecovery)
                 )
+            }
+        }
+
+        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
+        var terminalInputMode: SSHPTYTerminalInputMode?
+        if filtersReconnectInput {
+            terminalInputMode = SSHPTYTerminalInputMode(phase: .disconnected)
+        }
+        defer {
+            if let terminalInputMode,
+               !terminalInputMode.restore(flushInput: filtersReconnectInput) {
+                cliDebugLog("ssh.pty.attach.terminal.restore_failed")
             }
         }
 
@@ -15043,7 +15008,17 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        if !discardsReconnectInput {
+        if filtersReconnectInput {
+            guard terminalInputMode?.beginForwarding() == true else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
+                        defaultValue: "SSH terminal input could not enter reconnect mode."
+                    ),
+                    exitCode: SSHPTYAttachExitCode.retryableTransient
+                )
+            }
+        } else {
             terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
         }
         let resizeMonitor = SSHPTYResizeMonitor(
@@ -15068,7 +15043,51 @@ struct CMUXCLI {
         var reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
         var inputPumpStarted = false
         var reconnectInputFilterStopRequested = false
-        var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
+        let suppressReplayBytes: Int?
+        let expectedReplayFingerprint: UInt64?
+        if suppressReplay {
+            if let previousReplaySnapshot {
+                if let fingerprint = previousReplaySnapshot.fingerprint {
+                    // The daemon appends detached output to the replay
+                    // snapshot. Only suppress a prefix whose length was fully
+                    // delivered by the prior attach. The fingerprint confirms
+                    // that the prefix survived bounded-scrollback rollover
+                    // before hiding it.
+                    suppressReplayBytes = previousReplaySnapshot.replayBytes <= bridgeReplayBytes
+                        ? previousReplaySnapshot.replayBytes
+                        : 0
+                    expectedReplayFingerprint = fingerprint
+                } else {
+                    // A v1 state file has no content identity. Forward the
+                    // replacement snapshot rather than risk dropping output
+                    // after a bounded-scrollback rollover.
+                    suppressReplayBytes = 0
+                    expectedReplayFingerprint = nil
+                }
+            } else {
+                // No verified prior delivery. This covers both a first attach
+                // and a failed state read, so forward the snapshot rather than
+                // discard output the user has not seen.
+                suppressReplayBytes = 0
+                expectedReplayFingerprint = nil
+            }
+        } else {
+            suppressReplayBytes = 0
+            expectedReplayFingerprint = nil
+        }
+        var outputProgress = SSHPTYAttachOutputProgress(
+            replayBytes: bridgeReplayBytes,
+            suppressReplayBytes: suppressReplayBytes,
+            expectedReplayFingerprint: expectedReplayFingerprint
+        )
+        var replayStateStored = bridgeReplayBytes == 0
+        if replayStateStored {
+            replayState.storeSnapshot(
+                replayBytes: bridgeReplayBytes,
+                fingerprint: outputProgress.completedReplayFingerprint ??
+                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
+            )
+        }
         // A persistent reattach's initial bytes are historical remote PTY
         // output. Strip terminal queries before Ghostty parses them; otherwise
         // its replies can arrive after the reconnect stdin filter hands off to
@@ -15077,22 +15096,46 @@ struct CMUXCLI {
         var replayOutputFilter = SSHPTYReplayOutputFilter(
             replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
         )
+        func writeReplayFilteredOutput(_ data: Data) {
+            guard !data.isEmpty else { return }
+            let filtered = replayOutputFilter.filter(data)
+            if !filtered.isEmpty {
+                cliWriteStdout(filtered)
+            }
+        }
+        func finishReplayFiltering() {
+            let trailingReplay = replayOutputFilter.finish()
+            if !trailingReplay.isEmpty {
+                cliWriteStdout(trailingReplay)
+            }
+        }
+        defer {
+            let pendingReplay = outputProgress.finishPendingReplay(
+                discarding: sshPTYAttachWrapperRetryPending()
+            )
+            writeReplayFilteredOutput(pendingReplay)
+            finishReplayFiltering()
+        }
         func startInputForwardingAfterReplay() throws {
             guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
-            if discardsReconnectInput, terminalInputMode?.beginForwarding() != true {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                        defaultValue: "SSH reattach stopped because queued terminal input could not be discarded safely.",
-                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
-                    ),
-                    exitCode: SSHPTYAttachExitCode.retryableTransient
-                )
+            if filtersReconnectInput {
+                guard terminalInputMode?.beginForwarding() == true else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
+                            defaultValue: "SSH reattach stopped because queued terminal input could not be discarded safely.",
+                            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                        ),
+                        exitCode: SSHPTYAttachExitCode.retryableTransient
+                    )
+                }
+            } else {
+                terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
             }
             do {
                 reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
                     fd: fd,
-                    filterEnabled: discardsReconnectInput,
+                    filterEnabled: filtersReconnectInput,
                     beforeForwardingInput: { [resizeMonitor] in
                         await resizeMonitor.resizeBeforeInputIfNeeded()
                     }
@@ -15121,31 +15164,30 @@ struct CMUXCLI {
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
-                let wasForwardingInput = inputPumpStarted
-                outputProgress.recordOutput(byteCount: count)
-                if wasForwardingInput {
-                    reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(
-                        unlessAlreadyRequested: &reconnectInputFilterStopRequested
-                    )
-                }
-                let output = replayOutputFilter.filter(Data(outputBuffer.prefix(count)))
+                let output = outputProgress.terminalOutput(
+                    from: Data(outputBuffer.prefix(count)),
+                    suppressingReplay: suppressReplay
+                )
                 if !output.isEmpty {
-                    cliWriteStdout(output)
+                    if inputPumpStarted {
+                        reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
+                    }
+                    writeReplayFilteredOutput(output)
+                }
+                if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
+                    replayState.storeSnapshot(
+                        replayBytes: bridgeReplayBytes,
+                        fingerprint: outputProgress.completedReplayFingerprint ??
+                            SSHPTYAttachOutputProgress.fingerprint(of: Data())
+                    )
+                    replayStateStored = true
                 }
                 try startInputForwardingAfterReplay()
             } else if count == 0 {
-                let trailingReplay = replayOutputFilter.finish()
-                if !trailingReplay.isEmpty {
-                    cliWriteStdout(trailingReplay)
-                }
                 try finishBridgeClosedNormally()
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    let trailingReplay = replayOutputFilter.finish()
-                    if !trailingReplay.isEmpty {
-                        cliWriteStdout(trailingReplay)
-                    }
                     try finishBridgeClosedNormally()
                     return
                 }
@@ -15268,6 +15310,9 @@ struct CMUXCLI {
             params["lifecycle_id"] = lifecycleID
         }
         _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: params)
+        if let sessionID, let lifecycleID {
+            SSHPTYAttachReplayState(sessionID: sessionID, lifecycleID: lifecycleID).remove()
+        }
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {
@@ -33182,15 +33227,15 @@ export default CMUXSessionRestore;
                 cursor = parent
                 ancestorDepth += 1
             }
-            let projectRoot = discoveredProjectRoot ?? cwdURL
+            let resolvedProjectRoot = discoveredProjectRoot ?? cwdURL
             applyConfig(
-                at: projectRoot
+                at: resolvedProjectRoot
                     .appendingPathComponent(".cursor", isDirectory: true)
                     .appendingPathComponent("cli.json", isDirectory: false),
                 readsApprovalMode: false
             )
-            if cwdURL.path != projectRoot.path,
-               cwdURL.path.hasPrefix(projectRoot.path + "/") {
+            if cwdURL.path != resolvedProjectRoot.path,
+               cwdURL.path.hasPrefix(resolvedProjectRoot.path + "/") {
                 // Keep the hook's synchronous policy lookup bounded: the
                 // global file, repository root, and current project directory
                 // cover the supported effective layers without walking every
