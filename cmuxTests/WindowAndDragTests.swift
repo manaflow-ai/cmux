@@ -3737,7 +3737,7 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
     }
 
     func testAcceptsRegularCurrentProcessTabPayload() throws {
-        let context = try makeLiveBonsplitPayloadPasteboard(kind: nil)
+        let context = try makeLiveBonsplitPayloadPasteboard(kind: "terminal")
         defer { context.registry.end(context.registration) }
 
         XCTAssertNotNil(
