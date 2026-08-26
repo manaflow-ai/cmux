@@ -28,7 +28,14 @@ extension GitMetadataService {
         guard !trimmedSlug.isEmpty, !trimmedBranch.isEmpty else { return nil }
 
         let kind = resource == .file ? "blob" : "tree"
-        var path = "/\(trimmedSlug)/\(kind)/\(trimmedBranch)"
+        let encodedBranch = trimmedBranch
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .map { segment in
+                String(segment).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                    ?? String(segment)
+            }
+            .joined(separator: "/")
+        var path = "/\(trimmedSlug)/\(kind)/\(encodedBranch)"
         let relative = relativePathFromWorkTreeRoot
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if !relative.isEmpty {
