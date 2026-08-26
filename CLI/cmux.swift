@@ -9846,8 +9846,14 @@ struct CMUXCLI {
             sshOptions.sshOptions,
             remoteRelayPort: sshOptions.remoteRelayPort
         )
+        let resolvedHostRequestTTY = resolvedUserSSHConfiguration.flatMap {
+            sshConfigurationValue(named: "requesttty", in: $0)
+        }
         let persistedRemoteSSHOptions = sshOptions.remoteCommand
-            .sshOptionsPersistingTTYRequest(in: remoteSSHOptions)
+            .sshOptionsPersistingTTYRequest(
+                in: remoteSSHOptions,
+                hostRequestTTY: resolvedHostRequestTTY
+            )
         let controlPathPreflightShellFunction = sshControlPathPreflightShellFunction(options: sshOptions)
         let initialSSHCommand = buildSSHCommandText(sshOptions)
         // For VM workspaces (Freestyle), skip the interactive bootstrap script: the russh

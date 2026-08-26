@@ -51,6 +51,26 @@ struct SSHRemoteCommandTests {
         #expect(disable.disablesTTY(in: ["RequestTTY = \"false\""]))
     }
 
+    @Test("uses the resolved host RequestTTY as the transition baseline")
+    func usesResolvedHostRequestTTY() {
+        let command = SSHRemoteCommand(
+            undelimitedArguments: ["-t", "printf", "ready"]
+        )
+
+        #expect(command.sshOptionsPersistingTTYRequest(
+            in: [],
+            hostRequestTTY: "yes"
+        ) == ["RequestTTY=force"])
+        #expect(command.sshOptionsPersistingTTYRequest(
+            in: [],
+            hostRequestTTY: "force"
+        ) == ["RequestTTY=yes"])
+        #expect(command.sshOptionsPersistingTTYRequest(
+            in: ["RequestTTY=no"],
+            hostRequestTTY: "force"
+        ) == ["RequestTTY=yes"])
+    }
+
     @Test("treats every argument after the separator as a literal command token")
     func preservesDelimitedLeadingTTYToken() {
         let command = SSHRemoteCommand(

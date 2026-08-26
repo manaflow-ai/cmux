@@ -57,14 +57,24 @@ public struct SSHRemoteCommand: Equatable, Sendable {
     /// first existing `RequestTTY` option and replaces that option with the
     /// equivalent final `no`, `yes`, or `force` value.
     ///
-    /// - Parameter options: OpenSSH `-o` values in live invocation order.
+    /// - Parameters:
+    ///   - options: OpenSSH `-o` values in live invocation order.
+    ///   - hostRequestTTY: The effective `requesttty` value from `ssh -G`,
+    ///     used only when `options` has no explicit `RequestTTY` value.
     /// - Returns: `options` unchanged when no TTY flags were recognized;
     ///   otherwise, the same non-`RequestTTY` options plus one effective value.
-    public func sshOptionsPersistingTTYRequest(in options: [String]) -> [String] {
+    public func sshOptionsPersistingTTYRequest(
+        in options: [String],
+        hostRequestTTY: String? = nil
+    ) -> [String] {
         guard !ttyRequestArguments.isEmpty else { return options }
 
         let resolver = SSHAgentSocketResolver()
-        let request = effectiveTTYRequest(in: options, resolver: resolver)
+        let request = effectiveTTYRequest(
+            in: options,
+            hostRequestTTY: hostRequestTTY,
+            resolver: resolver
+        )
 
         return resolver.removingOptions(named: "RequestTTY", from: options)
             + ["RequestTTY=\(request.optionValue)"]
@@ -84,10 +94,12 @@ public struct SSHRemoteCommand: Equatable, Sendable {
 
     private func effectiveTTYRequest(
         in options: [String],
+        hostRequestTTY: String?,
         resolver: SSHAgentSocketResolver
     ) -> SSHRemoteCommandTTYRequest {
         var request = SSHRemoteCommandTTYRequest(
             optionValue: resolver.optionValue(named: "RequestTTY", in: options)
+                ?? hostRequestTTY
         )
         for argument in ttyRequestArguments {
             for flag in argument.dropFirst() where flag == "t" || flag == "T" {
