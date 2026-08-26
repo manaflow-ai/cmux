@@ -4996,7 +4996,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B79500200000000000000002 /* PanelPortScanPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelPortScanPublication.swift; sourceTree = "<group>"; };
 		C54860060000000000000002 /* PanelStableSurfaceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelStableSurfaceIdentity.swift; sourceTree = "<group>"; };
 		C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelTitleUpdateCoalescingSettings.swift; sourceTree = "<group>"; };
-		C0DE10166000000000000036 /* PanelType+LinksOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Links/Model/PanelType+LinksOwnership.swift; sourceTree = "<group>"; };
+		C0DE10166000000000000036 /* PanelType+LinksOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Links/Model/PanelType+LinksOwnership.swift"; sourceTree = "<group>"; };
 		6313B1A1 /* PaneMemoryDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryDescriptor.swift; sourceTree = "<group>"; };
 		6313A1A1 /* PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrail.swift; sourceTree = "<group>"; };
 		6313B2A1 /* PaneMemoryGuardrailEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrailEngine.swift; sourceTree = "<group>"; };
