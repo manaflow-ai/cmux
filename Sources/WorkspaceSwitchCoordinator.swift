@@ -317,6 +317,12 @@ final class WorkspaceSwitchCoordinator {
         let targetViewID = view.map(ObjectIdentifier.init)
         guard transaction.targetSurfaceID != surfaceID ||
                 transaction.targetTerminalViewID != targetViewID else {
+            transaction.warmFrameAvailable = transaction.warmFrameAvailable ||
+                (rendererPresented && renderedFrameSequence > 0)
+            transaction.frameSequenceAtSelection = max(
+                transaction.frameSequenceAtSelection,
+                renderedFrameSequence
+            )
             return
         }
 

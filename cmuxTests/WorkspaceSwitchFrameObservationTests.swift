@@ -147,4 +147,33 @@ struct WorkspaceSwitchFrameObservationTests {
         #expect(!coordinator.isMeasuringSwitch)
         #expect(releasedRequestIDs.count == 1)
     }
+
+    @Test
+    func presentationRefreshesAnUnchangedTerminalTargetSnapshot() {
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, _, _ in },
+            endRendererProtection: { _ in }
+        )
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID, to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID, targetTerminalView: nil,
+            targetRendererPresented: false, targetRenderedFrameSequence: 0
+        )
+        coordinator.beginPresentation(
+            WorkspaceSwitchPresentationTarget(
+                workspaceID: targetWorkspaceID, contentKind: .terminal,
+                terminalSurfaceID: targetSurfaceID, terminalView: nil,
+                terminalRendererPresented: true, terminalRenderedFrameSequence: 1,
+                browserWebView: nil, portalPresented: true,
+                interactionReady: true, requiresInteraction: true
+            ),
+            retiringWorkspaceID: sourceWorkspaceID
+        )
+        coordinator.sourceDidRetire(workspaceID: sourceWorkspaceID)
+
+        #expect(!coordinator.isMeasuringSwitch)
+    }
 }
