@@ -277,13 +277,42 @@ public actor MobileIrxRuntimeComposition {
             ? []
             : pathHints.filter { $0.kind == .directAddress && $0.isUsable(at: now) }
                 .map(\.value)
-        routesByPeer[identity.endpointID] = (relayURL, directAddresses)
+        // Attach tickets strip path hints, so a nil hint here is normal;
+        // never clobber a relay already resolved from discovery with nil.
+        let existing = routesByPeer[identity.endpointID]
+        routesByPeer[identity.endpointID] = (
+            relayURL ?? existing?.relayURL,
+            directAddresses.isEmpty ? (existing?.directAddresses ?? []) : directAddresses
+        )
         return identity.endpointID
+    }
+
+    /// The target's home relay from the account registry: the Mac registers
+    /// the relay its endpoint actually homes on, and dialing any OTHER relay
+    /// is a black hole (the relay only forwards to peers connected to it).
+    private func relayHintFromDiscovery(
+        peerHex: String,
+        broker: IrxBrokerService
+    ) async -> String? {
+        guard let discovery = try? await broker.discover() else { return nil }
+        let now = Date()
+        let hint = discovery.bindings
+            .first { $0.endpointID.endpointID == peerHex }?
+            .pathHints
+            .first { $0.kind == .relayURL && $0.isUsable(at: now) }?
+            .value
+        if let hint {
+            routesByPeer[peerHex] = (hint, routesByPeer[peerHex]?.directAddresses ?? [])
+        }
+        return hint
     }
 
     private func engine(forPeer peerHex: String) -> IrxPeerEngine {
         if let existing = enginesByPeer[peerHex] { return existing }
-        let engine = IrxPeerEngine(journal: Self.journal) { [weak self] in
+        let engine = IrxPeerEngine(
+            journal: Self.journal,
+            label: String(peerHex.prefix(12))
+        ) { [weak self] in
             guard let self else { throw CompositionError.notSignedIn }
             return try await self.dialOnce(peerHex: peerHex)
         }
@@ -301,12 +330,27 @@ public actor MobileIrxRuntimeComposition {
         }
         let grant = try await resolvedGrant(peerHex: peerHex, broker: broker)
         let credentials = try await autopilot.usableCredentials()
-        let route = routesByPeer[peerHex]
-        let relayURL = route?.relayURL ?? credentials.first?.relayURL
+        var relayURL = routesByPeer[peerHex]?.relayURL
+        if relayURL == nil {
+            relayURL = await relayHintFromDiscovery(peerHex: peerHex, broker: broker)
+        }
+        Self.journal.record(
+            "client-dial", "target-resolved",
+            [
+                "peer": String(peerHex.prefix(12)),
+                "relay": relayURL ?? "-",
+                "direct": String(routesByPeer[peerHex]?.directAddresses.count ?? 0),
+            ]
+        )
+        guard let relayURL else {
+            // Without the target's home relay a relay-only dial is a black
+            // hole; fail fast with an attributed error instead of a 30s hang.
+            throw CompositionError.peerNotDiscovered
+        }
         let address = try supervisor.dialAddress(
             peerEndpointIDHex: peerHex,
             relayURL: relayURL,
-            directAddresses: route?.directAddresses ?? []
+            directAddresses: routesByPeer[peerHex]?.directAddresses ?? []
         )
         let connection = try await supervisor.dial(
             address: address, credentials: credentials)

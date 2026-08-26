@@ -56,6 +56,9 @@ public actor IrxPeerEngine {
     private let dialOnce: DialOnce
     private let config: Config
     private let journal: IrxJournal
+    /// Short peer identifier stamped on every journal event so multi-Mac
+    /// logs attribute each dial to its target.
+    private let label: String
     private var session: IrxClientSession?
     private var state: IrxSessionState = .idle
     private var dialTask: Task<IrxClientSession, any Error>?
@@ -75,12 +78,22 @@ public actor IrxPeerEngine {
     public init(
         config: Config = Config(),
         journal: IrxJournal,
+        label: String = "",
         dialOnce: @escaping DialOnce
     ) {
         self.config = config
         self.journal = journal
+        self.label = label
         self.dialOnce = dialOnce
         backoff = config.initialBackoff
+    }
+
+    private func record(_ event: String, _ attributes: [String: String] = [:]) {
+        var stamped = attributes
+        if !label.isEmpty {
+            stamped["peer"] = label
+        }
+        journal.record("engine", event, stamped)
     }
 
     public var currentState: IrxSessionState { state }
@@ -124,7 +137,7 @@ public actor IrxPeerEngine {
             dialTask = nil
         }
         if let dialTask {
-            journal.record("engine", "dial-joined", ["trigger": trigger])
+            record("dial-joined", ["trigger": trigger])
             return try await dialTask.value
         }
         if !explicit, let cooldownUntil, ContinuousClock.now < cooldownUntil {
@@ -135,7 +148,7 @@ public actor IrxPeerEngine {
         redialTimer?.cancel()
         redialTimer = nil
         setState(.connecting)
-        journal.record("engine", "dial-started", ["trigger": trigger])
+        record("dial-started", ["trigger": trigger])
         let task = Task<IrxClientSession, any Error> {
             try await self.dialOnce()
         }
@@ -149,15 +162,15 @@ public actor IrxPeerEngine {
             dialTask = nil
             parkedCode = denial.code.rawValue
             setState(.closed(code: denial.code.rawValue))
-            journal.record("engine", "dial-denied", ["code": denial.code.rawValue])
+            record("dial-denied", ["code": denial.code.rawValue])
             throw denial
         } catch {
             dialTask = nil
             guard !Task.isCancelled else { throw error }
             lastDialError = error
             setState(.closed(code: "dial-failed"))
-            journal.record(
-                "engine", "dial-failed",
+            record(
+                "dial-failed",
                 ["trigger": trigger, "error": String(describing: error)]
             )
             scheduleRedial()
@@ -224,8 +237,8 @@ public actor IrxPeerEngine {
         guard session?.admit.session == died.admit.session else { return }
         session = nil
         let termination = await died.connection.termination()
-        journal.record(
-            "engine", "session-ended",
+        record(
+            "session-ended",
             [
                 "session": died.admit.session,
                 "code": termination.code,
@@ -244,12 +257,12 @@ public actor IrxPeerEngine {
             } ?? false
         if terminal {
             parkedCode = termination.code
-            journal.record("engine", "auto-redial-suppressed", ["code": termination.code])
+            record("auto-redial-suppressed", ["code": termination.code])
             return
         }
         // Auto-recovery: the first redial after a death is immediate; only
         // consecutive failures back off.
-        journal.record("engine", "auto-redial", ["code": termination.code])
+        record("auto-redial", ["code": termination.code])
         Task { _ = try? await self.ensureSession(trigger: "connection-ended") }
     }
 
@@ -265,7 +278,7 @@ public actor IrxPeerEngine {
             guard !Task.isCancelled else { return }
             await self?.clearCooldownAndRedial()
         }
-        journal.record("engine", "redial-scheduled", ["delay": String(describing: delay)])
+        record("redial-scheduled", ["delay": String(describing: delay)])
     }
 
     private func clearCooldownAndRedial() async {
@@ -275,8 +288,8 @@ public actor IrxPeerEngine {
 
     private func setState(_ next: IrxSessionState) {
         guard next != state else { return }
-        journal.record(
-            "engine", "state",
+        record(
+            "state",
             ["from": Self.describe(state), "to": Self.describe(next)]
         )
         state = next
