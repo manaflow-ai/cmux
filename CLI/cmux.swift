@@ -30370,35 +30370,18 @@ struct CMUXCLI {
                 // proof must not fall back to workspace matching: a newer
                 // SessionStart may already own that identifier.
                 telemetry.breadcrumb("claude-hook.session-end.generation-unresolved")
-                var shouldAcknowledgeWithoutCleanup = false
                 do {
-                    try sessionStore.withClaudeTaskSyncLock(
-                        deadlineUptime: sessionEndDeadlineUptime,
-                        scope: sessionEndTaskStoreScope
-                    ) {
-                        let currentEntry = try sessionStore.claudeTaskSyncSessionEntry(
-                            sessionId: parsedInput.sessionId ?? ""
-                        )
-                        if currentEntry.ended {
-                            shouldAcknowledgeWithoutCleanup = true
-                        } else if currentEntry.record != nil {
-                            // The initial read was empty, so no generation
-                            // proof belongs to this SessionEnd. PID identity
-                            // only identifies the process and can be reused by
-                            // a replacement generation; never consume it here.
-                            shouldAcknowledgeWithoutCleanup = true
-                        } else {
-                            _ = try sessionStore.recordClaudeSessionEndBoundary(
-                                sessionId: parsedInput.sessionId,
-                                workspaceId: nil,
-                                surfaceId: nil,
-                                turnId: parsedInput.turnId,
-                                requireNoExistingSessionRecord: true,
-                                deadlineUptime: sessionEndDeadlineUptime
-                            )
-                            shouldAcknowledgeWithoutCleanup = true
-                        }
-                    }
+                    // Record only a no-record tombstone. If a replacement
+                    // generation appeared after the initial read, the store's
+                    // requireNoExistingSessionRecord fence leaves it intact.
+                    _ = try sessionStore.recordClaudeSessionEndBoundary(
+                        sessionId: parsedInput.sessionId,
+                        workspaceId: nil,
+                        surfaceId: nil,
+                        turnId: parsedInput.turnId,
+                        requireNoExistingSessionRecord: true,
+                        deadlineUptime: sessionEndDeadlineUptime
+                    )
                 } catch {
                     telemetry.breadcrumb(
                         "claude-hook.session-end.generation-boundary-failed",
@@ -30413,19 +30396,16 @@ struct CMUXCLI {
                         deadlineUptime: ProcessInfo.processInfo.systemUptime + 1,
                         overrideLockDeadline: true
                     )
-                    shouldAcknowledgeWithoutCleanup = true
                 }
-                if shouldAcknowledgeWithoutCleanup {
-                    retryPendingClaudeLegacyTaskCleanup(
-                        sessionStore: sessionStore,
-                        taskStoreIdentity: sessionEndTaskStoreIdentity,
-                        client: client,
-                        telemetry: telemetry,
-                        deadlineUptime: sessionEndDeadlineUptime
-                    )
-                    printClaudeHookAck()
-                    return
-                }
+                retryPendingClaudeLegacyTaskCleanup(
+                    sessionStore: sessionStore,
+                    taskStoreIdentity: sessionEndTaskStoreIdentity,
+                    client: client,
+                    telemetry: telemetry,
+                    deadlineUptime: sessionEndDeadlineUptime
+                )
+                printClaudeHookAck()
+                return
             }
             if let sessionID = parsedInput.sessionId,
                let expectedStartedAt = mappedSession?.startedAt {
