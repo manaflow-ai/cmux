@@ -108,6 +108,15 @@ export type CmuxRemoteEndpoint = {
   expiresAtUnix: number;
   /** Daemon session name inside the VM (`server start --session`). */
   session: string;
+  /**
+   * The installed daemon's build identity, so a client can compare its own
+   * `remote-probe` and say which side is stale instead of failing opaquely.
+   */
+  daemonBuild?: {
+    commit: string | null;
+    remoteProtocol: number | null;
+    version: string | null;
+  };
   invitation?: {
     /** Single-use `cmux://enroll/...` URI; the client must pass it via `--invite-file`, never argv. */
     uri: string;

@@ -57828,6 +57828,27 @@
         }
       }
     },
+    "cli.vm.tui.protocolMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux-tui protocol mismatch: client %1$@ speaks protocol %2$d, the machine daemon %3$@ speaks protocol %4$d. %5$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux-tui のプロトコルが一致しません: クライアント %1$@ はプロトコル %2$d、マシンのデーモン %3$@ はプロトコル %4$d です。%5$@" } }
+      }
+    },
+    "cli.vm.tui.staleClient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux (its bundled cmux-tui client is older than the machine's daemon)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux を更新してください（同梱の cmux-tui クライアントがマシンのデーモンより古いです）。" } }
+      }
+    },
+    "cli.vm.tui.staleDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The machine's cmux-tui daemon is older than this client; reconnect once the machine has updated." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの cmux-tui デーモンがこのクライアントより古いです。マシンが更新されてから再接続してください。" } }
+      }
+    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {

@@ -2,12 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   cmuxTuiDaemonCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiManifestUrl,
+  isCmuxTuiEnabled,
+  parseCmuxTuiManifest,
   parseEnrollmentInvitationUri,
-  resolveCmuxTuiSource,
 } from "../services/vms/drivers/blaxel";
 
 const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
-const URL = "https://files.cmux.com/cmux-tui/5a4780614cecd8e8ef040a24478f928ef31cc4ae/cmux-tui-x86_64-unknown-linux-musl";
+const COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
+const MANIFEST = `https://files.cmux.com/cmux-tui/${COMMIT}/manifest.json`;
+const URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-x86_64-unknown-linux-musl`;
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous: Record<string, string | undefined> = {};
@@ -27,37 +31,40 @@ function withEnv(values: Record<string, string | undefined>, run: () => void) {
 }
 
 describe("cmux-tui daemon source", () => {
-  test("is disabled until a deployment opts in with a URL", () => {
-    withEnv({ CMUX_VM_BLAXEL_TUI_URL: undefined, CMUX_VM_BLAXEL_TUI_SHA256: undefined }, () => {
-      expect(resolveCmuxTuiSource()).toBeNull();
-    });
+  test("is on by default and only CMUX_VM_CMUX_TUI_ENABLED=0 turns it off", () => {
+    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: undefined }, () => expect(isCmuxTuiEnabled()).toBe(true));
+    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: "0" }, () => expect(isCmuxTuiEnabled()).toBe(false));
+    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: "false" }, () => expect(isCmuxTuiEnabled()).toBe(false));
+    withEnv({ CMUX_VM_CMUX_TUI_ENABLED: "1" }, () => expect(isCmuxTuiEnabled()).toBe(true));
   });
 
-  test("a URL without a sha256 pin fails closed", () => {
-    withEnv({ CMUX_VM_BLAXEL_TUI_URL: URL, CMUX_VM_BLAXEL_TUI_SHA256: undefined }, () => {
-      expect(() => resolveCmuxTuiSource()).toThrow(/CMUX_VM_BLAXEL_TUI_SHA256/);
-    });
-    withEnv({ CMUX_VM_BLAXEL_TUI_URL: URL, CMUX_VM_BLAXEL_TUI_SHA256: "nope" }, () => {
-      expect(() => resolveCmuxTuiSource()).toThrow(/64 hex/);
-    });
+  test("follows the rolling latest manifest unless a deployment pins one", () => {
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: undefined }, () =>
+      expect(cmuxTuiManifestUrl()).toBe("https://files.cmux.com/cmux-tui/latest/manifest.json"));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: MANIFEST }, () => expect(cmuxTuiManifestUrl()).toBe(MANIFEST));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "http://files.cmux.com/x/manifest.json" }, () =>
+      expect(() => cmuxTuiManifestUrl()).toThrow(/https/));
   });
 
-  test("requires https so the pin is not the only defense", () => {
-    withEnv({ CMUX_VM_BLAXEL_TUI_URL: "http://files.cmux.com/x", CMUX_VM_BLAXEL_TUI_SHA256: SHA }, () => {
-      expect(() => resolveCmuxTuiSource()).toThrow(/https/);
+  test("takes the linux musl build and its sha256 from the manifest", () => {
+    const source = parseCmuxTuiManifest(MANIFEST, {
+      commit: COMMIT,
+      builtAt: "2026-08-19T07:05:35Z",
+      binaries: { "cmux-tui-aarch64-apple-darwin": "a".repeat(64), "cmux-tui-x86_64-unknown-linux-musl": SHA.toUpperCase() },
     });
+    expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z" });
   });
 
-  test("resolves a pinned https source, normalizing the pin's case", () => {
-    withEnv({ CMUX_VM_BLAXEL_TUI_URL: URL, CMUX_VM_BLAXEL_TUI_SHA256: SHA.toUpperCase() }, () => {
-      expect(resolveCmuxTuiSource()).toEqual({ url: URL, sha256: SHA });
-    });
+  test("fails closed on a manifest without a commit or without the musl build", () => {
+    expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/commit/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA } })).toThrow(/musl/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, "nonsense")).toThrow();
   });
 });
 
 describe("cmux-tui install and daemon commands", () => {
   test("installs onto the persistent volume, verifies the pin before and after download, and probes the binary", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA });
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
     expect(command).toContain("mkdir -p '/root/.cmux/bin'");
     // Skip the download when the installed copy already matches the pin.
     expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui' | sha256sum -c -s; then :; else`);

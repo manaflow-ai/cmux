@@ -80,13 +80,19 @@ extension CMUXCLI {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storeURL.path)
     }
 
-    /// CMUX_TUI_CLIENT → ~/.cmux/bin/cmux (install-static.sh's target) → `cmux-tui` on PATH.
-    /// Plain `cmux` on PATH is deliberately not probed: that is this CLI. Every candidate
-    /// must answer `remote-probe --json` as cmux-tui — ~/.cmux/bin/cmux can also be the
-    /// SSH-remote bootstrap's shell wrapper, which is executable but not a client.
-    static func locateCmuxTuiClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    /// The client bundled beside this CLI (`Contents/Resources/bin/cmux-tui`, installed by
+    /// scripts/install-cmux-tui-client.sh) comes first, so the Machines panel needs no
+    /// install; then CMUX_TUI_CLIENT, ~/.cmux/bin/cmux (install-static.sh's target) and
+    /// `cmux-tui` on PATH. Plain `cmux` on PATH is deliberately not probed: that is this
+    /// CLI. Every candidate must answer `remote-probe --json` as cmux-tui —
+    /// ~/.cmux/bin/cmux can also be the SSH-remote bootstrap's shell wrapper, which is
+    /// executable but not a client.
+    func locateCmuxTuiClient(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         let fm = FileManager.default
         var candidates: [String] = []
+        if let bundled = resolvedExecutableURL()?.deletingLastPathComponent().appendingPathComponent("cmux-tui").path {
+            candidates.append(bundled)
+        }
         if let explicit = environment["CMUX_TUI_CLIENT"]?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
             candidates.append(explicit)
         }
@@ -97,10 +103,17 @@ extension CMUXCLI {
         for dir in (environment["PATH"] ?? "").split(separator: ":") where !dir.isEmpty {
             candidates.append(URL(fileURLWithPath: String(dir), isDirectory: true).appendingPathComponent("cmux-tui").path)
         }
-        return candidates.first { fm.isExecutableFile(atPath: $0) && isCmuxTuiClient(at: $0) }
+        return candidates.first { fm.isExecutableFile(atPath: $0) && Self.cmuxTuiClientProbe(at: $0) != nil }
     }
 
-    static func isCmuxTuiClient(at path: String) -> Bool {
+    struct CmuxTuiClientProbe {
+        let buildIdentity: String?
+        let remoteProtocol: Int?
+        let version: String?
+    }
+
+    /// `remote-probe --json` of a candidate binary; nil unless it is a cmux-tui client.
+    static func cmuxTuiClientProbe(at path: String) -> CmuxTuiClientProbe? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = ["remote-probe", "--json"]
@@ -111,15 +124,39 @@ extension CMUXCLI {
         do {
             try process.run()
         } catch {
-            return false
+            return nil
         }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return false
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (object["app"] as? String) == "cmux-tui" else {
+            return nil
         }
-        return (object["app"] as? String) == "cmux-tui"
+        return CmuxTuiClientProbe(
+            buildIdentity: object["build_identity"] as? String,
+            remoteProtocol: (object["remote_protocol"] as? Int) ?? (object["remote_protocol"] as? Double).map(Int.init),
+            version: object["version"] as? String
+        )
+    }
+
+    /// Client and machine daemon must speak the same remote protocol; the daemon rejects a
+    /// mismatch, so say which side is behind up front instead of letting the pane hang.
+    static func checkCmuxTuiCompatibility(client: CmuxTuiClientProbe, daemon: [String: Any]?) throws {
+        guard let daemon,
+              let daemonProtocol = (daemon["remote_protocol"] as? Int) ?? (daemon["remote_protocol"] as? Double).map(Int.init),
+              let clientProtocol = client.remoteProtocol,
+              daemonProtocol != clientProtocol else { return }
+        let daemonCommit = (daemon["commit"] as? String).map { String($0.prefix(10)) } ?? "?"
+        let clientCommit = client.buildIdentity.map { String($0.prefix(10)) } ?? "?"
+        let stale = clientProtocol < daemonProtocol
+            ? CMUXDiffViewerLocalization.string("cli.vm.tui.staleClient", defaultValue: "Update cmux (its bundled cmux-tui client is older than the machine's daemon).")
+            : CMUXDiffViewerLocalization.string("cli.vm.tui.staleDaemon", defaultValue: "The machine's cmux-tui daemon is older than this client; reconnect once the machine has updated.")
+        let template = CMUXDiffViewerLocalization.string(
+            "cli.vm.tui.protocolMismatch",
+            defaultValue: "cmux-tui protocol mismatch: client %1$@ speaks protocol %2$d, the machine daemon %3$@ speaks protocol %4$d. %5$@"
+        )
+        throw CLIError(message: String(format: template, clientCommit, clientProtocol, daemonCommit, daemonProtocol, stale))
     }
 
     static func vmTuiDeviceName() -> String {
@@ -197,12 +234,13 @@ extension CMUXCLI {
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }
-        guard let clientPath = Self.locateCmuxTuiClient() else {
+        guard let clientPath = locateCmuxTuiClient(), let clientProbe = Self.cmuxTuiClientProbe(at: clientPath) else {
             throw CLIError(message: CMUXDiffViewerLocalization.string(
                 "cli.vm.tui.clientMissing",
                 defaultValue: "No cmux-tui client found. Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
             ))
         }
+        try Self.checkCmuxTuiCompatibility(client: clientProbe, daemon: info["daemon_build"] as? [String: Any])
         let session = (info["session"] as? String) ?? "cloud"
         let invitation = info["invitation"] as? [String: Any]
         let invitationUri = invitation?["uri"] as? String

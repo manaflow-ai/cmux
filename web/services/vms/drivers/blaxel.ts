@@ -342,25 +342,89 @@ function daemonBinaryBase64Gzip(): Promise<string> {
 // cache empty here; create() surfaces the real configuration error to the caller.
 void daemonBinaryBase64Gzip().catch(() => undefined);
 
-export type CmuxTuiSource = { url: string; sha256: string };
+export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
 
-// Phase 1 is opt-in per deployment: no CMUX_VM_BLAXEL_TUI_URL means no cmux-tui daemon
-// and no behavior change. Like the Go daemon, a remote fetch is integrity-pinned and
-// fails closed without its sha256 — the VM verifies the pin itself before installing.
-export function resolveCmuxTuiSource(): CmuxTuiSource | null {
-  const url = env("CMUX_VM_BLAXEL_TUI_URL");
-  if (!url) return null;
-  const sha256 = env("CMUX_VM_BLAXEL_TUI_SHA256")?.toLowerCase();
-  if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) {
-    throw new ProviderError(
-      "blaxel",
-      "CMUX_VM_BLAXEL_TUI_SHA256 must be 64 hex characters (sha256 of the raw cmux-tui binary) when CMUX_VM_BLAXEL_TUI_URL is set",
-    );
-  }
+export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
+export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/latest/manifest.json";
+const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
+
+/**
+ * cmux-tui is the machine session daemon by default. CMUX_VM_CMUX_TUI_ENABLED=0 is the
+ * kill switch (machines fall back to cmuxd-remote); CMUX_VM_CMUX_TUI_MANIFEST_URL pins a
+ * deployment to one commit's manifest (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`)
+ * instead of the rolling `latest`. Nothing else is configured by hand: the build and its
+ * sha256 come from the manifest the artifacts workflow publishes.
+ */
+export function isCmuxTuiEnabled(): boolean {
+  const raw = env("CMUX_VM_CMUX_TUI_ENABLED");
+  if (raw === undefined || raw === "") return true;
+  return !/^(0|false|no|off)$/i.test(raw);
+}
+
+export function cmuxTuiManifestUrl(): string {
+  const url = env("CMUX_VM_CMUX_TUI_MANIFEST_URL") || CMUX_TUI_DEFAULT_MANIFEST_URL;
   if (!/^https:\/\//.test(url)) {
-    throw new ProviderError("blaxel", "CMUX_VM_BLAXEL_TUI_URL must be an https:// URL");
+    throw new ProviderError("blaxel", "CMUX_VM_CMUX_TUI_MANIFEST_URL must be an https:// URL");
   }
-  return { url, sha256 };
+  return url;
+}
+
+/** Parses an artifacts manifest into the Linux source; the binary URL is a sibling of the manifest. */
+export function parseCmuxTuiManifest(manifestUrl: string, manifest: unknown): CmuxTuiSource {
+  const record = manifest && typeof manifest === "object" ? manifest as Record<string, unknown> : {};
+  const commit = typeof record.commit === "string" ? record.commit : "";
+  const binaries = record.binaries && typeof record.binaries === "object" ? record.binaries as Record<string, unknown> : {};
+  const sha256 = typeof binaries[CMUX_TUI_LINUX_TARGET] === "string" ? (binaries[CMUX_TUI_LINUX_TARGET] as string).toLowerCase() : "";
+  if (!/^[0-9a-f]{40}$/.test(commit)) {
+    throw new ProviderError("blaxel", `cmux-tui manifest at ${manifestUrl} has no commit`);
+  }
+  if (!/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new ProviderError("blaxel", `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_LINUX_TARGET} sha256 — publish artifacts from a main with the musl target`);
+  }
+  const base = manifestUrl.replace(/\/manifest\.json$/, "");
+  return {
+    url: `${base}/${CMUX_TUI_LINUX_TARGET}`,
+    sha256,
+    commit,
+    builtAt: typeof record.builtAt === "string" ? record.builtAt : null,
+  };
+}
+
+let cmuxTuiSourceCache: { url: string; fetchedAt: number; source: CmuxTuiSource } | null = null;
+
+/** The Linux daemon build to install, from the manifest (cached 5 min per manifest URL). Null when disabled. */
+export async function resolveCmuxTuiSource(): Promise<CmuxTuiSource | null> {
+  if (!isCmuxTuiEnabled()) return null;
+  const manifestUrl = cmuxTuiManifestUrl();
+  if (cmuxTuiSourceCache && cmuxTuiSourceCache.url === manifestUrl && Date.now() - cmuxTuiSourceCache.fetchedAt < CMUX_TUI_MANIFEST_CACHE_MS) {
+    return cmuxTuiSourceCache.source;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  let manifest: unknown;
+  try {
+    const response = await fetch(manifestUrl, { signal: controller.signal, cache: "no-store" });
+    if (!response.ok) {
+      throw new ProviderError("blaxel", `cmux-tui manifest fetch ${manifestUrl} -> ${response.status}`);
+    }
+    manifest = await response.json();
+  } catch (err) {
+    if (cmuxTuiSourceCache?.url === manifestUrl) {
+      // A transient manifest outage must not break creates: reuse the last good build.
+      return cmuxTuiSourceCache.source;
+    }
+    throw err instanceof ProviderError ? err : new ProviderError("blaxel", `cmux-tui manifest fetch ${manifestUrl} failed`, err);
+  } finally {
+    clearTimeout(timer);
+  }
+  const source = parseCmuxTuiManifest(manifestUrl, manifest);
+  cmuxTuiSourceCache = { url: manifestUrl, fetchedAt: Date.now(), source };
+  return source;
+}
+
+/** Test hook. */
+export function resetCmuxTuiSourceCache(): void {
+  cmuxTuiSourceCache = null;
 }
 
 /**
@@ -419,6 +483,7 @@ export function parseEnrollmentInvitationUri(uri: string): { id: string; expires
 }
 
 const ENROLLMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
 
 function parseJsonObject(text: string): Record<string, unknown> {
   try {
@@ -548,7 +613,7 @@ export class BlaxelProvider implements VMProvider {
     // cmuxd-remote is neither installed nor started (the legacy websocket attach can
     // still self-heal it on demand through ensureDaemonRunning for machines that need
     // it). Exec, ports, stats and the desktop never depended on cmuxd.
-    if (resolveCmuxTuiSource()) {
+    if (isCmuxTuiEnabled()) {
       await this.bootstrapCmuxTuiOnly(name, sandboxUrl);
       return;
     }
@@ -650,7 +715,7 @@ export class BlaxelProvider implements VMProvider {
 
   /** Installs (or re-verifies) the pinned binary and starts the daemon. No-op when the deployment has not opted in. */
   private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<boolean> {
-    const source = resolveCmuxTuiSource();
+    const source = await resolveCmuxTuiSource();
     if (!source) return false;
     const install = await this.sandboxExec(sandboxUrl, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
     if (install.exitCode !== 0) {
@@ -689,20 +754,39 @@ export class BlaxelProvider implements VMProvider {
     return this.sandboxExec(sandboxUrl, `env HOME=/root ${CMUX_TUI_BINARY_PATH} ${args}`, timeoutMs);
   }
 
+  /** The installed daemon's build identity and remote protocol, so clients can name a mismatch instead of hanging. */
+  private async cmuxTuiDaemonBuild(sandboxUrl: string): Promise<CmuxRemoteEndpoint["daemonBuild"] | null> {
+    const probe = await this.cmuxTuiExec(sandboxUrl, "remote-probe --json").catch(() => null);
+    if (!probe || probe.exitCode !== 0) return null;
+    const record = parseJsonObject(probe.stdout);
+    const commit = typeof record.build_identity === "string" ? record.build_identity : null;
+    const remoteProtocol = typeof record.remote_protocol === "number" ? record.remote_protocol : null;
+    const version = typeof record.version === "string" ? record.version : null;
+    if (!commit && remoteProtocol === null) return null;
+    return { commit, remoteProtocol, version };
+  }
+
   private async ensureCmuxTuiRunning(vmId: string, sandboxUrl: string): Promise<void> {
-    const source = resolveCmuxTuiSource();
-    if (!source) {
+    if (!isCmuxTuiEnabled()) {
       throw new ProviderError(
         "blaxel",
-        "the cmux-tui remote daemon is not enabled for this deployment (set CMUX_VM_BLAXEL_TUI_URL and CMUX_VM_BLAXEL_TUI_SHA256)",
+        "the cmux-tui remote daemon is not enabled for this deployment (CMUX_VM_CMUX_TUI_ENABLED=0)",
       );
+    }
+    const source = await resolveCmuxTuiSource();
+    if (!source) {
+      throw new ProviderError("blaxel", "the cmux-tui remote daemon is not enabled for this deployment");
     }
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
     if (proc?.status !== "running") {
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
       // needs the process started; a pin change or a fresh volume re-runs the install.
-      const installed = await this.sandboxExec(sandboxUrl, `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)}`).catch(() => null);
+      const installed = await this.sandboxExec(
+        sandboxUrl,
+        `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c -s`,
+      ).catch(() => null);
       if (installed?.exitCode !== 0) {
+        // Missing, or a different build than the manifest now pins: (re)install.
         await this.bootstrapCmuxTui(vmId, sandboxUrl);
       } else {
         await this.startCmuxTuiProcess(sandboxUrl);
@@ -776,12 +860,14 @@ export class BlaxelProvider implements VMProvider {
             invitation = { uri, invitationId: parsed.id, expiresAtUnix: parsed.expiresAtUnix };
           }
           span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
+          const daemonBuild = await this.cmuxTuiDaemonBuild(sandboxUrl);
           return {
             transport: "cmux-remote",
             route,
             token,
             expiresAtUnix,
             session: CMUX_TUI_SESSION,
+            ...(daemonBuild ? { daemonBuild } : {}),
             ...(invitation ? { invitation } : {}),
           };
         } catch (err) {
@@ -1601,7 +1687,7 @@ function sandboxPorts(): Array<{ name: string; protocol: "HTTP"; target: number 
   const ports: Array<{ name: string; protocol: "HTTP"; target: number }> = [
     { name: CMUXD_PREVIEW_NAME, protocol: "HTTP", target: CMUXD_WS_PORT },
   ];
-  if (resolveCmuxTuiSource()) {
+  if (isCmuxTuiEnabled()) {
     ports.push({ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT });
   }
   return ports;
