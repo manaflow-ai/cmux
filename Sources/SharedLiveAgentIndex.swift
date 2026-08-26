@@ -645,6 +645,7 @@ final class SharedLiveAgentIndex {
     /// Requests an event-driven full index reload for a newly bound agent PID.
     /// Calls coalesce behind the existing reload task and never scan inline.
     func requestSidebarIndexRefresh() {
+        guard sidebarProcessMonitoringEnabled else { return }
         let now = dateProvider()
         if let lastExplicitSidebarRefreshAt,
            now.timeIntervalSince(lastExplicitSidebarRefreshAt) < 2 {
@@ -657,6 +658,7 @@ final class SharedLiveAgentIndex {
                         guard let self else { return }
                         self.sidebarExplicitRefreshRetryTimer?.cancel()
                         self.sidebarExplicitRefreshRetryTimer = nil
+                        guard self.sidebarProcessMonitoringEnabled else { return }
                         self.requestSidebarIndexRefresh()
                     }
                 }
