@@ -171,6 +171,9 @@ const nextConfig: NextConfig = {
     root: webRoot,
   },
   outputFileTracingIncludes: {
+    // The Blaxel VM driver uploads this provision script into every sandbox at
+    // create time (services/vms/drivers/blaxel.ts reads it at runtime).
+    "**/*": ["./services/vms/images/*.sh"],
     "**/opengraph-image": [
       "./app/lib/open-graph-fonts/**/*",
       "./app/**/assets/landing-image.png",

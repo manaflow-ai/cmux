@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 import {
   BlaxelProvider,
   DESKTOP_VNC_HEAL_COMMAND,
   hostnameSetupCommand,
   parseMachineStats,
+  provisionScriptContent,
   resolveBlaxelMemoryMb,
   resolveDaemonSource,
   usablePrivatePreviewUrl,
@@ -491,5 +493,54 @@ describe("BlaxelProvider desktop VNC bootstrap", () => {
     expect(DESKTOP_VNC_HEAL_COMMAND).toContain(":5901 ");
     expect(DESKTOP_VNC_HEAL_COMMAND).toContain("runuser -u cua");
     expect(DESKTOP_VNC_HEAL_COMMAND).toContain("start-vnc.sh");
+  });
+});
+
+describe("BlaxelProvider devbox provisioning", () => {
+  // The provision recipe is data (one shell script), not driver string concatenation. These
+  // tests pin the contract: the script exists, parses, and carries the chatmux-devbox parity
+  // pieces (four coding agents, seeded history, half-life prompt) without Docker Engine,
+  // which cannot run in Blaxel microVMs (no cgroup mounts; dockerd panics, verified
+  // 2026-08-26).
+  test("provision script loads from services/vms/images and is a bash script", async () => {
+    const script = await provisionScriptContent();
+    expect(script.startsWith("#!/bin/bash")).toBe(true);
+  });
+
+  test("provision script passes bash -n", async () => {
+    const script = await provisionScriptContent();
+    const result = spawnSync("bash", ["-n"], { input: script, encoding: "utf8" });
+    expect(result.status).toBe(0);
+  });
+
+  test("provision script installs the four coding agents and the devbox shell", async () => {
+    const script = await provisionScriptContent();
+    for (const pkg of [
+      "@anthropic-ai/claude-code",
+      "@openai/codex",
+      "opencode-ai",
+      "@earendil-works/pi-coding-agent",
+    ]) {
+      expect(script).toContain(pkg);
+    }
+    // Seeded ghost-text history and the half-life prompt.
+    expect(script).toContain("claude --dangerously-skip-permissions");
+    expect(script).toContain("codex --yolo");
+    expect(script).toContain("38;5;135m"); // half-life purple user
+    expect(script).toContain("ble.sh");
+    // Idempotence + persistent-home safety: stamp guard, write-when-absent history.
+    expect(script).toContain("/var/lib/cmux/.provisioned");
+    expect(script).toContain('[ -f "$HOME/.bash_history" ] ||');
+    // Docker Engine must stay out until Blaxel sandboxes can run dockerd.
+    expect(script).not.toMatch(/apt-get install[^\n]*docker/);
+    expect(script).not.toMatch(/apk add[^\n]*docker/);
+  });
+
+  test("provision script handles both stock image families", async () => {
+    const script = await provisionScriptContent();
+    expect(script).toContain("apt-get");
+    expect(script).toContain("apk add");
+    // Ubuntu xfce-vnc has no node; the agents need one.
+    expect(script).toContain("deb.nodesource.com");
   });
 });
