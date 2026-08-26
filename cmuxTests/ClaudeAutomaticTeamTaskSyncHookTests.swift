@@ -888,6 +888,7 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         // A failed transition can leave only the destination proof. TeamDelete
         // must still inspect the live config before clearing that owner.
         try removeTeamBindingRecords(storeURL: context.storeURL)
+        try rewriteTeamConfigGeneration(at: teamDirectory)
 
         let deleteResult = runHook(
             context: context,
@@ -907,6 +908,115 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         let binding = try #require(persistedBinding["binding"] as? [String: Any])
         #expect(binding["leaderSessionID"] as? String == newLeaderSessionID)
         #expect(binding["agentIDs"] as? [String] == [newAgentID])
+    }
+
+    @Test("A rejected automatic-team identity cannot scan into another task list")
+    func rejectsCrossTeamCompatibilityScanAfterIdentityFailure() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-cross-team-scan"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "9a979797-9797-9797-9797-979797979797"
+        let surfaceId = "9b989898-9898-9898-9898-989898989898"
+        let oldTeamName = "Old-Scan-Team"
+        let replacementTeamName = "Replacement-Scan-Team"
+        let oldSessionID = "old-scan-leader"
+        let replacementSessionID = "replacement-scan-leader"
+        let teamRoot = context.root.appendingPathComponent(
+            ".claude/teams",
+            isDirectory: true
+        )
+        let tasksRoot = context.root.appendingPathComponent(
+            ".claude/tasks",
+            isDirectory: true
+        )
+        let oldTeamDirectory = teamRoot.appendingPathComponent(
+            "old-scan-team",
+            isDirectory: true
+        )
+        let replacementTeamDirectory = teamRoot.appendingPathComponent(
+            "replacement-scan-team",
+            isDirectory: true
+        )
+        let oldTaskDirectory = tasksRoot.appendingPathComponent(
+            oldTeamName,
+            isDirectory: true
+        )
+        let replacementTaskDirectory = tasksRoot.appendingPathComponent(
+            replacementTeamName,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: oldTeamDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: oldTaskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTeamConfig(
+            name: oldTeamName,
+            leaderSessionID: oldSessionID,
+            agentID: "old-scan-agent",
+            to: oldTeamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Cross-team identity","status":"pending"}"#,
+            to: oldTaskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let initialResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: oldSessionID,
+            toolName: "TaskCreate"
+        )
+        #expect(!initialResult.timedOut, Comment(rawValue: initialResult.stderr))
+        #expect(initialResult.status == 0, Comment(rawValue: initialResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+
+        try FileManager.default.removeItem(at: oldTeamDirectory)
+        try FileManager.default.removeItem(at: oldTaskDirectory)
+        try FileManager.default.createDirectory(
+            at: replacementTeamDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: replacementTaskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTeamConfig(
+            name: replacementTeamName,
+            leaderSessionID: replacementSessionID,
+            agentID: "replacement-scan-agent",
+            to: replacementTeamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Cross-team identity","status":"pending"}"#,
+            to: replacementTaskDirectory
+        )
+        try removeTeamBindingRecords(storeURL: context.storeURL)
+
+        let requestCountBeforeLateHook = reconcileRequests(in: context).count
+        let lateResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: oldSessionID,
+            toolName: "TaskUpdate",
+            standardInput: #"{"session_id":"old-scan-leader","hook_event_name":"PostToolUse","tool_name":"TaskUpdate","tool_input":{"taskId":"1","status":"in_progress"},"tool_response":{"task":{"id":"1","subject":"Cross-team identity"}}}"#
+        )
+        #expect(!lateResult.timedOut, Comment(rawValue: lateResult.stderr))
+        #expect(lateResult.status == 0, Comment(rawValue: lateResult.stderr))
+        #expect(reconcileRequests(in: context).count == requestCountBeforeLateHook)
     }
 
     private func runHook(
@@ -1014,5 +1124,18 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
             options: [.prettyPrinted, .sortedKeys]
         )
         try updatedData.write(to: storeURL)
+    }
+
+    private func rewriteTeamConfigGeneration(at directory: URL) throws {
+        let configURL = directory.appendingPathComponent("config.json")
+        var config = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any]
+        )
+        config["generationMarker"] = UUID().uuidString
+        let updatedData = try JSONSerialization.data(
+            withJSONObject: config,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try updatedData.write(to: configURL)
     }
 }

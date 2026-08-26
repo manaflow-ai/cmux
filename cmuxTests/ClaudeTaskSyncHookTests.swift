@@ -1121,6 +1121,79 @@ struct ClaudeTaskSyncHookTests {
         #expect(retired?["\(taskStoreIdentity.rawValue):\(taskListID)"] != nil)
     }
 
+    @Test("A new SessionStart generation cannot reuse a prior task-directory proof")
+    func rejectsPriorTaskDirectoryAfterSessionGenerationReset() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(
+            name: "task-sync-generation-fence"
+        )
+        defer { context.cleanup() }
+        let workspaceId = "adadadad-adad-adad-adad-adadadadadad"
+        let surfaceId = "aeaeaeae-aeae-aeae-aeae-aeaeaeaeaeae"
+        let sessionId = "generation-fence-session"
+        let taskListID = "prior-shared-list"
+        let tasksRoot = context.root.appendingPathComponent(
+            ".claude/tasks",
+            isDirectory: true
+        )
+        let taskDirectory = tasksRoot.appendingPathComponent(
+            taskListID,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: taskDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Prior generation task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var configuredEnvironment = ClaudeHookLiveDeliveryHarness.hookEnvironment(
+            context: context
+        )
+        configuredEnvironment["CMUX_WORKSPACE_ID"] = workspaceId
+        configuredEnvironment["CMUX_SURFACE_ID"] = surfaceId
+        configuredEnvironment["CLAUDE_CODE_TASK_LIST_ID"] = taskListID
+
+        let initialResult = runHook(
+            context: context,
+            environment: configuredEnvironment,
+            sessionId: sessionId,
+            toolName: "TaskCreate"
+        )
+        #expect(!initialResult.timedOut, Comment(rawValue: initialResult.stderr))
+        #expect(initialResult.status == 0, Comment(rawValue: initialResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+
+        var newGenerationEnvironment = configuredEnvironment
+        newGenerationEnvironment.removeValue(forKey: "CLAUDE_CODE_TASK_LIST_ID")
+        let sessionStartResult = ClaudeHookLiveDeliveryHarness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: newGenerationEnvironment,
+            standardInput: #"{"session_id":"generation-fence-session","source":"clear","hook_event_name":"SessionStart"}"#
+        )
+        #expect(!sessionStartResult.timedOut, Comment(rawValue: sessionStartResult.stderr))
+        #expect(sessionStartResult.status == 0, Comment(rawValue: sessionStartResult.stderr))
+
+        let requestCountBeforeLateHook = reconcileRequests(in: context).count
+        let lateResult = runHook(
+            context: context,
+            environment: newGenerationEnvironment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate"
+        )
+        #expect(!lateResult.timedOut, Comment(rawValue: lateResult.stderr))
+        #expect(lateResult.status == 0, Comment(rawValue: lateResult.stderr))
+        #expect(reconcileRequests(in: context).count == requestCountBeforeLateHook)
+    }
+
     @Test("Configured-list capacity clears the oldest owner before admission")
     func retiresOldestConfiguredTaskDestinationAtCapacity() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-list-capacity")
