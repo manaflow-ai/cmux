@@ -294,6 +294,33 @@ extension CmxIrohHostRuntime {
         )
     }
 
+    /// Whether this activation binds its endpoint with the managed relays
+    /// withheld and installs them only after ``start()`` has an acknowledged
+    /// broker registration. True exactly when the profile is managed (custom
+    /// relays are user-operated, not admission-gated by the cmux broker) and
+    /// no cached policy verifies for this endpoint: a fresh endpoint that
+    /// dials an admission-gated relay before its registration lands is denied
+    /// by the relay's allow hook, and that deny is negatively cached, so one
+    /// lost race costs the whole activation. The endpoint identity is derived
+    /// from the configured secret key, so the decision is made before the
+    /// bind it governs.
+    func withholdsManagedRelaysUntilRegistered(
+        for profile: CmxIrohEndpointRelayProfile
+    ) -> Bool {
+        guard profile.source == .managed, !profile.activeRelays.isEmpty else {
+            return false
+        }
+        guard let expectedEndpointID = configuration.identity.peerIdentity else {
+            // Without a derivable identity no cached policy can verify;
+            // withholding is the safe default (the bind itself decides
+            // whether the key is usable at all).
+            return true
+        }
+        return validatedCachedStartPolicy(
+            expectedEndpointID: expectedEndpointID
+        ) == nil
+    }
+
     func cachedPolicy(
         after error: any Error,
         expectedEndpointID: CmxIrohPeerIdentity,

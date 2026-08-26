@@ -192,11 +192,24 @@ public actor CmxIrohHostRuntime {
             let endpointRelayProfile = try currentEndpointRelayProfile
                 ?? configuration.resolvedEndpointRelayProfile()
             currentEndpointRelayProfile = endpointRelayProfile
+            // A verified cached policy proves the broker has acknowledged
+            // this endpoint, so its relay dials pass the relay's allow hook
+            // immediately and the profile stays installed at bind. Without
+            // one the endpoint binds relay-less and the managed profile is
+            // installed only after registration is acknowledged below,
+            // ordering the first relay dial after broker admission (a denied
+            // pre-registration dial is negatively cached by the relay).
+            // Custom relays are user-operated and not admission-gated by the
+            // cmux broker, so they stay installed at bind.
+            let withholdsManagedRelaysUntilRegistered =
+                withholdsManagedRelaysUntilRegistered(for: endpointRelayProfile)
             let endpointConfiguration = CmxIrohEndpointConfiguration(
                 secretKey: configuration.identity.secretKey,
                 alpns: [protocolConfiguration.alpn],
                 bindPolicy: configuration.bindPolicy,
-                relayProfile: endpointRelayProfile
+                relayProfile: withholdsManagedRelaysUntilRegistered
+                    ? .unavailableManagedSelection
+                    : endpointRelayProfile
             )
             let connectivityEngine = CmxConnectivityEngine(
                 factory: factory,
@@ -237,6 +250,20 @@ public actor CmxIrohHostRuntime {
                 )
             }
             try requireCurrent(revision)
+            if withholdsManagedRelaysUntilRegistered {
+                // The broker has now acknowledged this endpoint's binding: a
+                // fresh host cannot leave resolveInitialPolicy otherwise,
+                // because the cachedPolicy(after:) fallback requires the same
+                // verified cached policy whose absence made this bind
+                // withhold. Installing the managed relays only now guarantees
+                // the first relay dial cannot race the relay's allow hook
+                // into a negatively cached deny.
+                try await connectivityEngine.replaceRelayProfile(
+                    endpointRelayProfile,
+                    expectedIdentity: endpointID
+                )
+                try requireCurrent(revision)
+            }
 
             let offlineSessions = CmxIrohOfflinePairingSessions(
                 pairingEnabled: policy.pairingEnabled
