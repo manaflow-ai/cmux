@@ -696,6 +696,26 @@ struct RemoteResumeBindingTests {
         #expect(staleAgentRecord["legacy_command"] as? String == nil)
         let staleAgentLaunch = try #require(staleAgentRecord["launch_command"] as? [String: Any])
         #expect(staleAgentLaunch["working_directory"] as? String == nil)
+
+        let directBinding = SurfaceResumeBindingSnapshot(
+            kind: "command",
+            command: "printf direct-cli-restore",
+            source: "cli",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(directBinding, panelId: surfaceID))
+        #expect(workspace.surfaceResumeBinding(panelId: surfaceID)?.command == directBinding.command)
+        let directResult = try v2Result(request: [
+            "id": "direct-cli-binding-with-stale-agent",
+            "method": "surface.resume.get",
+            "params": [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])
+        let directRecord = try #require(directResult["restore_record"] as? [String: Any])
+        #expect((directRecord["legacy_command"] as? String)?.contains("direct-cli-restore") == true)
     }
 
     @Test
