@@ -222,7 +222,10 @@ final class FileContentChangeCoordinator {
     ) {
         guard entry.watches[watchedPath] == nil else { return }
         entry.lastObservedStates[watchedPath] = .capture(path: watchedPath)
-        entry.lookupPathsByWatchedPath[watchedPath] = [watchedPath, canonicalPath]
+        entry.lookupPathsByWatchedPath[watchedPath] = [
+            watchedPath,
+            Self.canonicalPath(watchedPath)
+        ]
         entry.watches[watchedPath] = makeWatchRegistration(
             for: watchedPath,
             canonicalPath: canonicalPath
@@ -262,6 +265,18 @@ final class FileContentChangeCoordinator {
             watchedPath,
             Self.canonicalPath(watchedPath)
         ]
+        let resolvedTargetPath = Self.canonicalPath(watchedPath)
+        if resolvedTargetPath != watchedPath,
+           entry.watches[resolvedTargetPath] == nil {
+            // A retargeted alias may point at a path whose parent is unrelated
+            // to the alias. Keep a direct watcher so a missing target that is
+            // later created still produces an invalidation.
+            installWatch(
+                for: resolvedTargetPath,
+                canonicalPath: canonicalPath,
+                in: &entry
+            )
+        }
         if entry.lookupPathsByWatchedPath[watchedPath] != nextLookupPaths {
             entry.lookupPathsByWatchedPath[watchedPath] = nextLookupPaths
             refreshLookupIndex(for: canonicalPath, in: &entry)

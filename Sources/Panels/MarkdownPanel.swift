@@ -408,7 +408,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textLoadGeneration &+= 1
         let loadGeneration = textLoadGeneration
         let editGeneration = textEditGeneration
-        lastObservedFileState = .capture(path: filePath)
         let fileURL = URL(fileURLWithPath: filePath)
         return textLoadCoordinator.submit(load: {
             // Markdown historically accepts files larger than the bounded
@@ -437,8 +436,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     ) {
         guard loadGeneration == textLoadGeneration else { return }
         if replacingDirtyContent, editGeneration != textEditGeneration {
+            // The destructive request was superseded by user input. Reconcile
+            // the latest disk state without replacing that input, and let the
+            // accepted result advance the observer fingerprint.
+            _ = loadFileContent(replacingDirtyContent: false)
             return
         }
+        lastObservedFileState = .capture(path: filePath)
         guard case .loaded(let newContent, let encoding) = result else {
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
