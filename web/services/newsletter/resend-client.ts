@@ -211,7 +211,11 @@ export class ResendClient {
         this.cancelSignal?.removeEventListener("abort", onCancel);
       }
       if (networkFailure) {
-        if (attempt >= MAX_ATTEMPTS) {
+        // A transport error is ambiguous for a write: the provider may have
+        // accepted the POST before the connection dropped. Without an
+        // idempotency key, retrying would duplicate emails, drafts, or
+        // audience resources. Only retry idempotent reads here.
+        if (method !== "GET" || attempt >= MAX_ATTEMPTS) {
           throw new ResendApiError(
             `Resend ${method} ${label} failed to reach the provider`,
             0,
