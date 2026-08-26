@@ -257,10 +257,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         let payload = try store.payload(for: ticket, target: .physicalDevice)
         let attachURL = try #require(payload["attach_url"] as? String)
-        #expect(attachURL.contains("?v=1&payload="))
-        let decoded = try compactTicket(from: attachURL)
-        #expect(decoded.routes.map(\.kind) == [.iroh, .tailscale])
-        #expect(!decoded.routes.contains { $0.kind == .lan })
+        let components = try #require(URLComponents(string: attachURL))
+        #expect(components.queryItems?.first(where: { $0.name == "v" })?.value == "2")
+        #expect(components.queryItems?.contains(where: { $0.name == "payload" }) == false)
+        let decoded = try CmxPairingQRCode().decode(components)
+        #expect(decoded.routes == [try tailscaleRoute()])
+        #expect(decoded.routes.allSatisfy { $0.kind == .tailscale })
         #expect(decoded.authToken == nil)
     }
 
