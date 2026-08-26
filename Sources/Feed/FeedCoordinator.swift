@@ -38,6 +38,7 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor private var todoRecoveryRecency: [String] = []
     @MainActor private var activeWorkstreamIDsByWorkspace: [UUID: [String: String]] = [:]
     @MainActor private let maxTrackedActiveWorkspaces = 128
+    @MainActor private let maxTrackedSessionsPerWorkspace = 128
     @MainActor private var dispatchedTaskOwnersByTargetWorkspace: [UUID: [DispatchedTaskOwner]] = [:]
     @MainActor private var dispatchedTaskOwnerRecency: [UUID] = []
     @MainActor private var dispatchTargetRecoveryScans: Set<UUID> = []
@@ -188,7 +189,16 @@ final class FeedCoordinator: @unchecked Sendable {
         case .sessionStart:
             pruneActiveWorkstreamSessions()
             guard let workspaceID = explicitWorkspaceID else { return [] }
-            activeWorkstreamIDsByWorkspace[workspaceID, default: [:]][surfaceKey] = event.sessionId
+            var sessions = activeWorkstreamIDsByWorkspace[workspaceID] ?? [:]
+            sessions[surfaceKey] = event.sessionId
+            if sessions.count > maxTrackedSessionsPerWorkspace {
+                let overflow = sessions.count - maxTrackedSessionsPerWorkspace
+                let evictedSurfaceKeys = Array(sessions.keys.prefix(overflow))
+                for key in evictedSurfaceKeys {
+                    sessions.removeValue(forKey: key)
+                }
+            }
+            activeWorkstreamIDsByWorkspace[workspaceID] = sessions
             return []
         case .sessionEnd:
             let workspaceID = explicitWorkspaceID
