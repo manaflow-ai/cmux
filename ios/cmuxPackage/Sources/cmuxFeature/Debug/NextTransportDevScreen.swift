@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxNextTransport
 import SwiftUI
 
 /// Graduation P4 slice 3 UI: the dev dial surface for the parallel
@@ -13,8 +14,10 @@ struct NextTransportDevScreen: View {
     @State private var client = NextTransportDialClient()
     @State private var ticketJSON = ""
     @State private var grantJSON = ""
+    @State private var configureNote: String?
+    // Default OFF: routing over the next transport is a dev opt-in.
     @AppStorage(NextTransportGraduationFacade.routeTrafficDefaultsKey)
-    private var routeAppTraffic = true
+    private var routeAppTraffic = false
 
     var body: some View {
         NavigationStack {
@@ -33,7 +36,7 @@ struct NextTransportDevScreen: View {
                         String(
                             localized: "nextTransport.dev.routeAppTraffic.detail",
                             defaultValue:
-                                "Normal app launches bootstrap over the paired channel, then carry control, terminals, and events on the next transport. Falls back per call when unavailable."
+                                "Off by default. When enabled, app launches bootstrap over the paired channel, then carry control, terminals, and events on the next transport for Macs that support it. A credential denial falls back to the paired channel and re-pairs."
                         )
                     )
                     .font(.caption)
@@ -88,9 +91,25 @@ struct NextTransportDevScreen: View {
                             localized: "nextTransport.dev.configure",
                             defaultValue: "Configure")
                     ) {
-                        client.configure(ticketJSON: ticketJSON, grantJSON: grantJSON)
+                        do {
+                            try client.configure(
+                                ticketJSON: ticketJSON, grantJSON: grantJSON)
+                            configureNote = nil
+                        } catch {
+                            // Short stable code only; the full error is in
+                            // os.log via the client.
+                            configureNote = String(
+                                localized: "nextTransport.dev.configure.rejected",
+                                defaultValue:
+                                    "Rejected: \(nextTransportShortErrorCode(error))")
+                        }
                     }
                     .disabled(ticketJSON.isEmpty || grantJSON.isEmpty)
+                    if let configureNote {
+                        Text(configureNote)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.orange)
+                    }
                 }
 
                 Section(
@@ -105,7 +124,18 @@ struct NextTransportDevScreen: View {
                     ) {
                         Text(client.state)
                             .bold()
-                            .foregroundStyle(client.state == "ready" ? .green : .primary)
+                            .foregroundStyle(client.dialState == .ready ? .green : .primary)
+                    }
+                    if let denial = client.lastDenial {
+                        LabeledContent(
+                            String(
+                                localized: "nextTransport.dev.lastDenial",
+                                defaultValue: "Last denial")
+                        ) {
+                            Text(denial.rawValue)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.orange)
+                        }
                     }
                     Button(
                         String(
@@ -129,7 +159,7 @@ struct NextTransportDevScreen: View {
                     ) {
                         Task { await client.runEcho() }
                     }
-                    .disabled(client.state != "ready")
+                    .disabled(client.dialState != .ready)
                     if let verdict = client.echoVerdict {
                         Text(verdict)
                             .font(.caption.monospaced())
