@@ -7,7 +7,7 @@ extension AgentHibernationRecord {
             !containsUnrelatedProcess &&
             !processIDs.isEmpty &&
             processIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
-            processIdentities.count == processIDs.count
+            Set(processIdentities.keys) == processIDs
     }
 
     /// Reclaim may terminate a live process only with complete scope evidence.
@@ -24,7 +24,7 @@ extension RestorableAgentSessionIndex.Entry {
                 !containsUnrelatedProcess &&
                     !terminationProcessIDs.isEmpty &&
                     terminationProcessIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
-                    terminationProcessIdentities.count == terminationProcessIDs.count
+                    Set(terminationProcessIdentities.keys) == terminationProcessIDs
             )
     }
 }
