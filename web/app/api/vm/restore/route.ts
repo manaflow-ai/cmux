@@ -3,19 +3,13 @@ import { defaultProviderId, type ProviderId } from "../../../../services/vms/dri
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmActiveLimitExceededResponse,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import {
-  isVmCreateCreditsInsufficientError,
-  isVmCreateFailedError,
-  isVmCreateInProgressError,
-  isVmLimitExceededError,
-  isVmSnapshotNotFoundError,
-} from "../../../../services/vms/errors";
+import { isVmSnapshotNotFoundError } from "../../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -182,31 +176,6 @@ function idempotencyKeyFromRequest(request: Request): string | undefined {
 }
 
 function createLikeErrorResponse(err: unknown, planId: string): Response | null {
-  if (isVmCreateInProgressError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_in_progress",
-      status: 409,
-      message: "A Cloud VM create is already running for this request.",
-      action: "Wait for the first restore to finish, then retry the same command.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmCreateFailedError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_failed",
-      status: 500,
-      message: "The Cloud VM restore create attempt failed.",
-      action: "Retry with a fresh restore. If it fails again, copy the details and contact support.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmLimitExceededError(err)) {
-    return vmActiveLimitExceededResponse({
-      limit: err.limit,
-      planId,
-      retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
-    });
-  }
   if (isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
       error: "vm_snapshot_not_found",
@@ -216,17 +185,17 @@ function createLikeErrorResponse(err: unknown, planId: string): Response | null 
       details: { snapshotId: err.snapshotId },
     });
   }
-  if (isVmCreateCreditsInsufficientError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_credits_insufficient",
-      status: 402,
-      message: "This team has no Cloud VM create credits left.",
-      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-      extra: { amount: err.amount },
-      details: { amount: err.amount },
-    });
-  }
-  return null;
+  return vmCreateWorkflowErrorResponse(err, {
+    planId,
+    limitRetryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
+    inProgress: {
+      action: "Wait for the first restore to finish, then retry the same command.",
+    },
+    failed: {
+      message: "The Cloud VM restore create attempt failed.",
+      action: "Retry with a fresh restore. If it fails again, copy the details and contact support.",
+    },
+  });
 }
 
 function billingTeamErrorResponse(err: {

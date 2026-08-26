@@ -3,19 +3,13 @@ import {
   jsonResponse,
   notFoundVm,
   requestedVmTeamIdFromRequest,
-  vmActiveLimitExceededResponse,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmRequiresProResponse,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import {
-  isVmCreateCreditsInsufficientError,
-  isVmCreateFailedError,
-  isVmCreateInProgressError,
-  isVmLimitExceededError,
-  isVmNotFoundError,
-} from "../../../../../services/vms/errors";
+import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -151,42 +145,17 @@ function idempotencyKeyFromRequest(request: Request): string | undefined {
 }
 
 function createLikeErrorResponse(err: unknown, planId: string): Response | null {
-  if (isVmCreateInProgressError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_in_progress",
-      status: 409,
-      message: "A Cloud VM create is already running for this request.",
+  return vmCreateWorkflowErrorResponse(err, {
+    planId,
+    limitRetryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
+    inProgress: {
       action: "Wait for the first fork to finish, then retry the same command.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmCreateFailedError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_failed",
-      status: 500,
+    },
+    failed: {
       message: "The Cloud VM fork create attempt failed.",
       action: "Retry with a fresh fork. If it fails again, copy the details and contact support.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-    });
-  }
-  if (isVmLimitExceededError(err)) {
-    return vmActiveLimitExceededResponse({
-      limit: err.limit,
-      planId,
-      retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
-    });
-  }
-  if (isVmCreateCreditsInsufficientError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_credits_insufficient",
-      status: 402,
-      message: "This team has no Cloud VM create credits left.",
-      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-      extra: { amount: err.amount },
-      details: { amount: err.amount },
-    });
-  }
-  return null;
+    },
+  });
 }
 
 function billingTeamErrorResponse(err: {

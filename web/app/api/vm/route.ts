@@ -13,11 +13,7 @@ import {
 import { assertVmCreateEnabled } from "../../../services/vms/config";
 import {
   isVmCreateDisabledError,
-  isVmCreateFailedError,
-  isVmCreateCreditsInsufficientError,
-  isVmCreateInProgressError,
   isVmImageConfigError,
-  isVmLimitExceededError,
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
@@ -35,10 +31,10 @@ import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
-  vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
@@ -384,45 +380,19 @@ export async function POST(request: Request): Promise<Response> {
             timing,
           }));
         } catch (err) {
-          if (isVmCreateInProgressError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_in_progress",
-              status: 409,
-              message: "A Cloud VM create is already running for this request.",
+          const createError = vmCreateWorkflowErrorResponse(err, {
+            planId: entitlements.planId,
+            limitRetryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
+            inProgress: {
               action: "Wait for the first `cmux vm new` to finish. If your terminal was interrupted, retry the same command and cmux will reuse the in-flight request.",
-              details: { idempotencyKeySet: !!err.idempotencyKey },
-            });
-          }
-          if (isVmCreateFailedError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_failed",
-              status: 500,
+            },
+            failed: {
               message: "The previous Cloud VM create attempt failed.",
               action: "Retry with a fresh `cmux vm new`. If it fails again, copy the details and contact support.",
-              details: {
-                idempotencyKeySet: !!err.idempotencyKey,
-                failureCode: err.code,
-                failureMessage: err.message,
-              },
-            });
-          }
-          if (isVmLimitExceededError(err)) {
-            return vmActiveLimitExceededResponse({
-              limit: err.limit,
-              planId: entitlements.planId,
-              retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
-            });
-          }
-          if (isVmCreateCreditsInsufficientError(err)) {
-            return vmErrorResponse({
-              error: "vm_create_credits_insufficient",
-              status: 402,
-              message: "This team has no Cloud VM create credits left.",
-              action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-              extra: { amount: err.amount },
-              details: { amount: err.amount },
-            });
-          }
+              includeFailureCause: true,
+            },
+          });
+          if (createError) return createError;
           const workflowError = vmWorkflowErrorResponse(err);
           if (workflowError) return workflowError;
           throw err;

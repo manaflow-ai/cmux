@@ -15,8 +15,12 @@ import {
 import {
   isVmBillingError,
   isVmAccountDeletionInProgressError,
+  isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
+  isVmCreateFailedError,
+  isVmCreateInProgressError,
   isVmDatabaseError,
+  isVmLimitExceededError,
   isVmProviderOperationError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -298,6 +302,102 @@ export function vmActiveLimitExceededResponse(input: {
     details: { limit: input.limit, upgradeRequired: true },
     ...(input.phase ? { phase: input.phase } : {}),
   });
+}
+
+/**
+ * Per-verb copy for the create-like failure map below. Every provisioning
+ * verb (create, restore, fork, Base open/reset) hits the same four workflow
+ * failures; only the user-facing wording and a few envelope extras differ.
+ */
+export type VmCreateLikeErrorCopy = {
+  readonly planId: string;
+  /** retryAction for the active-VM limit response. */
+  readonly limitRetryAction: string;
+  readonly limitPhase?: VmLifecyclePhase;
+  readonly inProgress: {
+    readonly error?: string;
+    readonly message?: string;
+    readonly action: string;
+    readonly phase?: VmLifecyclePhase;
+    readonly retryable?: boolean;
+    readonly retryAfterSeconds?: number;
+  };
+  readonly failed: {
+    readonly error?: string;
+    readonly message: string;
+    readonly action: string;
+    /** Include the stored failureCode/failureMessage in `details` (create only). */
+    readonly includeFailureCause?: boolean;
+    readonly phase?: VmLifecyclePhase;
+    readonly retryable?: boolean;
+  };
+  readonly credits?: {
+    readonly action?: string;
+    readonly phase?: VmLifecyclePhase;
+  };
+};
+
+/**
+ * One HTTP mapping for the create-like workflow failures
+ * (409 in-progress / 500 create-failed / 402 limit / 402 credits).
+ * The envelope shape is parsed by hand in VMClient.swift — field names and
+ * semantics must stay wire-compatible.
+ */
+export function vmCreateWorkflowErrorResponse(
+  err: unknown,
+  copy: VmCreateLikeErrorCopy,
+): Response | null {
+  if (isVmCreateInProgressError(err)) {
+    return vmErrorResponse({
+      error: copy.inProgress.error ?? "vm_create_in_progress",
+      status: 409,
+      message: copy.inProgress.message ?? "A Cloud VM create is already running for this request.",
+      action: copy.inProgress.action,
+      details: { idempotencyKeySet: !!err.idempotencyKey },
+      ...(copy.inProgress.phase ? { phase: copy.inProgress.phase } : {}),
+      ...(copy.inProgress.retryable !== undefined ? { retryable: copy.inProgress.retryable } : {}),
+      ...(copy.inProgress.retryAfterSeconds !== undefined
+        ? { retryAfterSeconds: copy.inProgress.retryAfterSeconds }
+        : {}),
+    });
+  }
+  if (isVmCreateFailedError(err)) {
+    return vmErrorResponse({
+      error: copy.failed.error ?? "vm_create_failed",
+      status: 500,
+      message: copy.failed.message,
+      action: copy.failed.action,
+      details: {
+        idempotencyKeySet: !!err.idempotencyKey,
+        ...(copy.failed.includeFailureCause
+          ? { failureCode: err.code, failureMessage: err.message }
+          : {}),
+      },
+      ...(copy.failed.phase ? { phase: copy.failed.phase } : {}),
+      ...(copy.failed.retryable !== undefined ? { retryable: copy.failed.retryable } : {}),
+    });
+  }
+  if (isVmLimitExceededError(err)) {
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId: copy.planId,
+      retryAction: copy.limitRetryAction,
+      ...(copy.limitPhase ? { phase: copy.limitPhase } : {}),
+    });
+  }
+  if (isVmCreateCreditsInsufficientError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_credits_insufficient",
+      status: 402,
+      message: "This team has no Cloud VM create credits left.",
+      action: copy.credits?.action ??
+        "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+      extra: { amount: err.amount },
+      details: { amount: err.amount },
+      ...(copy.credits?.phase ? { phase: copy.credits.phase } : {}),
+    });
+  }
+  return null;
 }
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {

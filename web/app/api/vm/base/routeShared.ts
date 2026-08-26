@@ -7,12 +7,8 @@ import {
   resolveVmEntitlements,
 } from "../../../../services/vms/entitlements";
 import {
-  isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
-  isVmCreateFailedError,
-  isVmCreateInProgressError,
   isVmImageConfigError,
-  isVmLimitExceededError,
 } from "../../../../services/vms/errors";
 import {
   imageUsesBakedFreestyleSignedAdmin,
@@ -22,7 +18,7 @@ import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmBillingTeamErrorResponse,
-  vmActiveLimitExceededResponse,
+  vmCreateWorkflowErrorResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   vmRequiresProResponse,
@@ -137,52 +133,35 @@ export async function runBaseRoute(input: {
 }
 
 function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string): Response | null {
-  if (isVmCreateInProgressError(err)) {
-    return vmErrorResponse({
+  const createError = vmCreateWorkflowErrorResponse(err, {
+    planId,
+    limitRetryAction: operation === "reset"
+      ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
+      : "Stop or delete another active Cloud VM, then retry opening Base.",
+    limitPhase: "create",
+    inProgress: {
       error: "vm_base_create_in_progress",
-      status: 409,
       message: "Base is already opening.",
       action: "Wait for the existing Base operation to finish. Retrying is safe and will attach to the same Base.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
       phase: "create",
       retryable: true,
       retryAfterSeconds: 2,
-    });
-  }
-  if (isVmCreateFailedError(err)) {
-    return vmErrorResponse({
+    },
+    failed: {
       error: "vm_base_create_failed",
-      status: 500,
       message: "Base could not be opened.",
       action: "Retry Base. If it keeps failing, contact support so we can inspect the retained Base state.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
       phase: "create",
       retryable: true,
-    });
-  }
-  if (isVmLimitExceededError(err)) {
-    return vmActiveLimitExceededResponse({
-      limit: err.limit,
-      planId,
-      retryAction: operation === "reset"
-        ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
-        : "Stop or delete another active Cloud VM, then retry opening Base.",
-      phase: "create",
-    });
-  }
-  if (isVmCreateCreditsInsufficientError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_credits_insufficient",
-      status: 402,
-      message: "This team has no Cloud VM create credits left.",
+    },
+    credits: {
       action: operation === "reset"
         ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
         : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
-      extra: { amount: err.amount },
-      details: { amount: err.amount },
       phase: "billing",
-    });
-  }
+    },
+  });
+  if (createError) return createError;
   return vmWorkflowErrorResponse(err);
 }
 
