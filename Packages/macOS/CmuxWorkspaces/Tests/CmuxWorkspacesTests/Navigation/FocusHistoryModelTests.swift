@@ -477,14 +477,25 @@ struct FocusHistoryModelTests {
         host.selectedWorkspaceId = secondWorkspace
         host.workspaces[secondWorkspace]?.rememberedFocusedPanelId = secondPanel
         model.recordFocusInHistory(workspaceId: secondWorkspace, panelId: secondPanel)
+
+        let thirdPanel = UUID()
+        let thirdWorkspace = host.addWorkspace(title: "third", panels: [thirdPanel: "third"])
+        host.selectedWorkspaceId = thirdWorkspace
+        host.workspaces[thirdWorkspace]?.rememberedFocusedPanelId = thirdPanel
+        model.recordFocusInHistory(workspaceId: thirdWorkspace, panelId: thirdPanel)
+
         host.selectedWorkspaceId = firstWorkspace
         model.recordFocusInHistory(workspaceId: firstWorkspace, panelId: firstPanel)
 
+        // Leave the current position between the two first-workspace records:
+        // the merged candidates are first (forward), second (back), first
+        // (back). Workspace scope must emit the first workspace only once.
         #expect(model.navigateBack())
+
         let items = model.recentlyFocusedFocusHistoryMenuItems(maxItemCount: 10)
 
-        #expect(items.count == 1)
-        #expect(items.first?.workspaceTitle == "first")
+        #expect(items.map(\.workspaceTitle) == ["first", "second"])
+        #expect(Set(items.map(\.entry.workspaceId)).count == items.count)
     }
 
     @Test func menuSnapshotResolvesClosedPanelToWorkspaceLevelEntry() {
