@@ -377,7 +377,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         let filtered = records.filter { !Self.recordContainsManagedCloudVM($0) }
         guard filtered.count != records.count else { return }
         records = filtered
-        revision &+= 1
+        advanceRevision()
         persistRecords()
     }
 
