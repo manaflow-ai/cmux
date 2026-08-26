@@ -10,6 +10,7 @@ import {
   type WebSocketPtyEndpoint,
   type SnapshotRef,
   type VMHandle,
+  type VmProviderCapabilities,
   type VmProviderDriver,
   type VMStatus,
 } from "./types";
@@ -91,6 +92,18 @@ function mapStatus(state: string | null | undefined): VMStatus {
 
 export class FreestyleProvider implements VmProviderDriver {
   readonly id = "freestyle" as const;
+  // The fullest surface today: real SSH identities, snapshots, and fork. No stats sampling or
+  // arbitrary-port ingress yet.
+  readonly capabilities: VmProviderCapabilities = {
+    ssh: true,
+    snapshot: true,
+    fork: true,
+    pause: true,
+    getStatus: true,
+    getStats: false,
+    openPort: false,
+    revokeEndpointLeases: false,
+  };
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();

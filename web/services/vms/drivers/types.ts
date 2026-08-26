@@ -127,8 +127,36 @@ export type SnapshotRef = {
   name?: string;
 };
 
+/**
+ * What a provider can actually do, declared up front. The gateway (and, through it, workflows
+ * and routes) branch on these flags instead of calling a method and catching
+ * `NotImplementedError` — capability discovery by exception was how 3 of 4 drivers ended up
+ * with methods whose only body was a throw. A `false` flag means the gateway refuses the
+ * operation with the same error the throwing stub used to produce, so external behavior is
+ * unchanged; the flags just make the truth queryable without a provider round-trip.
+ */
+export type VmProviderCapabilities = {
+  /** `openSSH` mints real credentials (vs a WebSocket-only provider whose openSSH explains why not). */
+  readonly ssh: boolean;
+  /** `snapshot`/`restore` produce durable images. */
+  readonly snapshot: boolean;
+  /** `fork` clones a running machine. */
+  readonly fork: boolean;
+  /** `pause` actually suspends compute (false for auto-standby providers whose pause is a no-op). */
+  readonly pause: boolean;
+  /** `getStatus` gives a real control-plane state read (false means "assume running"). */
+  readonly getStatus: boolean;
+  /** `getStats` samples CPU/memory/disk for the activity panel. */
+  readonly getStats: boolean;
+  /** `openPort` mints token-gated HTTPS ingress for arbitrary guest ports. */
+  readonly openPort: boolean;
+  /** `revokeEndpointLeases` can kill provider-side ingress credentials on sign-out. */
+  readonly revokeEndpointLeases: boolean;
+};
+
 export interface VmProviderDriver {
   readonly id: ProviderId;
+  readonly capabilities: VmProviderCapabilities;
 
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;
@@ -148,8 +176,10 @@ export interface VmProviderDriver {
   // query parameter for direct browser use.
   openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }>;
 
-  snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
-  restore(snapshotId: string): Promise<VMHandle>;
+  // Optional: providers without durable snapshots omit them and declare `capabilities.snapshot:
+  // false`; the gateway throws NotImplementedError on their behalf.
+  snapshot?(vmId: string, name?: string): Promise<SnapshotRef>;
+  restore?(snapshotId: string): Promise<VMHandle>;
   fork?(vmId: string): Promise<VMHandle>;
 
   // Returns a live attach endpoint the client can dial into. Providers prefer cmuxd-remote

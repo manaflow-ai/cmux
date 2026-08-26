@@ -30,6 +30,19 @@ file plus a registry entry in `index.ts` (and, to make it selectable, a kill-swi
   driver maps its provider's richer state machine onto it and must map unknown states to
   `running`, never throw.
 
+## Capabilities
+
+Every driver declares a `capabilities` matrix (`VmProviderCapabilities` in `types.ts`): `ssh`,
+`snapshot` (covers `restore`), `fork`, `pause`, `getStatus`, `getStats`, `openPort`,
+`revokeEndpointLeases`. The gateway gates optional operations on these flags BEFORE any
+provider round-trip, raising the same errors the old throwing stubs produced
+(`NotImplementedError` for snapshot/restore, the historical messages for fork/stats/ports).
+Callers branch on the declared flag — via the gateway's `capabilities(provider)` accessor —
+never by calling a method and catching `NotImplementedError`. A flag must be true exactly when
+the optional method is implemented; `tests/vm-provider-capabilities.test.ts` pins both the
+per-provider matrix and that invariant. `pause: false` means pause is a no-op the provider
+handles itself (Blaxel auto-standby), not that calling `pause` fails.
+
 ## Method semantics
 
 | Method | Semantics | Idempotency |

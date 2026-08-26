@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
   getProvider,
+  NotImplementedError,
   type AttachEndpoint,
   type AttachOptions,
   type CreateOptions,
@@ -11,6 +12,7 @@ import {
   type SnapshotRef,
   type SSHEndpoint,
   type VMHandle,
+  type VmProviderCapabilities,
   type VMStatus,
   type VMStats,
 } from "./drivers";
@@ -58,6 +60,12 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  /**
+   * The provider's declared capability flags, for branching before an operation is attempted
+   * (instead of calling a method and catching NotImplementedError). Optional so existing test
+   * fakes keep compiling; the Live layer always provides it.
+   */
+  readonly capabilities?: (provider: ProviderId) => VmProviderCapabilities;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -76,6 +84,10 @@ function providerEffect<A>(
   });
 }
 
+// Optional operations are gated on the driver's DECLARED capabilities, not on method
+// presence or a thrown NotImplementedError: the flags are the contract, and the error each
+// gate raises is byte-identical to what the old throwing stubs produced, so callers see no
+// behavior change.
 export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   create: (provider, options) =>
     providerEffect(provider, "create", () => getProvider(provider).create(options)),
@@ -84,7 +96,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {
       const driver = getProvider(provider);
-      if (!driver.getStatus) return "running" as const;
+      if (!driver.capabilities.getStatus || !driver.getStatus) return "running" as const;
       return await driver.getStatus(vmId);
     }),
   resume: (provider, vmId) =>
@@ -92,13 +104,25 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   pause: (provider, vmId) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
   snapshot: (provider, vmId, name) =>
-    providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
+    providerEffect(provider, "snapshot", async () => {
+      const driver = getProvider(provider);
+      if (!driver.capabilities.snapshot || !driver.snapshot) {
+        throw new NotImplementedError(provider, "snapshot");
+      }
+      return await driver.snapshot(vmId, name);
+    }),
   restore: (provider, snapshotId) =>
-    providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId)),
+    providerEffect(provider, "restore", async () => {
+      const driver = getProvider(provider);
+      if (!driver.capabilities.snapshot || !driver.restore) {
+        throw new NotImplementedError(provider, "restore");
+      }
+      return await driver.restore(snapshotId);
+    }),
   fork: (provider, vmId) =>
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);
-      if (!driver.fork) {
+      if (!driver.capabilities.fork || !driver.fork) {
         throw new Error("Cloud VM forks are not supported by this provider");
       }
       return await driver.fork(vmId);
@@ -108,7 +132,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   openPort: (provider, vmId, port) =>
     providerEffect(provider, "openPort", () => {
       const impl = getProvider(provider);
-      if (!impl.openPort) {
+      if (!impl.capabilities.openPort || !impl.openPort) {
         throw new Error(`provider ${provider} does not support opening ports`);
       }
       return impl.openPort(vmId, port);
@@ -116,7 +140,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   getStats: (provider, vmId) =>
     providerEffect(provider, "getStats", () => {
       const impl = getProvider(provider);
-      if (!impl.getStats) {
+      if (!impl.capabilities.getStats || !impl.getStats) {
         throw new Error(`provider ${provider} does not report machine stats`);
       }
       return impl.getStats(vmId);
@@ -131,7 +155,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     ),
   revokeEndpointLeases: (provider, vmId) => {
     const driver = getProvider(provider);
-    if (!driver.revokeEndpointLeases) return Effect.void;
+    if (!driver.capabilities.revokeEndpointLeases || !driver.revokeEndpointLeases) {
+      return Effect.void;
+    }
     return providerEffect(provider, "revokeEndpointLeases", () => driver.revokeEndpointLeases!(vmId));
   },
+  capabilities: (provider) => getProvider(provider).capabilities,
 });
