@@ -69,6 +69,9 @@ struct LocalTmuxProcessRunner {
 
         // Drain both descriptors while tmux is running. Waiting for the child
         // before reading can deadlock once either pipe's kernel buffer fills.
+        // This is the synchronous CLI boundary: poll waits only for pipe
+        // readiness (never for a lock or a condition), is capped to 250 ms,
+        // and the whole external command has a finite deadline.
         while stdoutOpen || stderrOpen || process.isRunning {
             let remaining = deadline - ProcessInfo.processInfo.systemUptime
             if remaining <= 0 {

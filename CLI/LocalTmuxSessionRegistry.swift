@@ -193,12 +193,21 @@ struct LocalTmuxSessionRegistry {
         write: Bool = true,
         _ body: (inout LocalTmuxRegistryFile) throws -> T
     ) throws -> T {
-        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, mode_t(0o600))
+        let descriptor: Int32
+        if write {
+            descriptor = open(lockURL.path, O_CREAT | O_RDWR, mode_t(0o600))
+        } else {
+            descriptor = open(lockURL.path, O_RDONLY)
+            if descriptor < 0, errno == ENOENT {
+                var state = try readUnlocked()
+                return try body(&state)
+            }
+        }
         guard descriptor >= 0 else {
             throw LocalTmuxRegistryError.cannotLock(lockURL.path)
         }
         defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else {
+        guard flock(descriptor, write ? LOCK_EX : LOCK_SH) == 0 else {
             throw LocalTmuxRegistryError.cannotLock(lockURL.path)
         }
         defer { _ = flock(descriptor, LOCK_UN) }
