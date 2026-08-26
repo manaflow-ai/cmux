@@ -662,6 +662,34 @@
             }
           }
         },
+        "videoBackground": {
+          "type": "object",
+          "additionalProperties": false,
+          "descriptionKey": "schemaDescriptions.terminal.videoBackground",
+          "description": "Dynamic video background. A muted, non-interactive video (YouTube video/playlist embed, or a looping local file) plays behind terminal content in every window, dimmed so text stays readable. Playback pauses automatically while the window is occluded or minimized. Off by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundEnabled",
+              "description": "Play the configured video source behind terminal content."
+            },
+            "source": {
+              "type": "string",
+              "default": "",
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundSource",
+              "description": "A YouTube video or playlist URL (playlists loop and advance automatically), or a local .mp4/.m4v/.mov file path played with AVFoundation."
+            },
+            "dimOpacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.8,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundDimOpacity",
+              "description": "Opacity of the terminal background fill drawn over the video (0 shows the video undimmed, 1 hides it). Higher keeps terminal text more readable."
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,
