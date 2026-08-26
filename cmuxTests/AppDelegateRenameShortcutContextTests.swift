@@ -258,6 +258,71 @@ struct AppDelegateRenameShortcutContextTests {
         }
     }
 
+    @Test func focusedBrowserHardReloadPreservesUnrelatedSettingsFileOrder() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let settingsFileURL = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
+            try writeSettingsFile(
+                """
+                {
+                  "shortcuts": {
+                    "bindings": {
+                      "editWorkspaceDescription": "cmd+shift+r"
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            KeyboardShortcutSettings.settingsFileStore.reload()
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            let editDescriptionPosted = ShortcutNotificationFlag()
+            let editDescriptionToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteEditWorkspaceDescriptionRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                editDescriptionPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(editDescriptionToken) }
+
+            let hardReloadPosted = ShortcutNotificationFlag()
+            let hardReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserHardReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                hardReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(hardReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command, .shift],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(editDescriptionPosted.wasPosted)
+            #expect(!hardReloadPosted.wasPosted)
+        }
+    }
+
     @Test func focusedBrowserCmdOptionRRequestsRenameWorkspace() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
