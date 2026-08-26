@@ -22,7 +22,9 @@ import {
   isVmDatabaseError,
   isVmLimitExceededError,
   isVmProviderOperationError,
+  isVmWorkflowError,
 } from "./errors";
+import { reportError } from "../observability/report";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 
@@ -68,6 +70,7 @@ export async function withAuthedVmApiRoute(
         return response;
       };
 
+      let authedUserId: string | null = null;
       try {
         const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
@@ -81,6 +84,7 @@ export async function withAuthedVmApiRoute(
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
+        authedUserId = user.id;
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return mutationForbidden;
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
@@ -89,6 +93,23 @@ export async function withAuthedVmApiRoute(
         console.error(failureLog, err);
         const workflowError = vmWorkflowErrorResponse(err);
         if (workflowError) return finalize(workflowError);
+        if (!isVmWorkflowError(err)) {
+          // An unmodeled failure (a bug or an unexpected dependency error)
+          // is about to be flattened into a generic 5xx. Capture it with
+          // enough context to debug — ids only, never tokens or lease
+          // material; the path segment carries the provider VM id for
+          // /api/vm/[id]/* routes.
+          reportError(err, {
+            subsystem: "vm-cloud",
+            boundary: "withAuthedVmApiRoute",
+            route,
+            method: request.method,
+            operation: vmOperationFromAttributes(attributes),
+            path: requestPathname(request),
+            userId: authedUserId,
+            requestedTeamId: requestedVmTeamIdFromRequest(request),
+          });
+        }
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
           status: 500,
@@ -99,6 +120,19 @@ export async function withAuthedVmApiRoute(
       }
     },
   );
+}
+
+function vmOperationFromAttributes(attributes: MaybeAttributes): string | null {
+  const operation = attributes["cmux.vm.operation"];
+  return typeof operation === "string" ? operation : null;
+}
+
+function requestPathname(request: Request): string | null {
+  try {
+    return new URL(request.url).pathname;
+  } catch {
+    return null;
+  }
 }
 
 /**
