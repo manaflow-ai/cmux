@@ -36,13 +36,12 @@ generated attach command is carried in the existing terminal snapshot and is
 replayed only when it has the `TMUX= CMUX_LOCAL_TMUX=1` marker.
 New sessions receive a bounded 10,000-line tmux history limit.
 
-The registry stores a stable logical UUID, the tmux name/socket, cwd, and
-workspace/surface identifiers. Reattach first resolves those durable IDs
-against the live control plane; title/cwd and marker matching are migration
-fallbacks only for records written before those identifiers existed. A missing
-authoritative target fails closed instead of silently selecting the current
-workspace. `--new-client` deliberately creates another cmux client instead of
-reusing a restored one.
+The registry stores a stable logical session UUID, the tmux name/socket, cwd,
+and the last authoritative workspace/surface identifiers. Reattach validates
+those identifiers against the live control plane. Title and cwd remain display
+and diagnostic hints only: when the saved identifiers are stale, pass an explicit
+`--workspace` rather than attaching to a mutable lookalike. `--new-client`
+deliberately creates another cmux client instead of reusing a restored one.
 
 ## Discovery, cleanup, and safety
 

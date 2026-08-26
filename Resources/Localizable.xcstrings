@@ -39525,13 +39525,6 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションに複数のクライアントがあります。明示的に切断するには --client <id> または --all を指定してください" } }
       }
     },
-    "cli.localTmux.error.multipleWorkspaces": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "local-tmux found multiple workspaces named %@; pass --workspace to choose the reattach target" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で %@ という名前のワークスペースが複数見つかりました。再接続先を選ぶには --workspace を指定してください" } }
-      }
-    },
     "cli.localTmux.error.newClientOnly": {
       "extractionState": "manual",
       "localizations": {
