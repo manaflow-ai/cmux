@@ -245,8 +245,8 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.map(\.id) == ["1", "2"])
     }
 
-    @Test("A known TaskGet preserves whole-list completeness")
-    func knownTaskGetPreservesCompleteness() {
+    @Test("A known TaskGet does not reauthorize a delta-only list")
+    func knownTaskGetDoesNotReauthorizeCompleteness() {
         let store = WorkstreamStore(ringCapacity: 50)
         store.ingest(toolEvent(
             sessionId: "s1",
@@ -262,7 +262,7 @@ struct WorkstreamTaskToolTodoTests {
             response: #"{"task":{"id":"1","subject":"known","status":"completed"}}"#
         ))
 
-        #expect(store.isTaskListComplete(forWorkstream: "s1"))
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
     }
 
     @Test("A pre-tool delta keeps completion authority disabled")
@@ -307,6 +307,195 @@ struct WorkstreamTaskToolTodoTests {
             input: #"{"taskId":"1"}"#
         ))
 
+        #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
+    }
+
+    @Test("A mismatched TaskUpdate response does not mutate the requested task")
+    func mismatchedTaskUpdateIDsFailClosed() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"keep"}"#,
+            response: #"{"task":{"id":"1","subject":"keep","status":"pending"}}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"completed"}"#,
+            response: #"{"task":{"id":"2","subject":"other","status":"completed"}}"#
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1"])
+        #expect(latestTodos(store)?.first?.state == .pending)
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
+    }
+
+    @Test("A post event with a different request ID still reconciles by payload")
+    func mismatchedHookRequestIDsReconcile() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"reconcile me"}"#,
+            requestId: "pre-hook-id"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"reconcile me"}"#,
+            response: #"{"task":{"id":"1","subject":"reconcile me"}}"#,
+            requestId: "post-hook-id"
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1"])
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["1"])
+    }
+
+    @Test("Out-of-order completions retain later pending operations")
+    func outOfOrderCompletionsRetainPendingCreates() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"first"}"#,
+            requestId: "first-pre"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"second"}"#,
+            requestId: "second-pre"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"second"}"#,
+            response: #"{"task":{"id":"2","subject":"second"}}"#,
+            requestId: "second-post"
+        ))
+
+        #expect(latestTodos(store)?.map(\.content) == ["first", "second"])
+
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"first"}"#,
+            response: #"{"task":{"id":"1","subject":"first"}}"#,
+            requestId: "first-post"
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1", "2"])
+    }
+
+    @Test("A failed TaskUpdate restores the pre-tool checklist")
+    func failedTaskUpdateRestoresPreToolState() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .todoWrite,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"work","status":"pending"}]}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"completed"}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"completed"}"#,
+            response: #"{"error":"denied"}"#,
+            isError: true
+        ))
+
+        #expect(latestTodos(store)?.first?.state == .pending)
+    }
+
+    @Test("A failed TodoWrite restores the previous snapshot")
+    func failedTodoWriteRestoresPreviousSnapshot() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .preToolUse,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"1","content":"old","status":"pending"}]}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"2","content":"new","status":"completed"}]}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"2","content":"new","status":"completed"}]}"#,
+            response: #"{"error":"denied"}"#,
+            isError: true
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1"])
+        #expect(latestTodos(store)?.first?.state == .pending)
+    }
+
+    @Test("Overlapping task calls roll back only the failed operation")
+    func overlappingTaskCallsKeepSuccessfulMutation() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"first"}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"second"}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"first"}"#,
+            response: #"{"task":{"id":"1","subject":"first"}}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"second"}"#,
+            response: #"{"error":"denied"}"#,
+            isError: true
+        ))
+
+        #expect(latestTodos(store)?.map(\.id) == ["1"])
+        #expect(latestTodos(store)?.first?.content == "first")
+    }
+
+    @Test("A response-less TaskCreate keeps its provisional row")
+    func responseLessTaskCreateRemainsProjected() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"pending create"}"#
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUse,
+            tool: "TaskCreate",
+            input: #"{"subject":"pending create"}"#
+        ))
+
+        #expect(latestTodos(store)?.first?.content == "pending create")
+        #expect(store.ownedTaskIds(forWorkstream: "s1") == ["pending-1"])
         #expect(store.isTaskListComplete(forWorkstream: "s1") == false)
     }
 }
