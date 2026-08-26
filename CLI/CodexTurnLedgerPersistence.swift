@@ -91,7 +91,11 @@ extension CodexTurnLedger {
     ) throws -> T {
         let lockPath = path + ".lock"
         let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
-        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         guard fd >= 0 else {
             throw CLIError(message: "Failed to open Codex turn ledger lock")
