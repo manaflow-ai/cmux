@@ -12,13 +12,13 @@ import type {
   SessionStatus,
 } from "./types";
 import { claudeAdapter } from "./adapters/claude";
-import { codexAdapter } from "./adapters/codex";
+import { codexAdapter, disposeCodexAppServerForShutdown } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename as pathBasename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -180,6 +180,12 @@ interface WsData {
 
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
+let activeServer: { stop: () => unknown } | null = null;
+let modelCatalogUnsubscribe: (() => void) | null = null;
+let modelCatalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let shutdownPromise: Promise<void> | null = null;
+let stateFileWritePromise: Promise<void> | null = null;
+let shuttingDown = false;
 let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
@@ -306,6 +312,7 @@ function createSession(
   title: string,
   startOptions: Record<string, OptionValue> = {},
 ): Session {
+  if (shuttingDown) throw new Error("agent-chat server is shutting down");
   const adapter = adapters.get(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
   const id = crypto.randomUUID().slice(0, 8);
@@ -507,6 +514,7 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
 }
 
 function sendPrompt(sess: Session, prompt: string) {
+  if (shuttingDown) return;
   const activeGeneration = activeAttributionGeneration(sess);
   if (adapterAttributionMode(sess) === "current-turn" && activeGeneration) {
     sess.emit({ kind: "user", text: prompt });
@@ -546,6 +554,7 @@ function sendPrompt(sess: Session, prompt: string) {
 }
 
 function refreshSession(sess: Session) {
+  if (shuttingDown) return;
   Promise.resolve(sess.adapter.refreshOptions?.(sess)).catch((err) => {
     console.error("[agent-chat] refresh-options failed", err);
     sess.emit({ kind: "error", message: safeErrorMessage("list-options", err) });
@@ -1874,6 +1883,7 @@ function startServer() {
       },
     },
   });
+  activeServer = server;
 
   // Warm the bundle so the first page load doesn't pay the build cost, and so
   // a build error surfaces at startup rather than as a blank page.
@@ -1887,15 +1897,21 @@ function startServer() {
       console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
     });
   }
-  agentModelCatalog.subscribe(() => {
+  modelCatalogUnsubscribe?.();
+  modelCatalogUnsubscribe = agentModelCatalog.subscribe(() => {
     applyAgentModelCatalog().catch((err) => console.warn(`model catalog apply failed: ${String(err)}`));
   });
   agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
-  setInterval(() => {
+  if (modelCatalogRefreshTimer) clearInterval(modelCatalogRefreshTimer);
+  modelCatalogRefreshTimer = setInterval(() => {
     agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
   }, 60_000);
   startThemeWatcher();
-  writeStateFile(server.port).catch((err) => console.error(`failed to write agent-chat state file: ${String(err)}`));
+  // Keep the write in the shutdown transaction.  Without this handle a fast
+  // SIGTERM can unlink the old file and then let an already-started write put
+  // the current PID back on disk after cleanup completes.
+  stateFileWritePromise = writeStateFile(server.port);
+  stateFileWritePromise.catch((err) => console.error(`failed to write agent-chat state file: ${String(err)}`));
 
   console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
 }
@@ -2120,9 +2136,112 @@ function subscribe(ws: Bun.ServerWebSocket<WsData>, sess: Session) {
   sess.sockets.add(ws);
 }
 
-process.on("SIGINT", () => {
-  for (const sess of sessions.values()) sess.adapter.dispose(sess);
-  process.exit(0);
-});
+async function removeOwnedStateFile() {
+  if (!STATE_FILE) return;
+  try {
+    const contents = await readFile(STATE_FILE, "utf8");
+    // Do not unlink a newer launch that reused a configured path.  An empty
+    // placeholder is deliberately left alone: there is no identity to prove
+    // that it belongs to this generation.
+    if (!contents.trim()) return;
+    let state: any;
+    try {
+      state = JSON.parse(contents);
+    } catch {
+      return;
+    }
+    if (state?.pid !== process.pid) return;
+    const launchId = process.env.CMUX_AGENT_CHAT_LAUNCH_ID;
+    if (launchId && state?.launchId !== launchId) return;
+    await unlink(STATE_FILE);
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") {
+      console.warn(`failed to remove agent-chat state file: ${String(err)}`);
+    }
+  }
+}
 
-if (import.meta.main) startServer();
+async function shutdownAgentChat(exitProcess: boolean, signal?: string): Promise<void> {
+  if (!shutdownPromise) {
+    shuttingDown = true;
+    shutdownPromise = (async () => {
+      if (signal) console.log(`cmux-agent-ui shutting down (${signal})`);
+
+      // Dispose every per-session adapter first.  Claude, Pi, and ACP own
+      // direct child processes; Codex's shared app-server is closed below.
+      for (const sess of sessions.values()) {
+        try {
+          sess.adapter.dispose(sess);
+        } catch (err) {
+          console.warn(`agent-chat adapter dispose failed: ${String(err)}`);
+        }
+      }
+      sessions.clear();
+      startRequests.clear();
+
+      disposeCodexAppServerForShutdown();
+
+      for (const ws of allSockets) {
+        try {
+          ws.close();
+        } catch {
+          // The server may already have closed this socket while tearing down.
+        }
+      }
+      allSockets.clear();
+
+      closeThemeWatchers();
+      if (themeRefreshTimer) clearTimeout(themeRefreshTimer);
+      themeRefreshTimer = null;
+      if (themePollTimer) clearInterval(themePollTimer);
+      themePollTimer = null;
+      modelCatalogUnsubscribe?.();
+      modelCatalogUnsubscribe = null;
+      if (modelCatalogRefreshTimer) clearInterval(modelCatalogRefreshTimer);
+      modelCatalogRefreshTimer = null;
+
+      const server = activeServer;
+      activeServer = null;
+      try {
+        await Promise.resolve(server?.stop());
+      } catch (err) {
+        console.warn(`agent-chat server stop failed: ${String(err)}`);
+      }
+      await stateFileWritePromise?.catch(() => {});
+      await removeOwnedStateFile();
+    })();
+  }
+
+  try {
+    await shutdownPromise;
+  } catch (err) {
+    if (exitProcess) process.exit(1);
+    throw err;
+  }
+  if (exitProcess) process.exit(0);
+}
+
+/// Exposed only for the sidecar lifecycle test; production shutdown enters via
+/// the signal handlers installed below.
+export async function shutdownAgentChatForTest() {
+  await shutdownAgentChat(false);
+}
+
+function installShutdownSignalHandlers() {
+  const handle = (signal: "SIGINT" | "SIGTERM") => {
+    shutdownAgentChat(true, signal).catch((err) => {
+      console.error(`agent-chat shutdown failed: ${String(err)}`);
+      process.exit(1);
+    });
+  };
+  // Keep both handlers installed for the whole bounded shutdown window: a
+  // second signal must join the idempotent transaction, not restore Bun's
+  // default immediate-exit behavior halfway through child disposal.
+  process.on("SIGINT", () => handle("SIGINT"));
+  process.on("SIGTERM", () => handle("SIGTERM"));
+}
+
+if (import.meta.main) {
+  installShutdownSignalHandlers();
+  startServer();
+}

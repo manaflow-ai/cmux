@@ -235,10 +235,23 @@ enum AgentChatThemeSync {
             "failed to sync theme: \(String(describing: error), privacy: .public)"
         )
         guard shouldClearOwnedSessionAfterThemePostFailure(error) else { return }
-        await MainActor.run {
+        let session = await MainActor.run { () -> AgentChatOwnedServerSession? in
             guard let session = AgentChatActionInFlightGate.ownedServerSession(),
-                  session.themeURL == url else { return }
-            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+                  session.themeURL == url else { return nil }
+            return session
+        }
+        guard let session else { return }
+        // A failed theme POST is one of the sidecar liveness signals.  Do the
+        // same identity-safe bounded termination as launch recovery; merely
+        // dropping the in-memory PID would orphan the process.  The wait runs
+        // off MainActor so a slow sidecar cannot hitch terminal UI updates.
+        let didTerminate = await AgentChatActionInFlightGate.terminateOwnedServerAsync(
+            matching: session
+        )
+        if didTerminate, let launchId = session.launchId {
+            await AgentChatActionInFlightGate.sidecarStateFileStore()?.removeStateFile(
+                launchId: launchId
+            )
         }
     }
 

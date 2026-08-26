@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct CmuxAgentChatConfigDefinition: Codable, Sendable, Hashable {
@@ -170,6 +171,32 @@ struct AgentChatOwnedServerSession: Sendable, Hashable {
     var port: Int
     var pid: Int
     var token: String
+    /// The launch ID is written by the sidecar and matched before discovery.
+    /// It is optional for backwards-compatible in-memory/test fixtures; live
+    /// app-owned sessions always carry it.
+    var launchId: String?
+    /// Kernel process birth time captured by cmux after reading the state file.
+    /// A PID without this token is never considered safe to terminate.
+    var processIdentity: AgentPIDProcessIdentity?
+    /// Child-led process group created for this app-owned launch.  Signals are
+    /// sent to this group only after `processIdentity` is revalidated.
+    var processGroupID: pid_t?
+
+    init(
+        port: Int,
+        pid: Int,
+        token: String,
+        launchId: String? = nil,
+        processIdentity: AgentPIDProcessIdentity? = nil,
+        processGroupID: pid_t? = nil
+    ) {
+        self.port = port
+        self.pid = pid
+        self.token = token
+        self.launchId = launchId
+        self.processIdentity = processIdentity
+        self.processGroupID = processGroupID
+    }
 
     var baseURL: URL {
         URL(string: "http://127.0.0.1:\(port)")!
@@ -202,8 +229,14 @@ struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
 
     func session(token: String, launchId expectedLaunchId: String) -> AgentChatOwnedServerSession? {
         guard launchId == expectedLaunchId else { return nil }
-        guard (1...65_535).contains(port), pid > 0 else { return nil }
-        return AgentChatOwnedServerSession(port: port, pid: pid, token: token)
+        guard (1...65_535).contains(port),
+              (1...Int(Int32.max)).contains(pid) else { return nil }
+        return AgentChatOwnedServerSession(
+            port: port,
+            pid: pid,
+            token: token,
+            launchId: expectedLaunchId
+        )
     }
 
     static func parse(

@@ -45,6 +45,22 @@ interface CodexState {
 
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
+let sharedStartingProcess: Bun.Subprocess<"pipe", "pipe", "pipe"> | null = null;
+let shutdownRequested = false;
+
+/// The Codex adapter owns one process shared by every chat session, so calling
+/// `adapter.dispose` for each session only removes thread bindings.  The
+/// sidecar shutdown path calls this explicit hook to close that remaining
+/// child and prevent a quit from leaving `codex app-server` behind.
+export function disposeCodexAppServerForShutdown() {
+  shutdownRequested = true;
+  const server = shared;
+  const startingProcess = sharedStartingProcess;
+  shared = null;
+  sharedStarting = null;
+  server?.proc.kill();
+  startingProcess?.kill();
+}
 
 const APPROVAL_CHOICES: OptionChoice[] = [
   { value: "untrusted", label: "Untrusted" },
@@ -193,6 +209,7 @@ function forkedCodexState(sourceState: CodexState): CodexState {
 }
 
 async function ensureServer(): Promise<AppServer> {
+  if (shutdownRequested) throw new Error("codex app-server is shutting down");
   if (shared && shared.proc.exitCode === null && !shared.proc.killed) return shared;
   if (sharedStarting) return sharedStarting;
   sharedStarting = startServer().finally(() => {
@@ -202,12 +219,14 @@ async function ensureServer(): Promise<AppServer> {
 }
 
 async function startServer(): Promise<AppServer> {
+  if (shutdownRequested) throw new Error("codex app-server is shutting down");
   const proc = Bun.spawn(["codex", "app-server"], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
     env: { ...process.env },
   });
+  sharedStartingProcess = proc;
   let nextId = 1;
   const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   const write = (msg: unknown) => {
@@ -286,9 +305,15 @@ async function startServer(): Promise<AppServer> {
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
   } catch (err) {
+    proc.kill();
     throw initTimedOut ? new Error("codex app-server did not initialize within 30s") : err;
   } finally {
     clearTimeout(initTimer);
+    if (sharedStartingProcess === proc) sharedStartingProcess = null;
+  }
+  if (shutdownRequested) {
+    proc.kill();
+    throw new Error("codex app-server is shutting down");
   }
   shared = srv;
   return srv;

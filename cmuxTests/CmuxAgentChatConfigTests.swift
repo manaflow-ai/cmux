@@ -239,6 +239,11 @@ struct CmuxAgentChatConfigTests {
 
         #expect(try AgentChatSidecarStateFile.parse(badPort, token: "token", launchId: "launch-1") == nil)
         #expect(try AgentChatSidecarStateFile.parse(badPID, token: "token", launchId: "launch-1") == nil)
+
+        let overflowingPID = try #require("""
+        {"port":43123,"pid":2147483648,"launchId":"launch-1"}
+        """.data(using: .utf8))
+        #expect(try AgentChatSidecarStateFile.parse(overflowingPID, token: "token", launchId: "launch-1") == nil)
     }
 
     @Test func agentChatStateFileRequiresMatchingLaunchID() throws {
@@ -365,7 +370,7 @@ struct CmuxAgentChatConfigTests {
     @Test func agentChatThemeURLUsesTokenedOwnedServerWhenAvailable() {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.clearOwnedServerSession() }
+        defer { AgentChatActionInFlightGate.resetForTesting() }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(startCommand: "cmux-chat"),
             global: nil
@@ -378,7 +383,7 @@ struct CmuxAgentChatConfigTests {
     @Test func explicitAgentChatThemeURLIgnoresOwnedServer() {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.clearOwnedServerSession() }
+        defer { AgentChatActionInFlightGate.resetForTesting() }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(
                 url: "http://127.0.0.1:9000/chat",
@@ -391,24 +396,26 @@ struct CmuxAgentChatConfigTests {
     }
 
     @MainActor
-    @Test func agentChatThemeConnectionFailureClearsMatchingOwnedSession() async {
+    @Test func agentChatThemeConnectionFailureKeepsSessionWhenIdentityIsUnavailable() async {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.clearOwnedServerSession() }
+        defer { AgentChatActionInFlightGate.resetForTesting() }
 
         await AgentChatThemeSync.handleThemePostFailure(
             URLError(.cannotConnectToHost),
             url: session.themeURL
         )
 
-        #expect(AgentChatActionInFlightGate.ownedServerSession() == nil)
+        // The fixture has no kernel identity, so cleanup must fail closed
+        // instead of forgetting a process that could still be running.
+        #expect(AgentChatActionInFlightGate.ownedServerSession() == session)
     }
 
     @MainActor
     @Test func agentChatThemeNonConnectionFailureKeepsOwnedSession() async {
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
         AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { AgentChatActionInFlightGate.clearOwnedServerSession() }
+        defer { AgentChatActionInFlightGate.resetForTesting() }
 
         await AgentChatThemeSync.handleThemePostFailure(
             URLError(.badURL),

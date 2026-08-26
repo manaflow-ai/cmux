@@ -2280,6 +2280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         caffeineController.setEnabled(false)
         MobileHostService.shared.stop()
         TerminalController.shared.stop(cleanupDiscoveryState: true)
+        AgentChatActionInFlightGate.terminateOwnedServer()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
