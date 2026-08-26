@@ -8,12 +8,15 @@ import Foundation
 /// human sentence that changes shape per call site.
 ///
 /// This is a `RawRepresentable` string rather than an `enum` because hook
-/// stores are read and rewritten by whichever cmux build runs next. A token
-/// written by a newer build has to decode in an older one and survive being
-/// written back: an `enum` would either throw on the unknown token, taking the
-/// whole session record down with it, or coerce it to a fallback case the way
+/// stores are read and rewritten by cmux builds that implement this field. A
+/// token written by a newer build has to decode in an older build that knows
+/// the field but not the token and survive being written back: an `enum` would
+/// either throw on that unknown token, taking the whole session record down
+/// with it, or coerce it to a fallback case the way
 /// `AgentHibernationLifecycleState` does and silently rewrite the store with
-/// the wrong reason.
+/// the wrong reason. A build from before this field necessarily drops the
+/// unknown key when it rewrites a record; that downgrade boundary has no
+/// unknown-key passthrough layer and is outside this type's guarantee.
 public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hashable, Sendable {
     /// The lossless machine-readable token stored alongside a launch verdict.
     public let rawValue: String

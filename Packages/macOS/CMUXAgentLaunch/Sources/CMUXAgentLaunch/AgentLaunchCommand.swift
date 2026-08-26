@@ -26,6 +26,9 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         didSet {
             if !arguments.isEmpty {
                 rejectionReason = nil
+                if source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" {
+                    source = nil
+                }
             }
         }
     }
@@ -87,7 +90,7 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         self.environment = environment
         self.verificationHome = verificationHome
         self.capturedAt = capturedAt
-        self.source = source
+        self.source = Self.sourcePreservingUsableArguments(source, arguments: arguments)
         self.rejectionReason = nil
     }
 
@@ -133,9 +136,11 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     /// self-contradictory: the argv is the actionable half, so the ground is
     /// dropped rather than surfaced through `sessions --json` next to a launch
     /// it does not describe. Every other record round-trips byte for byte,
-    /// including a ground this build does not know — the store is rewritten in
-    /// full on each mutation, so a token from a newer build has to survive an
-    /// older one reading and writing it back.
+    /// including a ground this build does not know — a token from a newer build
+    /// has to survive a build that implements this field but predates that token
+    /// reading and writing the record back. Builds predating this field cannot
+    /// retain an unknown key when they rewrite a Codable record, because the
+    /// hook store has no unknown-field passthrough layer.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         launcher = try container.decodeIfPresent(String.self, forKey: .launcher)
@@ -147,11 +152,24 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         environment = try container.decodeIfPresent([String: String].self, forKey: .environment)
         verificationHome = try container.decodeIfPresent(String.self, forKey: .verificationHome)
         capturedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .capturedAt)
-        source = try container.decodeIfPresent(String.self, forKey: .source)
+        let storedSource = try container.decodeIfPresent(String.self, forKey: .source)
+        source = Self.sourcePreservingUsableArguments(storedSource, arguments: arguments)
         let storedRejectionReason = try container.decodeIfPresent(
             AgentLaunchCaptureRejectionReason.self,
             forKey: .rejectionReason
         )
         rejectionReason = arguments.isEmpty ? storedRejectionReason : nil
+    }
+
+    /// Drops a contradictory legacy rejection marker once a usable argv exists.
+    private static func sourcePreservingUsableArguments(
+        _ source: String?,
+        arguments: [String]
+    ) -> String? {
+        guard !arguments.isEmpty,
+              source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" else {
+            return source
+        }
+        return nil
     }
 }

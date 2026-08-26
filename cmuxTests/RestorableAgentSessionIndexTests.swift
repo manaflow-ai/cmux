@@ -769,6 +769,54 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
+    func testContradictoryCodexLaunchCaptureUsesUsableArgvForRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-contradictory-codex-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let sessionId = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        var record = driftedAgentHookRecord(
+            launcher: "codex",
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedCwd: cwd.path,
+            launchCwd: cwd.path,
+            updatedAt: 10
+        )
+        // Force restore eligibility to come from the usable argv/source rule,
+        // rather than the helper's default transcript-backed marker.
+        record["isRestorable"] = NSNull()
+        record["launchCommand"] = [
+            "launcher": "codex",
+            "executablePath": "/usr/local/bin/codex",
+            "arguments": ["/usr/local/bin/codex", "--yolo"],
+            "workingDirectory": cwd.path,
+            "capturedAt": 10,
+            "source": "rejected",
+            "rejectionReason": "sanitizerRejectedArgv",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sessionId: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: workspaceId, panelId: panelId),
+            "a contradictory record with usable argv should use the argv consistently with sessions list"
+        )
+        XCTAssertEqual(snapshot.launchCommand?.arguments, ["/usr/local/bin/codex", "--yolo"])
+    }
+
+    @Test
     func testPiDetectedLatestSessionDoesNotCollapseExactHookRecordsAcrossPanels() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
