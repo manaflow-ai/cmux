@@ -5714,9 +5714,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         agentSessionEnded: Bool = false
     ) -> Bool {
         let removedBinding = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-        if removedBinding != nil,
+        if let removedBinding,
            agentSessionEnded,
+           removedBinding.isAgentHookBinding,
+           let checkpointID = Self.normalizedResumeBindingValue(removedBinding.checkpointId),
            let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
+           ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: restoredAgent.kind.rawValue,
+               lhs: checkpointID,
+               rhs: restoredAgent.sessionId
+           ),
            Self.restorableAgentForSessionRestore(
                restoredAgent,
                resumeBinding: removedBinding

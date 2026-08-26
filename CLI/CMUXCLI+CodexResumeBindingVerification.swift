@@ -38,22 +38,12 @@ extension CMUXCLI {
         launchVerificationHome: String? = nil,
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String {
-        if let launchHome = normalizedHookValue(launchEnvironment?["CODEX_HOME"]) {
-            return (launchHome as NSString).expandingTildeInPath
-        }
-        if let launchHome = normalizedHookValue(launchVerificationHome)
-            ?? normalizedHookValue(launchEnvironment?["HOME"]) {
-            return URL(fileURLWithPath: (launchHome as NSString).expandingTildeInPath, isDirectory: true)
-                .appendingPathComponent(".codex", isDirectory: true)
-                .path
-        }
-        if let ambientHome = normalizedHookValue(ambientEnvironment["CODEX_HOME"]) {
-            return (ambientHome as NSString).expandingTildeInPath
-        }
-        let home = normalizedHookValue(ambientEnvironment["HOME"]) ?? NSHomeDirectory()
-        return URL(fileURLWithPath: home, isDirectory: true)
-            .appendingPathComponent(".codex", isDirectory: true)
-            .path
+        CodexHomeResolver().resolve(
+            launchEnvironment: launchEnvironment,
+            launchVerificationHome: launchVerificationHome,
+            ambientEnvironment: ambientEnvironment,
+            fallbackHomeDirectory: NSHomeDirectory()
+        )
     }
 
     /// Revalidates a structured Codex resume record at the last safe boundary
@@ -172,19 +162,27 @@ extension CMUXCLI {
         }
 
         let message: String
+        let stage: String
         switch result {
         case .bindingChanged:
+            stage = "codex.restore.binding-changed"
             message = String(
                 localized: "cli.restore.error.checkpointMismatch",
                 defaultValue: "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
             )
-        case .allowed, .missing, .unavailable, .rejectedChild:
+        case .allowed:
+            return
+        case .missing, .unavailable, .rejectedChild:
+            stage = "codex.restore.checkpoint-unavailable"
             message = String(
                 localized: "cli.restore.codexCheckpointUnavailable",
-                defaultValue: "restore: the saved Codex checkpoint is unavailable. The terminal remains in its saved directory; retry later or start a new Codex session."
+                defaultValue: "restore: the saved agent session is unavailable. The terminal remains in its saved directory; retry later or start a new agent session."
             )
         }
-        cliWriteStderr(message + "\n")
+        // A rejected restore is a command failure, not a successful fallback.
+        // Throw through the normal CLI boundary so callers receive a non-zero
+        // status without exposing raw provider output.
+        throw loggedRestoreError(stage: stage, message: message)
     }
 
     private func codexRestoreBindingCheckpoint(

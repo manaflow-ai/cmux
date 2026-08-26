@@ -20,6 +20,69 @@ struct CodexResumeBindingVerificationTests {
         #expect(result == .missing)
     }
 
+    @Test func batchLegacyVerificationWalksOneHomeForMultipleIdentities() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let firstID = "019ff9a5-cbe1-7231-9478-0c55a8c44560"
+        let secondID = "019ff9a6-cbe1-7231-9478-0c55a8c44560"
+        let firstRollout = try fixture.writeRollout(
+            sessionId: firstID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+        let secondRollout = try fixture.writeRollout(
+            sessionId: secondID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            [
+                CodexSessionResumeVerificationRequest(sessionId: firstID),
+                CodexSessionResumeVerificationRequest(sessionId: secondID),
+                CodexSessionResumeVerificationRequest(sessionId: "missing-batch-id"),
+            ],
+            codexHome: fixture.codexHome.path
+        )
+
+        guard results.count == 3,
+              case .exists(let firstEvidence) = results[0],
+              case .exists(let secondEvidence) = results[1] else {
+            Issue.record("one legacy batch should resolve every exact rollout")
+            return
+        }
+        #expect(URL(fileURLWithPath: firstEvidence.rolloutPath).lastPathComponent == firstRollout.lastPathComponent)
+        #expect(URL(fileURLWithPath: secondEvidence.rolloutPath).lastPathComponent == secondRollout.lastPathComponent)
+        #expect(results[2] == .missing)
+    }
+
+    @Test func codexHomeResolverPrefersLaunchMetadataOverAmbientState() {
+        let resolver = CodexHomeResolver()
+        let launchCodexHome = "/tmp/launch-codex"
+        let launchUserHome = "/tmp/launch-user"
+        let ambientCodexHome = "/tmp/ambient-codex"
+
+        #expect(
+            resolver.resolve(
+                launchEnvironment: ["CODEX_HOME": launchCodexHome],
+                launchVerificationHome: launchUserHome,
+                ambientEnvironment: [
+                    "CODEX_HOME": ambientCodexHome,
+                    "HOME": "/tmp/ambient-user",
+                ],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == launchCodexHome
+        )
+        #expect(
+            resolver.resolve(
+                launchEnvironment: ["HOME": launchUserHome],
+                ambientEnvironment: ["CODEX_HOME": ambientCodexHome],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == "\(launchUserHome)/.codex"
+        )
+    }
+
     @Test func readableIndexWithoutThreadDoesNotScanUnindexedRollouts() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

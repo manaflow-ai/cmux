@@ -1559,8 +1559,7 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager
         )
         let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
-        let codexResumeVerifier = CodexSessionResumeVerifier()
-        var codexVerificationCache: [String: CodexSessionResumeVerification] = [:]
+        let codexHomeResolver = CodexHomeResolver()
         let cachedAgentProcessValidator = CachedAgentProcessIdentityValidator()
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
@@ -1574,41 +1573,84 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
 
+        var codexVerificationByKey: [String: CodexSessionResumeVerification] = [:]
+        var codexRequestsByHome: [String: [CodexSessionResumeVerificationRequest]] = [:]
+        var codexRequestKeys = Set<String>()
+
+        func codexVerificationKey(
+            for record: RestorableAgentHookSessionRecord
+        ) -> (key: String, home: String, sessionID: String, transcriptPath: String?)? {
+            guard record.isRestorable == true else { return nil }
+            let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionID.isEmpty else { return nil }
+            let home = codexHomeResolver.resolve(
+                launchEnvironment: record.launchCommand?.environment,
+                launchVerificationHome: record.launchCommand?.verificationHome,
+                ambientEnvironment: environment,
+                fallbackHomeDirectory: homeDirectory
+            )
+            let transcriptPath = Self.normalizedNonEmptyValue(record.transcriptPath)
+            return (
+                key: [home, sessionID, transcriptPath ?? ""].joined(separator: "\u{0}"),
+                home: home,
+                sessionID: sessionID,
+                transcriptPath: transcriptPath
+            )
+        }
+
+        // Build one durable-state request plan per Codex home before the main
+        // hook reconciliation loop. The verifier can then walk a legacy
+        // sessions tree once instead of once per historical hook record.
+        if let codexKind = hookKinds.first(where: { $0.kind == .codex }) {
+            let fileURL = codexKind.kind.hookStoreFileURL(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+            if fileManager.fileExists(atPath: fileURL.path),
+               let data = try? Data(contentsOf: fileURL),
+               let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) {
+                for rawRecord in state.sessions.values {
+                    var record = rawRecord
+                    record.launchCommand = trustedLaunchCommand(
+                        record.launchCommand,
+                        kind: .codex
+                    )
+                    if normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() == "environment",
+                       normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil,
+                       normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil
+                           || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil {
+                        record.launchCommand = nil
+                    }
+                    guard let key = codexVerificationKey(for: record) else { continue }
+                    guard codexRequestKeys.insert(key.key).inserted else { continue }
+                    codexRequestsByHome[key.home, default: []].append(
+                        CodexSessionResumeVerificationRequest(
+                            sessionId: key.sessionID,
+                            transcriptPath: key.transcriptPath
+                        )
+                    )
+                }
+            }
+        }
+        let codexResumeVerifier = CodexSessionResumeVerifier()
+        for (home, requests) in codexRequestsByHome {
+            let results = codexResumeVerifier.verifyBatch(
+                requests,
+                codexHome: home,
+                fileManager: fileManager
+            )
+            for (request, result) in zip(requests, results) {
+                let key = [home, request.sessionId, request.transcriptPath ?? ""]
+                    .joined(separator: "\u{0}")
+                codexVerificationByKey[key] = result
+            }
+        }
+
         func codexDurableVerification(
             for record: RestorableAgentHookSessionRecord
         ) -> CodexSessionResumeVerification? {
-            guard record.isRestorable == true else { return nil }
-            let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !sessionID.isEmpty else { return .missing }
-            let launchEnvironment = record.launchCommand?.environment
-            let rawHome = Self.normalizedNonEmptyValue(launchEnvironment?["CODEX_HOME"])
-                ?? Self.normalizedNonEmptyValue(environment["CODEX_HOME"])
-                ?? Self.normalizedNonEmptyValue(record.launchCommand?.verificationHome).map {
-                    URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true)
-                        .appendingPathComponent(".codex", isDirectory: true)
-                        .path
-                }
-                ?? Self.normalizedNonEmptyValue(environment["HOME"]).map {
-                    URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true)
-                        .appendingPathComponent(".codex", isDirectory: true)
-                        .path
-                }
-                ?? URL(fileURLWithPath: homeDirectory, isDirectory: true)
-                    .appendingPathComponent(".codex", isDirectory: true)
-                    .path
-            let codexHome = (NSString(string: rawHome).expandingTildeInPath as NSString).standardizingPath
-            let cacheKey = codexHome + "\u{0}" + sessionID
-            if let cached = codexVerificationCache[cacheKey] {
-                return cached
-            }
-            let result = codexResumeVerifier.verify(
-                sessionId: sessionID,
-                transcriptPath: record.transcriptPath,
-                codexHome: codexHome,
-                fileManager: fileManager
-            )
-            codexVerificationCache[cacheKey] = result
-            return result
+            guard let key = codexVerificationKey(for: record) else { return nil }
+            return codexVerificationByKey[key.key]
         }
 
         for (kind, registration) in hookKinds {
@@ -1656,6 +1698,14 @@ struct RestorableAgentSessionIndex: Sendable {
                 let codexVerification = kind == .codex
                     ? codexDurableVerification(for: effectiveRecord)
                     : nil
+                if kind == .codex,
+                   effectiveRecord.isRestorable == true,
+                   codexVerification == nil {
+                    // The request plan raced the hook-store read or could not
+                    // resolve this record's home. Do not claim a complete
+                    // index when durable evidence was not inspected.
+                    isComplete = false
+                }
                 if case .unavailable = codexVerification {
                     // A transient Codex store/read failure is not evidence that
                     // the session is gone. Keep the index incomplete so
@@ -2214,7 +2264,13 @@ struct RestorableAgentSessionIndex: Sendable {
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             if record.isRestorable == true {
-                guard case .exists = codexDurableVerification else { return false }
+                guard case .exists(let evidence) = codexDurableVerification,
+                      evidence.provenance.mayOwnBinding else {
+                    // A durable automation, child, or unclassified rollout is
+                    // valid evidence for an explicit exec restore, but it can
+                    // never become the interactive surface owner.
+                    return false
+                }
                 return true
             }
             let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()

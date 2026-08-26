@@ -51129,13 +51129,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: the saved Codex checkpoint is unavailable. The terminal remains in its saved directory; retry later or start a new Codex session."
+            "value": "restore: the saved agent session is unavailable. The terminal remains in its saved directory; retry later or start a new agent session."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "restore: 保存された Codex チェックポイントを利用できません。ターミナルは保存されたディレクトリに残っています。後でもう一度試すか、新しい Codex セッションを開始してください。"
+            "value": "restore: 保存されたエージェント セッションを利用できません。ターミナルは保存されたディレクトリに残っています。後でもう一度試すか、新しいエージェント セッションを開始してください。"
           }
         }
       }

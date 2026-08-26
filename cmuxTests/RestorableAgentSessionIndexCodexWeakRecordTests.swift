@@ -10,6 +10,7 @@ import Testing
 
 @Suite
 struct RestorableAgentSessionIndexCodexWeakRecordTests {
+    @Test
     func testCodexWeakEnvironmentOnlyRecordDoesNotOverrideTranscriptBackedSession() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -102,6 +103,7 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
         #expect(snapshot.workingDirectory == repo.path)
     }
 
+    @Test
     func testCodexLegacyArgvRecordWithoutSourceIsRestorable() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -138,6 +140,7 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
         #expect(snapshot.workingDirectory == repo.path)
     }
 
+    @Test
     func testCodexDefaultLaunchRecordIsRestorable() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -174,6 +177,7 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
         #expect(snapshot.workingDirectory == repo.path)
     }
 
+    @Test
     func testCodexRestorableChildWithoutDurableCheckpointDoesNotReplaceParent() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -189,8 +193,11 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
 
         let parentID = "019ff98a-d827-7831-960d-fd9bdf7d54e2"
         let childID = "01a03bc1-7649-7ec3-bdf7-03acf979e086"
+        let reviewID = "019ff9a7-d827-7831-960d-fd9bdf7d54e2"
         let parentRollout = codexHome
             .appendingPathComponent("sessions/2026/08/26/rollout-\(parentID).jsonl")
+        let reviewRollout = codexHome
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(reviewID).jsonl")
         let parentMetadata: [String: Any] = [
             "type": "session_meta",
             "payload": [
@@ -209,12 +216,29 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
             + #"{"type":"event_msg","payload":{"message":"codex thread: 01a03bc1-7649-7ec3-bdf7-03acf979e086"}}"#
             + "\n"
         try parentTranscript.write(to: parentRollout, atomically: true, encoding: .utf8)
+        let reviewMetadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": [
+                "id": reviewID,
+                "cwd": repo.path,
+                "source": ["review": ["parent_thread_id": parentID]],
+                "originator": "codex_exec",
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: reviewMetadata, options: [.sortedKeys])
+            .write(to: reviewRollout, options: .atomic)
         try createCodexStateDatabase(at: codexHome.appendingPathComponent("state_5.sqlite"))
         try insertCodexThread(
             at: codexHome.appendingPathComponent("state_5.sqlite"),
             sessionID: parentID,
             rolloutPath: parentRollout.path,
             source: "cli"
+        )
+        try insertCodexThread(
+            at: codexHome.appendingPathComponent("state_5.sqlite"),
+            sessionID: reviewID,
+            rolloutPath: reviewRollout.path,
+            source: "review"
         )
 
         let ws = UUID()
@@ -235,6 +259,7 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
                         "executablePath": "/usr/local/bin/codex",
                         "arguments": ["/usr/local/bin/codex"],
                         "workingDirectory": repo.path,
+                        "environment": ["CODEX_HOME": codexHome.path],
                         "capturedAt": 10,
                         "source": "process",
                     ]
@@ -259,6 +284,26 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
                         "source": "environment",
                     ]
                 ),
+                // A durable review rollout is still not allowed to claim the
+                // interactive surface that belongs to the TUI parent.
+                reviewID: codexHookRecord(
+                    sessionId: reviewID,
+                    workspaceId: ws,
+                    panelId: panel,
+                    cwd: repo.path,
+                    transcriptPath: reviewRollout.path,
+                    updatedAt: 30,
+                    isRestorable: true,
+                    launchCommand: [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex"],
+                        "workingDirectory": repo.path,
+                        "environment": ["CODEX_HOME": codexHome.path],
+                        "capturedAt": 30,
+                        "source": "environment",
+                    ]
+                ),
             ]
         )
 
@@ -268,7 +313,7 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
         )
         #expect(
             snapshot.sessionId == parentID,
-            "a missing rollout from a review child must not replace the durable parent"
+            "missing and durable review children must not replace the durable interactive parent"
         )
     }
 
