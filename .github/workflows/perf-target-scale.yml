@@ -54,6 +54,8 @@ concurrency:
 
 jobs:
   target-scale:
+    permissions:
+      contents: read
     runs-on: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
     timeout-minutes: 150
     env:
@@ -73,6 +75,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
           submodules: recursive
           fetch-depth: 0
 
@@ -116,8 +119,6 @@ jobs:
           # existing activation benchmark's launch policy.
           chmod 0777 "$RESULTS_DIR"
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
-          ENFORCE_ARGS=()
-          if [ "$ENFORCE_INPUT" = 'true' ]; then ENFORCE_ARGS+=(--enforce); fi
           BENCHMARK_CMD=(
             python3 scripts/perf-target-scale.py
             --tag "$PERF_TAG" \
@@ -128,9 +129,11 @@ jobs:
             --cpu-seconds "$CPU_INPUT" \
             --cycles "$CYCLES_INPUT" \
             --output "$RESULTS_DIR/target-scale.json" \
-            --junit "$RESULTS_DIR/target-scale.junit.xml" \
-            "${ENFORCE_ARGS[@]}"
+            --junit "$RESULTS_DIR/target-scale.junit.xml"
           )
+          if [ "$ENFORCE_INPUT" = 'true' ]; then
+            BENCHMARK_CMD+=(--enforce)
+          fi
           CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
           if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != 'root' ] \
             && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" \

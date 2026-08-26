@@ -214,7 +214,7 @@ class TargetScaleRunner:
         self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{self.tag_slug}.sock")
         self.cmuxd_socket_path = pathlib.Path.home() / "Library" / "Application Support" / "cmux" / f"cmuxd-dev-{self.tag_slug}.sock"
         self.app_path = pathlib.Path(args.app_path).expanduser() if args.app_path else self.default_app_path()
-        self.binary_path = self.app_path / "Contents" / "MacOS" / f"cmux DEV"
+        self.binary_path = self.app_path / "Contents" / "MacOS" / "cmux DEV"
         self.cli_path = self.app_path / "Contents" / "Resources" / "bin" / "cmux"
         self.proc: subprocess.Popen[str] | None = None
         self.pid: int | None = None
@@ -488,12 +488,25 @@ class TargetScaleRunner:
         surface_ids = [sid for pane in panes for sid in pane.get("surface_ids", [])]
         for sid in surface_ids:
             self.rpc("surface.send_text", {"workspace_id": workspace_id, "surface_id": sid, "text": command}, timeout=120)
-        deadline = time.monotonic() + max(10.0, float(self.args.settle_seconds) + 8.0)
+        # Each pending surface is read through a sequential CLI subprocess.
+        # Reserve its bounded RPC timeout in the overall readiness budget so
+        # large fixtures are not rejected while their reads are still valid.
+        read_timeout = 30.0
+        deadline = time.monotonic() + max(
+            10.0,
+            float(self.args.settle_seconds) + 8.0 + read_timeout * max(1, len(surface_ids)),
+        )
         pending = set(surface_ids)
         while pending and time.monotonic() < deadline:
             for sid in list(pending):
                 try:
-                    text = _read_surface_text(self.rpc("surface.read_text", {"workspace_id": workspace_id, "surface_id": sid}, timeout=30))
+                    text = _read_surface_text(
+                        self.rpc(
+                            "surface.read_text",
+                            {"workspace_id": workspace_id, "surface_id": sid},
+                            timeout=read_timeout,
+                        )
+                    )
                 except BenchmarkError:
                     continue
                 if "CMUX_TARGET_SCALE_READY" in text:
@@ -669,11 +682,27 @@ def _write_json(path: pathlib.Path, payload: Mapping[str, Any]) -> None:
 def _write_junit(path: pathlib.Path, artifact: Mapping[str, Any]) -> None:
     evaluation = artifact.get("evaluation") if isinstance(artifact.get("evaluation"), Mapping) else {}
     failures = evaluation.get("failures") if isinstance(evaluation.get("failures"), list) else []
-    suite = ET.Element("testsuite", {"name": "cmux target-scale resource budgets", "tests": "1", "failures": str(len(failures))})
-    case = ET.SubElement(suite, "testcase", {"classname": "perf_target_scale", "name": "target_scale_budgets"})
-    for failure in failures:
-        node = ET.SubElement(case, "failure", {"type": str(failure.get("code", "budget"))})
-        node.text = str(failure.get("message", failure))
+    tests = max(1, len(failures))
+    suite = ET.Element(
+        "testsuite",
+        {
+            "name": "cmux target-scale resource budgets",
+            "tests": str(tests),
+            "failures": str(len(failures)),
+        },
+    )
+    if not failures:
+        ET.SubElement(suite, "testcase", {"classname": "perf_target_scale", "name": "target_scale_budgets"})
+    for index, failure in enumerate(failures):
+        if isinstance(failure, Mapping):
+            code = str(failure.get("code", "budget"))
+            message = failure.get("message", failure)
+        else:
+            code = "budget"
+            message = failure
+        case = ET.SubElement(suite, "testcase", {"classname": "perf_target_scale", "name": f"{code}_{index}"})
+        node = ET.SubElement(case, "failure", {"type": code})
+        node.text = str(message)
     path.parent.mkdir(parents=True, exist_ok=True)
     ET.ElementTree(suite).write(path, encoding="utf-8", xml_declaration=True)
 

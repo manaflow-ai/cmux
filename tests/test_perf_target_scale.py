@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -144,14 +146,65 @@ tid thcomm
 
 
 class TargetScaleCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.output_dir = Path(self._tmp.name)
+
     def test_self_test_cli_passes(self) -> None:
-        self.assertEqual(runner.main(["--self-test", "--output", "/tmp/cmux-target-scale-self-test.json"]), 0)
+        self.assertEqual(runner.main(["--self-test", "--output", str(self.output_dir / "self-test.json")]), 0)
 
     def test_real_run_requires_tag(self) -> None:
         self.assertEqual(
-            runner.main(["--sizes", "1", "--cpu-seconds", "30", "--output", "/tmp/cmux-target-scale-missing-tag.json"]),
+            runner.main(
+                [
+                    "--sizes",
+                    "1",
+                    "--cpu-seconds",
+                    "30",
+                    "--output",
+                    str(self.output_dir / "missing-tag.json"),
+                ]
+            ),
             2,
         )
+
+
+class TargetScaleArtifactTests(unittest.TestCase):
+    def test_junit_emits_one_case_per_budget_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "target-scale.junit.xml"
+            runner._write_junit(
+                output,
+                {
+                    "evaluation": {
+                        "failures": [
+                            {"code": "cpu_hidden_slope", "message": "CPU slope exceeded"},
+                            {"code": "soak_footprint", "message": "footprint grew"},
+                        ]
+                    }
+                },
+            )
+            suite = ET.parse(output).getroot()
+
+        self.assertEqual(suite.attrib["tests"], "2")
+        self.assertEqual(suite.attrib["failures"], "2")
+        cases = suite.findall("testcase")
+        self.assertEqual([case.attrib["name"] for case in cases], ["cpu_hidden_slope_0", "soak_footprint_1"])
+        self.assertEqual(
+            [case.find("failure").attrib["type"] for case in cases],
+            ["cpu_hidden_slope", "soak_footprint"],
+        )
+
+    def test_junit_emits_a_passing_case_when_no_budget_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "target-scale.junit.xml"
+            runner._write_junit(output, {"evaluation": {"failures": []}})
+            suite = ET.parse(output).getroot()
+
+        self.assertEqual(suite.attrib["tests"], "1")
+        self.assertEqual(suite.attrib["failures"], "0")
+        self.assertEqual(len(suite.findall("testcase")), 1)
 
 
 if __name__ == "__main__":
