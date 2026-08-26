@@ -58,19 +58,35 @@ struct cmuxApp: App {
                 "Connectivity invalidation disabled: presence service URL unavailable"
             )
         }
-        iroh.configure(
-            auth: auth.coordinator,
-            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+        // Exactly one iroh runtime owns the app's broker binding slot: the
+        // irx rebuild when its DEBUG flag is on, the legacy composition
+        // otherwise. The unconfigured one stays dormant.
+        let irxEnabled = MobileIrxRuntimeComposition.isEnabled
+        let irx = MobileIrxRuntimeComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup
         )
+        if irxEnabled {
+            let coordinator = auth.coordinator
+            Task { await irx.configure(auth: coordinator) }
+        } else {
+            iroh.configure(
+                auth: auth.coordinator,
+                connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+            )
+        }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
         // attach to an in-runner mock host; release device builds keep only
-        // real transports.
+        // real transports. In irx mode NO fallback kinds register, so even a
+        // simulator exercises the real iroh path instead of loopback.
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
+        let supportedKinds: [CmxAttachTransportKind] =
+            irxEnabled ? [] : [.debugLoopback, .tailscale]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = irxEnabled ? [] : [.tailscale]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in
@@ -79,7 +95,7 @@ struct cmuxApp: App {
         let registrations = [
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
-                factory: iroh.transportFactory
+                factory: irxEnabled ? irx.transportFactory : iroh.transportFactory
             ),
         ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
@@ -95,28 +111,46 @@ struct cmuxApp: App {
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
             independentEventByteStreamProvider: { request in
-                try await iroh.serverEventByteStream(for: request)
+                irxEnabled
+                    ? try await irx.serverEventByteStream(for: request)
+                    : try await iroh.serverEventByteStream(for: request)
             },
             terminalLaneProvider: { request, surfaceID, cursor in
                 guard let surfaceUUID = UUID(uuidString: surfaceID) else {
                     throw MobileIrohTerminalLaneError.invalidSurfaceID
                 }
-                return try await iroh.openTerminalLane(
-                    for: request,
-                    surfaceID: surfaceUUID,
-                    cursor: cursor
-                )
+                return irxEnabled
+                    ? try await irx.openTerminalLane(
+                        for: request,
+                        surfaceID: surfaceUUID,
+                        cursor: cursor
+                    )
+                    : try await iroh.openTerminalLane(
+                        for: request,
+                        surfaceID: surfaceUUID,
+                        cursor: cursor
+                    )
             },
             artifactLaneProvider: { request, resourceID, offset in
-                try await iroh.openArtifactLane(
-                    for: request,
-                    resourceID: resourceID,
-                    offset: offset
-                )
+                irxEnabled
+                    ? try await irx.openArtifactLane(
+                        for: request,
+                        resourceID: resourceID,
+                        offset: offset
+                    )
+                    : try await iroh.openArtifactLane(
+                        for: request,
+                        resourceID: resourceID,
+                        offset: offset
+                    )
             },
             simulatorStreamLaneProvider: { request, panelID in
                 guard let panelUUID = UUID(uuidString: panelID) else {
                     throw MobileIrohSimulatorStreamLaneError.invalidPanelID
+                }
+                guard !irxEnabled else {
+                    // Simulator streaming is not served by irx v1.
+                    throw MobileIrohSimulatorStreamLaneError.closed
                 }
                 return try await iroh.openSimulatorStreamLane(
                     for: request,
@@ -129,6 +163,7 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             iroh: iroh,
+            irx: irxEnabled ? irx : nil,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
@@ -172,7 +207,11 @@ struct cmuxApp: App {
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
+                if let irx = Self.root.irx {
+                    await irx.didBecomeActive()
+                } else {
+                    await Self.root.iroh.prepareForConnection()
+                }
             }
         )
     }
