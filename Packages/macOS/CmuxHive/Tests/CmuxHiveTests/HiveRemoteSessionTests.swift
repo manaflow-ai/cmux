@@ -15,6 +15,32 @@ private func makeRuntime(transport: ScriptedHostTransport) -> HiveSyncRuntime {
     )
 }
 
+private enum RetryTestError: Error {
+    case initialDialFailure
+}
+
+/// Fails the first route admission, then hands out the scripted transport so
+/// the session's explicit retry path can be exercised without a real socket.
+private final class ThrowingOnceTransportFactory: @unchecked Sendable, CmxByteTransportFactory {
+    private let lock = NSLock()
+    private var shouldThrow = true
+    private let transport: ScriptedHostTransport
+
+    init(transport: ScriptedHostTransport) {
+        self.transport = transport
+    }
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        try lock.withLock {
+            if shouldThrow {
+                shouldThrow = false
+                throw RetryTestError.initialDialFailure
+            }
+            return transport
+        }
+    }
+}
+
 private func tailscaleRoute() throws -> CmxAttachRoute {
     try CmxAttachRoute(
         id: "tailscale",
@@ -114,6 +140,50 @@ private func jsonObject(_ string: String) -> [String: Any] {
         // A workspace.updated push triggers a list refresh.
         await transport.pushEvent(topic: "workspace.updated", payload: [:])
         await transport.waitForMethod("mobile.workspace.list", count: 3)
+
+        await session.disconnect()
+    }
+
+    @MainActor
+    @Test func reconnectIfNeededRestartsAFailedSession() async throws {
+        let transport = ScriptedHostTransport { method, _ in
+            switch method {
+            case "mobile.workspace.list":
+                return workspaceListResult()
+            case "mobile.events.subscribe":
+                return ["stream_id": "s", "topics": ["workspace.updated"], "already_subscribed": false]
+            default:
+                return [:]
+            }
+        }
+        let runtime = HiveSyncRuntime(
+            supportedRouteKinds: [.tailscale],
+            transportFactory: ThrowingOnceTransportFactory(transport: transport),
+            stackAccessTokenProvider: { "test-stack-token" },
+            stackAccessTokenForceRefresher: { "test-stack-token" },
+            rpcRequestTimeoutNanoseconds: 5_000_000_000
+        )
+        let session = HiveRemoteMacSession(
+            runtime: runtime,
+            macDeviceID: "mac-b",
+            displayName: "Studio",
+            routes: [try tailscaleRoute()],
+            retryDelay: { _ in },
+            legacyTailscaleAuthorizationEvidence: try Self.legacyTailscaleEvidence(),
+            requiresHostIdentity: false
+        )
+
+        session.connect()
+        try await waitUntil {
+            if case .failed = session.phase { return true }
+            return false
+        }
+
+        #expect(session.reconnectIfNeeded())
+        await transport.waitForMethod("mobile.events.subscribe")
+        await transport.waitForMethod("mobile.workspace.list")
+        try await waitUntil { session.phase == .connected && session.workspaces.count == 2 }
+        #expect(!session.reconnectIfNeeded())
 
         await session.disconnect()
     }
