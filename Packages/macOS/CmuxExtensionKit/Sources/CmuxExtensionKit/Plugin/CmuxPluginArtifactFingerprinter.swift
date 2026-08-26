@@ -128,7 +128,10 @@ struct CmuxPluginArtifactFingerprinter {
             return unavailableInterpreterDigest()
         }
         var metadata = Darwin.stat()
-        guard path.withCString({ Darwin.stat($0, &metadata) }) == 0,
+        let statResult: Int32 = path.withCString { pointer in
+            stat(pointer, &metadata)
+        }
+        guard statResult == 0,
               (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
               metadata.st_size >= 0,
               UInt64(metadata.st_size) <= Self.maximumInterpreterBytes else {
