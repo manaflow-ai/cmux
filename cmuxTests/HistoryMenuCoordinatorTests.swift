@@ -162,4 +162,55 @@ struct HistoryMenuCoordinatorTests {
             #expect(coordinator.state.recentlyClosed.items.isEmpty)
         }
     }
+
+    @Test
+    func managedCloudVMRemovalRefreshesProjectionOnSignOut() throws {
+        try withPaneHistoryManager { manager in
+            let center = NotificationCenter()
+            let closedHistory = ClosedItemHistoryStore(
+                fileURL: nil,
+                loadPersisted: false,
+                notificationCenter: center
+            )
+            let coordinator = HistoryMenuCoordinator(
+                center: center,
+                closedItemHistoryStore: closedHistory,
+                managerProvider: { manager },
+                mainMenuProvider: { nil },
+                actions: .unavailableForTests
+            )
+            coordinator.refreshIfNeeded()
+
+            let workspace = try #require(manager.selectedWorkspace)
+            var cloudSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+            cloudSnapshot.remote = SessionRemoteWorkspaceSnapshot(
+                transport: .websocket,
+                destination: "cloud-vm",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                preserveAfterTerminalExit: true,
+                skipDaemonBootstrap: true,
+                relayPort: nil,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                managedCloudVMID: "vm-history"
+            )
+            let recordID = UUID()
+            closedHistory.push(ClosedItemHistoryRecord(
+                id: recordID,
+                closedAt: Date(timeIntervalSince1970: 1),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: workspace.id,
+                    windowId: nil,
+                    workspaceIndex: 0,
+                    snapshot: cloudSnapshot
+                ))
+            ))
+            #expect(coordinator.state.recentlyClosed.items.map(\.id) == [recordID])
+
+            closedHistory.removeManagedCloudVMRecords()
+
+            #expect(coordinator.state.recentlyClosed.items.isEmpty)
+        }
+    }
 }
