@@ -67,16 +67,10 @@ import UIKit
             isAuthenticated: true,
             connectionPhase: .idle
         )
-        let automaticFallback = OnboardingSceneChrome(
+        let fallback = OnboardingSceneChrome(
             stage: .connect,
             isAuthenticated: true,
             connectionPhase: .fallback
-        )
-        let tailscaleFallback = OnboardingSceneChrome(
-            stage: .connect,
-            isAuthenticated: true,
-            connectionPhase: .fallback,
-            connectionMethod: .tailscale
         )
         let ready = OnboardingSceneChrome(
             stage: .connect,
@@ -93,10 +87,8 @@ import UIKit
         #expect(searching.secondaryTitle == nil)
         #expect(idle.primaryTitle != nil)
         #expect(idle.secondaryTitle == nil)
-        #expect(automaticFallback.primaryTitle != nil)
-        #expect(automaticFallback.secondaryTitle == nil)
-        #expect(tailscaleFallback.primaryTitle != nil)
-        #expect(tailscaleFallback.secondaryTitle != nil)
+        #expect(fallback.primaryTitle != nil)
+        #expect(fallback.secondaryTitle != nil)
         #expect(ready.primaryTitle != nil)
         #expect(ready.secondaryTitle == nil)
     }

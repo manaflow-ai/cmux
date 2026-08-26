@@ -10,7 +10,7 @@ import Testing
             makeTransport: { () throws -> any CmxByteTransport in
                 throw MobileShellConnectionError.insecureManualRoute
             },
-            diagnosticTransport: .iroh,
+            diagnosticTransport: .tailscale,
             transportConnectObserver: { event in
                 _ = continuation.yield(event)
             }
@@ -42,13 +42,13 @@ import Testing
             return
         }
         #expect(attemptID > 0)
-        #expect(transport == .iroh)
+        #expect(transport == .tailscale)
         guard case let .failed(failedID, failedTransport, failure, _) = recorded[1] else {
             Issue.record("Expected failed event second")
             return
         }
         #expect(failedID == attemptID)
-        #expect(failedTransport == .iroh)
+        #expect(failedTransport == .tailscale)
         #expect(failure == .unsupportedRoute)
     }
 
@@ -159,7 +159,7 @@ import Testing
         let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
-            diagnosticTransport: .iroh,
+            diagnosticTransport: .tailscale,
             transportConnectObserver: { event in _ = continuation.yield(event) }
         )
         let request = try MobileCoreRPCClient.requestData(

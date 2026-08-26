@@ -28,15 +28,10 @@ import Testing
         let loopbackOnNetworkKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
-        let irohPeer = try CmxAttachRoute(
-            id: CmxAttachTransportKind.iroh.rawValue,
-            kind: .iroh,
-            endpoint: .peer(
-                id: String(repeating: "f", count: 64),
-                relayHint: nil,
-                directAddrs: [],
-                relayURL: nil
-            ),
+        let websocket = try CmxAttachRoute(
+            id: CmxAttachTransportKind.websocket.rawValue,
+            kind: .websocket,
+            endpoint: .url("wss://example.invalid/attach"),
             priority: 0
         )
 
@@ -46,7 +41,7 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.routeIsLoopback(loopbackOnNetworkKind))
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(pretendLoopback))
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(tailscaleIP))
-        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
+        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(websocket))
     }
 
     @Test func allowsStackAuthOnlyForLoopbackRoutes() throws {
@@ -61,30 +56,6 @@ import Testing
         let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
         let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
-        let irohPeer = try CmxAttachRoute(
-            id: CmxAttachTransportKind.iroh.rawValue,
-            kind: .iroh,
-            endpoint: .peer(
-                identity: try CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "f", count: 64)
-                ),
-                pathHints: [
-                    try CmxIrohPathHint(
-                        kind: .directAddress,
-                        value: "100.71.210.41:49152",
-                        source: .tailscale,
-                        privacyScope: .privateNetwork,
-                        observedAt: Date(timeIntervalSince1970: 1_999_999_940),
-                        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
-                        networkProfile: CmxIrohNetworkProfileKey(
-                            source: .tailscale,
-                            profileID: String(repeating: "a", count: 64)
-                        )
-                    ),
-                ]
-            ),
-            priority: 0
-        )
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
 
@@ -95,10 +66,6 @@ import Testing
         // which VPN owns that path or which peer accepted plaintext TCP.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIPv6))
-
-        // Iroh's session context authenticates RPC out of band. The Stack
-        // bearer token must never be sent to the peer or any path hint.
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
         // Plaintext-TCP routes must NOT carry the Stack bearer token: a `.tailscale`
         // route to a private-LAN IP or a `.local`/Bonjour host is dialed over

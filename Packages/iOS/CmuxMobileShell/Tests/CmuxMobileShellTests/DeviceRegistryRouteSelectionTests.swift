@@ -41,45 +41,6 @@ import Testing
         #expect(selected == registry)
     }
 
-    @Test func registryIrohRefreshKeepsLegacyTailscaleRouteAvailable() throws {
-        let local = [try route(host: "100.0.0.1", port: 51000)]
-        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
-        let iroh = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(identity: identity, pathHints: [])
-        )
-
-        let selected = try #require(
-            DeviceRegistryService.selectReconnectRoutes(local: local, registry: [iroh])
-        )
-        #expect(selected.map(\.kind) == [.iroh, .tailscale])
-        #expect(selected.last?.endpoint == local[0].endpoint)
-
-        // Once the merged routes are persisted, the same Iroh-only registry
-        // response must not trigger another write on every refresh.
-        #expect(DeviceRegistryService.selectReconnectRoutes(
-            local: selected,
-            registry: [iroh]
-        ) == nil)
-    }
-
-    @Test func registryIrohAndTailscaleRoutesRemainAuthoritative() throws {
-        let local = [try route(host: "100.0.0.1", port: 51000)]
-        let current = try route(host: "100.0.0.2", port: 51000, id: "current")
-        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64))
-        let iroh = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(identity: identity, pathHints: [])
-        )
-
-        #expect(DeviceRegistryService.selectReconnectRoutes(
-            local: local,
-            registry: [iroh, current]
-        ) == [iroh, current])
-    }
-
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {
@@ -415,7 +376,7 @@ import Testing
         // (older builds never wrote one). Witness absence alone proves nothing
         // (a restored pre-witness backup looks identical), so adoption is
         // gated on same-device evidence: a non-migrating artifact — the
-        // ThisDeviceOnly iroh endpoint identity a build with a live binding
+        // ThisDeviceOnly legacy identity item an established install
         // necessarily wrote — proves the install is continuing on this
         // hardware. With that evidence the pre-Keychain id is preserved, and
         // this device's witness is recorded so a future restore of this
@@ -777,11 +738,11 @@ import Testing
 
     @Test func durableDeviceIDAdoptsLegacyMirrorOnInPlaceUpgrade() {
         // In-place upgrade from a pre-Keychain build: device-id Keychain item is
-        // absent, the legacy mirror holds the id of this phone's ACTIVE binding,
-        // and the ThisDeviceOnly iroh endpoint identity proves same-device
+        // absent, the legacy mirror holds this phone's established id, and the
+        // ThisDeviceOnly legacy identity Keychain item proves same-device
         // continuation. The resolver must ADOPT the mirror — minting would
-        // target a new (user, device, tag) slot while the surviving endpoint
-        // identity still owns the old one (endpoint_already_bound, iroh dead).
+        // target a new (user, device, tag) identity while account services
+        // still track the old one.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }

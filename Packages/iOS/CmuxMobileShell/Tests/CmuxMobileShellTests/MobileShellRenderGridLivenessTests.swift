@@ -557,7 +557,7 @@ import Testing
     collector.unmount()
 }
 
-/// One timed-out liveness probe is ambiguous during Iroh path migration or a
+/// One timed-out liveness probe is ambiguous during a route change or a
 /// short Mac stall. The original stream must remain installed until a second
 /// independent probe confirms failure; a successful follow-up clears the
 /// suspicion without changing the client or connection generation.
@@ -580,7 +580,7 @@ import Testing
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
     // Hold only the first watchdog probe. The follow-up probe can complete,
-    // modeling a short stall that resolves without the Iroh session dying.
+    // modeling a short stall that resolves without the session dying.
     await router.holdProbeRequest(number: 1)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()

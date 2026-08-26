@@ -26,14 +26,14 @@ import Testing
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: 22))
     }
 
-    private func irohRoute(_ endpointID: Character) throws -> CmxAttachRoute {
-        try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: String(repeating: endpointID, count: 64)),
-                pathHints: []
-            )
+    /// A distinct tailscale route per label, standing in for the per-build
+    /// route identity the retired peer routes used to carry.
+    private func distinctRoute(_ label: Character) throws -> CmxAttachRoute {
+        let octet = Int(label.asciiValue ?? 65) % 200 + 1
+        return try CmxAttachRoute(
+            id: "route-\(label)",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.77.0.\(octet)", port: 22)
         )
     }
 
@@ -122,49 +122,6 @@ import Testing
         #expect(rows.first?.teamID == nil)
     }
 
-    @Test func buildScopeKeepsSiblingTagsAndHidesMatchingLegacyPeer() async throws {
-        let (inner, directory) = try makeInnerStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let scope = try #require(MobileIOSBuildScope("feature"))
-        let feature = MobileMacBuildCompatibilityPolicy.development
-            .scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
-
-        try await feature.upsert(
-            macDeviceID: "mac-a",
-            displayName: "Current",
-            routes: [try irohRoute("a")],
-            instanceTag: "feature",
-            markActive: true,
-            stackUserID: "user-1",
-            teamID: "team-a",
-            now: Date(timeIntervalSince1970: 30)
-        )
-        try await inner.upsert(
-            macDeviceID: "mac-a",
-            displayName: "Other app instance",
-            routes: [try irohRoute("b")],
-            instanceTag: "other",
-            markActive: false,
-            stackUserID: "user-1",
-            teamID: "\u{1F}\(scope.serializedScope)",
-            now: Date(timeIntervalSince1970: 20)
-        )
-        try await inner.upsert(
-            macDeviceID: "mac-a",
-            displayName: "Legacy alias",
-            routes: [try irohRoute("a")],
-            instanceTag: nil,
-            markActive: false,
-            stackUserID: "user-1",
-            teamID: "\u{1F}\(scope.serializedScope)",
-            now: Date(timeIntervalSince1970: 10)
-        )
-
-        let rows = try await feature.loadAll(stackUserID: "user-1", teamID: "team-a")
-
-        #expect(Set(rows.compactMap(\.instanceTag)) == ["feature", "other"])
-    }
-
     @Test func compatibleSiblingTagsSurviveFullBuildScopeDecoratorRail() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -178,7 +135,7 @@ import Testing
             try await production.upsert(
                 macDeviceID: "shared-mac",
                 displayName: "Shared Mac (\(tag))",
-                routes: [try irohRoute(Character(String(index + 1)))],
+                routes: [try distinctRoute(Character(String(index + 1)))],
                 instanceTag: tag,
                 markActive: index == 0,
                 stackUserID: "user-1",

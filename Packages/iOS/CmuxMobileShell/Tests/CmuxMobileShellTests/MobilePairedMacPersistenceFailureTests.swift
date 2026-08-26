@@ -30,14 +30,9 @@ struct MobilePairedMacPersistenceFailureTests {
             pairingHintDefaults: defaults
         )
         let route = try CmxAttachRoute(
-            id: "iroh-test",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "a", count: 64)
-                ),
-                pathHints: []
-            ),
+            id: "tailscale-test",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.44", port: 56_584),
             priority: 0
         )
         let ticket = try CmxAttachTicket(

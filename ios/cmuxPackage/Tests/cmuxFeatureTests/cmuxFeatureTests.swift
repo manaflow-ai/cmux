@@ -1036,19 +1036,16 @@ final class TerminalOutputCollector {
     await store.connectPairingURL(try attachURL(for: supportedTicket).absoluteString)
     #expect(store.phase == .workspaces)
 
+    // A tailscale-only ticket on a loopback-only runtime has no dialable
+    // route kind, so the connect fails closed without touching the old host.
     let unsupportedRoute = try CmxAttachRoute(
-        id: "iroh",
-        kind: .iroh,
-        endpoint: .peer(
-            id: String(repeating: "a", count: 64),
-            relayHint: nil,
-            directAddrs: [],
-            relayURL: nil
-        )
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.71.210.41", port: 58_465)
     )
     let unsupportedTicket = try CmxAttachTicket(
-        workspaceID: "iroh-workspace",
-        terminalID: "iroh-terminal",
+        workspaceID: "unsupported-workspace",
+        terminalID: "unsupported-terminal",
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [unsupportedRoute],
@@ -1789,8 +1786,8 @@ final class TerminalOutputCollector {
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
     // routes point at the phone itself fails closed with copy that names the
-    // actual fix (Iroh), instead of dialing 127.0.0.1 and burning the
-    // whole request timeout before a generic connect error.
+    // actual fix, instead of dialing 127.0.0.1 and burning the whole request
+    // timeout before a generic connect error.
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
@@ -1799,9 +1796,9 @@ final class TerminalOutputCollector {
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
-    #expect(store.connectionError?.contains("Iroh") == true)
-    // The loopback failure must name the fix (Iroh), not fall through to
-    // the generic invalid-code copy.
+    #expect(store.connectionError?.contains("Tailscale") == true)
+    // The loopback failure must name the fix, not fall through to the
+    // generic invalid-code copy.
     #expect(store.connectionError != MobilePairingFailureCategory.invalidCode.message)
 }
 

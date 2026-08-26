@@ -49,21 +49,12 @@ import Testing
         #expect(activeUser1?.routes.first?.id == "tailscale")
     }
 
-    @Test func irohCapabilityPinSurvivesRawOnlyRouteRefresh() async throws {
+    /// A refresh replaces the stored route set: nothing pins retired route
+    /// kinds, and the freshest advertisement wins.
+    @Test func routeRefreshReplacesStoredRoutes() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let iroh = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "a", count: 64)
-                ),
-                pathHints: []
-            ),
-            priority: -10_000
-        )
         let initialTailscale = try CmxAttachRoute(
             id: "tailscale-old",
             kind: .tailscale,
@@ -76,16 +67,16 @@ import Testing
         )
 
         try await store.upsert(
-            macDeviceID: "iroh-mac",
-            displayName: "Iroh Mac",
-            routes: [iroh, initialTailscale],
+            macDeviceID: "refresh-mac",
+            displayName: "Refresh Mac",
+            routes: [initialTailscale],
             markActive: true,
             stackUserID: "user-1",
             now: Date(timeIntervalSince1970: 1)
         )
         try await store.upsert(
-            macDeviceID: "iroh-mac",
-            displayName: "Iroh Mac",
+            macDeviceID: "refresh-mac",
+            displayName: "Refresh Mac",
             routes: [refreshedTailscale],
             markActive: true,
             stackUserID: "user-1",
@@ -95,7 +86,6 @@ import Testing
         let stored = try #require(
             await store.activeMac(stackUserID: "user-1")
         )
-        #expect(stored.routes.contains { $0.kind == .iroh })
         #expect(stored.routes.contains { $0.id == "tailscale-new" })
         #expect(!stored.routes.contains { $0.id == "tailscale-old" })
     }
@@ -113,26 +103,6 @@ import Testing
         let mac = try #require(await store.activeMac(stackUserID: "user-1"))
 
         #expect(mac.legacyTailscaleRoutes == [tailscale])
-    }
-
-    @Test func v8MigrationDoesNotGrantRowsThatAlreadyHaveIroh() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
-
-        try seedVersionSevenDatabase(
-            at: databaseURL,
-            routes: [
-                try tailscaleRoute(host: "100.64.0.21"),
-                try irohRoute(),
-            ]
-        )
-        let store = try MobilePairedMacStore(databaseURL: databaseURL)
-        let mac = try #require(await store.activeMac(stackUserID: "user-1"))
-
-        #expect(mac.legacyTailscaleRoutes == nil)
     }
 
     @Test func v8MigrationDoesNotGrantAnonymousPairings() async throws {
@@ -198,57 +168,6 @@ import Testing
         #expect(mac.legacyTailscaleRoutes == [original])
     }
 
-    @Test func authenticatedIrohPublicationRevokesGrandfatheredDestination() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
-        let tailscale = try tailscaleRoute(host: "100.64.0.25")
-
-        try seedVersionSevenDatabase(at: databaseURL, routes: [tailscale])
-        let store = try MobilePairedMacStore(databaseURL: databaseURL)
-        #expect(try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == [tailscale])
-        try await store.upsert(
-            macDeviceID: "legacy-mac",
-            displayName: "Upgraded Mac",
-            routes: [tailscale, try irohRoute()],
-            markActive: true,
-            stackUserID: "user-1",
-            now: Date()
-        )
-
-        #expect(try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == nil)
-    }
-
-    @Test func registryIrohRefreshPreservesGrandfatheredDestination() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
-        let tailscale = try tailscaleRoute(host: "100.64.0.251")
-
-        try seedVersionSevenDatabase(at: databaseURL, routes: [tailscale])
-        let store = try MobilePairedMacStore(databaseURL: databaseURL)
-        let updatedRoutes = [tailscale, try irohRoute()]
-        let wrote = try await store.upsertRoutesIfAuthorized(
-            macDeviceID: "legacy-mac",
-            displayName: "Legacy Mac",
-            routes: updatedRoutes,
-            condition: .matchingInstanceTag(nil),
-            markActive: nil,
-            stackUserID: "user-1",
-            teamID: nil,
-            now: Date()
-        )
-
-        #expect(wrote)
-        let mac = try #require(await store.activeMac(stackUserID: "user-1"))
-        #expect(mac.routes == updatedRoutes)
-        #expect(mac.legacyTailscaleRoutes == [tailscale])
-    }
-
     @Test func userEnteredPairingCodeMintsDeviceLocalGrant() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -270,44 +189,6 @@ import Testing
             stackUserID: "user-1",
             teamID: nil,
             routes: [tailscale]
-        )
-
-        #expect(
-            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
-                == [tailscale]
-        )
-    }
-
-    @Test func userGrantSurvivesAuthenticatedIrohPublication() async throws {
-        // Unlike the v8 migration capability, a grant the user minted by
-        // entering the Mac's pairing code stays available after Iroh persists,
-        // so the explicit Tailscale connection method keeps working.
-        let (store, directory) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let tailscale = try tailscaleRoute(host: "100.64.0.31")
-
-        try await store.upsert(
-            macDeviceID: "scanned-mac",
-            displayName: "Scanned Mac",
-            routes: [tailscale],
-            markActive: true,
-            stackUserID: "user-1",
-            now: Date()
-        )
-        try await store.authorizeUserTailscaleRoutes(
-            macDeviceID: "scanned-mac",
-            instanceTag: nil,
-            stackUserID: "user-1",
-            teamID: nil,
-            routes: [tailscale]
-        )
-        try await store.upsert(
-            macDeviceID: "scanned-mac",
-            displayName: "Scanned Mac",
-            routes: [tailscale, try irohRoute()],
-            markActive: true,
-            stackUserID: "user-1",
-            now: Date()
         )
 
         #expect(
@@ -346,8 +227,8 @@ import Testing
         let store = try MobilePairedMacStore(databaseURL: databaseURL)
         #expect(try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == [tailscale])
 
-        // The user deliberately re-entered the code, so a later Iroh
-        // publication no longer revokes this destination.
+        // The user deliberately re-entered the code; the grant records the
+        // 'user' origin and survives an ordinary route refresh.
         try await store.authorizeUserTailscaleRoutes(
             macDeviceID: "legacy-mac",
             instanceTag: nil,
@@ -358,16 +239,20 @@ import Testing
         try await store.upsert(
             macDeviceID: "legacy-mac",
             displayName: "Upgraded Mac",
-            routes: [tailscale, try irohRoute()],
+            routes: [tailscale],
             markActive: true,
             stackUserID: "user-1",
             now: Date()
         )
 
-        #expect(
-            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
-                == [tailscale]
+        // The migration-origin row and the user re-scan may persist as two
+        // grant rows for the same destination (their serialized forms can
+        // differ); both decode to the same authorized endpoint.
+        let grants = try #require(
+            await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
         )
+        #expect(!grants.isEmpty)
+        #expect(grants.allSatisfy { $0 == tailscale })
     }
 
     @Test func grandfatheredCapabilitySurvivesLocalTeamScopeClaim() async throws {
@@ -812,19 +697,6 @@ import Testing
             id: "tailscale-\(host)",
             kind: .tailscale,
             endpoint: .hostPort(host: host, port: 58_465)
-        )
-    }
-
-    private func irohRoute() throws -> CmxAttachRoute {
-        try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "a", count: 64)
-                ),
-                pathHints: []
-            )
         )
     }
 

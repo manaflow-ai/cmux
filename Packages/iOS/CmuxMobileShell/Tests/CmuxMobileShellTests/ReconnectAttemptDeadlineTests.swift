@@ -78,7 +78,7 @@ extension ReconnectRouteSelectionTests {
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: Date.init,
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.debugLoopback]
         )
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: ["": []],
@@ -139,7 +139,7 @@ extension ReconnectRouteSelectionTests {
         var runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: Date.init,
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.debugLoopback]
         )
         runtime.reconnectAttemptDeadlineNanoseconds = 100_000_000
         let pairedStore = DelayedTeamPairedMacStore(
@@ -179,26 +179,26 @@ extension ReconnectRouteSelectionTests {
         }
     }
 
-    @Test func explicitRootRetryBypassesAutomaticIrohBackoff() async throws {
+    @Test func explicitRootRetryBypassesAutomaticBackoff() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: Date.init,
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.debugLoopback]
         )
         let store = try await makeReconnectStore(
-            routes: [try iroh()],
+            routes: [try loopback()],
             runtime: runtime
         )
         store.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
-        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+        #expect(store.automaticReconnectIsBlocked(accountID: "user-1"))
 
         #expect(await store.retryActiveMacReconnect(stackUserID: "user-1"))
 
         #expect(store.connectionState == .connected)
-        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(factory.attemptedKinds() == [.debugLoopback])
     }
 
     @Test func hungRedialSettlesAtDeadlineAndUnfreezesRecovery() async throws {
@@ -209,13 +209,13 @@ extension ReconnectRouteSelectionTests {
         var runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: { clock.now },
-            supportedRouteKinds: [.iroh]
+            supportedRouteKinds: [.debugLoopback]
         )
         // Keep the initial healthy dial stable under full-suite contention while
         // remaining far below the production default of 30 seconds.
         runtime.reconnectAttemptDeadlineNanoseconds = 1_000_000_000
         let store = try await makeReconnectStore(
-            routes: [try iroh()],
+            routes: [try loopback()],
             runtime: runtime
         )
 
@@ -223,9 +223,9 @@ extension ReconnectRouteSelectionTests {
         #expect(store.connectionState == .connected)
         let client = try #require(store.remoteClient)
 
-        // Every dial from here on parks forever, exactly like the observed
-        // wedged Iroh dial.
-        factory.setHangingKinds([.iroh])
+        // Every dial from here on parks forever, exactly like an observed
+        // wedged transport dial.
+        factory.setHangingKinds([.debugLoopback])
         let dialsBeforeDrop = factory.attemptedKinds().count
 
         store.recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: client)
@@ -249,7 +249,7 @@ extension ReconnectRouteSelectionTests {
 
         // The timed-out attempt must feed the automatic retry loop: transient
         // backoff is recorded for the account the attempt dialed for.
-        #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
+        #expect(store.automaticReconnectIsBlocked(accountID: "user-1"))
 
         // And the machine is unfrozen: a manual retry (hang lifted, modeling
         // the network recovering) dials fresh and connects. Release the

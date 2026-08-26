@@ -16,25 +16,84 @@ private final class TeamlessScopeTeamBox: @unchecked Sendable {
     }
 }
 
-/// A forget capability that flips the selected team the moment the revoke runs,
-/// so the local cleanup sees a DIFFERENT team than the one captured before the
-/// revoke started.
-@MainActor
-private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
-    private let onForget: () -> Void
-    private(set) var forgottenMacDeviceIDs: [String] = []
+/// Forwards to the wrapped store while running a hook at the forget flow's
+/// first mid-cleanup await (the cross-team sibling enumeration), so tests can
+/// flip the observed scope while the forget is in flight.
+private struct TeamlessEnumerationHookedStore: MobilePairedMacStoring {
+    let inner: any MobilePairedMacStoring
+    let onEnumerate: @Sendable () -> Void
 
-    init(onForget: @escaping () -> Void) {
-        self.onForget = onForget
+    func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        onEnumerate()
+        return try await inner.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID
+        )
     }
 
-    func forgetComputer(
+    func authorizeUserTailscaleRoutes(
         macDeviceID: String,
-        instanceTag _: String?,
-        expectedAccountID _: String
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
     ) async throws {
-        forgottenMacDeviceIDs.append(macDeviceID)
-        onForget()
+        try await inner.authorizeUserTailscaleRoutes(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID, routes: routes)
+    }
+
+    func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.upsert(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertIfNewer(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, customName: String?, customColor: String?, customIcon: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertIfNewer(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, customName: customName, customColor: customColor, customIcon: customIcon, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertRoutesIfAuthorized(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], condition: MobilePairedMacRouteWriteCondition, markActive: Bool?, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertRoutesIfAuthorized(macDeviceID: macDeviceID, displayName: displayName, routes: routes, condition: condition, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        try await inner.activeMac(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await inner.clearActive(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setCustomization(macDeviceID: String, customName: String?, customColor: String?, customIcon: String?, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.setCustomization(macDeviceID: macDeviceID, customName: customName, customColor: customColor, customIcon: customIcon, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func remove(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func removeExactScope(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        try await inner.removeExactScope(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws {
+        try await inner.removeExactScopes(scopes)
+    }
+
+    func removeAll() async throws {
+        try await inner.removeAll()
     }
 }
 
@@ -91,15 +150,18 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
             now: Date(timeIntervalSince1970: 2)
         )
 
-        // No team selected when the forget begins; the revoke flips into "team-b".
+        // No team selected when the forget begins; cleanup's first await
+        // flips into "team-b".
         let team = TeamlessScopeTeamBox(nil)
         let scoped = TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value })
-        let forget = TeamlessScopeFlippingForget { team.value = "team-b" }
+        let hookedStore = TeamlessEnumerationHookedStore(
+            inner: scoped,
+            onEnumerate: { team.value = "team-b" }
+        )
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
-            pairedMacStore: scoped,
-            personalIrohForget: forget,
+            pairedMacStore: hookedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -112,13 +174,12 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
         let ok = await store.forgetHiddenComputer(hidden)
 
         #expect(ok)
-        #expect(forget.forgottenMacDeviceIDs == ["mac-a"])
-        // The tag-less forget's revoke was device-wide for the account, so BOTH
-        // rows are gone: the captured team-less row as the primary delete, and
-        // the team-b row as wildcard-breadth cleanup (its binding was revoked
-        // too). What the flip must NOT do is misdirect either delete — each row
-        // is keyed by its OWN stamped scope, so the mid-revoke flip to "team-b"
-        // changes nothing about which rows are targeted.
+        // The tag-less forget's cleanup is device-wide for the account, so
+        // BOTH rows are gone: the captured team-less row as the primary
+        // delete, and the team-b row as wildcard-breadth cleanup. What the
+        // flip must NOT do is misdirect either delete — each row is keyed by
+        // its OWN stamped scope, so the mid-forget flip to "team-b" changes
+        // nothing about which rows are targeted.
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
     }
@@ -158,12 +219,10 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
         // "team-a" is selected the entire time; the forget never flips scope.
         let team = TeamlessScopeTeamBox("team-a")
         let scoped = TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value })
-        let forget = TeamlessScopeFlippingForget { }
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: scoped,
-            personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -176,7 +235,6 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
         let ok = await store.forgetHiddenComputer(hidden)
 
         #expect(ok)
-        #expect(forget.forgottenMacDeviceIDs == ["mac-a"])
         // The team-less row it was forgotten against must be gone, so it cannot
         // reappear when the user returns to no-team.
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)

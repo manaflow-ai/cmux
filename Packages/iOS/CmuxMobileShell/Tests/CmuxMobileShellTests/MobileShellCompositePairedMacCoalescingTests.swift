@@ -427,43 +427,6 @@ import Testing
     }
 
     @Test
-    func physicalAliasIndexJoinsRenamedRowsByIrohAuthority() throws {
-        let identity = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "b", count: 64)
-        )
-        let route = try CmxAttachRoute(
-            id: "shared-iroh-authority",
-            kind: .iroh,
-            endpoint: .peer(identity: identity, pathHints: [])
-        )
-        let oldAlias = try Self.pairedMac(
-            id: "mac-old",
-            displayName: "Old Name",
-            host: "unused",
-            lastSeenAt: .distantPast,
-            isActive: false,
-            routes: [route]
-        )
-        let representative = try Self.pairedMac(
-            id: "mac-new",
-            displayName: "New Name",
-            host: "unused",
-            lastSeenAt: Date(),
-            isActive: false,
-            routes: [route]
-        )
-
-        let aliases = physicalMacAliasCanonicalIDsByCanonicalID(
-            in: [oldAlias, representative],
-            supportedKinds: [.iroh],
-            preferNonLoopback: true
-        )
-
-        #expect(aliases["mac-old"] == ["mac-old", "mac-new"])
-        #expect(aliases["mac-new"] == ["mac-old", "mac-new"])
-    }
-
-    @Test
     func siblingBuildsWithTheSameDialEndpointRemainSeparateComputers() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

@@ -14,21 +14,16 @@ struct MobilePairedMacDeviceIDCanonicalizationTests {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
-        let staleIrohRoute = try CmxAttachRoute(
-            id: "stale-iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
-                pathHints: []
-            ),
-            priority: -10_000
-        )
+        // A persisted iroh-era route row from an older build, as raw JSON.
+        // The store drops it on read (per-row tolerant decode) while the rest
+        // of the row's routes survive.
+        let staleIrohRouteJSON = #"{"id":"stale-iroh","kind":"iroh","priority":-10000,"endpoint":{"type":"peer","identity":{"endpointID":"\#(String(repeating: "a", count: 64))"},"pathHints":[]}}"#
         let freshRoute = try route(id: "fresh", host: "100.64.0.2", port: 52_002)
         let otherTeamRoute = try route(id: "other-team", host: "100.64.0.3", port: 52_003)
 
         try seedV6Database(
             at: databaseURL,
-            staleIrohRoute: staleIrohRoute,
+            staleIrohRouteJSON: staleIrohRouteJSON,
             freshRoute: freshRoute,
             otherTeamRoute: otherTeamRoute
         )
@@ -47,7 +42,7 @@ struct MobilePairedMacDeviceIDCanonicalizationTests {
         #expect(canonical.lastSeenAt == Date(timeIntervalSince1970: 30))
         #expect(canonical.isActive)
         #expect(canonical.routes == [freshRoute])
-        #expect(!canonical.routes.contains { $0.id == staleIrohRoute.id })
+        #expect(!canonical.routes.contains { $0.id == "stale-iroh" })
 
         let opaqueIDs = Set(teamA.map(\.macDeviceID)).intersection(["Opaque-Mac-ID", "opaque-mac-id"])
         #expect(opaqueIDs == ["Opaque-Mac-ID", "opaque-mac-id"])
@@ -192,13 +187,13 @@ struct MobilePairedMacDeviceIDCanonicalizationTests {
 
     private func seedV6Database(
         at databaseURL: URL,
-        staleIrohRoute: CmxAttachRoute,
+        staleIrohRouteJSON: String,
         freshRoute: CmxAttachRoute,
         otherTeamRoute: CmxAttachRoute
     ) throws {
         let teamAOwnerKey = "user-1\u{1F}team-a\u{1F}stable"
         let teamBOwnerKey = "user-1\u{1F}team-b\u{1F}stable"
-        let staleRouteJSON = try encodedRoute(staleIrohRoute)
+        let staleRouteJSON = staleIrohRouteJSON
         let freshRouteJSON = try encodedRoute(freshRoute)
         let otherTeamRouteJSON = try encodedRoute(otherTeamRoute)
         var database: OpaquePointer?

@@ -10,7 +10,7 @@ struct MobileInjectedAttachStartupTests {
         let coordinator = MobileStartupConnectionCoordinator()
         let attempt = try #require(coordinator.claimInjectedAttach())
         let recorder = MobileInjectedAttachURLRecorder()
-        let attachURL = "cmux-ios://attach?v=2&payload=iroh-route"
+        let attachURL = "cmux-ios://attach?v=2&payload=injected-route"
 
         let completion = await coordinator.connectInjectedAttach(
             attempt,
@@ -33,7 +33,7 @@ struct MobileInjectedAttachStartupTests {
         let coordinator = MobileStartupConnectionCoordinator()
         let cancelledAttempt = try #require(coordinator.claimInjectedAttach())
         let recorder = MobileInjectedAttachURLRecorder()
-        let attachURL = "cmux-ios://attach?v=2&payload=iroh-route"
+        let attachURL = "cmux-ios://attach?v=2&payload=injected-route"
 
         #expect(!coordinator.cancelInjectedAttach(
             cancelledAttempt,
@@ -72,7 +72,7 @@ struct MobileInjectedAttachStartupTests {
     func appLifetimeOwnerKeepsOneAttachAliveAcrossRootReconstruction() async throws {
         let coordinator = MobileStartupConnectionCoordinator()
         let recorder = MobileInjectedAttachURLRecorder()
-        let attachURL = "cmux-ios://attach?v=2&payload=iroh-route"
+        let attachURL = "cmux-ios://attach?v=2&payload=injected-route"
         let connectionStarted = AsyncStream.makeStream(of: Void.self)
         let allowConnectionToFinish = AsyncStream.makeStream(of: Void.self)
         let connectionFinished = AsyncStream.makeStream(
@@ -146,7 +146,7 @@ struct MobileInjectedAttachStartupTests {
 
         let completion = await coordinator.connectInjectedAttach(
             attempt,
-            attachURL: "cmux-ios://attach?v=2&payload=iroh-route"
+            attachURL: "cmux-ios://attach?v=2&payload=injected-route"
         ) { _ in
             .connected
         }

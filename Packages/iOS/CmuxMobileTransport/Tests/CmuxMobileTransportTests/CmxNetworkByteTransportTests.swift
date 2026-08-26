@@ -6,17 +6,12 @@ import Testing
 
 @Test func networkTransportFactoryRejectsNonNetworkRouteKind() throws {
     let route = try CmxAttachRoute(
-        id: "iroh",
-        kind: .iroh,
-        endpoint: .peer(
-            id: String(repeating: "e", count: 64),
-            relayHint: nil,
-            directAddrs: [],
-            relayURL: nil
-        )
+        id: "websocket",
+        kind: .websocket,
+        endpoint: .url("wss://example.invalid/attach")
     )
 
-    #expect(throws: CmxNetworkByteTransportError.unsupportedRouteKind(.iroh)) {
+    #expect(throws: CmxNetworkByteTransportError.unsupportedRouteKind(.websocket)) {
         _ = try CmxNetworkByteTransportFactory().makeTransport(for: route)
     }
 }

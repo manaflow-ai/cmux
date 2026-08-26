@@ -297,7 +297,6 @@ import Testing
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,
-            .macUpdateRequired,
             .unsupportedRoute,
             .noSupportedRoute,
             .routeCleanupBlocked,
@@ -308,18 +307,6 @@ import Testing
             #expect(!category.message.isEmpty, "category \(category) had an empty message")
         }
         _ = route
-    }
-
-    @Test func macUpdateRequiredPreservesTheSavedPairing() {
-        let category = MobilePairingFailureCategory.macUpdateRequired
-
-        #expect(category.analyticsReason == "mac_update_required")
-        #expect(!category.isAuthorizationFailure)
-        #expect(category.message.localizedCaseInsensitiveContains("Update cmux"))
-        #expect(category.guidance?.localizedCaseInsensitiveContains("reconnect automatically") == true)
-        #expect(category.guidance?.localizedCaseInsensitiveContains("do not need to sign out") == true)
-        #expect(category.guidance?.localizedCaseInsensitiveContains("pair again") == true)
-        #expect(category.guidance?.localizedCaseInsensitiveContains("Iroh") != true)
     }
 
     @Test func invalidCodeNoLongerMentionsAPairingCode() {
