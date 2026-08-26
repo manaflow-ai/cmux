@@ -112,47 +112,19 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
-        guard let liveSurface = surface.liveSurfaceForGhosttyAccess(
-            reason: "readSurfaceSelection"
-        ) else {
-            return .unavailable
-        }
-
-        return await Self.readSelection(from: liveSurface)
-    }
-
-    #if compiler(>=6.2)
-    @concurrent
-    #else
-    @Sendable
-    #endif
-    private nonisolated static func readSelection(
-        from liveSurface: ghostty_surface_t
-    ) async -> SurfaceSelectionReadResult {
-        guard ghostty_surface_has_selection(liveSurface) else {
+        switch await surface.readSelection(
+            maxBytes: SurfaceSelectionSnapshot.maximumTextBytes
+        ) {
+        case .none:
             return .snapshot(.none(kind: .terminal))
-        }
-
-        var selection = ghostty_text_s()
-        guard ghostty_surface_read_selection_clipboard_text(
-            liveSurface,
-            UInt(SurfaceSelectionSnapshot.maximumTextBytes),
-            &selection
-        ) else {
+        case .selected(let text):
+            return .snapshot(.selected(
+                kind: .terminal,
+                text: SurfaceSelectionSnapshot.boundedText(text)
+            ))
+        case .unavailable:
             return .unavailable
         }
-        defer { ghostty_surface_free_text(liveSurface, &selection) }
-
-        let text: String
-        if let bytes = selection.text, selection.text_len > 0 {
-            text = String(
-                decoding: Data(bytes: bytes, count: Int(selection.text_len)),
-                as: UTF8.self
-            )
-        } else {
-            text = ""
-        }
-        return .snapshot(.selected(kind: .terminal, text: text))
     }
 
     func updateShellActivityState(_ state: PanelShellActivityState) {
