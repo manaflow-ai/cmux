@@ -643,6 +643,8 @@ jobs:
         with:
           name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
           path: ${{ runner.temp }}/cmux-ios-upload/cmux.xcarchive/dSYMs
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload dSYMs to Sentry
         # Sentry symbolicates crashes server-side from its own dSYM store; the
@@ -664,8 +666,6 @@ jobs:
           fi
           SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
           "$SENTRY_CLI" debug-files upload "$RUNNER_TEMP/cmux-ios-upload/cmux.xcarchive/dSYMs"
-          if-no-files-found: error
-          retention-days: 30
 
       - name: Cleanup keychain
         if: always()
