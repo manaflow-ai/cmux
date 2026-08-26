@@ -249,6 +249,19 @@ struct ClaudeHookSessionRecord: Codable {
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
+
+        /// `legacyCommand` exists only for decoding pre-fingerprint records,
+        /// so Encodable cannot be synthesized; encode the stored fields only.
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(commandFingerprint, forKey: .commandFingerprint)
+            try container.encode(commandLength, forKey: .commandLength)
+            try container.encode(displayCommand, forKey: .displayCommand)
+            try container.encodeIfPresent(toolUseId, forKey: .toolUseId)
+            try container.encodeIfPresent(notificationCorrelationKey, forKey: .notificationCorrelationKey)
+            try container.encode(createdAt, forKey: .createdAt)
+            try container.encode(requiresToolUseId, forKey: .requiresToolUseId)
+        }
     }
 
     var sessionId: String
@@ -33170,15 +33183,15 @@ export default CMUXSessionRestore;
                 cursor = parent
                 ancestorDepth += 1
             }
-            let projectRoot = projectRoot ?? cwdURL
+            let resolvedProjectRoot = projectRoot ?? cwdURL
             applyConfig(
-                at: projectRoot
+                at: resolvedProjectRoot
                     .appendingPathComponent(".cursor", isDirectory: true)
                     .appendingPathComponent("cli.json", isDirectory: false),
                 readsApprovalMode: false
             )
-            if cwdURL.path != projectRoot.path,
-               cwdURL.path.hasPrefix(projectRoot.path + "/") {
+            if cwdURL.path != resolvedProjectRoot.path,
+               cwdURL.path.hasPrefix(resolvedProjectRoot.path + "/") {
                 // Keep the hook's synchronous policy lookup bounded: the
                 // global file, repository root, and current project directory
                 // cover the supported effective layers without walking every
