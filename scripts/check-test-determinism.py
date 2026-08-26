@@ -385,6 +385,10 @@ _ARGV_CALL_LAUNCHER = re.compile(
     """
 )
 
+_PYTHON_EXEC_CALL_LAUNCHER = re.compile(
+    r"(?<![A-Za-z0-9_.])exec\s*\("
+)
+
 _ARGV_COMMAND_LABELS = frozenset({"args"})
 _BUN_OBJECT_COMMAND_LABELS = frozenset({"cmd"})
 _SHELL_MODE_LABELS = frozenset({"shell"})
@@ -2278,6 +2282,33 @@ def _launcher_target_ranges(
         if ranges:
             return ranges
 
+    if path_suffix == ".py":
+        for launcher in _PYTHON_EXEC_CALL_LAUNCHER.finditer(line):
+            if launcher.start() >= verb_start:
+                break
+            if _is_inside_string_literal(line, launcher.start(), path_suffix):
+                continue
+            opening_paren = line.find("(", launcher.start(), launcher.end())
+            if opening_paren == -1:
+                continue
+            arguments = _call_arguments(line, opening_paren, path_suffix)
+            if not arguments:
+                continue
+            source_bounds = _quoted_argument_bounds(
+                line,
+                arguments[0].value_bounds[0],
+            )
+            if source_bounds is None:
+                continue
+            ranges = _nested_network_source_target_ranges(
+                line,
+                source_bounds,
+                verb_start,
+                ".py",
+            )
+            if ranges:
+                return ranges
+
     if path_suffix == ".sh":
         command_word = _shell_command_word_bounds(line, verb_start)
         if command_word is not None:
@@ -2483,6 +2514,81 @@ def _javascript_brace_depth_at(
         elif source[index] == "}":
             depth = max(0, depth - 1)
     return depth
+
+
+def _javascript_brace_chain_at(
+    source: str,
+    offset: int,
+    executable: bytes,
+) -> tuple[int, ...]:
+    """Return the opening-brace chain containing a JavaScript source offset."""
+    stack: list[int] = []
+    for index in range(min(offset, len(source))):
+        if not executable[index]:
+            continue
+        if source[index] == "{":
+            stack.append(index)
+        elif source[index] == "}" and stack:
+            stack.pop()
+    return tuple(stack)
+
+
+def _javascript_call_is_shadowed(
+    source: str,
+    call_start: int,
+    binding: _FluentClientBinding,
+    executable: bytes,
+) -> bool:
+    """Return whether a stored client name is shadowed at a JavaScript call."""
+    if binding.is_instance_property or "." in binding.name:
+        return False
+    call_chain = _javascript_brace_chain_at(source, call_start, executable)
+    declaration_pattern = re.compile(
+        rf"\b(?:const|let|var)\s+{re.escape(binding.name)}\b"
+    )
+    for declaration in declaration_pattern.finditer(
+        source,
+        binding.constructor_end + 1,
+        call_start,
+    ):
+        if not executable[declaration.start()]:
+            continue
+        declaration_chain = _javascript_brace_chain_at(
+            source,
+            declaration.start(),
+            executable,
+        )
+        if (
+            len(declaration_chain) > (binding.binding_brace_depth or 0)
+            and call_chain[: len(declaration_chain)] == declaration_chain
+        ):
+            return True
+
+    function_pattern = re.compile(
+        r"\bfunction(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?\s*\("
+    )
+    for function in function_pattern.finditer(source, 0, call_start):
+        opening_paren = source.find("(", function.start(), function.end())
+        closing_paren = _call_end(source, opening_paren, ".ts")
+        cursor = closing_paren + 1
+        while cursor < len(source) and source[cursor].isspace():
+            cursor += 1
+        if cursor >= len(source) or source[cursor] != "{":
+            continue
+        function_chain = _javascript_brace_chain_at(
+            source,
+            cursor + 1,
+            executable,
+        )
+        if not function_chain or function_chain[-1] not in call_chain:
+            continue
+        parameters = source[opening_paren + 1 : closing_paren]
+        if re.search(
+            rf"(?:^|,)\s*{re.escape(binding.name)}\b",
+            parameters,
+        ):
+            return True
+    return False
 
 
 def _fluent_assignment_binding(
@@ -3037,6 +3143,16 @@ def _stored_fluent_client_verb_offsets(
             if not executable[call.start()]:
                 continue
             if (
+                path_suffix in _JAVASCRIPT_SUFFIXES
+                and _javascript_call_is_shadowed(
+                    source,
+                    call.start(),
+                    binding,
+                    executable,
+                )
+            ):
+                continue
+            if (
                 path_suffix == ".py"
                 and not binding.is_instance_property
                 and _python_call_is_shadowed(
@@ -3239,12 +3355,6 @@ def _is_xhr_open_call(
     if receiver_match is None:
         return False
     receiver = re.sub(r"\s*\.\s*", ".", receiver_match.group("receiver"))
-    if receiver.rsplit(".", 1)[-1].lower() in {
-        "xhr",
-        "xhttp",
-        "xmlhttprequest",
-    }:
-        return True
     receiver_pattern = r"\s*\.\s*".join(
         re.escape(component)
         for component in receiver.split(".")
@@ -4832,7 +4942,7 @@ def _self_test() -> int:
         ),
         (
             "tests/n18d_python_exec.py",
-            'exec("curl https://api.openai.com/v1/items")\n',
+            'exec("print(\'curl https://api.openai.com/v1/items\')")\n',
         ),
         # Plain template text is still fixture data; only `${...}` regions are
         # executable JavaScript.
