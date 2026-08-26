@@ -50,15 +50,27 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private var audioEngine: AVAudioEngine?
     private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
     private var configurationChangeTask: Task<Void, Never>?
+    private var retryTask: Task<Void, Never>?
     private var isFinishing = false
     private var consecutiveErrorCycles = 0
+    private let retryClock: any Clock<Duration>
+    private let retryDelay: Duration
 
     /// Keeps recognizer callbacks bounded when the insertion target is slow.
     /// A dropped event fails the session rather than silently losing a final.
     private static let eventBufferCapacity = 32
 
     /// Creates an engine for one session.
-    public init() {}
+    public init() {
+        retryClock = ContinuousClock()
+        retryDelay = .milliseconds(100)
+    }
+
+    /// Creates an engine with caller-supplied retry timing.
+    init(retryClock: any Clock<Duration>, retryDelay: Duration) {
+        self.retryClock = retryClock
+        self.retryDelay = retryDelay
+    }
 
     public func transcribe(
         locale: Locale
@@ -92,6 +104,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
         // transcribe() calls this again after startup completes to tear
         // down the engine the first call could not see yet.
         isFinishing = true
+        retryTask?.cancel()
+        retryTask = nil
         stopAudioEngine()
         // endAudio() lets the recognizer deliver its final result, which
         // ends the stream via handleRecognition; if no task is running the
@@ -181,12 +195,13 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
 
     private func handleRecognition(text: String?, isFinal: Bool, errorDescription: String?) {
         if let text, !isFinal {
-            consecutiveErrorCycles = 0
             yield(.partial(text))
             return
         }
         if let text, isFinal {
             consecutiveErrorCycles = 0
+            retryTask?.cancel()
+            retryTask = nil
             recognitionTask = nil
             yield(.final(text))
             if isFinishing {
@@ -210,9 +225,30 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
             if consecutiveErrorCycles >= 3 {
                 failStream(.transcriptionFailed(errorDescription ?? "recognition failed"))
             } else {
-                beginRecognitionCycle()
+                scheduleRecognitionRetry()
             }
         }
+    }
+
+    private func scheduleRecognitionRetry() {
+        retryTask?.cancel()
+        let clock = retryClock
+        let delay = retryDelay
+        retryTask = Task { [weak self] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            await self.retryDelayElapsed()
+        }
+    }
+
+    private func retryDelayElapsed() {
+        retryTask = nil
+        guard !isFinishing else { return }
+        beginRecognitionCycle()
     }
 
     private func yield(_ event: DictationTranscriptionEvent) {
@@ -223,6 +259,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     }
 
     private func finishStream() {
+        retryTask?.cancel()
+        retryTask = nil
         stopAudioEngine()
         recognitionTask?.cancel()
         recognitionTask = nil
@@ -233,6 +271,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
 
     private func failStream(_ failure: DictationFailure) {
         isFinishing = true
+        retryTask?.cancel()
+        retryTask = nil
         stopAudioEngine()
         recognitionTask?.cancel()
         recognitionTask = nil

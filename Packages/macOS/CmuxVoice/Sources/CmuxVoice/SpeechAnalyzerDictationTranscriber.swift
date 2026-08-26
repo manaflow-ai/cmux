@@ -40,10 +40,11 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private final class InputBox: @unchecked Sendable {
         private let lock = OSAllocatedUnfairLock()
         // The continuation is guarded by lock.
-        private var continuation: AsyncStream<RawAudioInput>.Continuation?
+        private var continuation:
+            AsyncThrowingStream<RawAudioInput, any Error>.Continuation?
 
         func configure(
-            continuation: AsyncStream<RawAudioInput>.Continuation
+            continuation: AsyncThrowingStream<RawAudioInput, any Error>.Continuation
         ) {
             lock.lock()
             defer { lock.unlock() }
@@ -54,13 +55,21 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             lock.lock()
             let continuation = self.continuation
             lock.unlock()
-            continuation?.yield(
+            guard let continuation else { return }
+            let result = continuation.yield(
                 RawAudioInput(
                     buffer: buffer,
                     sampleTime: time.isSampleTimeValid ? time.sampleTime : nil,
                     sampleRate: time.isSampleTimeValid ? time.sampleRate : nil
                 )
             )
+            if case .dropped = result {
+                continuation.finish(
+                    throwing: DictationFailure.audioCaptureFailed(
+                        "audio input backlog"
+                    )
+                )
+            }
         }
 
         func finish() {
@@ -95,7 +104,8 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var audioEngine: AVAudioEngine?
     private var analyzerFormat: AVAudioFormat?
     private var converter: AVAudioConverter?
-    private var convertedInputContinuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var convertedInputContinuation:
+        AsyncThrowingStream<AnalyzerInput, any Error>.Continuation?
     private var conversionTask: Task<Void, Never>?
     private var resultsTask: Task<Void, Never>?
     private var configurationChangeTask: Task<Void, Never>?
@@ -153,21 +163,27 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         try Task.checkCancellation()
 
-        let (rawInputSequence, rawInputContinuation) = AsyncStream<RawAudioInput>.makeStream(
-            bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
-        )
-        let (inputSequence, inputContinuation) = AsyncStream<AnalyzerInput>.makeStream(
-            bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
-        )
+        let (rawInputSequence, rawInputContinuation) =
+            AsyncThrowingStream<RawAudioInput, any Error>.makeStream(
+                bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
+            )
+        let (inputSequence, inputContinuation) =
+            AsyncThrowingStream<AnalyzerInput, any Error>.makeStream(
+                bufferingPolicy: .bufferingNewest(Self.inputBufferCapacity)
+            )
         inputBox.configure(continuation: rawInputContinuation)
         self.analyzerFormat = analyzerFormat
         self.convertedInputContinuation = inputContinuation
         conversionTask = Task { [weak self] in
-            for await input in rawInputSequence {
-                guard let self else { return }
-                await self.convertAndYield(input)
+            do {
+                for try await input in rawInputSequence {
+                    guard let self else { return }
+                    try await self.convertAndYield(input)
+                }
+                await self?.finishConvertedInput()
+            } catch {
+                await self?.finishConvertedInput(throwing: error)
             }
-            await self?.finishConvertedInput()
         }
 
         let analyzer = SpeechAnalyzer(modules: [transcriber])
@@ -269,13 +285,17 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     /// Converts one raw tap buffer off the realtime audio callback.
-    private func convertAndYield(_ input: RawAudioInput) {
+    private func convertAndYield(_ input: RawAudioInput) throws {
+        try Task.checkCancellation()
         guard let analyzerFormat, let continuation = convertedInputContinuation else { return }
         let buffer = input.buffer
         if buffer.format == analyzerFormat {
-            continuation.yield(
+            let result = continuation.yield(
                 AnalyzerInput(buffer: buffer, bufferStartTime: input.bufferStartTime)
             )
+            if case .dropped = result {
+                throw DictationFailure.audioCaptureFailed("converted audio backlog")
+            }
             return
         }
         if converter == nil || converter?.inputFormat != buffer.format {
@@ -302,14 +322,25 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             return next
         }
         guard conversionError == nil, converted.frameLength > 0 else { return }
-        continuation.yield(
+        let result = continuation.yield(
             AnalyzerInput(buffer: converted, bufferStartTime: input.bufferStartTime)
         )
+        if case .dropped = result {
+            throw DictationFailure.audioCaptureFailed("converted audio backlog")
+        }
     }
 
     private func finishConvertedInput() {
         convertedInputContinuation?.finish()
         convertedInputContinuation = nil
+        converter = nil
+        analyzerFormat = nil
+    }
+
+    private func finishConvertedInput(throwing error: any Error) {
+        convertedInputContinuation?.finish(throwing: error)
+        convertedInputContinuation = nil
+        inputBox.finish()
         converter = nil
         analyzerFormat = nil
     }
