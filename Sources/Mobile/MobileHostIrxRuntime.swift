@@ -17,32 +17,26 @@ final class MobileHostIrxRuntime {
     static let enabledDefaultsKey = "cmux.irx.enabled"
     static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
-    /// The activation gate, readable before any runtime exists. Release
-    /// builds compile the code but can never enable it.
+    /// irx is the PRIMARY transport: on by default in every configuration.
+    /// An explicit `false` in defaults (the remote revert switch writes it)
+    /// falls back to the legacy runtime; the env var re-arms and persists.
     nonisolated static var isEnabled: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_ENABLED"] == "1" {
-            // Sticky: launch-env opt-in persists so later env-less launches
-            // (queue drains, manual taps, sim-leg relaunches) stay in irx mode.
             UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
             return true
         }
-        return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
-        #else
-        return false
-        #endif
+        if UserDefaults.standard.object(forKey: enabledDefaultsKey) != nil {
+            return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
+        }
+        return true
     }
 
     nonisolated static var forceRelayOnly: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
             UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
             return true
         }
         return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
-        #else
-        return false
-        #endif
     }
 
     /// One journal for every irx component on the Mac. The soak analyzer

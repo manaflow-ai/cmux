@@ -14,30 +14,26 @@ public actor MobileIrxRuntimeComposition {
     public static let enabledDefaultsKey = "cmux.irx.enabled"
     public static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
+    /// irx is the PRIMARY transport: on by default in every configuration.
+    /// An explicit `false` in defaults (the remote revert switch writes it)
+    /// falls back to the legacy stack; the env var re-arms and persists.
     public nonisolated static var isEnabled: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_ENABLED"] == "1" {
-            // Sticky: launch-env opt-in persists so later env-less launches
-            // (queue drains, manual taps, sim-leg relaunches) stay in irx mode.
             UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
             return true
         }
-        return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
-        #else
-        return false
-        #endif
+        if UserDefaults.standard.object(forKey: enabledDefaultsKey) != nil {
+            return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
+        }
+        return true
     }
 
     public nonisolated static var forceRelayOnly: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
             UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
             return true
         }
         return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
-        #else
-        return false
-        #endif
     }
 
     public enum CompositionError: Error, Sendable {
