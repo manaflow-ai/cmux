@@ -377,7 +377,9 @@ extension CMUXCLI {
         let titleApplied = workspaceApplied || panelApplied == true
         let targetUnresolved = payload["target_unresolved"] as? Bool == true
         let terminalSkip = payload["terminal_skip"] as? Bool == true
-        if titleApplied {
+        if targetUnresolved {
+            telemetry.breadcrumb("\(telemetryKey).target-unresolved")
+        } else if titleApplied {
             telemetry.breadcrumb("\(telemetryKey).applied")
         } else if workspaceApplySkipped {
             telemetry.breadcrumb("\(telemetryKey).preserved-workspace-title")
@@ -386,7 +388,8 @@ extension CMUXCLI {
         }
         return .success((
             titleApplied: titleApplied,
-            targetsResolved: terminalSkip || (!targetUnresolved && workspaceResolved && panelResolved),
+            targetsResolved: !targetUnresolved
+                && (terminalSkip || (workspaceResolved && panelResolved)),
             terminalSkip: terminalSkip,
             targetUnresolved: targetUnresolved
         ))
