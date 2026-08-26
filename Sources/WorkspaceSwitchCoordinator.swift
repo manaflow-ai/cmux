@@ -296,17 +296,6 @@ final class WorkspaceSwitchCoordinator {
         // until its portal is actually presented; this covers the asynchronous
         // layout pass that follows mount reconciliation.
         releaseRendererProtectionIfTargetIsPresented(&transaction)
-        guard transaction.readiness?.presentationIsReady == true else {
-            // Mount reconciliation has completed, but retain the transaction
-            // until the destination portal presents. A two-second safety
-            // deadline bounds this cleanup-only lease; it never delays mount
-            // ownership or selection.
-            presentationExpiryScheduler.schedule(after: .seconds(2)) { [weak self, requestID = transaction.requestID] in
-                self?.expireUnresolvedPresentation(requestID: requestID)
-            }
-            active = transaction
-            return
-        }
         finishIfPossible(&transaction)
     }
 
@@ -432,6 +421,11 @@ final class WorkspaceSwitchCoordinator {
               transaction.readiness?.presentationIsReady == true,
               transaction.readiness?.interactionIsReady == true else {
             active = transaction
+            if transaction.sourceRetired, !presentationExpiryScheduler.isScheduled {
+                presentationExpiryScheduler.schedule(after: .seconds(2)) { [weak self, requestID = transaction.requestID] in
+                    self?.expireUnresolvedPresentation(requestID: requestID)
+                }
+            }
             return
         }
         releaseFrameObservation(&transaction)
