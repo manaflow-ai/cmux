@@ -66,7 +66,9 @@ public struct ClaudeTeamTaskListResolver {
     ///   - previouslyBoundBinding: A team proof retained from an earlier hook.
     /// - Returns: The unique binding plus whether it came from retained cleanup
     ///   proof, or `nil` when no exact identity can be established.
-    /// - Throws: A filesystem or resource-bound error while scanning configs.
+    /// - Throws: A filesystem or resource-bound error while scanning configs,
+    ///   including ``ClaudeTaskSnapshotLoaderError/teamConfigurationChangedDuringScan``
+    ///   when the identity changes during the lookup.
     public func resolveTaskListBinding(
         sessionID: String,
         agentID: String?,
@@ -258,7 +260,9 @@ public struct ClaudeTeamTaskListResolver {
     ///
     /// - Parameter taskListID: The canonical task-list directory name.
     /// - Returns: The current binding, or `nil` when the team config is absent.
-    /// - Throws: A filesystem or resource-bound error while scanning configs.
+    /// - Throws: A filesystem or resource-bound error while scanning configs,
+    ///   including ``ClaudeTaskSnapshotLoaderError/teamConfigurationChangedDuringScan``
+    ///   when the identity changes during the lookup.
     public func currentTaskListBinding(
         forTaskListID taskListID: String
     ) throws -> ClaudeTeamTaskListBinding? {
@@ -267,6 +271,7 @@ public struct ClaudeTeamTaskListResolver {
               let rootGenerationBeforeScan = try teamsRootGeneration() else {
             return nil
         }
+        let configurationGenerationBeforeScan = try teamConfigurationGeneration()
         var enumerationError: Error?
         let candidateEnumerator = fileManager.enumerator(
             at: teamsRootURL,
@@ -333,10 +338,15 @@ public struct ClaudeTeamTaskListResolver {
         }
         try operationDeadline.check()
         if let enumerationError { throw enumerationError }
-        guard rootGenerationBeforeScan == (try teamsRootGeneration()),
-              let stableConfigurationGeneration = try teamConfigurationGeneration(
-                  forTaskListID: taskListID
-              ) else {
+        let rootGenerationAfterScan = try teamsRootGeneration()
+        let configurationGenerationAfterScan = try teamConfigurationGeneration()
+        guard rootGenerationBeforeScan == rootGenerationAfterScan,
+              configurationGenerationBeforeScan == configurationGenerationAfterScan else {
+            throw ClaudeTaskSnapshotLoaderError.teamConfigurationChangedDuringScan
+        }
+        guard let stableConfigurationGeneration = try teamConfigurationGeneration(
+            forTaskListID: taskListID
+        ) else {
             return nil
         }
         guard matches.count <= 1 else {

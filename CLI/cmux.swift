@@ -514,14 +514,17 @@ final class ClaudeHookSessionStore {
     /// absolute deadline.
     func withClaudeTaskSyncLock<T>(
         deadlineUptime: TimeInterval,
-        scope: String? = nil,
+        scope _: String? = nil,
         _ body: () throws -> T
     ) throws -> T {
         try checkLockDeadline()
-        // Independent Claude profiles have independent task-store identities;
-        // keep their filesystem/socket work from contending on one global lease.
-        let lockSuffix = scope.map { ".\($0)" } ?? ""
-        let lockPath = statePath + ".task-sync\(lockSuffix).lock"
+        // Keep one fixed lease file for this state store. The task-store scope
+        // still namespaces claims and owners, but must not become part of the
+        // filename: profiles and relay identities can change over time, and a
+        // per-scope path would leak one inode per identity forever. Task hooks
+        // are short-lived, so serializing the bounded cross-process section on
+        // this shared file is preferable to unbounded lock-file growth.
+        let lockPath = statePath + ".task-sync.lock"
         let parentPath = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
         try fileManager.createDirectory(
             at: parentPath,
