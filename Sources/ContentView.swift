@@ -904,6 +904,7 @@ struct ContentView: View {
         width: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     )
     @State private var sidebarFocusBoundary = SidebarFocusBoundaryReference()
+    @State private var videoBackgroundPresentation: VideoBackgroundPresentation?
     private var sidebarWidth: CGFloat {
         get { sidebarLayout.width }
         nonmutating set { sidebarLayout.width = newValue }
@@ -2679,7 +2680,7 @@ struct ContentView: View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
             ZStack(alignment: .topLeading) {
-                VideoAwareWindowRootBackdrop(snapshot: appearance)
+                VideoAwareWindowRootBackdrop(snapshot: appearance, presentation: videoBackgroundPresentation)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
@@ -3494,7 +3495,10 @@ struct ContentView: View {
             cmuxConfigStore: cmuxConfigStore
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
-        WindowVideoBackgroundController.ensure(on: window)
+        let videoPresentation = WindowVideoBackgroundController.ensure(on: window).presentation
+        if videoBackgroundPresentation !== videoPresentation {
+            videoBackgroundPresentation = videoPresentation
+        }
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
