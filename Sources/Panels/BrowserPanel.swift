@@ -2348,6 +2348,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var webViewCancellables = Set<AnyCancellable>()
     var chromiumIsolationTask: Task<Void, Never>?
     var chromiumIsolationPending = false
+    var lastRecordedChromiumNavigationRevision: UInt64?
     private(set) var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     var downloadDelegate: BrowserDownloadDelegate?

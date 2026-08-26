@@ -22,6 +22,8 @@ public final class CEFBrowser {
         case loadingStateChanged(isLoading: Bool, canGoBack: Bool, canGoForward: Bool)
         /// The browser closed; the instance is inert afterwards.
         case closed
+        /// The renderer process terminated unexpectedly.
+        case rendererCrashed
     }
 
     /// The CEF-owned window hosting this browser, once `created` has fired.
@@ -33,8 +35,13 @@ public final class CEFBrowser {
     private var handle: OpaquePointer?
     private var eventContinuations: [UUID: AsyncStream<Event>.Continuation] = [:]
     private var devToolsContinuations: [UUID: AsyncStream<Data>.Continuation] = [:]
-    private var closeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var closeWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var closeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var selfRetain: Unmanaged<CEFBrowser>?
+
+    deinit {
+        for task in closeTimeoutTasks.values { task.cancel() }
+    }
 
     /// Creates a browser and its hosting window.
     ///
@@ -67,6 +74,12 @@ public final class CEFBrowser {
             let browser = unmanagedBrowser(context)
             MainActor.assumeIsolated {
                 browser.handleClosed()
+            }
+        }
+        callbacks.on_renderer_crashed = { context in
+            let browser = unmanagedBrowser(context)
+            MainActor.assumeIsolated {
+                browser.publish(.rendererCrashed)
             }
         }
         callbacks.on_title_changed = { context, title in
@@ -196,16 +209,31 @@ public final class CEFBrowser {
     ///
     /// This is the safe lifecycle boundary for policy or workspace changes:
     /// callers must not expose a replacement request context before `.closed`.
-    public func closeAndWait() async {
+    public func closeAndWait(timeout: Duration = .seconds(15)) async {
         guard !isClosed else { return }
-        await withCheckedContinuation { continuation in
-            if isClosed {
-                continuation.resume()
-                return
+        let waiterID = UUID()
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                if isClosed {
+                    continuation.resume()
+                    return
+                }
+                closeWaiters[waiterID] = continuation
+                closeTimeoutTasks[waiterID] = Task { [weak self, timeout] in
+                    do {
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+                    await self?.finishCloseWaiter(waiterID, requestClose: true)
+                }
+                close()
             }
-            closeWaiters.append(continuation)
-            close()
-        }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishCloseWaiter(waiterID)
+            }
+        })
     }
 
     /// Submits one DevTools protocol command.
@@ -232,8 +260,10 @@ public final class CEFBrowser {
         isClosed = true
         nsWindow = nil
         publish(.closed)
-        let waiters = closeWaiters
+        let waiters = Array(closeWaiters.values)
         closeWaiters.removeAll()
+        for task in closeTimeoutTasks.values { task.cancel() }
+        closeTimeoutTasks.removeAll()
         for waiter in waiters { waiter.resume() }
         for continuation in eventContinuations.values { continuation.finish() }
         eventContinuations.removeAll()
@@ -246,6 +276,13 @@ public final class CEFBrowser {
         // Balance the retain taken at creation; the shim no longer calls back.
         selfRetain?.release()
         selfRetain = nil
+    }
+
+    private func finishCloseWaiter(_ waiterID: UUID, requestClose: Bool = false) {
+        guard let waiter = closeWaiters.removeValue(forKey: waiterID) else { return }
+        closeTimeoutTasks.removeValue(forKey: waiterID)?.cancel()
+        if requestClose { close() }
+        waiter.resume()
     }
 
     private func publish(_ event: Event) {

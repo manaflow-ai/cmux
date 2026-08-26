@@ -25,7 +25,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     var startupReadinessTask: Task<Void, Never>? { startupTask }
 
     private let profileID: UUID
+    private let storageID: UUID
     private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
+    private let startPrerequisite: Task<Void, Never>?
     private var browser: CEFBrowser?
     private var devTools: CEFDevToolsClient?
     private var eventTask: Task<Void, Never>?
@@ -34,7 +36,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var colorSchemeTask: Task<Void, Never>?
     private var hasStarted = false
     private var readyContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var readyTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var isReady = false
+    private static let readyDeadline: Duration = .seconds(15)
 
     // Mirrored navigation state for snapshot synthesis.
     private var currentURL: URL?
@@ -54,11 +58,15 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     init(
         profileID: UUID,
+        storageID: UUID = UUID(),
         remoteDebuggingPort: ChromiumRemoteDebuggingPort = .disabled,
-        documentScripts: [(source: String, isStyle: Bool)] = []
+        documentScripts: [(source: String, isStyle: Bool)] = [],
+        startPrerequisite: Task<Void, Never>? = nil
     ) {
         self.profileID = profileID
+        self.storageID = storageID
         self.remoteDebuggingPort = remoteDebuggingPort
+        self.startPrerequisite = startPrerequisite
         initScriptSources = documentScripts.filter { !$0.isStyle }.map(\.source)
         styleScriptSources = documentScripts.filter(\.isStyle).map(\.source)
         hostView.onFocus = { [weak self] in
@@ -81,6 +89,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         publishSnapshot(state: .starting)
         startupTask?.cancel()
         startupTask = Task { @MainActor [weak self] in
+            if let startPrerequisite {
+                await startPrerequisite.value
+            }
             await CEFRuntimeBootstrap.waitUntilSafeToInitialize()
             guard let self, self.hasStarted, !Task.isCancelled else { return }
             do {
@@ -120,7 +131,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         let isDefaultProfile = profileID == BrowserProfileRepository.builtInDefaultProfileID
         let cachePath = isDefaultProfile
             ? nil
-            : CEFRuntimeBootstrap.profileCachePath(for: profileID)
+            : CEFRuntimeBootstrap.profileCachePath(for: profileID, storageID: storageID)
         guard let browser = CEFBrowser.create(
             url: URL(string: "about:blank")!,
             cachePath: cachePath
@@ -300,15 +311,23 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                         continuation.resume(returning: ())
                     } else {
                         readyContinuations[waiterID] = continuation
+                        readyTimeoutTasks[waiterID] = Task { @MainActor [weak self] in
+                            do {
+                                try await Task.sleep(for: Self.readyDeadline)
+                            } catch {
+                                return
+                            }
+                            self?.finishReadyWaiter(
+                                waiterID,
+                                error: ChromiumBrowserDiagnostic.startupTimedOut
+                            )
+                        }
                     }
                 }
             },
             onCancel: {
                 Task { @MainActor [weak self] in
-                    guard let continuation = self?.readyContinuations.removeValue(forKey: waiterID) else {
-                        return
-                    }
-                    continuation.resume(throwing: CancellationError())
+                    self?.finishReadyWaiter(waiterID, error: CancellationError())
                 }
             }
         )
@@ -415,6 +434,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             publishSnapshot(state: .running(nil))
             let waiters = readyContinuations.values
             readyContinuations.removeAll()
+            for task in readyTimeoutTasks.values { task.cancel() }
+            readyTimeoutTasks.removeAll()
             for waiter in waiters { waiter.resume(returning: ()) }
         case .titleChanged(let value):
             title = value
@@ -428,6 +449,20 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             canGoBack = back
             canGoForward = forward
             publishSnapshot(state: .running(nil))
+        case .rendererCrashed:
+            isReady = false
+            hasStarted = false
+            startupTask?.cancel()
+            startupTask = nil
+            eventTask?.cancel()
+            eventTask = nil
+            cancelReadyWaiters()
+            hostView.detach()
+            remoteDebuggingEndpoint = nil
+            browser?.close()
+            browser = nil
+            devTools = nil
+            publishSnapshot(state: .crashed(1))
         case .closed:
             isReady = false
             hasStarted = false
@@ -493,8 +528,20 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private func cancelReadyWaiters() {
         let waiters = readyContinuations.values
         readyContinuations.removeAll()
+        for task in readyTimeoutTasks.values { task.cancel() }
+        readyTimeoutTasks.removeAll()
         for waiter in waiters {
             waiter.resume(throwing: CancellationError())
+        }
+    }
+
+    private func finishReadyWaiter(_ waiterID: UUID, error: (any Error)? = nil) {
+        guard let waiter = readyContinuations.removeValue(forKey: waiterID) else { return }
+        readyTimeoutTasks.removeValue(forKey: waiterID)?.cancel()
+        if let error {
+            waiter.resume(throwing: error)
+        } else {
+            waiter.resume(returning: ())
         }
     }
 

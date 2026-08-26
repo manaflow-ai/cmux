@@ -23,6 +23,7 @@
 #include "include/capi/cef_frame_capi.h"
 #include "include/capi/cef_life_span_handler_capi.h"
 #include "include/capi/cef_request_context_capi.h"
+#include "include/capi/cef_request_handler_capi.h"
 #include "include/capi/views/cef_browser_view_capi.h"
 #include "include/capi/views/cef_browser_view_delegate_capi.h"
 #include "include/capi/views/cef_window_capi.h"
@@ -82,6 +83,7 @@ struct cmux_cef_browser {
   cef_life_span_handler_t life_span;
   cef_display_handler_t display;
   cef_load_handler_t load;
+  cef_request_handler_t request;
   cef_dev_tools_message_observer_t devtools;
   cef_window_delegate_t window_delegate;
   cef_browser_view_delegate_t view_delegate;
@@ -141,6 +143,7 @@ DEFINE_HANDLER_BASE(client)
 DEFINE_HANDLER_BASE(life_span)
 DEFINE_HANDLER_BASE(display)
 DEFINE_HANDLER_BASE(load)
+DEFINE_HANDLER_BASE(request)
 DEFINE_HANDLER_BASE(devtools)
 DEFINE_HANDLER_BASE(window_delegate)
 DEFINE_HANDLER_BASE(view_delegate)
@@ -166,6 +169,13 @@ static cef_load_handler_t *CEF_CALLBACK client_get_load_handler(
   struct cmux_cef_browser *wrapper = client_wrapper(self);
   browser_retain(wrapper);
   return &wrapper->load;
+}
+
+static cef_request_handler_t *CEF_CALLBACK client_get_request_handler(
+    cef_client_t *self) {
+  struct cmux_cef_browser *wrapper = client_wrapper(self);
+  browser_retain(wrapper);
+  return &wrapper->request;
 }
 
 // MARK: - Life span
@@ -262,6 +272,17 @@ static void CEF_CALLBACK load_on_loading_state_change(cef_load_handler_t *self,
                                               isLoading, canGoBack, canGoForward);
 }
 
+static void CEF_CALLBACK request_on_render_process_terminated(
+    cef_request_handler_t *self, cef_browser_t *browser,
+    cef_termination_status_t status, int error_code,
+    const cef_string_t *error_string) {
+  struct cmux_cef_browser *wrapper = request_wrapper(self);
+  if (wrapper->browser != browser || !wrapper->callbacks.on_renderer_crashed) {
+    return;
+  }
+  wrapper->callbacks.on_renderer_crashed(wrapper->callbacks.context);
+}
+
 // MARK: - DevTools
 
 static int CEF_CALLBACK devtools_on_message(
@@ -317,6 +338,9 @@ static void CEF_CALLBACK window_delegate_on_window_created(
   if (!view) return;
   cef_panel_t *panel = (cef_panel_t *)window;
   panel->add_child_view(panel, (cef_view_t *)view);
+  // add_child_view retains the view; release the factory's caller-owned
+  // reference once the window has adopted it.
+  ((cef_base_ref_counted_t *)view)->release((cef_base_ref_counted_t *)view);
   // Deliberately not shown here: the window would appear at its initial
   // bounds before the pane adopts it. CEFBrowserHostView orders it in once
   // it is positioned over the pane rect.
@@ -557,6 +581,7 @@ cmux_cef_browser_t *cmux_cef_browser_create(
   wrapper->client.get_life_span_handler = client_get_life_span_handler;
   wrapper->client.get_display_handler = client_get_display_handler;
   wrapper->client.get_load_handler = client_get_load_handler;
+  wrapper->client.get_request_handler = client_get_request_handler;
 
   life_span_init_base(wrapper, &wrapper->life_span.base, sizeof(wrapper->life_span));
   wrapper->life_span.on_after_created = life_span_on_after_created;
@@ -568,6 +593,10 @@ cmux_cef_browser_t *cmux_cef_browser_create(
 
   load_init_base(wrapper, &wrapper->load.base, sizeof(wrapper->load));
   wrapper->load.on_loading_state_change = load_on_loading_state_change;
+
+  request_init_base(wrapper, &wrapper->request.base, sizeof(wrapper->request));
+  wrapper->request.on_render_process_terminated =
+      request_on_render_process_terminated;
 
   devtools_init_base(wrapper, &wrapper->devtools.base, sizeof(wrapper->devtools));
   wrapper->devtools.on_dev_tools_message = devtools_on_message;
@@ -593,7 +622,9 @@ cmux_cef_browser_t *cmux_cef_browser_create(
         cef_request_context_create_context(&context_settings, NULL);
   }
 
-  if (!cef_window_create_top_level(&wrapper->window_delegate)) {
+  cef_window_t *created_window =
+      cef_window_create_top_level(&wrapper->window_delegate);
+  if (!created_window) {
     if (wrapper->request_context) {
       ((cef_base_ref_counted_t *)wrapper->request_context)
           ->release((cef_base_ref_counted_t *)wrapper->request_context);
@@ -601,6 +632,10 @@ cmux_cef_browser_t *cmux_cef_browser_create(
     browser_release_ref(wrapper);
     return NULL;
   }
+  // The window delegate retains the adopted window; balance the factory's
+  // caller-owned reference returned from create_top_level.
+  ((cef_base_ref_counted_t *)created_window)
+      ->release((cef_base_ref_counted_t *)created_window);
   return wrapper;
 }
 

@@ -181,8 +181,15 @@ extension BrowserPanel {
             hasRecoverableWebContentTermination = false
             canGoBack = snapshot.canGoBack
             canGoForward = snapshot.canGoForward
+            if !snapshot.isLoading,
+               lastRecordedChromiumNavigationRevision != snapshot.navigationRevision,
+               let url = snapshot.currentURL {
+                historyStore.recordVisit(url: url, title: snapshot.title)
+                lastRecordedChromiumNavigationRevision = snapshot.navigationRevision
+            }
         case .crashed:
             isLoading = false
+            lastRecordedChromiumNavigationRevision = nil
             hasRecoverableWebContentTermination = true
             canGoBack = false
             canGoForward = false
@@ -199,6 +206,7 @@ extension BrowserPanel {
             )
         case .stopped:
             isLoading = false
+            lastRecordedChromiumNavigationRevision = nil
             canGoBack = false
             canGoForward = false
         }
@@ -266,6 +274,7 @@ extension BrowserPanel {
         profileID = nextProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: nextProfileID)
         BrowserProfileStore.shared.noteUsed(nextProfileID)
+        lastRecordedChromiumNavigationRevision = nil
         hasRecoverableWebContentTermination = false
         canGoBack = false
         canGoForward = false

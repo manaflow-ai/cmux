@@ -229,15 +229,13 @@ extension ChromiumBrowserSession {
             if case .object(let object) = event.params,
                Self.isMainFrame(object: object, knownMainFrameID: mainFrameID),
                let name = object["name"]?.stringValue,
-               ["DOMContentLoaded", "load", "networkAlmostIdle", "networkIdle"].contains(name) {
-                // Lifecycle milestones are terminal readiness signals. Only
-                // frameStartedLoading begins a loading transition; a late
-                // networkAlmostIdle event must never revert a completed page.
+               ["load", "networkIdle"].contains(name) {
+                // DOMContentLoaded and networkAlmostIdle are intermediate
+                // milestones. Only the terminal load/networkIdle signals may
+                // clear the loading state used by automation waits.
                 isLoading = false
-                if name == "load" || name == "networkIdle" {
-                    await refreshNavigationHistory(using: connection)
-                    await refreshTitle(using: connection)
-                }
+                await refreshNavigationHistory(using: connection)
+                await refreshTitle(using: connection)
                 publish()
             }
         case "Page.crashed", "Target.targetCrashed", "Target.detachedFromTarget", "Inspector.detached":

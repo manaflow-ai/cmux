@@ -27,6 +27,8 @@ typedef struct {
   void (*on_created)(void *context, void *ns_window);
   /// The browser is gone; release any references to the handle afterwards.
   void (*on_closed)(void *context);
+  /// The renderer process terminated unexpectedly; the pane should recover.
+  void (*on_renderer_crashed)(void *context);
   void (*on_title_changed)(void *context, const char *title);
   void (*on_address_changed)(void *context, const char *url);
   void (*on_loading_state_changed)(void *context, int is_loading,

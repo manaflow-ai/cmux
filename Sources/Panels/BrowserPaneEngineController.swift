@@ -36,6 +36,7 @@ final class BrowserPaneEngineController {
             if CEFRuntimeBootstrap.isRuntimeAvailable {
                 adapter = CEFBrowserPaneEngineAdapter(
                     profileID: profileID,
+                    storageID: storageID,
                     remoteDebuggingPort: remoteDebuggingPort
                 )
             } else {
@@ -73,11 +74,15 @@ final class BrowserPaneEngineController {
             .documentScriptDefinitions() ?? []
         if let oldCEF = adapter as? CEFBrowserPaneEngineAdapter {
             oldCEF.onSnapshot = nil
-            oldCEF.stop()
+            let stopTask = Task { @MainActor in
+                await oldCEF.stopAndWait()
+            }
             let replacement = CEFBrowserPaneEngineAdapter(
                 profileID: profileID,
+                storageID: storageID,
                 remoteDebuggingPort: remoteDebuggingPort,
-                documentScripts: documentScripts
+                documentScripts: documentScripts,
+                startPrerequisite: stopTask
             )
             replacement.onSnapshot = chromiumSnapshotHandler
             replacement.onContentFocused = chromiumFocusHandler

@@ -263,23 +263,18 @@ enum BrowserProfileAutomation {
     @MainActor
     static func clear(params: [String: Any]) async throws -> [String: Any] {
         let targets = try targetProfiles(params: params, allowAll: true)
-        let force = browserAutomationBoolParam(params, keys: ["force"])
-        if !force {
-            for profile in targets {
-                let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
-                guard livePanelCount == 0 else {
-                    throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
-                }
+        // Chromium profile directories are shared with live CEF/child
+        // processes. Even an explicit `force` request must fail closed until
+        // every pane has stopped, otherwise deleting files under an active
+        // request context can corrupt the renderer.
+        for profile in targets {
+            let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
+            guard livePanelCount == 0 else {
+                throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
             }
         }
         var clearedProfiles: [[String: Any]] = []
         for profile in targets {
-            if !force {
-                let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
-                guard livePanelCount == 0 else {
-                    throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
-                }
-            }
             guard let outcome = await BrowserProfileStore.shared.clearProfileData(id: profile.id) else {
                 throw BrowserProfileAutomationError.profileClearFailed(profile.displayName)
             }

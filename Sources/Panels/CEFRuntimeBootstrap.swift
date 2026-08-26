@@ -62,21 +62,40 @@ enum CEFRuntimeBootstrap {
 
     /// Per-profile cache directory below the root, as CEF requires.
     ///
-    /// - Parameter profileID: Logical cmux browser profile.
+    /// - Parameters:
+    ///   - profileID: Logical cmux browser profile.
+    ///   - storageID: Stable pane identity used to isolate simultaneous panes.
     /// - Returns: Absolute cache path for that profile's request context.
-    static func profileCachePath(for profileID: UUID) -> String {
-        (rootCachePath as NSString).appendingPathComponent(
+    static func profileCachePath(for profileID: UUID, storageID: UUID? = nil) -> String {
+        var path = (rootCachePath as NSString).appendingPathComponent(
             "Profiles/\(profileID.uuidString)"
         )
+        if let storageID {
+            path = (path as NSString).appendingPathComponent(
+                "Panes/\(storageID.uuidString)"
+            )
+        }
+        return path
     }
 
-    /// Removes the isolated CEF request-context cache for a non-default profile.
-    ///
-    /// The built-in profile intentionally uses CEF's shared global context and
-    /// therefore has no profile-specific directory to delete.
+    /// Removes CEF data for one profile after all of its panes have stopped.
     static func removeProfileData(for profileID: UUID) {
-        guard profileID != BrowserProfileRepository.builtInDefaultProfileID else { return }
-        try? FileManager.default.removeItem(atPath: profileCachePath(for: profileID))
+        let fileManager = FileManager.default
+        if profileID == BrowserProfileRepository.builtInDefaultProfileID {
+            let root = URL(fileURLWithPath: rootCachePath, isDirectory: true)
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { return }
+            // Named profiles live below Profiles/; the remaining root entries
+            // belong to CEF's shared default request context.
+            for entry in entries where entry.lastPathComponent != "Profiles" {
+                try? fileManager.removeItem(at: entry)
+            }
+            return
+        }
+        try? fileManager.removeItem(atPath: profileCachePath(for: profileID))
     }
 
     /// Initializes CEF on first use.
