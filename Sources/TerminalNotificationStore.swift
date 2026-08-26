@@ -52,6 +52,27 @@ enum NotificationPaneFlashSettings {
     }
 }
 
+/// What the Dock badge counts.
+enum DockBadgeMode: String, CaseIterable {
+    /// Unread notifications. The original behaviour.
+    case notifications
+    /// Panes whose agent is blocked on the user — the orange panes.
+    case agentsWaiting = "agentsWaiting"
+    /// Waiting and finished panes together, as `waiting/ready`.
+    case agentsWaitingAndReady = "agentsWaitingAndReady"
+
+    static let defaultsKey = "dockBadgeMode"
+    static let defaultMode = DockBadgeMode.notifications
+
+    static func current(defaults: UserDefaults = .standard) -> DockBadgeMode {
+        guard let raw = defaults.string(forKey: defaultsKey),
+              let mode = DockBadgeMode(rawValue: raw) else {
+            return defaultMode
+        }
+        return mode
+    }
+}
+
 enum TaggedRunBadgeSettings {
     static let environmentKey = "CMUX_TAG"
     private static let maxTagLength = 10
@@ -497,13 +518,32 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
+    static func dockBadgeLabel(
+        unreadCount: Int,
+        isEnabled: Bool,
+        runTag: String? = nil,
+        mode: DockBadgeMode = .notifications,
+        needsInputCount: Int = 0,
+        idleCount: Int = 0
+    ) -> String? {
+        func capped(_ value: Int) -> String { value > 99 ? "99+" : String(value) }
+
         let unreadLabel: String? = {
-            guard isEnabled, unreadCount > 0 else { return nil }
-            if unreadCount > 99 {
-                return "99+"
+            guard isEnabled else { return nil }
+            switch mode {
+            case .notifications:
+                guard unreadCount > 0 else { return nil }
+                return capped(unreadCount)
+            case .agentsWaiting:
+                guard needsInputCount > 0 else { return nil }
+                return capped(needsInputCount)
+            case .agentsWaitingAndReady:
+                // Both halves, so a zero on either side still reads: "0/4" says
+                // nothing wants you and four are done, which is information a
+                // hidden badge would throw away.
+                guard needsInputCount > 0 || idleCount > 0 else { return nil }
+                return "\(capped(needsInputCount))/\(capped(idleCount))"
             }
-            return String(unreadCount)
         }()
 
         if let tag = TaggedRunBadgeSettings.normalizedTag(runTag) {
@@ -2612,12 +2652,53 @@ final class TerminalNotificationStore: ObservableObject {
 
 #endif
 
-    private func refreshDockBadge() {
+    /// Recomputes the Dock badge. Also called when agent state moves, since the
+    /// agent modes count panes rather than notifications.
+    func refreshDockBadge() {
+        let mode = DockBadgeMode.current()
+        let counts = mode == .notifications ? (0, 0) : Self.agentPaneCounts()
         let label = Self.dockBadgeLabel(
             unreadCount: unreadCount,
             isEnabled: NotificationBadgeSettings.isDockBadgeEnabled(),
-            runTag: TaggedRunBadgeSettings.normalizedTag()
+            runTag: TaggedRunBadgeSettings.normalizedTag(),
+            mode: mode,
+            needsInputCount: counts.0,
+            idleCount: counts.1
         )
         NSApp?.dockTile.badgeLabel = label
+#if DEBUG
+        cmuxDebugLog(
+            "dock.badge mode=\(mode.rawValue) unread=\(unreadCount) " +
+            "waiting=\(counts.0) ready=\(counts.1) label=\(label ?? "none")"
+        )
+#endif
+    }
+
+    /// Panes blocked on the user, and panes whose agent has finished, across
+    /// every window. Resolved through `AgentStatus`, the same reduction the
+    /// pane border and the sidebar rows use, so the badge cannot disagree with
+    /// the colours it is counting.
+    @MainActor
+    private static func agentPaneCounts() -> (needsInput: Int, idle: Int) {
+        var needsInput = 0
+        var idle = 0
+        var seenManagers: Set<ObjectIdentifier> = []
+        for window in NSApp?.windows ?? [] {
+            guard let manager = (window.contentViewController as? TerminalController)?.tabManager
+                ?? AppDelegate.shared?.tabManager,
+                seenManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
+            for workspace in manager.tabs {
+                for (panelId, _) in workspace.panels {
+                    switch AgentStatus.resolve(
+                        lifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:]
+                    ) {
+                    case .needsInput: needsInput += 1
+                    case .idle: idle += 1
+                    case .running, .error, .none: continue
+                    }
+                }
+            }
+        }
+        return (needsInput, idle)
     }
 }

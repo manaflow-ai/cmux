@@ -427,6 +427,15 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[key] = .nullableString(value)
         }
 
+        let badgeModeKey = DockBadgeMode.defaultsKey
+        if root.keys.contains(badgeModeKey) {
+            if let raw = root[badgeModeKey] as? String, DockBadgeMode(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[badgeModeKey] = .string(raw)
+            } else {
+                logInvalid(badgeModeKey, sourcePath: sourcePath)
+            }
+        }
+
         let tintKey = PaneChromeSettings.agentStatePaneTintOpacityKey
         if root.keys.contains(tintKey) {
             if let value = root[tintKey] as? Double, (0...1).contains(value) {

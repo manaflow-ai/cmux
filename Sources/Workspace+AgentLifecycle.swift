@@ -618,5 +618,10 @@ extension Workspace {
             workspaceId: id,
             panelId: panelId
         )
+        // The Dock badge counts panes in its agent modes, so it has to move
+        // with the lifecycle rather than only with notifications. This is the
+        // single funnel every lifecycle write passes through, including the
+        // journal's, so one call here covers hooks and the scanner alike.
+        TerminalNotificationStore.shared.refreshDockBadge()
     }
 }

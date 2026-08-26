@@ -404,6 +404,7 @@ extension CmuxSettingsFileStore {
         PaneChromeSettings.activePaneBorderColorKey,
         PaneChromeSettings.agentStateBorderKey,
         PaneChromeSettings.agentStatePaneTintOpacityKey,
+        DockBadgeMode.defaultsKey,
         "app.language",
         "app.appearance",
         "app.appIcon",
