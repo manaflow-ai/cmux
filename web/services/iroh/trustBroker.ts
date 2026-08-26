@@ -76,6 +76,7 @@ import {
 import {
   MANAGED_RELAY_URLS,
   accountPrivateIrohPathHints,
+  isPublishableAttachedRelayURL,
 } from "./publicationPolicy";
 import {
   discoveryScopeMatchesRegistration,
@@ -692,15 +693,84 @@ function publicBinding(
             ...(binding.directPortV6 === null ? {} : { ipv6: binding.directPortV6 }),
           },
         }),
-    path_hints: accountPrivateIrohPathHints(binding.pathHints.flatMap((hint): IrohPathHint[] => {
+    path_hints: bindingPathHints(binding, now, savedCustomRelayURLs),
+    last_seen_at: binding.lastSeenAt.toISOString(),
+  };
+}
+
+/**
+ * Serves the relay-reported attach route ahead of endpoint-published hints.
+ *
+ * The fleet reports attach/detach per admitted connection (cmux-relay
+ * attach reporting), so `relayAttachedUrl` is live server-side truth and the
+ * phone learns "reachable via relay Y" without the Mac's client-side
+ * post-attach republish. The synthesized hint reuses the standard path-hint
+ * shape so existing clients dial it unchanged; the client-published hint for
+ * the same URL is dropped as redundant, and every other client hint stays a
+ * fallback while pre-attach-reporting fleet relays remain deployed.
+ */
+function bindingPathHints(
+  binding: IrohBindingRecord,
+  now: Date,
+  savedCustomRelayURLs: ReadonlySet<string>,
+): IrohPathHint[] {
+  const clientHints = accountPrivateIrohPathHints(
+    binding.pathHints.flatMap((hint): IrohPathHint[] => {
       try {
         return [parseIrohPathHint(hint, now)];
       } catch {
         return [];
       }
-    }), savedCustomRelayURLs),
-    last_seen_at: binding.lastSeenAt.toISOString(),
+    }),
+    savedCustomRelayURLs,
+  );
+  const attachedURL = binding.relayAttachedUrl;
+  if (
+    attachedURL === null ||
+    !isPublishableAttachedRelayURL(attachedURL, savedCustomRelayURLs) ||
+    !attachmentCorroborated(binding, now)
+  ) {
+    return clientHints;
+  }
+  const serverHint: IrohPathHint = {
+    kind: "relay_url",
+    value: attachedURL,
+    source: "native",
+    privacy_scope: "public_internet",
+    // Attachment is current as of this read; clients bound hint freshness to
+    // observed_at + 1h, and every discovery read re-serves the live state.
+    observed_at: now.toISOString(),
+    expires_at: new Date(now.getTime() + SERVER_RELAY_HINT_TTL_MS).toISOString(),
   };
+  return [
+    serverHint,
+    ...clientHints.filter((hint) =>
+      !(hint.kind === "relay_url" && hint.value === attachedURL)),
+  ];
+}
+
+/** Half the model's 1h hint-lifetime cap; refreshed by every discovery read. */
+const SERVER_RELAY_HINT_TTL_MS = 30 * 60 * 1_000;
+
+/**
+ * Detach reports are fire-and-forget, so a relay that dies together with its
+ * report leaves `relayAttachedUrl` behind; without a liveness bound that dead
+ * route would be re-served as fresh forever. An attachment is served only
+ * while some live evidence is younger than this window: the attach report
+ * itself, or the binding's `lastSeenAt` (a live Mac re-registers at least
+ * hourly to keep its ≤1h path hints and binding freshness lease current,
+ * and a Mac that outlives its relay reattaches elsewhere, which overwrites
+ * the URL). A Mac that goes dark with its relay stops refreshing both, so
+ * the stale route ages out within this window.
+ */
+const SERVER_RELAY_ATTACH_LIVENESS_MS = 60 * 60 * 1_000;
+
+function attachmentCorroborated(binding: IrohBindingRecord, now: Date): boolean {
+  const freshestEvidence = Math.max(
+    binding.relayAttachReportedAt?.getTime() ?? 0,
+    binding.lastSeenAt.getTime(),
+  );
+  return now.getTime() - freshestEvidence <= SERVER_RELAY_ATTACH_LIVENESS_MS;
 }
 
 function customRelayURLs(preference: RelayPreference): ReadonlySet<string> {

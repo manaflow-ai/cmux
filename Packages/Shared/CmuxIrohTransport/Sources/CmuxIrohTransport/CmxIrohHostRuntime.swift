@@ -587,6 +587,17 @@ public actor CmxIrohHostRuntime {
 
     /// Returns whether the binding may be published immediately: the home
     /// relay is already usable, or this endpoint will never own a relay.
+    ///
+    /// ROLLOUT NOTE (intended-shape attach reporting): this relay-readiness
+    /// gate and the post-attach republish it defers exist so the Mac's own
+    /// registration carries its relay route. The broker now also publishes
+    /// the route server-side from the relay fleet's attach/detach reports
+    /// (`POST /api/relay/report`, cmux-relay attach reporting), and
+    /// discovery serves that server-observed hint ahead of client-published
+    /// hints. The client republish stays as the fallback ONLY while fleet
+    /// relays that do not report attach remain deployed; once the reporting
+    /// relay build is rolled out fleet-wide, delete this gate and publish at
+    /// register time.
     func initialPublicationReady(
         engine: CmxConnectivityEngine
     ) async -> Bool {

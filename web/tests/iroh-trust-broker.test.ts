@@ -1323,6 +1323,87 @@ describe("Iroh discovery and grants", () => {
     expect(discovered.bindings[0]?.path_hints).toEqual([]);
   });
 
+  test("serves the fleet-reported attach route ahead of client-published hints", async () => {
+    const attachedURL = MANAGED_RELAY_URLS[0]!;
+    const otherManagedURL = MANAGED_RELAY_URLS[1]!;
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      // The client republish also advertised the same relay plus another one.
+      pathHints: [relayHint(attachedURL), relayHint(otherManagedURL)],
+      relayAttachedUrl: attachedURL,
+      relayAttachReportedAt: new Date(NOW.getTime() - 60_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: Array<Record<string, unknown>> }>;
+    };
+    const hints = discovered.bindings[0]!.path_hints;
+    // Server-observed hint first, the duplicate client hint dropped, the
+    // remaining client hint kept as fallback.
+    expect(hints.map((hint) => hint.value)).toEqual([attachedURL, otherManagedURL]);
+    expect(hints[0]).toMatchObject({
+      kind: "relay_url",
+      source: "native",
+      privacy_scope: "public_internet",
+      observed_at: NOW.toISOString(),
+    });
+    expect(new Date(String(hints[0]!.expires_at)).getTime())
+      .toBeGreaterThan(NOW.getTime());
+  });
+
+  test("ages out an attach route with no fresh evidence (lost detach report)", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: MANAGED_RELAY_URLS[0]!,
+      // Both evidence channels are stale: the relay died without a detach
+      // report and the Mac stopped renewing its registration.
+      relayAttachReportedAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+      lastSeenAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: unknown[] }>;
+    };
+    expect(discovered.bindings[0]?.path_hints).toEqual([]);
+  });
+
+  test("a fresh attach report keeps the route while the binding lease is stale", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: MANAGED_RELAY_URLS[0]!,
+      relayAttachReportedAt: new Date(NOW.getTime() - 5 * 60 * 1_000),
+      // Broker unreachable from the Mac (cache-first world) while the relay
+      // path works: the attach report alone corroborates the route.
+      lastSeenAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: Array<Record<string, unknown>> }>;
+    };
+    expect(discovered.bindings[0]?.path_hints.map((hint) => hint.value))
+      .toEqual([MANAGED_RELAY_URLS[0]!]);
+  });
+
+  test("withholds a fleet-reported custom relay the account no longer saves", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: "https://relay.example.net/",
+      relayAttachReportedAt: new Date(NOW.getTime() - 60_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: unknown[] }>;
+    };
+    expect(discovered.bindings[0]?.path_hints).toEqual([]);
+  });
+
   test("does not combine a pre-revocation binding with a post-revocation LAN generation", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -2446,6 +2527,8 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     directPortV6: null,
     pathHints: [],
     pathHintsNextExpiry: null,
+    relayAttachedUrl: null,
+    relayAttachReportedAt: null,
     deviceLimitOverrideUsed: false,
     lastSeenAt: now,
     registeredAt: now,
