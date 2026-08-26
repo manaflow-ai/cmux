@@ -397,7 +397,8 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         // Collect both directions before sorting. The final sort is by the
         // stored timestamp rather than index because recordFocusInHistory can
         // rewrite a mid-stack timestamp in place; workspace-only deduplication
-        // therefore happens in the sorted loop that owns displayed order.
+        // therefore tracks every emitted workspace in the sorted loop that
+        // owns displayed order, rather than filtering each direction first.
         var candidates: [(index: Int, record: FocusHistoryRecord, direction: FocusHistoryMenuDirection)] = []
         if historyIndex > 0 {
             for index in stride(from: historyIndex - 1, through: 0, by: -1) {
@@ -422,10 +423,10 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
 
         var items: [FocusHistoryMenuItem] = []
         items.reserveCapacity(limit)
-        var previousMergedWorkspaceId: UUID?
+        var emittedWorkspaceIds = Set<UUID>()
         for candidate in candidates {
             if scope == .workspacesOnly,
-               previousMergedWorkspaceId == candidate.record.entry.workspaceId {
+               emittedWorkspaceIds.contains(candidate.record.entry.workspaceId) {
                 continue
             }
             guard let item = focusHistoryMenuItem(
@@ -437,7 +438,9 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             ) else {
                 continue
             }
-            previousMergedWorkspaceId = candidate.record.entry.workspaceId
+            if scope == .workspacesOnly {
+                emittedWorkspaceIds.insert(candidate.record.entry.workspaceId)
+            }
             items.append(item)
             if items.count == limit {
                 break
