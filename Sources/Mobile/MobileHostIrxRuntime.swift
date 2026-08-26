@@ -118,25 +118,20 @@ final class MobileHostIrxRuntime {
             for: .applicationSupportDirectory, in: .userDomainMask
         )[0].appendingPathComponent("cmux-irx", isDirectory: true)
         do {
-            // irx mints its own durable device UUID so its broker binding
-            // occupies its own slot: it can never reincarnate the legacy
-            // runtime's binding out from under another build of this Mac.
-            let deviceIDURL = stateDir.appendingPathComponent("device-id")
-            let deviceID: String
-            if let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8),
-                !existing.isEmpty
-            {
-                deviceID = existing.trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                deviceID = UUID().uuidString.lowercased()
-                try? FileManager.default.createDirectory(
-                    at: stateDir, withIntermediateDirectories: true)
-                try? deviceID.write(to: deviceIDURL, atomically: true, encoding: .utf8)
-            }
-            let identity = try IrxIdentityProvisioner.loadOrCreate(
-                store: IrxFileIdentityStore(
-                    fileURL: stateDir.appendingPathComponent("identity.json")),
-                deviceID: cmxCanonicalDeviceID(deviceID)
+            // IDENTITY ADOPTION: reuse the legacy stack's identity, device
+            // ID, and app-instance scope, so the EndpointID, binding slot,
+            // and every existing pair grant carry over (refresh-in-place;
+            // stored routes on phones keep working with zero re-pairing).
+            let legacy = MobileHostIrohRuntime.shared
+            let appInstanceID = try legacy.appInstances.appInstanceID(
+                accountID: accountID, tag: tag)
+            let material = try await legacy.identities.identity(
+                accountID: accountID, appInstanceID: appInstanceID)
+            let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
+            let identity = IrxIdentity(
+                privateKeyData: material.secretKey.bytes,
+                deviceID: deviceID,
+                appInstanceID: appInstanceID
             )
             let broker = try IrxBrokerService(
                 configuration: .init(
@@ -145,7 +140,8 @@ final class MobileHostIrxRuntime {
                     tag: tag,
                     platform: .mac,
                     displayName: Host.current().localizedName,
-                    cacheDirectory: stateDir
+                    cacheDirectory: stateDir,
+                    identityGeneration: material.generation
                 ),
                 identity: identity,
                 accessTokenPair: { [weak auth] in

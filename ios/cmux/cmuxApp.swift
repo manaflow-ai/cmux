@@ -63,7 +63,7 @@ struct cmuxApp: App {
         )
         if irxEnabled {
             let coordinator = auth.coordinator
-            Task { await irx.configure(auth: coordinator) }
+            Task { await irx.configure(auth: coordinator, legacy: iroh) }
         } else {
             iroh.configure(
                 auth: auth.coordinator,

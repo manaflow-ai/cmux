@@ -72,6 +72,9 @@ public actor MobileIrxRuntimeComposition {
     private let stateDirectory: URL
 
     private weak var auth: AuthCoordinator?
+    /// Identity donor (identity adoption): the legacy composition owns the
+    /// Keychain identity, app-instance scope, and durable device ID.
+    private weak var legacyComposition: MobileIrohRuntimeComposition?
     private var broker: IrxBrokerService?
     private var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
@@ -139,8 +142,12 @@ public actor MobileIrxRuntimeComposition {
 
     // MARK: - Lifecycle
 
-    public func configure(auth: AuthCoordinator) {
+    public func configure(
+        auth: AuthCoordinator,
+        legacy: MobileIrohRuntimeComposition? = nil
+    ) {
         self.auth = auth
+        legacyComposition = legacy
         Self.journal.record(
             "client-runtime", "configured",
             [
@@ -215,10 +222,20 @@ public actor MobileIrxRuntimeComposition {
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
-        let identity = try IrxIdentityProvisioner.loadOrCreate(
-            store: IrxFileIdentityStore(
-                fileURL: stateDirectory.appendingPathComponent("identity.json")),
-            deviceID: cmxCanonicalDeviceID(irxDeviceID())
+        let session = try await auth.authenticatedSessionSnapshot()
+        // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
+        // stack, so the binding refreshes in place and stored routes + pair
+        // grants stay valid across the transport switch.
+        guard let legacyComposition,
+            let adopted = try await legacyComposition.irxAdoptedIdentity(
+                accountID: session.accountID, tag: tag)
+        else {
+            throw CompositionError.notSignedIn
+        }
+        let identity = IrxIdentity(
+            privateKeyData: adopted.material.secretKey.bytes,
+            deviceID: adopted.deviceID,
+            appInstanceID: adopted.appInstanceID
         )
         let broker = try IrxBrokerService(
             configuration: .init(
@@ -227,7 +244,8 @@ public actor MobileIrxRuntimeComposition {
                 tag: tag,
                 platform: .ios,
                 displayName: nil,
-                cacheDirectory: stateDirectory
+                cacheDirectory: stateDirectory,
+                identityGeneration: adopted.material.generation
             ),
             identity: identity,
             accessTokenPair: { [weak auth] in
