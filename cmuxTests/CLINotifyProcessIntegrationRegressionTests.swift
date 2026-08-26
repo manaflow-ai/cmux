@@ -399,6 +399,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let oldSurfaceId = context.surfaceId
         let newWorkspaceId = "44444444-4444-4444-4444-444444444444"
         let newSurfaceId = "55555555-5555-5555-5555-555555555555"
+        let siblingSessionId = "compact-rehome-sibling-session"
+        let siblingSurfaceId = "66666666-6666-6666-6666-666666666666"
         let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
         let store = ClaudeHookSessionStore(processEnv: [
             "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path
@@ -410,14 +412,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             cwd: context.root.path,
             markActive: true
         )
+        try store.upsert(
+            sessionId: siblingSessionId,
+            workspaceId: newWorkspaceId,
+            surfaceId: siblingSurfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
         let expected = try XCTUnwrap(try store.lookup(sessionId: sessionId))
 
         var state = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
         )
         let active: [String: Any] = ["sessionId": sessionId, "updatedAt": Date().timeIntervalSince1970]
-        state["activeSessionsByWorkspace"] = [newWorkspaceId: active]
-        state["activeSessionsBySurface"] = [newSurfaceId: active]
+        let siblingActive: [String: Any] = [
+            "sessionId": siblingSessionId,
+            "updatedAt": Date().timeIntervalSince1970,
+        ]
+        state["activeSessionsByWorkspace"] = [newWorkspaceId: siblingActive]
+        state["activeSessionsBySurface"] = [
+            newSurfaceId: active,
+            siblingSurfaceId: siblingActive,
+        ]
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
             .write(to: stateURL, options: .atomic)
 
@@ -439,7 +455,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let surfaces = try XCTUnwrap(finalState["activeSessionsBySurface"] as? [String: Any])
         XCTAssertNil(workspaces[oldWorkspaceId])
         XCTAssertNil(surfaces[oldSurfaceId])
-        XCTAssertEqual((workspaces[newWorkspaceId] as? [String: Any])?["sessionId"] as? String, sessionId)
+        XCTAssertEqual(
+            (workspaces[newWorkspaceId] as? [String: Any])?["sessionId"] as? String,
+            siblingSessionId,
+            "Rehoming one pane must preserve the sibling pane's workspace-active slot"
+        )
         XCTAssertEqual((surfaces[newSurfaceId] as? [String: Any])?["sessionId"] as? String, sessionId)
 
         state = finalState
