@@ -283,9 +283,8 @@ struct CmxIrohRelayPolicyTests {
         // An unbounded caller grace must not make the expired signed policy
         // reusable indefinitely: past the cache's own maximum the load fails
         // closed as expired.
-        let expectedMaximumGrace: TimeInterval = 24 * 60 * 60
         let farPastExpiry = fixture.now.addingTimeInterval(
-            3_600 + expectedMaximumGrace + 60
+            3_600 + CmxIrohRelayPolicyCache.maximumExpiredPolicyReuseGrace + 60
         )
         await #expect(throws: CmxIrohRelayPolicyError.expired) {
             try await cache.load(

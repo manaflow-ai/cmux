@@ -194,12 +194,19 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 usedFreshDiscovery = true
             } catch {
                 try Task.checkCancellation()
-                // The refresh failed. Dialing with the last verified snapshot
-                // beats not dialing at all (cmux#9724): the staleness mark
-                // survives, so the next attempt still refetches once the
-                // broker recovers. Verification is not weakened; this
-                // snapshot passed the same checks when it was fetched.
-                if let lastGood = authoritativeDiscovery {
+                // The refresh failed. For the transient class (connectivity,
+                // broker cooldown, availability blips) dialing with the last
+                // verified snapshot beats not dialing at all (cmux#9724): the
+                // staleness mark survives, so the next attempt still
+                // refetches once the broker recovers. Every other failure is
+                // a trust signal (rollback/equivocation detection, a
+                // non-transient rejection, invalid authentication, a
+                // malformed authority response) and fails closed toward
+                // re-discovery instead of being masked by stale identity
+                // data.
+                if CmxIrohTrustBrokerClientError
+                    .preservesVerifiedStateDuringRefresh(error),
+                    let lastGood = authoritativeDiscovery {
                     do {
                         return try await resolveContext(
                             for: request,

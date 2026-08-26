@@ -434,8 +434,18 @@ public actor CmxIrohClientSession {
             // A half-ready peer can accept the QUIC connection and then never
             // serve the admission frames. Bound the whole barrier like a dial
             // phase so a silent peer hands control back to recovery instead
-            // of holding the redial owner open-endedly (cmux#9724).
-            return try await boundedByDialPhase { [weak self] in
+            // of holding the redial owner open-endedly (cmux#9724). The
+            // barrier's stream I/O sits in FFI calls that ignore task
+            // cancellation, so the deadline aborts at the transport boundary:
+            // closing the connection is what actually ends a stalled read.
+            return try await boundedByDialPhase(
+                abortOnDeadline: {
+                    await establishedConnection.close(
+                        errorCode: 1,
+                        reason: "admission_timeout"
+                    )
+                }
+            ) { [weak self] in
                 guard let self else { throw CancellationError() }
                 return try await self.performAdmissionBarrier(
                     on: establishedConnection
@@ -518,11 +528,21 @@ public actor CmxIrohClientSession {
         }
     }
 
-    /// Races one dial-phase operation against the injected phase bound. The
-    /// operation must cancel cooperatively; on timeout the loser is cancelled
-    /// and the phase fails typed so the redial machinery supersedes it
-    /// instead of wedging behind it (cmux#8531).
+    /// Races one dial-phase operation against the injected phase bound.
+    ///
+    /// The deadline must not depend on the operation observing cooperative
+    /// cancellation: the FFI driver suspends Swift callers on polled Rust
+    /// futures that `Task.cancel()` never resumes, and the task group still
+    /// awaits the losing child on scope exit. When the timer wins,
+    /// `abortOnDeadline` first terminates the operation at the transport
+    /// boundary (closing the QUIC connection fails every pending stream
+    /// call), so the phase reliably fails typed and the redial machinery
+    /// supersedes it instead of wedging behind it (cmux#8531, cmux#9724).
+    /// The endpoint dial phase passes no abort hook because the endpoint
+    /// already bridges cancellation across the FFI boundary through the
+    /// fork's cancellable `ConnectAttempt`.
     private func boundedByDialPhase<Value: Sendable>(
+        abortOnDeadline: (@Sendable () async -> Void)? = nil,
         _ operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         let bound = dialPhaseTimeout
@@ -536,6 +556,7 @@ public actor CmxIrohClientSession {
             }
             defer { group.cancelAll() }
             guard let first = try await group.next(), let value = first else {
+                await abortOnDeadline?()
                 throw CmxIrohClientSessionError.dialTimedOut
             }
             return value

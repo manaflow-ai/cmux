@@ -92,16 +92,25 @@ public actor CmxIrohRelayPolicyCache {
         return policy
     }
 
+    /// Hard upper bound on the expired-policy reuse window accepted by
+    /// ``load(trustRoot:now:expiredPolicyReuseGrace:)``. The grace exists to
+    /// ride out a failed refresh, not to make an expired signed policy
+    /// reusable indefinitely; the cache is the single authority on how far
+    /// past its signed expiry a record may still load, so any larger or
+    /// non-finite caller value is clamped here.
+    public static let maximumExpiredPolicyReuseGrace: TimeInterval = 24 * 60 * 60
+
     /// Loads and re-verifies the cached policy at the current time.
     ///
     /// - Parameters:
     ///   - trustRoot: App-pinned public verification keys.
     ///   - now: Verification time.
     ///   - expiredPolicyReuseGrace: Bounded fail-open window after the signed
-    ///     expiry in which the last-good policy still loads. The policy is
-    ///     re-verified at its final valid instant, so signature, rollback,
-    ///     and claim checks run unweakened; only the expiry gate is graced
-    ///     (cmux#10375). Zero preserves strict expiry.
+    ///     expiry in which the last-good policy still loads, clamped to
+    ///     ``maximumExpiredPolicyReuseGrace``. The policy is re-verified at
+    ///     its final valid instant, so signature, rollback, and claim checks
+    ///     run unweakened; only the expiry gate is graced (cmux#10375). Zero
+    ///     preserves strict expiry.
     /// - Returns: The verified policy, or `nil` when no policy is cached.
     /// - Throws: ``CmxIrohRelayPolicyError`` or a secure-storage error.
     public func load(
@@ -122,11 +131,16 @@ public actor CmxIrohRelayPolicyCache {
         } catch CmxIrohRelayPolicyError.expired {
             // The recorded expiry is cross-checked against the signed claims
             // below; a record that overstates it re-fails as expired here or
-            // as rollback below.
-            guard expiredPolicyReuseGrace > 0,
+            // as rollback below. A NaN grace fails the positivity gate, so
+            // non-finite caller values degrade to strict expiry or the clamp.
+            let grace = min(
+                expiredPolicyReuseGrace,
+                Self.maximumExpiredPolicyReuseGrace
+            )
+            guard grace > 0,
                   let recordedExpiry = record.expiresAt,
                   now.timeIntervalSince1970
-                    <= TimeInterval(recordedExpiry) + expiredPolicyReuseGrace else {
+                    <= TimeInterval(recordedExpiry) + grace else {
                 throw CmxIrohRelayPolicyError.expired
             }
             let lastValidInstant = Date(
