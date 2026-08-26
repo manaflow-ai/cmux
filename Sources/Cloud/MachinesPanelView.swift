@@ -239,13 +239,19 @@ struct MachinesPanelView: View {
 
     private var machinesList: some View {
         let actions = MachineRowActions.bound(
+            viewModel: viewModel,
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
         return ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.machines) { machine in
-                    MachineRow(machine: machine, actions: actions)
+                    MachineRow(
+                        machine: machine,
+                        isExpanded: viewModel.expandedMachineIds.contains(machine.id),
+                        details: viewModel.machineDetails[machine.id],
+                        actions: actions
+                    )
                 }
             }
             .padding(.vertical, 6)
@@ -499,8 +505,15 @@ struct MachineRowActions {
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
+    let toggleExpansion: @MainActor (String) -> Void
+    /// Attach the machine's named terminal session (vm id, session id) through
+    /// the same CLI path as `cmux vm shell <id> --session <session-id>`.
+    let openSessionShell: @MainActor (String, String) -> Void
+    /// Jump to a local workspace already attached to the machine.
+    let focusWorkspace: @MainActor (UUID) -> Void
 
     static func bound(
+        viewModel: MachinesPanelViewModel? = nil,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
@@ -534,6 +547,18 @@ struct MachineRowActions {
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            },
+            toggleExpansion: { [weak viewModel] id in
+                viewModel?.toggleExpansion(machineId: id)
+            },
+            openSessionShell: { id, sessionId in
+                onWillMutate(String(format: String(localized: "machines.operation.openSession", defaultValue: "Opening a terminal on %@\u{2026}"), id))
+                if !launch(arguments: ["vm", "shell", id, "--session", sessionId], onDidMutate: onDidMutate) {
+                    onDidMutate()
+                }
+            },
+            focusWorkspace: { workspaceId in
+                _ = AppDelegate.shared?.focusWorkspace(withId: workspaceId)
             }
         )
     }
@@ -702,6 +727,8 @@ struct MachineRowActions {
 
 private struct MachineRow: View, Equatable {
     let machine: MachineSnapshot
+    let isExpanded: Bool
+    let details: MachineDetailSnapshot?
     let actions: MachineRowActions
     @State private var isHovered = false
 
@@ -709,10 +736,22 @@ private struct MachineRow: View, Equatable {
         // Skip body re-eval during scroll when the snapshot is unchanged.
         // The closure bundle isn't compared (it comes from stable parent state).
         lhs.machine == rhs.machine
+            && lhs.isExpanded == rhs.isExpanded
+            && lhs.details == rhs.details
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            headerRow
+            if isExpanded {
+                MachineDetailRows(machine: machine, details: details, actions: actions)
+            }
+        }
+    }
+
+    private var headerRow: some View {
         HStack(spacing: 8) {
+            disclosureChevron
             activityDot
             VStack(alignment: .leading, spacing: 1) {
                 Text(machine.displayName)
@@ -775,6 +814,28 @@ private struct MachineRow: View, Equatable {
         .contextMenu { menuItems }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
+    }
+
+    private var disclosureChevron: some View {
+        Button {
+            actions.toggleExpansion(machine.id)
+        } label: {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundColor(.secondary.opacity(isHovered || isExpanded ? 0.8 : 0.45))
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .frame(width: 12, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(chevronLabel)
+        .accessibilityLabel(chevronLabel)
+    }
+
+    private var chevronLabel: String {
+        isExpanded
+            ? String(localized: "machines.row.collapse", defaultValue: "Hide Terminals and Workspaces")
+            : String(localized: "machines.row.expand", defaultValue: "Show Terminals and Workspaces")
     }
 
     private var activityDot: some View {
@@ -851,4 +912,138 @@ private struct MachineRow: View, Equatable {
         formatter.unitsStyle = .abbreviated
         return formatter
     }()
+}
+
+/// The expanded half of a machine row: the machine's screen (when it has one),
+/// its terminal sessions as last recorded by cmux Cloud, and the local
+/// workspaces already attached to it. Pure snapshot + closure bundle, same as
+/// the header row (snapshot-boundary rule).
+private struct MachineDetailRows: View {
+    let machine: MachineSnapshot
+    let details: MachineDetailSnapshot?
+    let actions: MachineRowActions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if machine.isDesktop {
+                MachineChildRow(
+                    symbolName: "display",
+                    title: String(localized: "machines.detail.desktop", defaultValue: "Desktop"),
+                    subtitle: String(localized: "machines.detail.desktop.subtitle", defaultValue: "The machine\u{2019}s screen"),
+                    helpText: String(localized: "machines.row.openDesktop", defaultValue: "Open Desktop")
+                ) {
+                    actions.openDesktop(machine.id)
+                }
+            }
+            sessionRows
+            workspaceRows
+        }
+        .padding(.leading, 26)
+        .padding(.trailing, 10)
+        .padding(.bottom, 5)
+    }
+
+    @ViewBuilder
+    private var sessionRows: some View {
+        if let details {
+            ForEach(details.sessions) { session in
+                MachineChildRow(
+                    symbolName: "terminal",
+                    title: session.displayName,
+                    subtitle: session.subtitle,
+                    helpText: String(localized: "machines.detail.session.open", defaultValue: "Open this terminal session in a workspace")
+                ) {
+                    actions.openSessionShell(machine.id, session.sessionId)
+                }
+            }
+            if details.isLoading, details.sessions.isEmpty {
+                detailNote(String(localized: "machines.detail.loading", defaultValue: "Loading terminals\u{2026}"))
+            } else if let error = details.sessionsErrorDescription {
+                detailNote(String(localized: "machines.detail.sessions.error", defaultValue: "Terminals unavailable right now"))
+                    .help(error)
+            } else if details.hasLoadedSessions, details.sessions.isEmpty {
+                detailNote(String(localized: "machines.detail.sessions.empty", defaultValue: "No terminals recorded"))
+            } else if !details.sessions.isEmpty {
+                detailNote(String(localized: "machines.detail.lastKnown", defaultValue: "Terminals as last known by cmux Cloud"))
+            }
+        } else {
+            detailNote(String(localized: "machines.detail.loading", defaultValue: "Loading terminals\u{2026}"))
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceRows: some View {
+        if let details {
+            ForEach(details.workspaces) { workspace in
+                MachineChildRow(
+                    symbolName: "macwindow",
+                    title: workspace.title,
+                    subtitle: String(localized: "machines.detail.workspace.subtitle", defaultValue: "Attached workspace"),
+                    helpText: String(localized: "machines.detail.workspace.focus", defaultValue: "Focus this workspace")
+                ) {
+                    actions.focusWorkspace(workspace.id)
+                }
+            }
+        }
+    }
+
+    private func detailNote(_ text: String) -> some View {
+        Text(text)
+            .cmuxFont(size: 10.5)
+            .foregroundColor(.secondary.opacity(0.6))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.leading, 24)
+            .padding(.vertical, 2)
+    }
+
+}
+
+/// One indented action row under an expanded machine (a terminal session, the
+/// desktop, or an attached workspace). Single click performs the action.
+private struct MachineChildRow: View {
+    let symbolName: String
+    let title: String
+    let subtitle: String?
+    let helpText: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title)
+                        .cmuxFont(size: 12)
+                        .foregroundColor(.primary.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .cmuxFont(size: 10.5)
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
+        )
+        .onHover { isHovered = $0 }
+        .help(helpText)
+        .accessibilityLabel(subtitle?.isEmpty == false ? "\(title), \(subtitle!)" : title)
+    }
 }

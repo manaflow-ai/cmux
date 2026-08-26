@@ -117,6 +117,72 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
+    func testSessionSnapshotMapsCloudSession() {
+        let session = VMCloudSession(
+            id: "row-1",
+            vmId: "vm-1",
+            sessionId: "sess-abc",
+            title: "build watch",
+            kind: "pty",
+            status: "running",
+            attachmentCount: 2,
+            effectiveCols: 120,
+            effectiveRows: 40,
+            lastKnownCols: nil,
+            lastKnownRows: nil,
+            scrollbackBytes: 2_048,
+            metadata: [:],
+            createdAt: "2026-08-25T12:00:00Z",
+            updatedAt: "2026-08-25T12:30:00Z",
+            lastAttachedAt: nil
+        )
+        let snapshot = MachineSnapshotBuilder.sessionSnapshot(from: session)
+        XCTAssertEqual(snapshot.id, "row-1")
+        XCTAssertEqual(snapshot.sessionId, "sess-abc")
+        XCTAssertEqual(snapshot.displayName, "build watch")
+        XCTAssertEqual(snapshot.attachmentCount, 2)
+        XCTAssertEqual(snapshot.scrollbackBytes, 2_048)
+        XCTAssertEqual(
+            snapshot.createdAt,
+            ISO8601DateFormatter().date(from: "2026-08-25T12:00:00Z")
+        )
+        XCTAssertTrue(snapshot.subtitle.contains("2"))
+        XCTAssertTrue(snapshot.subtitle.contains("KB"))
+    }
+
+    func testSessionSnapshotFallsBackToSessionIdAndDropsEmptyParts() {
+        let session = VMCloudSession(
+            id: "row-2",
+            vmId: "vm-1",
+            sessionId: "sess-def",
+            title: nil,
+            kind: "pty",
+            status: "exited",
+            attachmentCount: 0,
+            effectiveCols: nil,
+            effectiveRows: nil,
+            lastKnownCols: nil,
+            lastKnownRows: nil,
+            scrollbackBytes: 0,
+            metadata: [:],
+            createdAt: "2026-08-25T12:00:00.250Z",
+            updatedAt: "2026-08-25T12:00:00.250Z",
+            lastAttachedAt: nil
+        )
+        let snapshot = MachineSnapshotBuilder.sessionSnapshot(from: session)
+        XCTAssertEqual(snapshot.displayName, "sess-def")
+        // Fractional-second ISO timestamps parse too.
+        XCTAssertNotNil(snapshot.createdAt)
+        // Zero attachments and zero scrollback add nothing to the subtitle.
+        XCTAssertEqual(snapshot.subtitle, snapshot.statusLabel)
+    }
+
+    func testIsoDateRejectsGarbage() {
+        XCTAssertNil(MachineSnapshotBuilder.isoDate(nil))
+        XCTAssertNil(MachineSnapshotBuilder.isoDate(""))
+        XCTAssertNil(MachineSnapshotBuilder.isoDate("yesterday"))
+    }
+
     func testCloudMachinesNeverExposeFleetWhileSignedOut() {
         XCTAssertEqual(
             CloudVMPanelAuthState.resolve(isAuthenticated: false, isWorkingOnAuth: true),

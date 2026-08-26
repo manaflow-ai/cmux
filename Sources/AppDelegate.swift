@@ -8546,6 +8546,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    struct CloudVMAttachedWorkspaceSummary: Equatable, Identifiable {
+        let id: UUID
+        let title: String
+    }
+
+    /// The local workspaces currently attached to a managed Cloud VM, across
+    /// every main window (same traversal as `closeWorkspaces(forManagedCloudVMID:)`).
+    /// Backs the Machines panel's per-machine workspace rows.
+    func workspacesAttached(toManagedCloudVMID vmID: String) -> [CloudVMAttachedWorkspaceSummary] {
+        let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !target.isEmpty else { return [] }
+        var managers = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        var seen = Set<UUID>()
+        var result: [CloudVMAttachedWorkspaceSummary] = []
+        for manager in managers {
+            for workspace in manager.tabs {
+                guard workspace.remoteConfiguration?.managedCloudVMID?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() == target,
+                    seen.insert(workspace.id).inserted else { continue }
+                result.append(CloudVMAttachedWorkspaceSummary(id: workspace.id, title: workspace.title))
+            }
+        }
+        return result
+    }
+
+    /// Selects a workspace by id and brings its window forward. Used by the
+    /// Machines panel to jump to a machine's attached workspace.
+    @discardableResult
+    func focusWorkspace(withId id: UUID) -> Bool {
+        for context in mainWindowContexts.values {
+            guard let workspace = context.tabManager.tabs.first(where: { $0.id == id }) else { continue }
+            context.window?.makeKeyAndOrderFront(nil)
+            context.tabManager.selectWorkspace(workspace)
+            return true
+        }
+        if let tabManager, let workspace = tabManager.tabs.first(where: { $0.id == id }) {
+            tabManager.selectWorkspace(workspace)
+            return true
+        }
+        return false
+    }
+
     /// Closes every workspace attached to a Cloud VM that no longer exists.
     /// Deleting a machine from the Cloud panel otherwise leaves a "Connected"
     /// workspace behind that can never reconnect.
