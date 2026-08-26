@@ -125,6 +125,42 @@ final class BrowserShortcutCaptureTests {
     }
 
     @Test
+    func captureLeavesUnrelatedNativeMenuShortcutToAppKit() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        try withCaptureEnabled { harness in
+            let previousMainMenu = NSApp.mainMenu
+            let menuProbe = BrowserCaptureMenuActionProbe()
+            defer { NSApp.mainMenu = previousMainMenu }
+
+            let nativeMenu = NSMenu(title: "Native")
+            let nativeItem = NSMenuItem(
+                title: "Native Hide Probe",
+                action: #selector(BrowserCaptureMenuActionProbe.perform(_:)),
+                keyEquivalent: "h"
+            )
+            nativeItem.keyEquivalentModifierMask = [.command]
+            nativeItem.target = menuProbe
+            nativeMenu.addItem(nativeItem)
+            NSApp.mainMenu = nativeMenu
+
+            let commandH = try #require(makeKeyDownEvent(
+                key: "h",
+                modifiers: [.command],
+                keyCode: 4,
+                windowNumber: harness.window.windowNumber
+            ))
+
+            #expect(!appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: commandH))
+            NSApp.sendEvent(commandH)
+
+            #expect(
+                menuProbe.callCount == 1,
+                "Capture must yield unrelated native menu equivalents back to AppKit"
+            )
+        }
+    }
+
+    @Test
     func capturePreservesBrowserFocusModeEscapeExit() throws {
         try withCaptureEnabled { harness in
             #expect(
