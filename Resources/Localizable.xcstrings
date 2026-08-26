@@ -182007,13 +182007,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. Still listening on %lld."
+            "value": "Port %lld is in use. The pairing listener is still on %lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。引き続きポート %lld で待ち受けています。"
+            "value": "ポート %lld は使用中です。ペアリングリスナーは引き続きポート %lld で待ち受けています。"
           }
         }
       }
@@ -182024,13 +182024,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved. Will use port %lld when iOS Pairing is on."
+            "value": "Saved. The pairing listener will use port %lld when iOS Pairing is on."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存しました。iOS ペアリングを有効にするとポート %lld を使用します。"
+            "value": "保存しました。iOS ペアリングを有効にするとペアリングリスナーはポート %lld を使用します。"
           }
         }
       }
@@ -182041,13 +182041,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
+            "value": "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合は再バインドして、接続中のデバイスは新しいポートで再接続します。"
+            "value": "ポートを変更するには「適用」をクリックします。cmux はまずポートが空いているか確認します。使用中の場合は現在のリスナーをそのまま維持し、空いている場合はペアリングリスナーを直ちに再バインドして、接続中のデバイスは新しいポートで再接続します。Iroh エンドポイントは次回の cmux 起動時に新しいポートを使用します。"
           }
         }
       }
@@ -182058,13 +182058,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. Listening on %lld instead."
+            "value": "Port %lld is in use. The pairing listener is on %lld instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。代わりにポート %lld で待ち受けています。"
+            "value": "ポート %lld は使用中です。ペアリングリスナーは代わりにポート %lld で待ち受けています。"
           }
         }
       }
@@ -182092,13 +182092,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Listening on port %lld."
+            "value": "Pairing listener on port %lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld で待ち受けています。"
+            "value": "ペアリングリスナーはポート %lld で待ち受けています。"
           }
         }
       }
@@ -182126,13 +182126,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferred TCP port for the iOS pairing listener (1–65535)."
+            "value": "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS ペアリングリスナーの優先 TCP ポート（1〜65535）。"
+            "value": "iOS ペアリングリスナー（TCP）と、Direct アドレスの接続先となる Iroh エンドポイント（UDP）の優先ポート（1〜65535）。"
           }
         }
       }
@@ -182211,13 +182211,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reachable addresses yet. Pairing over the network needs Tailscale running on this Mac."
+            "value": "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "到達可能なアドレスがまだありません。ネットワーク経由のペアリングには、この Mac で Tailscale が動作している必要があります。"
+            "value": "到達可能なアドレスがまだありません。Iroh 経路にはこの Mac が cmux アカウントにサインインしていることが、Tailscale 経路にはこの Mac で Tailscale が動作していることが必要です。"
           }
         }
       }

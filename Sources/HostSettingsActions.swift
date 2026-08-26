@@ -476,16 +476,42 @@ final class HostSettingsActions: SettingsHostActions {
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
-    /// stream's forwarding task does not retain this host bridge.
-    private static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
-        let routes = status.routes.compactMap { route -> MobilePairingRoute? in
-            guard case let .hostPort(host, port) = route.endpoint else { return nil }
-            return MobilePairingRoute(
-                id: route.id,
-                kindLabel: routeKindLabel(route.kind),
-                host: host,
-                port: port
-            )
+    /// stream's forwarding task does not retain this host bridge. Internal
+    /// (not private) so the mapping is unit-testable.
+    nonisolated static func mobilePairingSnapshot(
+        from status: MobileHostServiceStatus,
+        now: Date = Date()
+    ) -> MobilePairingStatusSnapshot {
+        var seenEndpoints = Set<String>()
+        let routes = status.routes.flatMap { route -> [MobilePairingRoute] in
+            switch route.endpoint {
+            case let .hostPort(host, port):
+                return [MobilePairingRoute(
+                    id: route.id,
+                    kindLabel: routeKindLabel(route.kind),
+                    host: host,
+                    port: port
+                )]
+            case let .peer(_, pathHints):
+                // The Iroh endpoint's registered UDP socket addresses: the
+                // port Direct addresses actually dial, which can differ from
+                // the configured preference when that UDP port was taken.
+                return pathHints.compactMap { hint in
+                    guard hint.kind == .directAddress,
+                          hint.isUsable(at: now),
+                          seenEndpoints.insert(hint.value).inserted,
+                          let address = splitSocketAddress(hint.value)
+                    else { return nil }
+                    return MobilePairingRoute(
+                        id: "\(route.id):\(hint.value)",
+                        kindLabel: routeKindLabel(route.kind),
+                        host: address.host,
+                        port: address.port
+                    )
+                }
+            case .url:
+                return []
+            }
         }
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,
@@ -495,6 +521,30 @@ final class HostSettingsActions: SettingsHostActions {
             activeConnectionCount: status.activeConnectionCount,
             routes: routes
         )
+    }
+
+    /// Splits an Iroh direct-address hint (`203.0.113.7:58465` or
+    /// `[2001:db8::7]:58465`) into the host and port ``MobilePairingRoute``
+    /// renders, or `nil` for anything else. Internal for unit tests.
+    nonisolated static func splitSocketAddress(_ value: String) -> (host: String, port: Int)? {
+        let hostPart: Substring
+        let portPart: Substring
+        if value.hasPrefix("[") {
+            guard let closing = value.firstIndex(of: "]") else { return nil }
+            hostPart = value[value.index(after: value.startIndex)..<closing]
+            let remainder = value[value.index(after: closing)...]
+            guard remainder.first == ":" else { return nil }
+            portPart = remainder.dropFirst()
+        } else {
+            guard let separator = value.lastIndex(of: ":"),
+                  !value[..<separator].contains(":") else { return nil }
+            hostPart = value[..<separator]
+            portPart = value[value.index(after: separator)...]
+        }
+        guard !hostPart.isEmpty,
+              let port = Int(portPart),
+              (1...65535).contains(port) else { return nil }
+        return (String(hostPart), port)
     }
 
     private static func desktopNotificationAuthorizationState(
@@ -536,7 +586,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     /// Localized transport label for a pairing route shown in diagnostics.
-    private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
+    nonisolated private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
         case .tailscale:
             return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
