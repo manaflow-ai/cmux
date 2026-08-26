@@ -19,6 +19,9 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     /// workspace's primary process.
     let setupCommand: String
 
+    /// Keeps the optional filesystem identity labels available on every toolchain.
+    /// Swift omits stored properties with default values from a synthesized
+    /// memberwise initializer, which would otherwise drop the rollback identity.
     init(
         projectRootPath: String,
         worktreePath: String,
@@ -562,7 +565,8 @@ enum CmuxExtensionWorktreePrototype {
     ) async {
         guard let expectedIdentity,
               let currentIdentity = filesystemIdentity(at: worktree),
-              currentIdentity == expectedIdentity else {
+              currentIdentity.deviceID == expectedIdentity.deviceID,
+              currentIdentity.fileID == expectedIdentity.fileID else {
             logPrivateDiagnostic("Skipped failed worktree cleanup after identity changed.")
             return
         }

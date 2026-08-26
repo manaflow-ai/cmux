@@ -249,8 +249,11 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
+        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
+            ? startupRestoreAdmissionCommandOverride
+            : initialCommand
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
-            initialCommand: initialCommand,
+            initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
             managedShellCommand: managedShellCommand,
@@ -260,6 +263,9 @@ extension TerminalSurface {
         let resolvedInitialInput: String? = {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
                 return runtimeInitialInput
+            }
+            if suppressConfiguredInitialInput {
+                return nil
             }
             if let initialInput, !initialInput.isEmpty {
                 return initialInput
