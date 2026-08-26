@@ -558,6 +558,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "terminalDockPresentationGap=\(terminalDockPresentationGap)",
             "terminalDockMaxPresentationGap=\(maximumTerminalDockPresentationGap)",
             "keyboardSlack=\(keyboardSlack)",
+            "dockSeamPadding=\(pointValue(hostedDockSeamPadding))",
             "screenScale=\(pointValue(preferredScreenScale))",
             "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
             "keyboardGuideTop=\(keyboardDockTargetTop)",
@@ -1395,13 +1396,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// The steady-state bottom chrome band in points: what
     /// `renderWrapper.bottom` must sit BELOW the dock top so the full-height
-    /// render's bottom edge lands exactly on the dock top (composer bar).
-    /// Matches `bounds.height - layoutViewportRect.height` by construction and
-    /// never contains the keyboard.
+    /// render's bottom edge lands `hostedDockSeamPadding` above the dock top
+    /// (composer bar) — the grid container reserves that seam, so this
+    /// matches `bounds.height - layoutViewportRect.height - hostedDockSeamPadding`
+    /// by construction and never contains the keyboard.
     var hostedBottomChromeReservation: CGFloat {
         chromeHidden
             ? 0
             : max(0, composerBandHeight) + reservedToolbarHeight + safeAreaInsetsBottom
+    }
+
+    /// The seam the grid container reserves above the dock while the chrome
+    /// is visible: the render's bottom edge lands this many points above the
+    /// dock top instead of flush against the toolbar.
+    var hostedDockSeamPadding: CGFloat {
+        chromeHidden ? 0 : TerminalLetterboxGeometry.dockSeamPadding
     }
 
     func hostedBottomReservation(
