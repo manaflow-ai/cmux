@@ -11,7 +11,7 @@ name: cmux-tui artifacts
 # Layout in R2:
 #   cmux-tui/<commit-sha>/cmux-tui-<rust-target>   immutable, commit-addressed
 #   cmux-tui/<commit-sha>/manifest.json
-#   cmux-tui/latest/cmux-tui-<rust-target>         rolling, manual publishes only
+#   cmux-tui/latest/cmux-tui-<rust-target>         rolling, every main push
 #   cmux-tui/latest/manifest.json
 #   cmux-relay/<commit-sha>/cmux-relay-<rust-target> immutable, commit-addressed
 #   cmux-relay/<commit-sha>/manifest.json
@@ -26,7 +26,18 @@ name: cmux-tui artifacts
 #   chatmux-relay/latest/manifest.json
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI/CD.
+  # Every main push that can change the binaries republishes the immutable
+  # commit-addressed artifacts and the rolling latest/ manifest: cmux Cloud
+  # machines install the daemon from latest/manifest.json and the macOS app
+  # bundles the matching client from it (scripts/install-cmux-tui-client.sh),
+  # so latest must track main. Manual dispatch stays for re-publishing.
+  push:
+    branches: [main]
+    paths:
+      - "cmux-tui/**"
+      - "ghostty"
+      - ".github/workflows/cmux-tui-artifacts.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
   workflow_dispatch: {}
 
 concurrency:

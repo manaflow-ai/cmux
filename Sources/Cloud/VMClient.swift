@@ -398,6 +398,14 @@ struct VMCmuxRemoteEndpoint {
     let expiresAtUnix: Int64
     let session: String
     let invitation: Invitation?
+    /// The machine daemon's build identity, for naming a protocol mismatch.
+    struct DaemonBuild {
+        let commit: String?
+        let remoteProtocol: Int?
+        let version: String?
+    }
+
+    let daemonBuild: DaemonBuild?
 }
 
 struct VMCmuxRemoteApproval {
@@ -759,7 +767,22 @@ actor VMClient {
             let invitationExpires = (raw["expiresAtUnix"] as? Int64) ?? Int64((raw["expiresAtUnix"] as? Double) ?? 0)
             invitation = .init(uri: uri, invitationId: invitationId, expiresAtUnix: invitationExpires)
         }
-        return VMCmuxRemoteEndpoint(route: route, token: token, expiresAtUnix: expiresAtUnix, session: session, invitation: invitation)
+        var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
+        if let raw = obj["daemonBuild"] as? [String: Any] {
+            daemonBuild = .init(
+                commit: raw["commit"] as? String,
+                remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
+                version: raw["version"] as? String
+            )
+        }
+        return VMCmuxRemoteEndpoint(
+            route: route,
+            token: token,
+            expiresAtUnix: expiresAtUnix,
+            session: session,
+            invitation: invitation,
+            daemonBuild: daemonBuild
+        )
     }
 
     func approveCmuxRemoteEnrollment(id: String, invitationId: String) async throws -> VMCmuxRemoteApproval {

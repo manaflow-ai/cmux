@@ -197,6 +197,13 @@ extension TerminalController {
                     "expires_at_unix": endpoint.expiresAtUnix,
                     "session": endpoint.session,
                 ]
+                if let build = endpoint.daemonBuild {
+                    var raw: [String: Any] = [:]
+                    if let commit = build.commit { raw["commit"] = commit }
+                    if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
+                    if let version = build.version { raw["version"] = version }
+                    payload["daemon_build"] = raw
+                }
                 if let invitation = endpoint.invitation {
                     payload["invitation"] = [
                         "uri": invitation.uri,
