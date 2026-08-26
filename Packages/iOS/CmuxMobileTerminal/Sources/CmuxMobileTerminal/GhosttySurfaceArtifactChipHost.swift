@@ -2,13 +2,34 @@
 import UIKit
 
 /// Owns the terminal artifact chip's UIKit container, sizing, and transition state.
+///
+/// The container is constraint-anchored to the top of whichever view hosts
+/// it. `GhosttySurfaceView` installs it into itself at init (standalone
+/// surfaces, tests); `GhosttySurfaceHostView` re-homes it — the same adoption
+/// ``GhosttySurfaceView/moveBottomDock(to:)`` performs for the dock — so the
+/// chip lives in the host's keyboard-invariant chrome coordinate space. The
+/// keyboard slides the render wrapper, never the chrome, so the chip needs no
+/// keyboard math and no per-frame following: its position falls out of the
+/// same layout solve that seats the dock.
 @MainActor
 final class GhosttySurfaceArtifactChipHost {
     private let container = UIView()
     private(set) var isRequestedVisible = false
     private var visibilityRequested = false
+    private weak var hostView: UIView?
+    private var anchorConstraints: [NSLayoutConstraint] = []
+    private var contentConstraints: [NSLayoutConstraint] = []
 
-    func install(in surfaceView: UIView, zPosition: CGFloat) {
+    /// Anchored to the top of the host's safe area: pinned above the toolbar
+    /// it covered the input row, which users type into far more often than
+    /// they read the first terminal line.
+    ///
+    /// Idempotent re-homing: installing into a new host replaces the previous
+    /// anchor constraints. Re-homing happens only at host construction,
+    /// before any chip is mounted, so the reset of the hidden/alpha state
+    /// never blinks a visible chip.
+    func install(in hostView: UIView, zPosition: CGFloat) {
+        guard hostView !== self.hostView else { return }
         container.backgroundColor = .clear
         container.clipsToBounds = false
         container.alpha = 0
@@ -16,41 +37,57 @@ final class GhosttySurfaceArtifactChipHost {
         container.isAccessibilityElement = false
         container.accessibilityElementsHidden = true
         container.layer.zPosition = zPosition
-        surfaceView.addSubview(container)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.deactivate(anchorConstraints)
+        container.removeFromSuperview()
+        hostView.addSubview(container)
+        self.hostView = hostView
+        // Tap-target floor and readable-width ceiling, matching the manual
+        // frame pass this container had before it was constraint-anchored.
+        // The weak default-size pulls sit below every content priority so a
+        // hosted view's intrinsic size drives the container between the
+        // floor and ceiling, while content without an intrinsic size (bare
+        // test views) still resolves unambiguously to the floor.
+        let defaultWidth = container.widthAnchor.constraint(equalToConstant: 88)
+        defaultWidth.priority = UILayoutPriority(100)
+        let defaultHeight = container.heightAnchor.constraint(equalToConstant: 44)
+        defaultHeight.priority = UILayoutPriority(100)
+        anchorConstraints = [
+            container.centerXAnchor.constraint(equalTo: hostView.centerXAnchor),
+            container.topAnchor.constraint(
+                equalTo: hostView.safeAreaLayoutGuide.topAnchor,
+                constant: 8
+            ),
+            container.widthAnchor.constraint(greaterThanOrEqualToConstant: 88),
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            container.widthAnchor.constraint(
+                lessThanOrEqualTo: hostView.widthAnchor,
+                constant: -32
+            ),
+            defaultWidth,
+            defaultHeight,
+        ]
+        NSLayoutConstraint.activate(anchorConstraints)
     }
 
     func setContent(_ view: UIView?) {
         isRequestedVisible = view != nil
         guard let view, container.subviews.first !== view else { return }
+        NSLayoutConstraint.deactivate(contentConstraints)
+        contentConstraints = []
         container.subviews.forEach { $0.removeFromSuperview() }
         view.backgroundColor = .clear
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(view)
-    }
-
-    // Anchored to the terminal's top edge: pinned above the toolbar it covered
-    // the input row, which users type into far more often than they read the
-    // first terminal line.
-    func layout(in bounds: CGRect, topInset: CGFloat) {
-        guard let content = container.subviews.first else {
-            container.frame = .zero
-            return
-        }
-        let maxWidth = max(44, bounds.width - 32)
-        let fitting = content.systemLayoutSizeFitting(
-            CGSize(width: maxWidth, height: UIView.layoutFittingCompressedSize.height),
-            withHorizontalFittingPriority: .fittingSizeLevel,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        let width = min(maxWidth, max(88, fitting.width))
-        let height = max(44, fitting.height)
-        container.frame = CGRect(
-            x: (bounds.width - width) / 2,
-            y: max(8, topInset + 8),
-            width: width,
-            height: height
-        ).integral
-        content.frame = container.bounds
+        // Edge-pinned so the hosted view's intrinsic size drives the
+        // container between the anchor floor/ceiling constraints.
+        contentConstraints = [
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(contentConstraints)
     }
 
     func updateVisibility(shouldShow: Bool, animated: Bool) {
