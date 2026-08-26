@@ -168,6 +168,9 @@ final class WindowVideoBackgroundController {
         guard enabled,
               failedSourceText == nil,
               let source = VideoBackgroundSource.parse(sourceText) else {
+            #if DEBUG
+            cmuxDebugLog("videoBackground.refresh off enabled=\(enabled) latched=\(failedSourceText != nil) parsed=\(VideoBackgroundSource.parse(sourceText) != nil)")
+            #endif
             removeLayer()
             return
         }
@@ -179,6 +182,9 @@ final class WindowVideoBackgroundController {
         updatePlaybackState()
         applyAudioState()
         presentation.isActive = playerView != nil
+        #if DEBUG
+        cmuxDebugLog("videoBackground.refresh on source=\(source) host=\(hostView != nil) player=\(playerView != nil) muted=\(effectiveMuted)")
+        #endif
     }
 
     /// Whether this window's player must be silent right now: the setting
@@ -269,6 +275,9 @@ final class WindowVideoBackgroundController {
         guard let window, let playerView else { return }
         let isVisible = window.occlusionState.contains(.visible) && !window.isMiniaturized
         let isConservingPower = isSystemSleeping || ProcessInfo.processInfo.isLowPowerModeEnabled
+        #if DEBUG
+        cmuxDebugLog("videoBackground.playback paused=\(!isVisible || isConservingPower) visible=\(isVisible) mini=\(window.isMiniaturized) sleeping=\(isSystemSleeping) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)")
+        #endif
         playerView.setPaused(!isVisible || isConservingPower)
     }
 
