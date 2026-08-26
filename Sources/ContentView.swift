@@ -2416,8 +2416,9 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
-        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
+        _ = workspace.withNewTabZoomPolicy(inPane: paneId) {
+            workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
+        }
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {

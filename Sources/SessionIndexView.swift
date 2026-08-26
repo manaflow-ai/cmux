@@ -17,7 +17,9 @@ enum SessionEntryResumeCoordinator {
         let selectedTab = tabManager.selectedTabId.flatMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
-        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
+        let isRemoteSelection =
+            selectedTab?.isRemoteWorkspace == true ||
+            selectedTab?.isRemoteTmuxMirror == true
         let workspaceCwd = selected?.currentDirectory
         let pwdMatches: Bool = {
             guard !isRemoteSelection,
