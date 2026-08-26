@@ -361,6 +361,13 @@ extension TerminalController {
         let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
         let bindingSelection = binding.restoreWorkingDirectorySelection
+        let isUnscopedCustomAgentHook = binding.isAgentHookBinding &&
+            bindingSelection == nil &&
+            RestorableAgentKind(rawValue: normalizedKind)?.customAgentID != nil
+        // A custom Vault registration may explicitly ignore cwd tracking, but
+        // the registration is unavailable once its matching snapshot is gone.
+        // Do not replay the captured shell command without that policy proof.
+        guard !isUnscopedCustomAgentHook else { return nil }
         guard bindingSelection?.permitsResume != false else { return nil }
         let workingDirectory: String? = if let bindingSelection {
             bindingSelection.resolved(
