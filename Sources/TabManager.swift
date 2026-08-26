@@ -2166,9 +2166,9 @@ class TabManager: ObservableObject {
         workspaceGrouping.moveWorkspaceGroup(groupId: groupId, toIndex: targetIndex)
     }
 
-    /// Compatibility shim. With anchor-bound group lifecycle, "empty" groups
-    /// are no longer possible — a group exists iff its anchor exists in
-    /// `tabs[]`.
+    /// Compatibility shim retained for callers that used to ask the legacy
+    /// model to prune empty groups. Pinned empty groups are now durable and
+    /// disappear only through explicit Delete Group.
     func pruneEmptyWorkspaceGroups() {}
 
     // MARK: - WorkspaceGroupHosting (effects the group coordinator inverts)
@@ -2474,9 +2474,9 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
-        // Same anchor-close lifecycle as closeWorkspace: detaching a group's
-        // anchor dissolves the group; non-anchor members stay in tabs as
-        // ungrouped workspaces.
+        // Same anchor-close lifecycle as closeWorkspace: an unpinned group's
+        // anchor dissolves it, while a pinned group promotes a remaining member
+        // or retains an empty header.
         workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
         // Clear the detached workspace's own group membership so the
         // destination window — which has no matching WorkspaceGroup — doesn't
@@ -2688,7 +2688,7 @@ class TabManager: ObservableObject {
     /// Every batch-close entrypoint (menu, shortcut, socket) must route through
     /// this ordering.
     func anchorLastCloseOrder(_ workspaces: [Workspace]) -> [Workspace] {
-        let anchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
+        let anchorIds = Set(workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         return workspaces.filter { !anchorIds.contains($0.id) }
             + workspaces.filter { anchorIds.contains($0.id) }
     }
@@ -6080,6 +6080,7 @@ extension TabManager {
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
             hasher.combine(group.anchorWorkspaceId)
+            hasher.combine(group.isEmpty)
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
         }
@@ -6377,16 +6378,22 @@ extension TabManager {
         }()
         let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
             let snapshots = workspaceGroups
-                .filter { occupiedGroupIds.contains($0.id) }
+                .filter { group in
+                    occupiedGroupIds.contains(group.id)
+                        || (group.isPinned && group.isEmpty)
+                }
                 .map { group in
                     let memberIds = restorableMembersByGroupId[group.id] ?? []
-                    let anchorIndex = memberIds.firstIndex(of: group.anchorWorkspaceId)
+                    let anchorIndex = group.liveAnchorWorkspaceId.flatMap {
+                        memberIds.firstIndex(of: $0)
+                    }
                     return SessionWorkspaceGroupSnapshot(
                         id: group.id,
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         anchorWorkspaceId: group.anchorWorkspaceId,
                         anchorMemberIndex: anchorIndex,
+                        anchorIsEmpty: group.isEmpty ? true : nil,
                         isPinned: group.isPinned,
                         customColor: group.customColor,
                         iconSymbol: group.iconSymbol
@@ -6592,8 +6599,27 @@ extension TabManager {
             }()
             var seen: Set<UUID> = []
             return groupSnapshots.compactMap { groupSnapshot in
-                guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
-                      seen.insert(groupSnapshot.id).inserted else { return nil }
+                guard seen.insert(groupSnapshot.id).inserted else { return nil }
+                let members = workspaceIdsByGroupId[groupSnapshot.id] ?? []
+                if members.isEmpty {
+                    // Only pinned groups are durable without a live member.
+                    // Their persisted anchor id is a stable header identity;
+                    // older snapshots that omit it fall back to the group id.
+                    guard groupSnapshot.isPinned == true else { return nil }
+                    return WorkspaceGroup(
+                        id: groupSnapshot.id,
+                        name: groupSnapshot.name,
+                        isCollapsed: groupSnapshot.isCollapsed,
+                        isPinned: true,
+                        // The group id is the durable header identity. Older
+                        // snapshots stored a former workspace id here; use
+                        // the group id on restore so header drags resolve as
+                        // group moves rather than as missing workspaces.
+                        anchor: .empty(groupSnapshot.id),
+                        customColor: groupSnapshot.customColor,
+                        iconSymbol: groupSnapshot.iconSymbol
+                    )
+                }
                 // Resolve anchor: prefer the restore-stable index, then the
                 // persisted UUID hint. The UUID hint matches on ordinary
                 // session restore, but duplicate/corrupt snapshots can still
@@ -6613,7 +6639,7 @@ extension TabManager {
                     name: groupSnapshot.name,
                     isCollapsed: groupSnapshot.isCollapsed,
                     isPinned: groupSnapshot.isPinned ?? false,
-                    anchorWorkspaceId: anchorId,
+                    anchor: .workspace(anchorId),
                     customColor: groupSnapshot.customColor,
                     iconSymbol: groupSnapshot.iconSymbol
                 )

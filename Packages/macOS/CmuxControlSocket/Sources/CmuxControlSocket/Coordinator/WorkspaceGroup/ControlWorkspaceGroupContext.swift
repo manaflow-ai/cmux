@@ -60,7 +60,8 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     ///   - routing: The routing selectors used for TabManager resolution.
     ///   - groupID: The group to ungroup.
     /// - Returns: The number of workspaces kept if the group existed, `-1` if
-    ///   the group was not found, or `nil` if no TabManager resolved.
+    ///   the group was not found, `-2` when a pinned empty group must be
+    ///   removed through Delete Group, or `nil` if no TabManager resolved.
     func controlUngroupWorkspaceGroup(
         routing: ControlRoutingSelectors,
         groupID: UUID
