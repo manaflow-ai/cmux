@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -54,14 +55,6 @@ extension GitMetadataService {
     ) -> GitTrackedChangesResolution {
         let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexURL = URL(fileURLWithPath: indexPath)
-        if repositoryUsesSHA256ObjectIDs(repository: repository) != false {
-            return gitStatusFallbackSnapshot(
-                repository: repository,
-                indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
-                indexContentSignature: nil,
-                reason: .unreadableIndex
-            )
-        }
         if let header = Self.gitIndexHeaderSummary(indexPath: indexPath) {
             if header.entryCount > safetyConfiguration.directFileStatusEntryCount {
                 return gitStatusFallbackSnapshot(
@@ -100,6 +93,8 @@ extension GitMetadataService {
         }
 
         let scanStart = ContinuousClock.now
+        let directScanDeadline = DispatchTime.now()
+            + (Double(safetyConfiguration.directFileStatusDurationMilliseconds) / 1_000)
         for entry in indexSnapshot.entries {
             if WorkspaceChangesCancellationSignal.isCurrentCancelled {
                 return GitTrackedChangesResolution(
@@ -111,6 +106,16 @@ extension GitMetadataService {
                 )
             }
             if scanStart.duration(to: ContinuousClock.now) >= safetyConfiguration.directFileStatusDuration {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    reason: .directScanDuration(
+                        milliseconds: safetyConfiguration.directFileStatusDurationMilliseconds
+                    )
+                )
+            }
+            guard DispatchTime.now() < directScanDeadline else {
                 return gitStatusFallbackSnapshot(
                     repository: repository,
                     indexSignature: nil,
@@ -136,7 +141,10 @@ extension GitMetadataService {
                         )
                     )
                 }
-                if referenceReader.requiresGitPlumbing(repository: submoduleRepository) {
+                if referenceReader.requiresGitPlumbing(
+                    repository: submoduleRepository,
+                    deadline: directScanDeadline
+                ) {
                     return gitStatusFallbackSnapshot(
                         repository: repository,
                         indexSignature: nil,

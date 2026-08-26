@@ -95,6 +95,7 @@ extension GitMetadataService {
         ) != false {
             var fallbackRemainingRepositoryCount = remainingRepositoryCount
             var fallbackVisitedRoots: Set<String> = []
+            var fallbackForcedRoots: Set<String> = []
             pathsByRepository[repository.workTreeRoot, default: []].append(contentsOf:
                 gitmodulesFallbackMetadataPaths(
                     repository: repository,
@@ -102,10 +103,12 @@ extension GitMetadataService {
                     safetyConfiguration: safetyConfiguration,
                     deadline: deadline,
                     remainingRepositoryCount: &fallbackRemainingRepositoryCount,
-                    visitedRoots: &fallbackVisitedRoots
+                    visitedRoots: &fallbackVisitedRoots,
+                    forcedRoots: &fallbackForcedRoots
                 )
             )
             forceWorkTreeRoots.insert(repository.workTreeRoot)
+            forceWorkTreeRoots.formUnion(fallbackForcedRoots)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
@@ -192,7 +195,8 @@ extension GitMetadataService {
         safetyConfiguration: GitMetadataSafetyConfiguration,
         deadline: DispatchTime,
         remainingRepositoryCount: inout Int,
-        visitedRoots: inout Set<String>
+        visitedRoots: inout Set<String>,
+        forcedRoots: inout Set<String>
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth,
               remainingRepositoryCount > 0,
@@ -241,19 +245,19 @@ extension GitMetadataService {
             guard let child = Self.resolveGitRepository(containing: childPath),
                   child.workTreeRoot == childPath,
                   !visitedRoots.contains(child.workTreeRoot) else { continue }
-            paths.append(contentsOf: [
-                child.workTreeRoot,
-            ] + conservativeRepositoryMetadataPaths(
+            paths.append(contentsOf: conservativeRepositoryMetadataPaths(
                 repository: child,
                 deadline: deadline
             ))
+            forcedRoots.insert(child.workTreeRoot)
             paths.append(contentsOf: gitmodulesFallbackMetadataPaths(
                 repository: child,
                 depth: depth + 1,
                 safetyConfiguration: safetyConfiguration,
                 deadline: deadline,
                 remainingRepositoryCount: &remainingRepositoryCount,
-                visitedRoots: &visitedRoots
+                visitedRoots: &visitedRoots,
+                forcedRoots: &forcedRoots
             ))
         }
         var seen: Set<String> = []
