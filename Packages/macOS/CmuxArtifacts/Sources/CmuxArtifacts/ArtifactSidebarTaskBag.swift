@@ -2,7 +2,7 @@ import Foundation
 
 /// Owns cancellable sidebar work without imposing an executor on ARC teardown.
 final class ArtifactSidebarTaskBag {
-    private var watcher: Task<Void, Never>?
+    private var watchers: [Task<Void, Never>] = []
     private var search: Task<Void, Never>?
     private var action: Task<Void, Never>?
 
@@ -11,9 +11,9 @@ final class ArtifactSidebarTaskBag {
     }
 
     @MainActor
-    func replaceWatcher(with makeTask: () -> Task<Void, Never>) {
-        watcher?.cancel()
-        watcher = makeTask()
+    func replaceWatcher(with makeTasks: () -> [Task<Void, Never>]) {
+        watchers.forEach { $0.cancel() }
+        watchers = makeTasks()
     }
 
     @MainActor
@@ -35,8 +35,8 @@ final class ArtifactSidebarTaskBag {
     }
 
     func cancelAll() {
-        watcher?.cancel()
-        watcher = nil
+        watchers.forEach { $0.cancel() }
+        watchers.removeAll()
         search?.cancel()
         search = nil
         action?.cancel()
