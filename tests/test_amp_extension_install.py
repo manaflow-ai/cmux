@@ -1442,6 +1442,15 @@ try {
       ),
     "Amp did not exhaust both failed approval conclusion attempts"
   );
+  // Exhausting the immediate retry budget must not discard an acknowledged
+  // episode. A later native boundary gets one more bounded, idempotent chance
+  // to clear the app-side observation token.
+  failedConclusionThread.setState("idle");
+  await waitFor(
+    () => attentionCalls("end").length === failedConclusionEndCount + 3
+      && attentionCalls("end").at(-1).closedWith === 0,
+    "Amp did not retry an acknowledged approval conclusion at the next boundary"
+  );
 
   const statusCountAfterFailedConclusion = statusCalls().length;
   const statusProbeThread = makeThread(

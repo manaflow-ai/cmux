@@ -11,7 +11,7 @@ import Testing
 @Suite("Agent journal lifecycle center", .serialized)
 struct AgentJournalLifecycleCenterTests {
     @MainActor
-    @Test func liveClaudeCompletionJournalAppliesIdleDespiteLiveProcess() async throws {
+    @Test func liveClaudeCompletionJournalCannotOverrideLiveProcess() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
@@ -84,14 +84,14 @@ struct AgentJournalLifecycleCenterTests {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
-            if workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .idle {
+            if workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .running {
                 break
             }
             await Task.yield()
         }
         #expect(
-            workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .idle,
-            "A live Claude process must not block its journaled completion from applying."
+            workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .running,
+            "An unbound journal completion must not override a live local process; the exact hook path owns its idle transition."
         )
     }
 
