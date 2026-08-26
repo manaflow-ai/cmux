@@ -26,6 +26,33 @@ private final class PortalBindLayoutCountingView: NSView {
 @MainActor
 @Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
+    @Test func ordinaryOccludedWindowPausesItsRenderer() {
+        #expect(!GhosttyNSView.effectiveRendererWindowVisibility(
+            occlusionVisible: false,
+            isKeyWindow: false,
+            isVisible: true,
+            displayUITestRenderingEnabled: false
+        ))
+    }
+
+    @Test func keyWindowSurvivesTransientOcclusionStateLag() {
+        #expect(GhosttyNSView.effectiveRendererWindowVisibility(
+            occlusionVisible: false,
+            isKeyWindow: true,
+            isVisible: true,
+            displayUITestRenderingEnabled: false
+        ))
+    }
+
+    @Test func headlessDisplayTestKeepsOrderedWindowRendering() {
+        #expect(GhosttyNSView.effectiveRendererWindowVisibility(
+            occlusionVisible: false,
+            isKeyWindow: false,
+            isVisible: true,
+            displayUITestRenderingEnabled: true
+        ))
+    }
+
     @Test func staleRepresentableCannotOverwriteCurrentHostAttentionColor() {
         let panel = TerminalPanel(workspaceId: UUID())
         let paneId = PaneID()

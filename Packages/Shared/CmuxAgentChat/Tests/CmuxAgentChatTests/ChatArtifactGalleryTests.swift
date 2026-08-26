@@ -559,7 +559,7 @@ struct ChatArtifactGalleryTests {
 
         #expect(records.count == 1_024)
         #expect(!records.contains { $0.path == "/fixture/cap-0.md" })
-        #expect(records.contains { $0.path == "/fixture/cap-1_024.md" })
+        #expect(records.contains { $0.path == "/fixture/cap-1024.md" })
         #expect(records.map(\.lastReferencedSeq).min() == 1)
     }
 

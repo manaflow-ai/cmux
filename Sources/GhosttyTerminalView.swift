@@ -4580,15 +4580,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             guard let occludedWindow = notification.object as? NSWindow else { return }
-            let visible = occludedWindow.occlusionState.contains(.visible)
             // Registered with `queue: .main`, so the @MainActor renderer update
             // is synchronously main-isolated without deferring window state.
             MainActor.assumeIsolated {
-                self?.terminalSurface?.setRendererWindowVisible(visible)
+                guard let self else { return }
+                self.terminalSurface?.setRendererWindowVisible(
+                    self.effectiveRendererWindowVisibility(for: occludedWindow)
+                )
             }
         }
         terminalSurface?.setRendererWindowVisible(
-            window.occlusionState.contains(.visible)
+            effectiveRendererWindowVisibility(for: window)
         )
 
         if let surface = terminalSurface?.surface,
@@ -4612,6 +4614,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         applyWindowBackgroundIfActive()
         invalidateTextInputCoordinates()
+    }
+
+    /// Resolves renderer visibility from AppKit state and the headless display-test contract.
+    static func effectiveRendererWindowVisibility(
+        occlusionVisible: Bool,
+        isKeyWindow: Bool,
+        isVisible: Bool,
+        displayUITestRenderingEnabled: Bool
+    ) -> Bool {
+        occlusionVisible || isKeyWindow || (displayUITestRenderingEnabled && isVisible)
+    }
+
+    private func effectiveRendererWindowVisibility(for window: NSWindow) -> Bool {
+#if DEBUG
+        let displayUITestRenderingEnabled = ProcessInfo.processInfo.environment[
+            "CMUX_UI_TEST_DISPLAY_RENDER_STATS"
+        ] == "1"
+#else
+        let displayUITestRenderingEnabled = false
+#endif
+        return Self.effectiveRendererWindowVisibility(
+            occlusionVisible: window.occlusionState.contains(.visible),
+            isKeyWindow: window.isKeyWindow,
+            isVisible: window.isVisible,
+            displayUITestRenderingEnabled: displayUITestRenderingEnabled
+        )
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -11966,7 +11994,9 @@ final class GhosttySurfaceScrollView: NSView {
         } ?? (0, 0, Self.contentsKey(for: surfaceView.layer))
         let inWindow = (window != nil)
         let windowIsKey = window?.isKeyWindow ?? false
-        let windowOcclusionVisible = (window?.occlusionState.contains(.visible) ?? false) || (window?.isKeyWindow ?? false)
+        let windowOcclusionVisible = window.map {
+            effectiveRendererWindowVisibility(for: $0)
+        } ?? false
         let appIsActive = NSApp.isActive
         let fr = window?.firstResponder as? NSView
         let isFirstResponder = fr == surfaceView || (fr?.isDescendant(of: surfaceView) ?? false)

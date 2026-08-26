@@ -3512,56 +3512,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(git.timedOut, git.stderr)
         XCTAssertEqual(git.status, 0, git.stderr)
 
-        let cli = CMUXCLI(args: [])
         let environment = [
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_WORKSPACE_ID": "workspace:note-confirm",
             "CLAUDE_CODE_SESSION_ID": "note-confirm-session",
         ]
-        try await cli.runNoteCommand(
-            commandArgs: ["write", "draft", "--text", "hello", "--project", root.path],
-            jsonOutput: false,
-            processEnvironment: environment
+        let cliPath = try bundledCLIPath()
+        let write = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "write", "draft", "--text", "hello", "--project", root.path],
+            environment: environment,
+            timeout: 10
         )
+        XCTAssertFalse(write.timedOut, write.stderr)
+        XCTAssertEqual(write.status, 0, write.stderr)
         let repository = LocalArtifactRepository()
         let writtenNotes = try await repository.listNotes(projectRoot: root)
         XCTAssertEqual(writtenNotes.count, 1)
 
-        do {
-            try await cli.runNoteCommand(
-                commandArgs: ["rm", "draft", "--project", root.path],
-                jsonOutput: false,
-                processEnvironment: environment
-            )
-            XCTFail("note rm without --yes should be rejected")
-        } catch let error as CLIError {
-            XCTAssertTrue(error.message.contains("--yes"), error.message)
-        }
+        let unconfirmedRemoval = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "rm", "draft", "--project", root.path],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(unconfirmedRemoval.timedOut, unconfirmedRemoval.stderr)
+        XCTAssertEqual(unconfirmedRemoval.status, 2, unconfirmedRemoval.stderr)
+        XCTAssertTrue(unconfirmedRemoval.stderr.contains("--yes"), unconfirmedRemoval.stderr)
         let preservedNotes = try await repository.listNotes(projectRoot: root)
         XCTAssertEqual(preservedNotes.count, 1)
 
-        try await cli.runNoteCommand(
-            commandArgs: ["rm", "draft", "--project", root.path, "--yes"],
-            jsonOutput: false,
-            processEnvironment: environment
+        let confirmedRemoval = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "rm", "draft", "--project", root.path, "--yes"],
+            environment: environment,
+            timeout: 10
         )
+        XCTAssertFalse(confirmedRemoval.timedOut, confirmedRemoval.stderr)
+        XCTAssertEqual(confirmedRemoval.status, 0, confirmedRemoval.stderr)
         let remainingNotes = try await repository.listNotes(projectRoot: root)
         XCTAssertTrue(remainingNotes.isEmpty)
     }
 
-    func testProjectFileWriteRejectsUnboundProviderFallback() async throws {
+    func testProjectFileWriteRejectsUnboundProviderFallback() throws {
         let root = try makeTemporaryDirectory(prefix: "cmux-project-file-identity")
-        let cli = CMUXCLI(args: [])
-
-        do {
-            try await cli.runNoteCommand(
-                commandArgs: ["write", "draft", "--text", "hello", "--project", root.path],
-                jsonOutput: false,
-                processEnvironment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
-            )
-            XCTFail("A provider name without a workspace or native session must not select a store")
-        } catch let error as CLIError {
-            XCTAssertTrue(error.message.contains("session identity"), error.message)
-        }
+        let cliPath = try bundledCLIPath()
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["note", "write", "draft", "--text", "hello", "--project", root.path],
+            environment: [
+                "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+                "HOME": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+            ],
+            timeout: 10
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 2, result.stderr)
+        XCTAssertTrue(result.stderr.contains("session identity"), result.stderr)
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: root.appendingPathComponent(".cmux").path
@@ -3585,7 +3596,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
 
-        CMUXCLI(args: []).cleanupTemporaryProjectFiles(in: directory)
+        ProjectFileTemporaryCopyCleaner().cleanup(in: directory)
 
         let copies = try FileManager.default.contentsOfDirectory(atPath: directory.path)
             .filter { $0.hasPrefix("cmux-project-file-") }
@@ -3605,7 +3616,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
 
         XCTAssertFalse(
-            CMUXCLI(args: []).cleanupTemporaryProjectFiles(
+            ProjectFileTemporaryCopyCleaner().cleanup(
                 in: directory,
                 reservingBytes: 0,
                 reservingFileCount: 1
