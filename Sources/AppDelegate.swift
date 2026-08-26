@@ -8587,7 +8587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         // The sidebar's headless link to that machine has nothing left to talk to.
-        CloudTreeService.shared.machineWasDeleted(vmID.trimmingCharacters(in: .whitespacesAndNewlines))
+        CmuxTuiSurfaceProviderRegistry.shared.machineWasDeleted(vmID.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// The local workspace attached to a cloud machine, through either transport: the
