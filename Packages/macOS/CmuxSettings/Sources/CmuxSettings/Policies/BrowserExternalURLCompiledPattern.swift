@@ -44,10 +44,10 @@ struct BrowserExternalURLCompiledPattern: Sendable {
     }
 
     func matches(_ target: String) -> Bool {
+        guard target.utf8.prefix(maximumTargetLength + 1).count <= maximumTargetLength else {
+            return false
+        }
         if let wildcardPattern {
-            guard target.utf8.prefix(maximumTargetLength + 1).count <= maximumTargetLength else {
-                return false
-            }
             return wildcardPattern.matches(target)
         }
         if let literalPattern {
@@ -56,9 +56,6 @@ struct BrowserExternalURLCompiledPattern: Sendable {
         if let literalFallbackPattern,
            target.range(of: literalFallbackPattern, options: [.caseInsensitive]) != nil {
             return true
-        }
-        guard target.utf8.prefix(maximumTargetLength + 1).count <= maximumTargetLength else {
-            return false
         }
         guard let regex else { return false }
         let range = NSRange(target.startIndex..<target.endIndex, in: target)

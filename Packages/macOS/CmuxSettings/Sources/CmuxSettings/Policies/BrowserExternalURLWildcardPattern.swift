@@ -2,10 +2,15 @@ import Foundation
 
 /// Matches `*` and `?` URL rules in linear time without regex backtracking.
 struct BrowserExternalURLWildcardPattern: Sendable {
+    private let maximumPatternLength = 256
+    private let maximumMatchOperations = 1_000_000
     private let tokens: [BrowserExternalURLWildcardToken]
 
     /// Parses one glob, preserving backslash-escaped wildcard characters.
-    init(pattern: String) {
+    init?(pattern: String) {
+        guard pattern.utf8.prefix(maximumPatternLength + 1).count <= maximumPatternLength else {
+            return nil
+        }
         var parsed: [BrowserExternalURLWildcardToken] = []
         parsed.reserveCapacity(pattern.count)
         var isEscaping = false
@@ -17,7 +22,12 @@ struct BrowserExternalURLWildcardPattern: Sendable {
 
         for character in pattern {
             if isEscaping {
-                parsed.append(BrowserExternalURLWildcardToken(kind: 2, literal: character))
+                parsed.append(
+                    BrowserExternalURLWildcardToken(
+                        kind: 2,
+                        literal: String(character).lowercased()
+                    )
+                )
                 isEscaping = false
                 continue
             }
@@ -35,7 +45,12 @@ struct BrowserExternalURLWildcardPattern: Sendable {
             case "?":
                 parsed.append(BrowserExternalURLWildcardToken(kind: 1, literal: nil))
             default:
-                parsed.append(BrowserExternalURLWildcardToken(kind: 2, literal: character))
+                parsed.append(
+                    BrowserExternalURLWildcardToken(
+                        kind: 2,
+                        literal: String(character).lowercased()
+                    )
+                )
             }
         }
         if isEscaping {
@@ -49,13 +64,16 @@ struct BrowserExternalURLWildcardPattern: Sendable {
 
     /// Returns whether the glob matches `target` using a bounded greedy scan.
     func matches(_ target: String) -> Bool {
-        let characters = Array(target)
+        let characters = target.lowercased().map(String.init)
         var tokenIndex = 0
         var characterIndex = 0
         var lastStarIndex: Int?
         var starMatchIndex = 0
+        var operations = 0
 
         while characterIndex < characters.count {
+            operations += 1
+            guard operations <= maximumMatchOperations else { return false }
             if tokenIndex < tokens.count,
                tokens[tokenIndex].kind != 0,
                tokenMatches(tokens[tokenIndex], character: characters[characterIndex]) {
@@ -89,11 +107,11 @@ struct BrowserExternalURLWildcardPattern: Sendable {
 
     private func tokenMatches(
         _ token: BrowserExternalURLWildcardToken,
-        character: Character
+        character: String
     ) -> Bool {
         guard token.kind == 1 else {
             guard let literal = token.literal else { return false }
-            return String(character).caseInsensitiveCompare(String(literal)) == .orderedSame
+            return character == literal
         }
         return true
     }

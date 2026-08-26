@@ -77,9 +77,10 @@ struct BrowserExternalURLPatternMatcher: Sendable {
 
         if pattern.contains("*") || pattern.contains("?") {
             guard isLegacyRegexWildcardPattern(pattern) else {
-                return BrowserExternalURLCompiledPattern(
-                    wildcard: BrowserExternalURLWildcardPattern(pattern: pattern)
-                )
+                guard let wildcard = BrowserExternalURLWildcardPattern(pattern: pattern) else {
+                    return BrowserExternalURLCompiledPattern(unmatchable: ())
+                }
+                return BrowserExternalURLCompiledPattern(wildcard: wildcard)
             }
         }
 
