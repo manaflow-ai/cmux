@@ -1,5 +1,9 @@
 # Transport Sentry diagnostics
 
+> **Note (2026-08-25):** the iroh transport was removed from cmux; TCP over
+> Tailscale is the only remaining Mac-to-phone connectivity path. Mentions of
+> iroh below are historical and no longer describe shipping code.
+
 Iroh/transport failures are diagnosable from Sentry telemetry alone, on both
 macOS (host) and iOS (client), without pulling logs off the device. Coverage
 is policy-shaped, not a per-event guarantee: telemetry requires the SDK to be

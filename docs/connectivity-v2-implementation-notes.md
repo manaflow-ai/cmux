@@ -1,5 +1,9 @@
 # Connectivity v2 implementation notes
 
+> **Note (2026-08-25):** the iroh transport was removed from cmux; TCP over
+> Tailscale is the only remaining Mac-to-phone connectivity path. Mentions of
+> iroh below are historical and no longer describe shipping code.
+
 ## Initial plan
 
 - Build one development-ready backend authority for registration, revisioned discovery, relay policy, and revocation.

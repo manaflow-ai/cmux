@@ -377,9 +377,9 @@ if "-exportArchive" in args:
     write_plist(app / "Info.plist", archived_info)
     if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
         write_plist(
-            app / "Frameworks" / "Iroh.framework" / "Info.plist",
+            app / "Frameworks" / "FakeStatic.framework" / "Info.plist",
             {{
-                "CFBundleIdentifier": "computer.iroh.Iroh",
+                "CFBundleIdentifier": "example.fakestatic.FakeStatic",
                 "CFBundlePackageType": "FMWK",
             }},
         )
@@ -759,7 +759,7 @@ def test_upload_strips_framework_without_valid_executable(tmp: Path, fakebin: Pa
         ipa_entries = zf.namelist()
     _check(
         not any(
-            entry.startswith("Payload/cmux.app/Frameworks/Iroh.framework/")
+            entry.startswith("Payload/cmux.app/Frameworks/FakeStatic.framework/")
             for entry in ipa_entries
         ),
         "final signed IPA omits the stripped framework shell",

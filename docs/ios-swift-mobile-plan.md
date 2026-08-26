@@ -1,5 +1,9 @@
 # iOS Swift Mobile Plan
 
+> **Note (2026-08-25):** the iroh transport was removed from cmux; TCP over
+> Tailscale is the only remaining Mac-to-phone connectivity path. Mentions of
+> iroh below are historical and no longer describe shipping code.
+
 Goal: ship the iOS path from current cmux main with Swift-owned app, session, transport, and storage code. Ghostty remains the terminal engine through GhosttyKit.
 
 ## Baseline
