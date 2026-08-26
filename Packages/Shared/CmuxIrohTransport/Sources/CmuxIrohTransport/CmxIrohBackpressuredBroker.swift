@@ -185,6 +185,7 @@ public struct CmxIrohBackpressuredRelayPolicyBroker: CmxIrohRelayPolicyServing, 
         self.accountID = accountID
     }
 
+    /// Fetches the signed relay policy through the shared account gate.
     public func fetchRelayPolicy() async throws -> CmxIrohRelayPolicyResponse {
         try await gate.perform(accountID: accountID, operation: .relayCredential) {
             try await broker.fetchRelayPolicy()

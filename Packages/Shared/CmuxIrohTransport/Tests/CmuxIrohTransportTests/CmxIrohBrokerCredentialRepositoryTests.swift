@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CryptoKit
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -67,6 +68,37 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         )
     }
 
+    @Test("binding replacement deletes any legacy token-era secure record")
+    func bindingRotationDeletesLegacySecureRecord() async throws {
+        let (defaults, suiteName) = try isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let secureStore = TestSecureCredentialStore()
+        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let binding = try metadata()
+        try await repository.saveBinding(binding, accountID: "account-a")
+        // A token-era build stored the relay credential under the scope key.
+        try await secureStore.write(
+            Data("legacy-token".utf8),
+            account: scope(accountID: "account-a", appInstanceID: binding.appInstanceID),
+            accessibility: .afterFirstUnlockThisDeviceOnly
+        )
+
+        let replacement = try metadata(
+            bindingID: "123e4567-e89b-42d3-a456-426614174020",
+            endpointByte: "cd",
+            generation: 2
+        )
+        try await repository.saveBinding(replacement, accountID: "account-a")
+
+        #expect(await secureStore.recordCount() == 0)
+        #expect(
+            try await repository.loadBinding(
+                accountID: "account-a",
+                appInstanceID: replacement.appInstanceID
+            ) == replacement
+        )
+    }
+
     @Test("explicit deletion and deactivation clear binding metadata")
     func explicitDeletion() async throws {
         let (defaults, suiteName) = try isolatedDefaults()
@@ -105,6 +137,15 @@ struct CmxIrohBrokerCredentialRepositoryTests {
             secureStore: secureStore,
             installState: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
         )
+    }
+
+    /// Mirrors the repository's deterministic scope derivation so a test can
+    /// seed a record where a token-era build would have stored it.
+    private func scope(accountID: String, appInstanceID: String) -> String {
+        let transcript = Data(
+            "cmux/iroh/broker-credential-scope/v1\0\(accountID)\0\(appInstanceID)".utf8
+        )
+        return SHA256.hash(data: transcript).map { String(format: "%02x", $0) }.joined()
     }
 
     private func isolatedDefaults() throws -> (UserDefaults, String) {

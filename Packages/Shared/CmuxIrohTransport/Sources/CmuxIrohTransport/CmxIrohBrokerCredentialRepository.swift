@@ -55,7 +55,8 @@ public actor CmxIrohBrokerCredentialRepository {
         )
     }
 
-    /// Saves an exact broker binding, invalidating relay credentials if it changed.
+    /// Saves an exact broker binding, deleting any legacy token-era secure
+    /// record if the binding changed.
     ///
     /// - Parameters:
     ///   - binding: The binding tuple returned by registration or discovery.
@@ -71,6 +72,14 @@ public actor CmxIrohBrokerCredentialRepository {
             appInstanceID: binding.appInstanceID,
             epoch: epoch
         )
+        let existing = try await loadBinding(
+            scope: scope,
+            appInstanceID: binding.appInstanceID,
+            epoch: epoch
+        )
+        if existing != binding {
+            try await deleteSecureRecord(account: scope, epoch: epoch)
+        }
         let encoded = try JSONEncoder().encode(binding)
         try requireCurrent(epoch)
         installState.set(String(decoding: encoded, as: UTF8.self), forKey: Self.bindingKey)
