@@ -7,32 +7,13 @@ public import Foundation
 /// returns captured links in the same call that observes their terminating
 /// boundary.
 public struct TerminalEmittedLinkScanner: Sendable {
-    private enum EscapeState: Sendable {
-        case none
-        case escape
-        case csi
-        case osc
-        case oscEscape
-    }
-
-    private enum OSC8State: Equatable, Sendable {
-        case none
-        case escape
-        case command([UInt8])
-        case params(command: [UInt8])
-        case uri(overflowed: Bool)
-        case uriEscape(overflowed: Bool)
-        case ignored
-        case ignoredEscape
-    }
-
     private static let maximumLogicalLineBytes = 4_096
     private static let maximumOSC8URIBytes = 2_048
     private static let maximumOSCCommandBytes = 16
     private static let maximumCSIParameterBytes = 12
 
-    private var escapeState: EscapeState = .none
-    private var osc8State: OSC8State = .none
+    private var escapeState: TerminalLinkEscapeState = .none
+    private var osc8State: TerminalOSC8State = .none
     private var osc8URIBuffer: [UInt8] = []
     private var csiParameterBytes: [UInt8] = []
     private var csiParameterOverflowed = false
