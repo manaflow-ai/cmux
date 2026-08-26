@@ -2302,16 +2302,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             markActive: true
         )
         let now = Date()
-        XCTAssertTrue(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
-        XCTAssertFalse(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
-        try store.releaseAutoNamingSpawn(sessionId: sessionId)
-        XCTAssertTrue(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
-        XCTAssertTrue(try store.claimAutoNamingSpawn(
+        let firstToken = try XCTUnwrap(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
+        XCTAssertNil(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
+        try store.releaseAutoNamingSpawn(sessionId: sessionId, token: firstToken)
+        XCTAssertNotNil(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
+        let missingToken = try XCTUnwrap(try store.claimAutoNamingSpawn(
             sessionId: sessionId,
             now: now.addingTimeInterval(AutoNamingEngine().config.inFlightExpiry + 1)
         ))
+        try store.releaseAutoNamingSpawn(sessionId: sessionId, token: missingToken)
         let missingSession = "auto-name-spawn-missing-record"
-        XCTAssertTrue(try store.claimAutoNamingSpawn(
+        XCTAssertNotNil(try store.claimAutoNamingSpawn(
             sessionId: missingSession,
             workspaceId: context.workspaceId,
             surfaceId: context.surfaceId,
