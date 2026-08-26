@@ -11,8 +11,8 @@ An agent (Claude Code, Codex, or any open-source-model harness) should be able t
 `cmux vm run [--sync] [--pull <remote>] -- <command...>` routes over the existing `vm.*` socket methods:
 
 1. **Sticky first.** A local binding store (`~/.cmuxterm/vm-run-bindings.json`) maps a work key — SHA-256 of the caller's directory — to the machine that last ran that work. A bound, ready pool machine wins outright: it holds the synced checkout, installed dependencies, and build caches. This mirrors coderouter's sticky `conversationKey → credential` assignment, which exists for the same reason (warm state is throughput).
-2. **Then load-aware scoring.** Pool machines (label `agent-pool`) are tiered: awake and under 60% CPU (least-loaded first) → asleep (exec wakes them) → provision fresh → at the plan cap, share the least-loaded busy machine. Stats reads never wake a sleeping machine.
-3. **Pool isolation.** The router only touches machines labeled `agent-pool` (which it creates and labels itself). A machine the user made and named by hand is never drafted into agent work.
+2. **Then load-aware scoring.** Pool machines (persisted pool id list (`~/.cmuxterm/vm-run-pool.json`; the `agent-pool` label is only for display)) are tiered: awake and under 60% CPU (least-loaded first) → asleep (exec wakes them) → provision fresh → at the plan cap, share the least-loaded busy machine. Stats reads never wake a sleeping machine.
+3. **Pool isolation.** The router only touches machines it provisioned itself — membership is the persisted id list, written solely by the create path, never the display label (which is user-editable). A machine the user made and named by hand is never drafted into agent work, even if it is renamed `agent-pool`; `--machine <id>` is the explicit opt-in.
 4. **Deterministic contract.** `--machine <id>` pins, `--new` forces a fresh machine, the remote exit code passes through, `--json` returns `{machine, created, exit_code, stdout, stderr, ...}`.
 
 Supporting primitives shipped alongside: `vm push` / `vm pull` (chunked, digest-verified file transfer over exec — works on any provider with a shell, no SSH), and `vm wait` (readiness gate).

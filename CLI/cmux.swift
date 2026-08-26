@@ -5068,7 +5068,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|run|exec|push|pull|wait|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|run|exec|push|pull|wait|open|ports|tools|handoff|promote-template|ssh> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -16615,7 +16615,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <base|new|ls|status|stats|rename|snapshot|fork|restore|rm|run|exec|push|pull|wait|shell|desktop|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|status|stats|rename|snapshot|fork|restore|rm|run|exec|push|pull|wait|shell|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -37335,7 +37335,7 @@ export default CMUXSessionRestore;
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
-          vm <base|new|ls|status|stats|rename|snapshot|fork|restore|rm|run|exec|push|pull|wait|shell|desktop|ssh> [args...]    (alias: cloud)
+          vm <base|new|ls|status|stats|rename|snapshot|fork|restore|rm|run|exec|push|pull|wait|shell|desktop|open|ports|tools|handoff|promote-template|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

@@ -7,9 +7,10 @@ Recipes for doing the user's work *on* a machine while keeping the user in the l
 The routed path — no machine id anywhere:
 
 ```bash
-cmux vm run --sync -- sh -c 'cd work/$(basename "$PWD") && bun install'
-cmux vm run -- sh -c 'cd work/<dir> && nohup bun run dev > /tmp/dev.log 2>&1 &'
-cmux vm run -- sh -c 'sleep 2 && tail -n 5 /tmp/dev.log'        # confirm it actually started
+cmux vm run --sync -- bun install                                # --sync runs the command inside the synced work/<dir>
+cmux vm run --sync -- sh -c 'nohup bun run dev > /tmp/dev.log 2>&1 &'
+# wait for the port, not a fixed delay; fail loudly with the log if it never comes up
+cmux vm run -- sh -c 'for i in $(seq 1 60); do wget -qO- http://localhost:3000 >/dev/null 2>&1 && exit 0; sleep 1; done; tail -n 20 /tmp/dev.log; exit 1'
 id=$(cmux vm run --json -- true | jq -r '.machine')             # the machine the router bound
 cmux vm open "$id" 3000 --print                                 # tokened URL to give the user
 ```
@@ -17,7 +18,8 @@ cmux vm open "$id" 3000 --print                                 # tokened URL to
 Sticky binding means every `vm run` from this directory lands on the same machine, so the synced checkout and installed deps persist between commands. The explicit reuse-or-create spelling still works when you want full control:
 
 ```bash
-id=$(cmux vm ls --json | jq -r '.vms[0].id // empty')
+# only a ready machine you set aside for agent work — never the user's own named machines
+id=$(cmux vm ls --json | jq -r '[.vms[] | select(.displayName == "agent-pool" and (.status | test("^(running|ready|standby|paused)$")))][0].id // empty')
 [ -n "$id" ] || id=$(cmux vm new --base --detach --json | jq -r '.id')
 cmux vm wait "$id" --wake
 cmux vm push "$id" . work/app
@@ -41,8 +43,10 @@ Public repos can just clone on the machine: `cmux vm exec <id> -- git clone http
 ## 3. Builds and tests in the cloud instead of the local Mac
 
 ```bash
-cmux vm exec <id> -- sh -c 'cd work/app && nohup make test > /tmp/test.log 2>&1; echo done >> /tmp/test.log &'
-# poll instead of holding a long exec open
+cmux vm exec <id> -- sh -c 'cd work/app && nohup sh -c "make test > /tmp/test.log 2>&1; echo \$? > /tmp/test.status" >/dev/null 2>&1 &'
+# poll instead of holding a long exec open: the status file appears only when the
+# run finishes and holds its exit code, so pass/fail is never ambiguous
+cmux vm exec <id> -- sh -c 'cat /tmp/test.status 2>/dev/null || echo running'
 cmux vm exec <id> -- tail -n 30 /tmp/test.log
 # bring artifacts home
 cmux vm pull <id> work/app/dist ./dist-from-cloud

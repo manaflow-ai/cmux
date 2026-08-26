@@ -57426,6 +57426,23 @@
         }
       }
     },
+    "cli.vm.pull.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm pull: %1$d/%2$d chunks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm pull: %1$d/%2$d チャンク"
+          }
+        }
+      }
+    },
     "cli.vm.pull.summary": {
       "extractionState": "manual",
       "localizations": {
@@ -57456,6 +57473,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキップ: %1$@（すべて送るには --no-default-excludes を指定）"
+          }
+        }
+      }
+    },
+    "cli.vm.push.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm push: %1$d/%2$d chunks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm push: %1$d/%2$d チャンク"
           }
         }
       }

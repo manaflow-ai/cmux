@@ -39,7 +39,7 @@ cmux vm base reset --reason "fresh"    # new Base generation; the old VM is reta
 ## Running work
 
 ```bash
-# routed (no machine id): sticky per directory, then idle pool machine, then provision
+# routed (no machine id): sticky per directory, then an idle machine the router provisioned earlier, then provision
 cmux vm run -- <command...>
 cmux vm run --sync -- bun test                 # push cwd to work/<basename>, run there
 cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'

@@ -133,7 +133,14 @@ extension CMUXCLI {
             appliedExcludes = excludes
             let tarURL = try makeLocalTarball(of: localURL, excludes: excludes)
             stagingTarURL = tarURL
-            payloadData = try Data(contentsOf: tarURL)
+            do {
+                payloadData = try Data(contentsOf: tarURL)
+            } catch {
+                // The deferred cleanup below is not installed yet; do not leak a
+                // large staging tarball in the temp directory on a read failure.
+                try? FileManager.default.removeItem(at: tarURL)
+                throw error
+            }
         } else {
             payloadData = try Data(contentsOf: localURL)
         }
@@ -494,7 +501,11 @@ extension CMUXCLI {
             offset = end
             chunkIndex += 1
             if totalChunks > 1 {
-                vmTransferProgress("cmux vm push: \(chunkIndex)/\(totalChunks) chunks", final: chunkIndex == totalChunks)
+                let template = CMUXDiffViewerLocalization.string(
+                    "cli.vm.push.progress",
+                    defaultValue: "cmux vm push: %1$d/%2$d chunks"
+                )
+                vmTransferProgress(String(format: template, chunkIndex, totalChunks), final: chunkIndex == totalChunks)
             }
         }
 
@@ -558,7 +569,11 @@ extension CMUXCLI {
             }
             data.append(decoded)
             if totalChunks > 1 {
-                vmTransferProgress("cmux vm pull: \(chunkIndex + 1)/\(totalChunks) chunks", final: chunkIndex + 1 == totalChunks)
+                let template = CMUXDiffViewerLocalization.string(
+                    "cli.vm.pull.progress",
+                    defaultValue: "cmux vm pull: %1$d/%2$d chunks"
+                )
+                vmTransferProgress(String(format: template, chunkIndex + 1, totalChunks), final: chunkIndex + 1 == totalChunks)
             }
         }
 
@@ -576,9 +591,11 @@ extension CMUXCLI {
 
     // MARK: - vm run (the machine router)
 
-    /// Label that marks a machine as belonging to the router's pool. `vm run`
-    /// only reuses and scales machines carrying this label, so it never runs
-    /// agent workloads on a machine the user set up by hand.
+    /// Display label the router puts on machines it provisions so the pool is
+    /// recognizable in `vm ls` and the Machines panel. It is *not* the membership
+    /// test — display names are user-editable, so a hand-made machine renamed
+    /// "agent-pool" must never be drafted. Membership is the persisted id list in
+    /// `~/.cmuxterm/vm-run-pool.json`, written only by `createPoolVM`.
     static let vmRunPoolLabel = "agent-pool"
     static let vmRunDefaultTimeoutSeconds = 600
     static let vmRunCreateWaitSeconds = 300
@@ -591,9 +608,11 @@ extension CMUXCLI {
         Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|32g>] [--timeout <seconds>] -- <command...>
 
         Run a command on a cloud machine without naming one: reuses an idle
-        machine from the router pool (label "\(vmRunPoolLabel)"), wakes a sleeping
-        one, or provisions a fresh machine when the pool is empty or busy —
-        then executes the command and passes its exit code through.
+        machine the router itself provisioned earlier (shown as "\(vmRunPoolLabel)"
+        in `cmux vm ls`), wakes a sleeping one, or provisions a fresh machine
+        when the pool is empty or busy — then executes the command and passes
+        its exit code through. Machines you created by hand are never drafted;
+        use --machine <id> to run on one deliberately.
 
         Options:
           --sync                Push the current directory to work/<basename> first
@@ -811,14 +830,45 @@ extension CMUXCLI {
         try? data.write(to: storeURL, options: [.atomic])
     }
 
+    /// Machines this router provisioned, persisted per Mac. This list — never the
+    /// display label — is what makes a machine eligible for `vm run`.
+    struct VMRunPoolStore: Codable {
+        var machines: [String]
+    }
+
+    static func vmRunPoolStoreURL() -> URL {
+        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("vm-run-pool.json", isDirectory: false)
+    }
+
+    static func loadVMRunPool(from url: URL? = nil) -> Set<String> {
+        let storeURL = url ?? vmRunPoolStoreURL()
+        guard let data = try? Data(contentsOf: storeURL),
+              let store = try? JSONDecoder().decode(VMRunPoolStore.self, from: data) else {
+            return []
+        }
+        return Set(store.machines)
+    }
+
+    static func saveVMRunPool(_ machines: Set<String>, to url: URL? = nil) {
+        let storeURL = url ?? vmRunPoolStoreURL()
+        guard let data = try? JSONEncoder().encode(VMRunPoolStore(machines: machines.sorted())) else { return }
+        try? FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: storeURL, options: [.atomic])
+    }
+
     /// Routing policy, in order:
     /// 1. `--machine` bypasses routing entirely.
     /// 2. Awake pool machines under the busy threshold, least-loaded first.
     /// 3. Sleeping pool machines (exec wakes them).
     /// 4. Provision a fresh pool machine (unless the plan is at its cap).
     /// 5. At the plan cap: the least-loaded busy pool machine.
-    /// Pool membership is the "\(vmRunPoolLabel)" label; the router never touches
-    /// machines the user created and named themselves.
+    /// Pool membership is the persisted id list from `createPoolVM`; the router
+    /// never touches machines the user created themselves, whatever their label.
     private func selectVMForRun(
         machineOverride: String?,
         forceNew: Bool,
@@ -837,10 +887,18 @@ extension CMUXCLI {
         if !forceNew {
             let listResponse = try client.sendV2(method: "vm.list", responseTimeout: 60)
             let vms = (listResponse["vms"] as? [[String: Any]]) ?? []
+            let poolIDs = Self.loadVMRunPool()
+            // Forget pool ids whose machines are gone (deleted by the user), so the
+            // store cannot grow stale or accidentally match a recycled id later.
+            let liveIDs = Set(vms.compactMap { $0["id"] as? String })
+            let prunedPoolIDs = poolIDs.intersection(liveIDs)
+            if prunedPoolIDs != poolIDs {
+                Self.saveVMRunPool(prunedPoolIDs)
+            }
             let pool = vms.filter { vm in
-                let label = (vm["displayName"] as? String) ?? ""
+                guard let id = vm["id"] as? String else { return false }
                 let status = ((vm["status"] as? String) ?? "").lowercased()
-                return label == Self.vmRunPoolLabel && readyStatuses.contains(status)
+                return prunedPoolIDs.contains(id) && readyStatuses.contains(status)
             }
             // Sticky binding beats load: the machine that last ran this
             // directory's work holds its synced checkout and installed deps.
@@ -906,8 +964,11 @@ extension CMUXCLI {
         guard let id = response["id"] as? String, !id.isEmpty else {
             throw CLIError(message: "vm run: create returned no machine id")
         }
-        // Label failures are cosmetic (the machine still works this run), but an
-        // unlabeled machine would leak out of the pool, so surface the problem.
+        // Membership is recorded before anything else can fail: this is what
+        // makes the machine eligible for reuse by later runs.
+        Self.saveVMRunPool(Self.loadVMRunPool().union([id]))
+        // The label is cosmetic (membership is already recorded), but without it
+        // the machine is not recognizable as pool in `vm ls`, so say so.
         do {
             _ = try client.sendV2(
                 method: "vm.rename",
@@ -915,7 +976,7 @@ extension CMUXCLI {
                 responseTimeout: 60
             )
         } catch {
-            cliWriteStderr("[cmux vm run] warning: could not label \(id) as \(Self.vmRunPoolLabel); future runs will not reuse it\n")
+            cliWriteStderr("[cmux vm run] warning: could not label \(id) as \(Self.vmRunPoolLabel); it stays in the pool but will not show that label in `cmux vm ls`\n")
         }
         try waitForVMReady(vmID: id, timeoutSeconds: Self.vmRunCreateWaitSeconds, client: client)
         return id

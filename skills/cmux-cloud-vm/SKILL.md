@@ -43,7 +43,7 @@ Every subcommand honors the global `--json` flag and exits non-zero on failure; 
 
 ## Agent policy
 
-- **Prefer `vm run` over naming machines.** It reuses/wakes/provisions inside a dedicated pool (label `agent-pool`) and never drafts machines the user created by hand. Machines are the user's paid, limited resources.
+- **Prefer `vm run` over naming machines.** It reuses/wakes/provisions only machines it provisioned itself (recorded in `~/.cmuxterm/vm-run-pool.json`, shown as `agent-pool` in `vm ls`) and never drafts machines the user created by hand — `--machine <id>` is the deliberate way to use one. Machines are the user's paid, limited resources.
 - **Reuse before create** when you do name machines: `cmux vm ls` first; prefer an existing idle machine or `vm base open`.
 - **Stay headless while working.** `vm new --detach`, then `exec`/`push`/`pull`. `vm shell`, `vm desktop`, and `vm open` (without `--print`) open panes in the user's app — use those to *show* results, not to do the work.
 - **Checkpoint before risky operations** (`cmux vm snapshot <id>`), and fork instead of experimenting on a machine the user relies on.

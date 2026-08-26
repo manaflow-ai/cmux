@@ -269,6 +269,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(pulled, remoteData, "pulled bytes must match the machine's file")
     }
 
+    private static func writeJSON(_ object: Any, to url: URL) throws {
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+    }
+
     private static func vmRunWorkKey(forDirectory path: String) -> String {
         let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
         let digest = SHA256.hash(data: Data(canonical.utf8))
@@ -288,8 +292,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let isolatedHome = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vm-run-home-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: isolatedHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: isolatedHome.appendingPathComponent(".cmuxterm"),
+            withIntermediateDirectories: true
+        )
         defer { try? FileManager.default.removeItem(at: isolatedHome) }
+        // Only pool-1 was provisioned by the router. "impostor" carries the same
+        // display label but is a user machine — it must never be drafted.
+        try Self.writeJSON(["machines": ["pool-1"]], to: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             if line.hasPrefix("auth ") { return "OK" }
@@ -302,6 +312,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.list":
                 return self.v2Response(id: id, ok: true, result: [
                     "vms": [
+                        ["id": "impostor", "displayName": "agent-pool", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
                         ["id": "pool-1", "displayName": "agent-pool", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
                         ["id": "user-vm", "displayName": "my precious", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
                     ],
@@ -340,6 +351,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             state.snapshot().contains { $0.contains(#""method":"vm.create""#) },
             "an idle pool machine must be reused, not a new one created"
+        )
+        XCTAssertFalse(
+            state.snapshot().contains { $0.contains(#""method":"vm.stats""#) && $0.contains("impostor") },
+            "a user machine merely labeled agent-pool must not even be load-scored"
         )
     }
 
@@ -409,6 +424,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             commands.contains { $0.contains(#""method":"vm.rename""#) && $0.contains("agent-pool") },
             "a provisioned machine must be labeled into the pool"
         )
+        let poolData = try Data(contentsOf: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
+        let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
+        XCTAssertEqual(pool?["machines"] as? [String], ["fresh-1"], "membership must be persisted, not inferred from the label")
     }
 
     func testVMRunPrefersStickyBoundMachine() throws {
@@ -431,10 +449,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: isolatedHome) }
 
         // Bind the current directory's work to pool-2 even though pool-1 is idle.
+        // The binding's timestamp is a fixed instant far inside the TTL window
+        // (2100-01-01), so freshness does not depend on the host clock.
         let workKey = Self.vmRunWorkKey(forDirectory: FileManager.default.currentDirectoryPath)
-        let bindings = [workKey: ["machine": "pool-2", "updatedAtUnix": Int(Date().timeIntervalSince1970)]]
-        let bindingsData = try JSONSerialization.data(withJSONObject: bindings)
-        try bindingsData.write(to: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-bindings.json"))
+        try Self.writeJSON([workKey: ["machine": "pool-2", "updatedAtUnix": 4_102_444_800]], to: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-bindings.json"))
+        try Self.writeJSON(["machines": ["pool-1", "pool-2"]], to: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             if line.hasPrefix("auth ") { return "OK" }
