@@ -258,14 +258,24 @@ public actor CmxIrohRelayPolicyService {
         // Custom profiles can retain the managed catalog as metadata, but its
         // expiry must never disable a valid custom endpoint profile.
         if let currentEffective,
-           currentEffective.source == .custom
-            || currentEffective.source == .customUnavailable {
+           (currentEffective.source == .custom
+            || currentEffective.source == .customUnavailable) {
             return currentEffective
         }
         let operation = beginOperation()
-        let persisted = try? await preferenceStore.load(accountID: accountID)
-        let configuration = currentEffective?.requestedConfiguration ?? persisted?.requested
-        let revision = currentEffective?.preferenceRevision ?? persisted?.revision
+        let configuration: CmxIrohAccountRelayConfiguration?
+        let revision: Int64?
+        if let currentEffective {
+            // The normal live-endpoint path is synchronous after the operation
+            // token is claimed, so another service operation cannot supersede
+            // the fail-closed decision while preference persistence suspends.
+            configuration = currentEffective.requestedConfiguration
+            revision = currentEffective.preferenceRevision
+        } else {
+            let persisted = try? await preferenceStore.load(accountID: accountID)
+            configuration = persisted?.requested
+            revision = persisted?.revision
+        }
         return publishUnavailable(
             configuration: configuration,
             revision: revision,
