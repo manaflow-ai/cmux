@@ -77,6 +77,69 @@ struct AgentStateScannerTests {
         #expect(observe("second", sample, at: 23).verdict == .stale)
     }
 
+    /// A blocked pane is perfectly still - it is waiting for the user - so
+    /// stillness says nothing about it. Retiring it would erase the one state
+    /// the user most needs to act on, which is why scanning every agent pane is
+    /// only safe with this exclusion.
+    @Test func aBlockedOrErroredPaneIsNeverCorrected() {
+        for blocked in [AgentHibernationLifecycleState.needsInput, .error] {
+            #expect(
+                AgentStateScanner.correctableAgentKeys(
+                    lifecycles: ["claude_code": blocked],
+                    liveAgentKeys: ["claude_code"]
+                ).isEmpty,
+                "\(blocked) must survive a still screen"
+            )
+        }
+        // Already the answer: nothing to correct.
+        #expect(
+            AgentStateScanner.correctableAgentKeys(
+                lifecycles: ["claude_code": .idle],
+                liveAgentKeys: ["claude_code"]
+            ).isEmpty
+        )
+    }
+
+    /// The two states a missing hook leaves wrong: a turn that never ended, and
+    /// a resumed session that has not reported anything yet.
+    @Test func aRunningOrStatelessAgentPaneIsCorrectable() {
+        #expect(
+            AgentStateScanner.correctableAgentKeys(
+                lifecycles: ["claude_code": .running],
+                liveAgentKeys: []
+            ) == ["claude_code"]
+        )
+        // No lifecycle at all, but the agent process is live - the pane that
+        // reads as a plain terminal while its agent sits ready.
+        #expect(
+            AgentStateScanner.correctableAgentKeys(
+                lifecycles: [:],
+                liveAgentKeys: ["claude_code"]
+            ) == ["claude_code"]
+        )
+        #expect(
+            AgentStateScanner.correctableAgentKeys(
+                lifecycles: ["claude_code": .unknown],
+                liveAgentKeys: ["claude_code"]
+            ) == ["claude_code"]
+        )
+    }
+
+    /// A pane with no agent is left alone entirely: no agent means black, and
+    /// the scanner must not be what puts a colour on a plain terminal.
+    @Test func aPaneWithNoAgentIsNeverTouched() {
+        #expect(
+            AgentStateScanner.correctableAgentKeys(lifecycles: [:], liveAgentKeys: []).isEmpty
+        )
+        // Manual loader keys drive the sidebar spinner, not an agent.
+        #expect(
+            AgentStateScanner.correctableAgentKeys(
+                lifecycles: ["manual": .running],
+                liveAgentKeys: ["manual:abc"]
+            ).isEmpty
+        )
+    }
+
     /// The retirement is journaled as an explicit idle assertion, which is the
     /// only kind the reducer honours a declared phase for. A different kind
     /// would be recorded and then silently ignored.

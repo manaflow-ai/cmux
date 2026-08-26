@@ -67,6 +67,38 @@ enum AgentStateScanner {
         return (previous, still >= stillnessSeconds ? .stale : .working)
     }
 
+    /// Which of a pane's agent keys this scanner may correct.
+    ///
+    /// A key qualifies when it claims `running` (a turn that may never have
+    /// ended) or reports nothing at all while its agent process is live (a
+    /// resumed session that has not spoken yet). Both mean "an agent is here"
+    /// and both resolve to `idle` once the screen settles.
+    ///
+    /// `needsInput` and `error` are deliberately excluded. A pane blocked on a
+    /// question is perfectly still — it is waiting for the user — so stillness
+    /// says nothing about it, and retiring it would erase the one state the
+    /// user most needs to act on. `idle` is excluded because it is already the
+    /// answer.
+    static func correctableAgentKeys(
+        lifecycles: [String: AgentHibernationLifecycleState],
+        liveAgentKeys: Set<String>
+    ) -> [String] {
+        var keys: Set<String> = []
+        for (key, state) in lifecycles
+        where !AgentHibernationLifecycleStatusKeys.isManualKey(key) && state == .running {
+            keys.insert(key)
+        }
+        for key in liveAgentKeys where !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+            switch lifecycles[key] {
+            case .none, .some(.unknown), .some(.running):
+                keys.insert(key)
+            case .some(.idle), .some(.needsInput), .some(.error):
+                continue
+            }
+        }
+        return keys.sorted()
+    }
+
     /// The journal event that retires a stale `running`.
     ///
     /// A `stateChanged` asserting `idle`, which is the one kind the reducer

@@ -3,11 +3,24 @@ import Foundation
 
 /// Drives ``AgentStateScanner`` on a timer.
 ///
-/// Samples only panes whose current state is `running`. That is the one claim
-/// the hooks can leave permanently wrong — an interrupted or cleared turn emits
-/// no Stop, so the pane is told the agent started and never told it stopped —
-/// and it bounds the work to a handful of panes rather than every pane on a
-/// timer, which matters when a window holds forty of them.
+/// Samples every pane running an agent, and corrects the two states a missing
+/// hook can leave wrong:
+///
+/// - `running` that never ended, because an interrupted or cleared turn emits
+///   no Stop: the pane is told the agent started and never told it stopped.
+/// - *no state at all*, because a resumed session reports nothing until its
+///   first turn: a live agent reads as a plain terminal.
+///
+/// Both resolve to `idle` — an agent is present and not working — and both are
+/// only ever concluded from a screen that has stopped changing.
+///
+/// It deliberately never touches `needsInput` or `error`. A pane blocked on a
+/// question is *also* perfectly still, because it is waiting for the user, so
+/// stillness cannot distinguish it from a finished turn; retiring it would
+/// erase exactly the state you most need to see. Nor does it ever promote a
+/// pane *to* running: a changing screen is also what typing at the prompt looks
+/// like, and prompt-submit already reports turn starts reliably — it is turn
+/// ends that go missing.
 @MainActor
 final class AgentStateScannerRunner {
     static let shared = AgentStateScannerRunner()
@@ -56,12 +69,19 @@ final class AgentStateScannerRunner {
             for (panelId, panel) in workspace.panels {
                 guard let terminalPanel = panel as? TerminalPanel else { continue }
                 let states = workspace.agentLifecycleStatesByPanelId[panelId] ?? [:]
-                // Only a pane claiming to work can be wrong in the way this
-                // scanner fixes, and only its own key may be retired.
-                let runningKeys = states
-                    .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) && $0.value == .running }
-                    .map(\.key)
-                guard !runningKeys.isEmpty else { continue }
+                // A pane counts as running an agent when it has a registered
+                // agent process, even with no lifecycle yet — that absence is
+                // one of the two states being corrected, so it cannot be the
+                // thing that excludes a pane from scanning.
+                let liveKeys = Set(
+                    (workspace.agentPIDKeysByPanelId[panelId] ?? [])
+                        .map { workspace.agentStatusKey(forAgentPIDKey: $0) }
+                )
+                let correctableKeys = AgentStateScanner.correctableAgentKeys(
+                    lifecycles: states,
+                    liveAgentKeys: liveKeys
+                )
+                guard !correctableKeys.isEmpty else { continue }
 
                 let key = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
                 seen.insert(key)
@@ -85,7 +105,7 @@ final class AgentStateScannerRunner {
                     continue
                 }
                 retired.insert(key)
-                for agentKey in runningKeys.sorted() {
+                for agentKey in correctableKeys.sorted() {
                     emitStale(
                         workspace: workspace,
                         panelId: panelId,
