@@ -2,15 +2,17 @@ import { BlaxelProvider } from "./blaxel";
 import { DaytonaProvider } from "./daytona";
 import { E2BProvider } from "./e2b";
 import { FreestyleProvider } from "./freestyle";
-import type { ProviderId, VMProvider } from "./types";
+import type { ProviderId, VmProviderDriver } from "./types";
 
 export * from "./types";
 export { BlaxelProvider, DaytonaProvider, E2BProvider, FreestyleProvider };
 
-let registry: Map<ProviderId, VMProvider> | null = null;
+// Adding a provider = one new driver file implementing VmProviderDriver (see CONTRACT.md)
+// plus its registry entry here.
+let registry: Map<ProviderId, VmProviderDriver> | null = null;
 
-function buildRegistry(): Map<ProviderId, VMProvider> {
-  const map = new Map<ProviderId, VMProvider>();
+function buildRegistry(): Map<ProviderId, VmProviderDriver> {
+  const map = new Map<ProviderId, VmProviderDriver>();
   map.set("e2b", new E2BProvider());
   map.set("freestyle", new FreestyleProvider());
   map.set("daytona", new DaytonaProvider());
@@ -18,7 +20,7 @@ function buildRegistry(): Map<ProviderId, VMProvider> {
   return map;
 }
 
-export function getProvider(id: ProviderId): VMProvider {
+export function getProvider(id: ProviderId): VmProviderDriver {
   if (!registry) registry = buildRegistry();
   const p = registry.get(id);
   if (!p) throw new Error(`unknown VM provider: ${id}`);

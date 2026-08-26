@@ -1,6 +1,8 @@
 // Unified driver contract over each VM provider. No cloudrouter, no shared base class — just
-// per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
-// into specifics.
+// per-provider implementations behind an interface. Callers hold a `VmProviderDriver` and never
+// reach into specifics. Semantics, idempotency rules, and the error taxonomy are documented in
+// CONTRACT.md next to this file; adding a provider means one new file implementing this
+// interface plus a registry entry in index.ts.
 
 export type ProviderId = "e2b" | "freestyle" | "daytona" | "blaxel";
 
@@ -125,7 +127,7 @@ export type SnapshotRef = {
   name?: string;
 };
 
-export interface VMProvider {
+export interface VmProviderDriver {
   readonly id: ProviderId;
 
   create(options: CreateOptions): Promise<VMHandle>;
@@ -173,6 +175,9 @@ export interface VMProvider {
    */
   revokeEndpointLeases?(vmId: string): Promise<void>;
 }
+
+/** @deprecated Historical name; use VmProviderDriver. */
+export type VMProvider = VmProviderDriver;
 
 export class ProviderError extends Error {
   constructor(

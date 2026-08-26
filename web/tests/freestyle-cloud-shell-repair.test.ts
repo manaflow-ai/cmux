@@ -7,12 +7,17 @@ const freestyleDriverSource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../services/vms/drivers/freestyle.ts"),
   "utf8",
 );
+const cmuxdConstantsSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../services/vms/drivers/cmuxdConstants.ts"),
+  "utf8",
+);
 
 describe("Freestyle Cloud VM shell repair", () => {
   test("daemon creation and repair use the managed cloud shell", () => {
-    expect(freestyleDriverSource).toContain(
-      'const CMUX_CLOUD_SHELL_PATH = "/usr/local/bin/cmux-cloud-shell"',
+    expect(cmuxdConstantsSource).toContain(
+      'export const CMUX_CLOUD_SHELL_PATH = "/usr/local/bin/cmux-cloud-shell"',
     );
+    expect(freestyleDriverSource).toContain("CMUX_CLOUD_SHELL_PATH");
     expect(freestyleDriverSource).toContain('"--shell",\n        CMUX_CLOUD_SHELL_PATH');
     expect(freestyleDriverSource).toContain(
       "ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file ${CMUXD_WS_PTY_LEASE_PATH} --rpc-auth-lease-file ${CMUXD_WS_RPC_LEASE_PATH} --shell /usr/local/bin/cmux-cloud-shell",
