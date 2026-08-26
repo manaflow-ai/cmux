@@ -1715,7 +1715,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         guard let model = configuration.appKitWorkspaceRowModel else { return }
         guard let actions = configuration.appKitWorkspaceRowActions else {
-            releasePumpHeightOverride(for: configuration.id, ownedBy: cell)
+            if cell.currentModelForMeasurement != model {
+                releasePumpHeightOverride(for: configuration.id, ownedBy: cell)
+            }
             cell.configurePresentation(model: model)
             return
         }
@@ -1724,7 +1726,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // already-mounted cell. Retire any pump geometry owned by that exact
         // cell before the repaint so its superseded height cannot outlive the
         // model that is about to be installed.
-        releasePumpHeightOverride(for: rowId, ownedBy: cell)
+        if cell.currentModelForMeasurement != model {
+            releasePumpHeightOverride(for: rowId, ownedBy: cell)
+        }
         cell.setPresentationActive(isPresentationActive)
         cell.configure(
             model: model,
