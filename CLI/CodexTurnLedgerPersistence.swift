@@ -2,6 +2,21 @@ import Darwin
 import Foundation
 
 extension CodexTurnLedger {
+    func stopChild(id: String?, turnID: String?, in record: inout CodexTurnLedgerRecord) {
+        let key = turnKey(turnID ?? record.activeTurnID)
+        guard let id = Self.normalized(id), id.utf8.count <= Self.maximumIdentifierBytes else { return }
+        var children = record.activeChildrenByTurn[key] ?? []
+        children.removeAll { $0 == id }
+        if children.isEmpty {
+            record.activeChildrenByTurn.removeValue(forKey: key)
+        } else {
+            record.activeChildrenByTurn[key] = children
+        }
+        var terminal = record.terminalChildrenByTurn[key] ?? []
+        if !terminal.contains(id) { terminal.append(id) }
+        record.terminalChildrenByTurn[key] = terminal
+    }
+
     func activeChildCount(_ record: CodexTurnLedgerRecord) -> Int {
         let exact = record.activeChildrenByTurn.values.reduce(0) { $0 + $1.count }
         let unknown = record.unknownChildrenByTurn.values.reduce(0, +)

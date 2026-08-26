@@ -413,9 +413,16 @@ final class CodexTurnLedger {
             // that protects the foreground resume identity.
             return .unknown
         }
-        // A direct top-level launch may have no SessionStart (old Codex or a
-        // manually installed hook). Preserve that compatibility, but once an
-        // owner exists the branch above is authoritative.
+        // Legacy direct launches may omit SessionStart; preserve them unless
+        // a tokenized child contradicts the claimed owner PID.
+        if invocation.token != nil,
+           invocation.ownerPID != nil,
+           invocation.observedPID != invocation.ownerPID {
+            if case .sessionStart = event {
+                return .foreground
+            }
+            return .unknown
+        }
         return .foreground
     }
 
@@ -481,19 +488,5 @@ final class CodexTurnLedger {
         }
     }
 
-    private func stopChild(id: String?, turnID: String?, in record: inout CodexTurnLedgerRecord) {
-        let key = turnKey(turnID ?? record.activeTurnID)
-        guard let id = Self.normalized(id), id.utf8.count <= Self.maximumIdentifierBytes else { return }
-        var children = record.activeChildrenByTurn[key] ?? []
-        children.removeAll { $0 == id }
-        if children.isEmpty {
-            record.activeChildrenByTurn.removeValue(forKey: key)
-        } else {
-            record.activeChildrenByTurn[key] = children
-        }
-        var terminal = record.terminalChildrenByTurn[key] ?? []
-        if !terminal.contains(id) { terminal.append(id) }
-        record.terminalChildrenByTurn[key] = terminal
-    }
 
 }
