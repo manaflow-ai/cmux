@@ -97,6 +97,9 @@ jobs:
             fi
           fi
 
+      - name: Run nested topology package tests
+        run: swift test --package-path Packages/macOS/CmuxNestedTopology
+
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |

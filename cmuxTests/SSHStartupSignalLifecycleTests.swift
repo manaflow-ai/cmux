@@ -1385,6 +1385,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.ssh_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["id"] as? String, vmID)
+                XCTAssertNil(params["require_daemon"])
                 return self.v2Response(
                     id: id,
                     ok: true,

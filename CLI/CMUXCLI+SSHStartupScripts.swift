@@ -520,7 +520,7 @@ extension CMUXCLI {
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
+            "unset cmux_tmp",
             "unset -f cmux_cleanup 2>/dev/null || true",
             "exit $cmux_status",
         ].joined(separator: "\n")

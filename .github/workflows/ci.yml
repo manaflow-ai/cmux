@@ -1665,6 +1665,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxNestedTopology
             CmuxMobileWorkspace
             CmuxNotifications
             CmuxSettings

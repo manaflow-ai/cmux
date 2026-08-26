@@ -4580,9 +4580,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             guard let occludedWindow = notification.object as? NSWindow else { return }
-            self?.terminalSurface?.setRendererWindowVisible(
-                occludedWindow.occlusionState.contains(.visible)
-            )
+            _ = MainActor.assumeIsolated {
+                self?.terminalSurface?.setRendererWindowVisible(
+                    occludedWindow.occlusionState.contains(.visible)
+                )
+            }
         }
         terminalSurface?.setRendererWindowVisible(
             window.occlusionState.contains(.visible)
