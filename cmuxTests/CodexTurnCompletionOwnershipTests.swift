@@ -250,9 +250,13 @@ struct CodexTurnCompletionOwnershipTests {
         input: String,
         environment: [String: String]
     ) -> ClaudeHookSurfaceResolutionSwiftTests.ProcessRunResult {
+        let command = subcommand.split(separator: " ").map(String.init)
+        let arguments = command.first == "feed"
+            ? ["hooks"] + command
+            : ["hooks", "codex"] + command
         harness.support.runProcess(
             executablePath: harness.context.cliPath,
-            arguments: ["hooks", "codex"] + subcommand.split(separator: " ").map(String.init),
+            arguments: arguments,
             environment: environment,
             standardInput: input,
             timeout: 5

@@ -20,6 +20,8 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
         .init(agentEvent: "PreToolUse", cmuxSubcommand: "pre-tool-use", timeoutMs: 120000),
         .init(agentEvent: "PostToolUse", cmuxSubcommand: "post-tool-use", timeoutMs: 10000),
         .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification", timeoutMs: 120000),
+        .init(agentEvent: "SubagentStart", cmuxSubcommand: "subagent-start", timeoutMs: 10000, isSynchronous: true),
+        .init(agentEvent: "SubagentStop", cmuxSubcommand: "subagent-stop", timeoutMs: 10000, isSynchronous: true),
     ])
 
     /// Exact older shapes accepted by saved-layout and replay sanitization.

@@ -160,7 +160,9 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, shellObserved, shellDone, shellFailed, sessionEnd, sessionFinalize, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse
+        case codexSubagentStart, codexSubagentStop
+        case shellObserved, shellDone, shellFailed, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -171,6 +173,8 @@ extension CMUXCLI {
         "notify": .notification,
         "agent-response": .stop,
         "approval-response": .approvalResponse,
+        "subagent-start": .codexSubagentStart,
+        "subagent-stop": .codexSubagentStop,
         "shell-exec": .promptSubmit,
         "shell-done": .shellDone,
         "shell-failed": .shellFailed,
@@ -217,10 +221,18 @@ extension CMUXCLI {
            let injectedEvent = CodexHookInjectionSchema.current.events.first(where: {
                $0.agentEvent == agentEvent
            }) {
-            let inline = codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
-                for: def
-            )
+            let inline: String
+            if injectedEvent.isSynchronous {
+                inline = codexSynchronousAgentHookShellCommand(
+                    "cmux hooks feed --source codex --event \(agentEvent)",
+                    for: def
+                )
+            } else {
+                inline = codexFireAndForgetAgentHookShellCommand(
+                    "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
+                    for: def
+                )
+            }
             return codexPersistentHookScriptCommand(
                 inline,
                 eventTag: "feed-\(agentEvent)"
@@ -271,7 +283,7 @@ extension CMUXCLI {
         return "{ \(command); }"
     }
 
-    private static func agentHookShellCommand(
+    static func agentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"
@@ -282,6 +294,17 @@ extension CMUXCLI {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
+    }
+
+    /// Synchronous Codex lifecycle hook command. Capturing the callback's
+    /// parent PID before dispatch prevents a descendant from reusing an
+    /// inherited `CMUX_CODEX_PID` as its own owner identity.
+    static func codexSynchronousAgentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef
+    ) -> String {
+        let dispatch = agentHookShellCommand(command, for: def)
+        return "CMUX_CODEX_HOOK_PID=\"${PPID:-}\"; export CMUX_CODEX_HOOK_PID; \(dispatch)"
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(

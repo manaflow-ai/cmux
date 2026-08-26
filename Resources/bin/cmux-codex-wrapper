@@ -229,7 +229,23 @@ fi
 
 # Export launch identity so the hook subprocesses and cmux's agent-pid /
 # ended-detection can bind this Codex to its surface and pid. Because we exec
-# codex below, $$ becomes the real codex pid.
+# codex below, $$ becomes the real codex pid. The invocation token is owned by
+# this wrapper generation. A wrapper launched from another Codex keeps the
+# inherited token as an explicit parent token, then gets a fresh child token;
+# a direct `codex exec` that bypasses this wrapper retains the outer token and
+# is distinguished by its live hook-process identity.
+CMUX_CODEX_PARENT_INVOCATION_ID="${CMUX_CODEX_INVOCATION_ID:-}"
+if command -v uuidgen >/dev/null 2>&1; then
+    CMUX_CODEX_INVOCATION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+else
+    CMUX_CODEX_INVOCATION_ID="cmux-codex-$$-$(date +%s)"
+fi
+export CMUX_CODEX_INVOCATION_ID
+if [[ -n "$CMUX_CODEX_PARENT_INVOCATION_ID" ]]; then
+    export CMUX_CODEX_PARENT_INVOCATION_ID
+else
+    unset CMUX_CODEX_PARENT_INVOCATION_ID
+fi
 export CMUX_CODEX_PID=$$
 export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"

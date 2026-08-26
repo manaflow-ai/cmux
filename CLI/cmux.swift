@@ -33076,6 +33076,8 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let codexInvocation = def.name == "codex" ? codexHookInvocation(environment: env) : nil
+        let codexLedger = def.name == "codex" ? codexTurnLedger(environment: env) : nil
         let cursorShellHasAuthoritativeSession = input.sessionId?.isEmpty == false
         let mappedSessionForPolicy = cursorShellEvent
             ? (sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline)))
@@ -34070,6 +34072,73 @@ export default CMUXSessionRestore;
         }
 
         switch action {
+        case .codexSubagentStart, .codexSubagentStop:
+            guard def.name == "codex", let codexLedger, let codexInvocation else {
+                break
+            }
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let target = resolveAgentHookTarget(mapped: mapped)
+            let workspaceId = target?.workspaceId ?? resolvedDirectWorkspaceArg ?? mapped?.workspaceId
+            let surfaceId = target?.surfaceId ?? resolvedDirectSurfaceArg ?? mapped?.surfaceId
+            let agentId = input.rawObject.flatMap {
+                firstString(in: $0, keys: ["agent_id", "agentId"])
+            } ?? input.object.flatMap {
+                firstString(in: $0, keys: ["agent_id", "agentId"])
+            }
+            let turnId = normalizedHookValue(input.turnId)
+            let decision: CodexTurnLedgerDecision
+            do {
+                if case .codexSubagentStart = action {
+                    decision = try codexLedger.subagentStart(
+                        sessionID: sessionId,
+                        agentID: agentId,
+                        turnID: turnId,
+                        workspaceID: workspaceId,
+                        surfaceID: surfaceId,
+                        invocation: codexInvocation
+                    )
+                } else {
+                    decision = try codexLedger.subagentStop(
+                        sessionID: sessionId,
+                        agentID: agentId,
+                        turnID: turnId,
+                        workspaceID: workspaceId,
+                        surfaceID: surfaceId,
+                        invocation: codexInvocation
+                    )
+                }
+            } catch {
+                // A failed lifecycle commit is not evidence that work drained.
+                // Keep the event unattributed and let the next parent Stop fail
+                // closed rather than allowing a false completion.
+                telemetry.captureError(stage: "codex-child-lifecycle", error: error)
+                if let workspaceId, let surfaceId {
+                    emitJournal(
+                        .stateChanged,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        isSubagent: true,
+                        detail: "child-lifecycle-commit-failed"
+                    )
+                }
+                return
+            }
+            if let workspaceId, let surfaceId {
+                let childJournalKind: AgentJournalEventKind = {
+                    if case .codexSubagentStart = action {
+                        return .childSpawned
+                    }
+                    return .childCompleted
+                }()
+                emitJournal(
+                    childJournalKind,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    isSubagent: true,
+                    detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested"
+                )
+            }
+
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -34082,6 +34151,26 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             let pid = inferredPID
+            if def.name == "codex", let codexLedger, let codexInvocation {
+                let ownership = try? codexLedger.sessionStart(
+                    sessionID: sessionId,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    invocation: codexInvocation
+                )
+                guard ownership?.ownership == .foreground else {
+                    telemetry.breadcrumb("codex-hook.session-start.nested-or-unknown")
+                    emitJournal(
+                        .sessionStarted,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        isSubagent: true,
+                        detail: "nested-session-start"
+                    )
+                    print("{}")
+                    return
+                }
+            }
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -34232,6 +34321,27 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
+            if def.name == "codex", let codexLedger, let codexInvocation {
+                let ownership = try? codexLedger.promptSubmit(
+                    sessionID: sessionId,
+                    turnID: input.turnId,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId,
+                    invocation: codexInvocation
+                )
+                guard ownership?.ownership == .foreground else {
+                    telemetry.breadcrumb("codex-hook.prompt-submit.nested-or-unknown")
+                    emitJournal(
+                        .turnStarted,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        isSubagent: true,
+                        detail: "nested-prompt-submit"
+                    )
+                    print("{}")
+                    return
+                }
+            }
             var cursorPromptApprovalNotificationKeys: [String] = []
             var cursorPromptShouldPreservePendingState = false
             if def.name == "cursor", !sessionId.isEmpty {
@@ -34638,6 +34748,33 @@ export default CMUXSessionRestore;
                 }
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let codexStopDecision: CodexTurnLedgerDecision? = {
+                guard def.name == "codex",
+                      !sessionId.isEmpty,
+                      let codexLedger,
+                      let codexInvocation else {
+                    return nil
+                }
+                return try? codexLedger.stop(
+                    sessionID: sessionId,
+                    turnID: input.turnId,
+                    workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
+                    surfaceID: resolvedDirectSurfaceArg ?? mapped?.surfaceId,
+                    invocation: codexInvocation
+                )
+            }()
+            if def.name == "codex", !sessionId.isEmpty {
+                guard codexStopDecision?.ownership == .foreground else {
+                    telemetry.breadcrumb("codex-hook.stop.nested-or-unknown")
+                    print("{}")
+                    return
+                }
+                if codexStopDecision?.settlement == .duplicate {
+                    telemetry.breadcrumb("codex-hook.stop.duplicate-settled")
+                    print("{}")
+                    return
+                }
+            }
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 reportTargetResolutionFailure()
                 emitJournal(.turnCompleted, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
@@ -34661,23 +34798,16 @@ export default CMUXSessionRestore;
             }
             let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let codexFailure: CodexHookFailureSummary?
-            let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
                 codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
-                if subagentNotificationSuppressionEnabled(env: env),
-                   let transcriptPath = normalizedHookValue(input.transcriptPath)
-                    ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
-                    codexSubagentSignals = readCodexTranscriptSubagentSignals(
-                        path: transcriptPath,
-                        turnId: input.turnId
-                    )
-                } else {
-                    codexSubagentSignals = CodexTranscriptSubagentSignals()
-                }
             } else {
                 codexFailure = nil
-                codexSubagentSignals = CodexTranscriptSubagentSignals()
             }
+            // Native child lifecycle is the sole Codex background-work
+            // authority. Transcript-tail signals are deliberately excluded:
+            // their flush order is not a completion boundary.
+            let codexHasActiveBackgroundWork = def.name == "codex"
+                && (codexStopDecision?.activeChildCount ?? 0) > 0
             let antigravityFailure: AgentHookNotificationSummary? = {
                 guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
                 let signal = firstString(in: rawObject, keys: ["terminationReason", "reason", "type", "kind"]) ?? ""
@@ -34731,13 +34861,10 @@ export default CMUXSessionRestore;
                 ?? antigravityFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                ?? String.localizedStringWithFormat(
-                    String(
-                        localized: "agent.codex.completion.body.sessionCompleted",
-                        defaultValue: "%@ session completed"
-                    ),
-                    def.displayName
-            )
+                ?? String(
+                    localized: "agent.generic.notification.body.taskCompleted",
+                    defaultValue: "Task completed"
+                )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
             let lifecycleAfterStop: AgentHibernationLifecycleState = {
@@ -34748,32 +34875,15 @@ export default CMUXSessionRestore;
             }()
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
-            let terminalActivePromptTurnIdsForStop: Set<String>
-            if !staleIdleStopHasNewerRunningSession,
-               def.name == "codex",
-               let incomingTurnId = normalizedHookValue(input.turnId) {
-                let activePromptTurnStack = mapped?.activePromptTurnIds?
-                    .compactMap({ normalizedHookValue($0) }) ?? []
-                let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
-                let activeTurnIds = activePromptTurnStack.isEmpty
-                    ? activePromptTurnId.map { [$0] } ?? []
-                    : activePromptTurnStack
-                let activeTurnIdsToCheck = activeTurnIds.filter { $0 != incomingTurnId }
-                if !activeTurnIdsToCheck.isEmpty,
-                   let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
-                       ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
-                    terminalActivePromptTurnIdsForStop = codexTranscriptTerminalTurnIds(
-                        path: transcriptPath,
-                        turnIds: Set(activeTurnIdsToCheck)
-                    )
-                } else {
-                    terminalActivePromptTurnIdsForStop = []
-                }
-            } else {
-                terminalActivePromptTurnIdsForStop = []
-            }
+            // Codex settlement is owned by CodexTurnLedger. A transcript tail
+            // cannot prove prompt ordering and is intentionally not consulted.
+            let terminalActivePromptTurnIdsForStop: Set<String> = []
             let nestedPromptStop: Bool
-            if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
+            if def.name == "codex", codexStopDecision?.settlement == .settled {
+                // The ledger admitted this exact terminal boundary; do not let
+                // a prior pending Stop's tombstone make it look nested.
+                nestedPromptStop = false
+            } else if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
                 nestedPromptStop = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -34797,21 +34907,26 @@ export default CMUXSessionRestore;
             } else {
                 nestedPromptStop = false
             }
-            // One ancestry walk per hook event, shared by the suppression gate
-            // and the notify payload's subagent tag.
-            let isNestedAgentSession = nestedAgentSessionDetected(
-                currentAgentPID: pid,
-                nestedPromptEvent: nestedPromptStop,
-                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
-                env: env
-            )
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
-                currentAgentPID: pid,
-                nestedPromptEvent: nestedPromptStop,
-                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
-                precomputedNestedDetection: isNestedAgentSession,
-                env: env
-            ) || staleIdleStopHasNewerRunningSession
+            // Codex ownership was admitted before any store mutation. Other
+            // integrations retain their existing ancestry-based suppression.
+            let isNestedAgentSession: Bool
+            let suppressVisibleMutations: Bool
+            if def.name == "codex" {
+                isNestedAgentSession = false
+                suppressVisibleMutations = staleIdleStopHasNewerRunningSession
+            } else {
+                isNestedAgentSession = nestedAgentSessionDetected(
+                    currentAgentPID: pid,
+                    nestedPromptEvent: nestedPromptStop,
+                    env: env
+                )
+                suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: pid,
+                    nestedPromptEvent: nestedPromptStop,
+                    precomputedNestedDetection: isNestedAgentSession,
+                    env: env
+                ) || staleIdleStopHasNewerRunningSession
+            }
             if def.name == "cursor", !sessionId.isEmpty {
                 guard acquireCursorLifecycleLease(surfaceId: surfaceId) else {
                     print("{}")
@@ -34819,7 +34934,7 @@ export default CMUXSessionRestore;
                 }
             }
             let suppressCompletionNotification = suppressVisibleMutations
-                || codexSubagentSignals.hasSubagentNotificationRelay
+                || codexHasActiveBackgroundWork
             let cursorStopApprovalNotificationKeys: [String] = {
                 guard def.name == "cursor", !sessionId.isEmpty else { return [] }
                 return (try? store.clearCursorShellApprovals(
@@ -34847,7 +34962,7 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 isSubagent: isNestedAgentSession,
-                pendingWork: antigravityHasActiveBackgroundWork,
+                pendingWork: antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork,
                 detail: stopHadFailure ? body : nil,
                 responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
             )
@@ -34862,7 +34977,7 @@ export default CMUXSessionRestore;
                                   lastBody: body,
                                   lastNotificationStatus: stopNotificationStatus,
                                   updateLastNotificationStatus: true,
-                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
+                                  runtimeStatus: ((antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork) && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
                                   updateRuntimeStatus: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -34906,13 +35021,14 @@ export default CMUXSessionRestore;
             // would mark the dedupe fingerprint and swallow the real final ping.
             let shouldPublishStopNotification = def.publishesStopNotification
                 && !stopNotificationAlreadyRouted
-                && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
+                && (!(antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork) || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
             let shouldPublishGrokStopFallbackNotification = def.name == "grok"
                 && stopNotificationStatus == .idle
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
+                && (codexStopDecision?.shouldNotify ?? true)
             if suppressVisibleMutations {
                 telemetry.breadcrumb(
                     staleIdleStopHasNewerRunningSession
@@ -34926,7 +35042,7 @@ export default CMUXSessionRestore;
                 // Tag successful turn-end pings; error alerts always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(
-                        pending: antigravityHasActiveBackgroundWork,
+                        pending: antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork,
                         agentKind: def.name,
                         isSubagent: isNestedAgentSession
                     )
@@ -35011,7 +35127,7 @@ export default CMUXSessionRestore;
                             client: client
                         )
                     }
-                } else if antigravityHasActiveBackgroundWork {
+                } else if antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork {
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
@@ -35168,6 +35284,20 @@ export default CMUXSessionRestore;
             }
 
         case .notification:
+            if def.name == "codex", !sessionId.isEmpty,
+               let codexLedger, let codexInvocation {
+                let ownership = try? codexLedger.observe(
+                    sessionID: sessionId,
+                    workspaceID: resolvedDirectWorkspaceArg,
+                    surfaceID: resolvedDirectSurfaceArg,
+                    invocation: codexInvocation
+                )
+                guard ownership?.ownership == .foreground else {
+                    telemetry.breadcrumb("codex-hook.notification.nested-or-unknown")
+                    print("{}")
+                    return
+                }
+            }
             let mapped = sessionId.isEmpty
                 ? nil
                 : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
@@ -35599,6 +35729,20 @@ export default CMUXSessionRestore;
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
         case .sessionEnd:
+            if def.name == "codex", !sessionId.isEmpty,
+               let codexLedger, let codexInvocation {
+                let ownership = try? codexLedger.sessionEnd(
+                    sessionID: sessionId,
+                    workspaceID: resolvedDirectWorkspaceArg,
+                    surfaceID: resolvedDirectSurfaceArg,
+                    invocation: codexInvocation
+                )
+                guard ownership?.ownership == .foreground else {
+                    telemetry.breadcrumb("codex-hook.session-end.nested-or-unknown")
+                    print("{}")
+                    return
+                }
+            }
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
@@ -35668,6 +35812,20 @@ export default CMUXSessionRestore;
             }
 
         case .sessionFinalize:
+            if def.name == "codex", !sessionId.isEmpty,
+               let codexLedger, let codexInvocation {
+                let ownership = try? codexLedger.sessionEnd(
+                    sessionID: sessionId,
+                    workspaceID: resolvedDirectWorkspaceArg,
+                    surfaceID: resolvedDirectSurfaceArg,
+                    invocation: codexInvocation
+                )
+                guard ownership?.ownership == .foreground else {
+                    telemetry.breadcrumb("codex-hook.session-finalize.nested-or-unknown")
+                    print("{}")
+                    return
+                }
+            }
             let endingSession = sessionId.isEmpty
                 ? nil
                 : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
@@ -36371,6 +36529,8 @@ export default CMUXSessionRestore;
         case "shell-exec": return "PreToolUse"
         case "shell-done": return "PostToolUse"
         case "shell-failed": return "PostToolUseFailure"
+        case "subagent-start": return "SubagentStart"
+        case "subagent-stop": return "SubagentStop"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"
@@ -38037,6 +38197,51 @@ export default CMUXSessionRestore;
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+
+        // Native Codex child events are committed before their telemetry frame
+        // is sent. This is the only source used by the Stop path to decide
+        // whether a foreground turn is settled; transcript text is not part of
+        // the lifecycle decision.
+        if source == "codex",
+           hookEventName == "SubagentStart" || hookEventName == "SubagentStop",
+           let codexInvocation = Optional(codexHookInvocation(environment: env)) {
+            let childID = firstString(in: stdinObj, keys: ["agent_id", "agentId"])
+            let childTurnID = firstString(in: stdinObj, keys: ["turn_id", "turnId"])
+            let childWorkspaceID = feedWorkspaceId(
+                rawObject: stdinObj,
+                fallback: env["CMUX_WORKSPACE_ID"]
+            )
+            let childSurfaceID = firstString(
+                in: stdinObj,
+                keys: ["surface_id", "surfaceId"]
+            ) ?? env["CMUX_SURFACE_ID"]
+            let ledger = codexTurnLedger(environment: env)
+            do {
+                if hookEventName == "SubagentStart" {
+                    _ = try ledger.subagentStart(
+                        sessionID: sessionId,
+                        agentID: childID,
+                        turnID: childTurnID,
+                        workspaceID: childWorkspaceID,
+                        surfaceID: childSurfaceID,
+                        invocation: codexInvocation
+                    )
+                } else {
+                    _ = try ledger.subagentStop(
+                        sessionID: sessionId,
+                        agentID: childID,
+                        turnID: childTurnID,
+                        workspaceID: childWorkspaceID,
+                        surfaceID: childSurfaceID,
+                        invocation: codexInvocation
+                    )
+                }
+            } catch {
+                // Feed telemetry remains best-effort, but a lifecycle write
+                // failure must never be interpreted as proof that work drained.
+                telemetry.captureError(stage: "codex-child-lifecycle", error: error)
+            }
+        }
 
         var eventDict: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",

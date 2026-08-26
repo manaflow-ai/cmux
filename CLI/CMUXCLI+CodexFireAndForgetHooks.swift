@@ -40,16 +40,14 @@ extension CMUXCLI {
         guard !eventsToInject.isEmpty else { return }
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in eventsToInject {
-            let ff = Self.codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
-            )
+            let hookBody = Self.codexWrapperHookBody(event: event, for: codexDef)
             let command: String
             if let scriptPath = hooksDir.flatMap({
-                Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: ff, in: $0)
+                Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: hookBody, in: $0)
             }), !scriptPath.contains("'''") {
                 command = scriptPath
             } else {
-                command = ff
+                command = hookBody
             }
             // TOML multi-line literal string ('''...''') preserves bytes verbatim
             // and may contain single quotes, so the embedded `echo '{}'` / `sh -c
@@ -129,15 +127,23 @@ extension CMUXCLI {
     /// Names that the current wrapper schema may reference from a live session.
     static func currentCodexWrapperHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
         Set(CodexHookInjectionSchema.current.events.compactMap { event in
-            let body = codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(event.cmuxSubcommand)",
-                for: def
-            )
+            let body = codexWrapperHookBody(event: event, for: def)
             return CodexHookScriptName(
                 contents: "#!/bin/sh\n\(body)\n",
                 subcommand: event.cmuxSubcommand
             )?.filename
         })
+    }
+
+    private static func codexWrapperHookBody(
+        event: CodexHookInjectionEvent,
+        for def: AgentHookDef
+    ) -> String {
+        let command = "cmux hooks codex \(event.cmuxSubcommand)"
+        if event.isSynchronous {
+            return codexSynchronousAgentHookShellCommand(command, for: def)
+        }
+        return codexFireAndForgetAgentHookShellCommand(command, for: def)
     }
 
     /// Cmux-generated script names referenced by the active persistent config.
@@ -225,7 +231,8 @@ extension CMUXCLI {
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { \(noOp); exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else \(noOp); fi",
+            "hook_pid=\"${CMUX_CODEX_HOOK_PID:-${PPID:-}}\"",
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { \(noOp); exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" CMUX_CODEX_HOOK_PID=\"$hook_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" CMUX_CODEX_HOOK_PID=\"$hook_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else \(noOp); fi",
         ].joined(separator: "; ")
     }
 }
