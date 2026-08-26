@@ -6,6 +6,11 @@ import {
   brandedPreviewPrefix,
   hostnameSetupCommand,
   parseMachineStats,
+  BLAXEL_MAX_HOME_VOLUME_MB,
+  CMUX_PROVISION_AGENT_PACKAGES,
+  CMUX_PROVISION_COMMAND,
+  CMUX_PROVISION_SCRIPT,
+  CMUX_PROVISION_SCRIPT_PATH,
   defaultHomeVolumeMbForMemory,
   resolveBlaxelMemoryMb,
   resolveHomeVolumeMb,
@@ -177,18 +182,19 @@ describe("BlaxelProvider configuration errors", () => {
   });
 
   test("home volume follows memory in dev-box tiers unless the env pins a size", () => {
-    expect(defaultHomeVolumeMbForMemory(2048)).toBe(32 * 1024);
-    expect(defaultHomeVolumeMbForMemory(8 * 1024)).toBe(32 * 1024);
-    expect(defaultHomeVolumeMbForMemory(16 * 1024)).toBe(32 * 1024);
+    expect(defaultHomeVolumeMbForMemory(2048)).toBe(8 * 1024);
+    expect(defaultHomeVolumeMbForMemory(8 * 1024)).toBe(16 * 1024);
+    expect(defaultHomeVolumeMbForMemory(16 * 1024)).toBe(16 * 1024);
     // The plan default (24 GB) lands in the 64 GB tier, not a flat 5 GB.
-    expect(defaultHomeVolumeMbForMemory(24 * 1024)).toBe(64 * 1024);
-    expect(defaultHomeVolumeMbForMemory(32 * 1024)).toBe(64 * 1024);
-    expect(defaultHomeVolumeMbForMemory(48 * 1024)).toBe(128 * 1024);
+    // Blaxel refuses anything above 16 GB, so every larger machine sits at the ceiling.
+    expect(defaultHomeVolumeMbForMemory(24 * 1024)).toBe(BLAXEL_MAX_HOME_VOLUME_MB);
+    expect(defaultHomeVolumeMbForMemory(32 * 1024)).toBe(BLAXEL_MAX_HOME_VOLUME_MB);
+    expect(defaultHomeVolumeMbForMemory(48 * 1024)).toBe(BLAXEL_MAX_HOME_VOLUME_MB);
     expect(() => defaultHomeVolumeMbForMemory(0)).toThrow("positive");
 
-    expect(resolveHomeVolumeMb(24 * 1024, {})).toBe(64 * 1024);
+    expect(resolveHomeVolumeMb(24 * 1024, {})).toBe(16 * 1024);
     expect(resolveHomeVolumeMb(24 * 1024, { CMUX_VM_BLAXEL_HOME_VOLUME_MB: "5120" })).toBe(5120);
-    expect(resolveHomeVolumeMb(24 * 1024, { CMUX_VM_BLAXEL_HOME_VOLUME_MB: "nope" })).toBe(64 * 1024);
+    expect(resolveHomeVolumeMb(24 * 1024, { CMUX_VM_BLAXEL_HOME_VOLUME_MB: "nope" })).toBe(16 * 1024);
   });
 
   test("uses the request memory and preserves the env fallback", () => {
@@ -412,5 +418,26 @@ describe("BlaxelProvider desktop VNC bootstrap", () => {
     expect(DESKTOP_VNC_HEAL_COMMAND).toContain(":5901 ");
     expect(DESKTOP_VNC_HEAL_COMMAND).toContain("runuser -u cua");
     expect(DESKTOP_VNC_HEAL_COMMAND).toContain("start-vnc.sh");
+  });
+});
+
+describe("background provisioning", () => {
+  test("installs the standard toolset, the agents, and the CUA driver on both distro families", () => {
+    expect(CMUX_PROVISION_COMMAND).toBe(`bash ${CMUX_PROVISION_SCRIPT_PATH}`);
+    expect(CMUX_PROVISION_SCRIPT.startsWith("#!/bin/bash")).toBe(true);
+    // Ubuntu (xfce-vnc) and Alpine (base-image) both provision.
+    expect(CMUX_PROVISION_SCRIPT).toContain("apt-get install");
+    expect(CMUX_PROVISION_SCRIPT).toContain("apk add");
+    for (const tool of ["ripgrep", "jq", "tmux", "git", "curl", "xdotool", "nodesource", "cli.github.com", "bun.sh/install", "astral.sh/uv"]) {
+      expect(CMUX_PROVISION_SCRIPT).toContain(tool);
+    }
+    for (const pkg of CMUX_PROVISION_AGENT_PACKAGES) {
+      expect(CMUX_PROVISION_SCRIPT).toContain(pkg);
+    }
+    expect(CMUX_PROVISION_SCRIPT).toContain("cua-computer-server");
+    // Persistent-home placement: npm globals and bun survive sandbox resurrection.
+    expect(CMUX_PROVISION_SCRIPT).toContain("npm config set prefix /root/.npm-global");
+    expect(CMUX_PROVISION_SCRIPT).toContain("/root/.bun/bin/bun");
+    expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
   });
 });

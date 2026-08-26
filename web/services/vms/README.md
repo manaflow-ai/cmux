@@ -332,8 +332,9 @@ cmux-tui shell is idle and no client is connected, so an idle machine drops to (
 standby and the next attach wakes it.
 
 The persistent home volume (`/root`) is sized from the machine's memory in dev-box tiers
-(`defaultHomeVolumeMbForMemory`: ≤8 GB → 32 GB, ≤16 GB → 32 GB, ≤32 GB → 64 GB, above →
-128 GB, so the 24 GB plan default gets 64 GB); `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every
+(`defaultHomeVolumeMbForMemory`: ≤4 GB → 8 GB, otherwise 16 GB — Blaxel refuses volumes
+above 16 GB (measured 2026-08-26), so the 24 GB plan default gets the 16 GB ceiling instead of the
+old flat 5 GB); `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every
 new volume to one size instead. The chosen size is recorded as `providerMetadata.homeVolumeMb`.
 Volumes are never resized: existing machines keep the volume they were created with, and a
 size Blaxel's volume API rejects fails the create with the provider's message.

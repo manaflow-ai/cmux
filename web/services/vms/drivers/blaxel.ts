@@ -90,12 +90,94 @@ done
 `;
 // Background provisioning for every machine: coding agents plus the dev essentials a person
 // expects on "their computer". The .bashrc seed only writes when absent so user edits stick.
-const CMUX_PROVISION_COMMAND = [
-  "{ command -v apk >/dev/null 2>&1 && apk add --no-cache curl tmux vim ripgrep jq openssh-client;",
-  "command -v npm >/dev/null 2>&1 && npm install -g @anthropic-ai/claude-code @openai/codex;",
-  "[ -f /root/.bashrc ] || printf '%s\\n' \"export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]# '\" \"alias ll='ls -la'\" > /root/.bashrc;",
-  "} >/tmp/cmux/provision.log 2>&1 || true",
-].join(" ");
+// Background provisioning: a machine comes with the tools agents and people expect,
+// without delaying attach. Written to the sandbox as a file (heredoc-free, so it survives
+// the process API's own quoting) and run detached; the log is /tmp/cmux/provision.log.
+// Idempotent: re-runs on resurrection (the sandbox root filesystem is disposable, the
+// /root volume is not), so anything that can live under /root does — bun, npm globals
+// (the agents), uv tools — and only distro packages are reinstalled. Ubuntu/Debian
+// (blaxel/xfce-vnc) and Alpine (blaxel/base-image) are both handled.
+export const CMUX_PROVISION_SCRIPT_PATH = "/tmp/cmux/provision.sh";
+export const CMUX_PROVISION_LOG_PATH = "/tmp/cmux/provision.log";
+export const CMUX_PROVISION_AGENT_PACKAGES = [
+  "@anthropic-ai/claude-code",
+  "@openai/codex",
+  "opencode-ai",
+  "@earendil-works/pi-coding-agent",
+] as const;
+export const CMUX_PROVISION_SCRIPT = `#!/bin/bash
+# cmux machine provisioning (background, idempotent). Log: ${CMUX_PROVISION_LOG_PATH}
+export HOME=/root DEBIAN_FRONTEND=noninteractive
+export PATH=/root/.bun/bin:/root/.npm-global/bin:/root/.local/bin:/usr/local/bin:$PATH
+mkdir -p /root/.npm-global /root/.local/bin
+log() { printf '%s %s\\n' "$(date -u +%FT%TZ)" "$*"; }
+step() { local name="$1"; shift; if "$@"; then log "ok $name"; else log "FAILED $name (exit $?)"; fi; }
+
+distro_packages() {
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends \\
+      ca-certificates curl wget git tmux vim less jq ripgrep fd-find unzip zip \\
+      build-essential pkg-config python3 python3-pip python3-venv openssh-client \\
+      xdotool scrot xclip xsel
+    [ -x /usr/local/bin/fd ] || ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+    if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -lt 20 ]; then
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y -qq nodejs
+    fi
+    if ! command -v gh >/dev/null 2>&1; then
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+      apt-get update -qq && apt-get install -y -qq gh
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache ca-certificates curl wget git tmux vim less jq ripgrep fd unzip zip \\
+      build-base pkgconf python3 py3-pip openssh-client nodejs npm github-cli
+  fi
+}
+
+bun_runtime() {
+  [ -x /root/.bun/bin/bun ] || curl -fsSL https://bun.sh/install | bash
+  ln -sf /root/.bun/bin/bun /usr/local/bin/bun
+  ln -sf /root/.bun/bin/bunx /usr/local/bin/bunx
+}
+
+uv_runtime() {
+  command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+}
+
+# The coding agents live under /root/.npm-global so they survive sandbox resurrection.
+agents() {
+  command -v npm >/dev/null 2>&1 || return 1
+  npm config set prefix /root/.npm-global
+  npm install -g --no-fund --no-audit ${CMUX_PROVISION_AGENT_PACKAGES.join(" ")}
+  for bin in /root/.npm-global/bin/*; do [ -x "$bin" ] && ln -sf "$bin" "/usr/local/bin/$(basename "$bin")"; done
+}
+
+# The CUA driver: cua-computer-server exposes the desktop (screenshot, click, type) to
+# computer-use agents. The desktop image ships and starts it; base images get it too so a
+# later desktop attach has something to talk to.
+cua_driver() {
+  python3 -m pip show cua-computer-server >/dev/null 2>&1 || python3 -m pip install -q --break-system-packages cua-computer-server 2>/dev/null || python3 -m pip install -q cua-computer-server
+}
+
+shell_profile() {
+  [ -f /root/.bashrc ] || printf '%s\\n' "export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]# '" "alias ll='ls -la'" > /root/.bashrc
+  grep -q 'cmux provisioning' /root/.bashrc 2>/dev/null || printf '%s\\n' '# cmux provisioning: tools that live on the persistent home' 'export PATH=/root/.bun/bin:/root/.npm-global/bin:/root/.local/bin:$PATH' >> /root/.bashrc
+  [ -f /root/.profile ] || printf '%s\\n' '[ -f /root/.bashrc ] && . /root/.bashrc' > /root/.profile
+}
+
+{
+  log "provisioning start"
+  step distro_packages distro_packages
+  step bun bun_runtime
+  step uv uv_runtime
+  step agents agents
+  step cua_driver cua_driver
+  step shell_profile shell_profile
+  log "provisioning done"
+} >> ${CMUX_PROVISION_LOG_PATH} 2>&1
+`;
+export const CMUX_PROVISION_COMMAND = `bash ${CMUX_PROVISION_SCRIPT_PATH}`;
 
 // The machine knows its own name: the prompt reads noble-wren:~#, not (none):~#. But a
 // renamed host must stay *resolvable*: TigerVNC's `vncserver` wrapper calls `hostname -f`
@@ -136,25 +218,26 @@ const DEFAULT_MEMORY_MB = 4096;
 // The persistent-home volume mounts over root's home so dotfiles, repos, and agent state
 // survive sandbox destruction. The sandbox is disposable compute; the volume is the machine.
 const HOME_VOLUME_MOUNT_PATH = "/root";
-// Disk scales with memory the way hosted dev boxes do (Codespaces-style tiers), so the
-// 24 GB plan default gets a 64 GB home instead of a flat 5 GB. Volumes are created once
-// and never resized, so existing machines keep whatever they were born with.
+// Disk follows memory the way hosted dev boxes do, but Blaxel caps a volume at 16 GB
+// (measured 2026-08-26: 16384 MB accepted, 20480 MB refused with "exceeds maximum allowed
+// size"), so the 24 GB plan default gets the 16 GB ceiling instead of the old flat 5 GB.
+// Volumes are created once and never resized: existing machines keep what they were born
+// with. Raise the ceiling here when the provider does.
+export const BLAXEL_MAX_HOME_VOLUME_MB = 16 * 1024;
 const HOME_VOLUME_MB_BY_MEMORY: ReadonlyArray<readonly [maxMemoryMb: number, volumeMb: number]> = [
-  [8 * 1024, 32 * 1024],
-  [16 * 1024, 32 * 1024],
-  [32 * 1024, 64 * 1024],
+  [4 * 1024, 8 * 1024],
+  [8 * 1024, 16 * 1024],
 ];
-const HOME_VOLUME_MB_ABOVE_TABLE = 128 * 1024;
 
-/** Home volume size for a machine's memory: ≤8 GB → 32 GB, ≤16 GB → 32 GB, ≤32 GB → 64 GB, above → 128 GB. */
+/** Home volume size for a machine's memory: ≤4 GB → 8 GB, otherwise the 16 GB provider ceiling. */
 export function defaultHomeVolumeMbForMemory(memoryMb: number): number {
   if (!Number.isFinite(memoryMb) || memoryMb <= 0) {
     throw new ProviderError("blaxel", "memoryMb must be a positive number to size the home volume");
   }
   for (const [maxMemoryMb, volumeMb] of HOME_VOLUME_MB_BY_MEMORY) {
-    if (memoryMb <= maxMemoryMb) return volumeMb;
+    if (memoryMb <= maxMemoryMb) return Math.min(volumeMb, BLAXEL_MAX_HOME_VOLUME_MB);
   }
-  return HOME_VOLUME_MB_ABOVE_TABLE;
+  return BLAXEL_MAX_HOME_VOLUME_MB;
 }
 
 /** `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every new volume to one size; otherwise disk follows memory. */
@@ -566,11 +649,14 @@ export class BlaxelProvider implements VMProvider {
         await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
         await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
       })(),
-      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-        name: "cmux-provision",
-        command: CMUX_PROVISION_COMMAND,
-        waitForCompletion: false,
-      }).catch(() => undefined),
+      (async () => {
+        await blaxelFetch("PUT", `${sandboxUrl}/filesystem/${CMUX_PROVISION_SCRIPT_PATH}`, { content: CMUX_PROVISION_SCRIPT, permissions: "0755" });
+        await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+          name: "cmux-provision",
+          command: CMUX_PROVISION_COMMAND,
+          waitForCompletion: false,
+        });
+      })().catch(() => undefined),
     ]);
   }
 
