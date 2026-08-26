@@ -8702,7 +8702,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // route to a remote `new-window` (a surprising side effect) yet still
         // have no local pane to deliver the text to.
         let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
-            ?? (workspace.isRemoteTmuxMirror ? nil : workspace.newTerminalSurfaceInFocusedPane(focus: shouldBringToFront))
+            ?? (workspace.isRemoteTmuxMirror ? nil : {
+                guard let paneId = workspace.bonsplitController.focusedPaneId else { return nil }
+                return workspace.withNewTerminalTabZoomPolicy(inPane: paneId) {
+                    workspace.newTerminalSurfaceInFocusedPaneOutcome(focus: shouldBringToFront)
+                }.panel
+            }())
         guard let terminalPanel else { return false }
 
 #if DEBUG
