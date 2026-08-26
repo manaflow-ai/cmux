@@ -42,11 +42,20 @@ public actor CmxIrohEndpointServer {
 
     private struct PendingAdmission {
         let generation: UInt64
-        let remoteIdentity: CmxIrohPeerIdentity
-        let connection: any CmxIrohConnection
+        let incoming: any CmxIrohIncomingConnection
         let handlerTask: Task<Void, Never>
         let deadlineTask: Task<Void, Never>
+        /// Set once the server-side handshake completed and capacity checks
+        /// passed. `nil` while the attempt is still establishing.
+        var remoteIdentity: CmxIrohPeerIdentity?
+        var connection: (any CmxIrohConnection)?
     }
+
+    /// The endpoint's accept queue ended while its generation is still
+    /// current: the driver is gone but lifecycle state says active. Thrown
+    /// into the recovery path so the supervisor re-verifies the endpoint
+    /// instead of the accept loop dying silently.
+    private struct AcceptQueueEndedError: Error {}
 
     private struct ActiveConnection {
         let generation: UInt64
@@ -154,10 +163,11 @@ public actor CmxIrohEndpointServer {
         for admission in admissions {
             admission.handlerTask.cancel()
             admission.deadlineTask.cancel()
-            await admission.connection.close(
-                errorCode: 1,
-                reason: "server_stopped"
-            )
+            if let connection = admission.connection {
+                await connection.close(errorCode: 1, reason: "server_stopped")
+            } else {
+                await admission.incoming.abandon()
+            }
         }
         for connection in connections {
             connection.handlerTask.cancel()
@@ -205,13 +215,25 @@ public actor CmxIrohEndpointServer {
         var consecutiveFailures = 0
         while !Task.isCancelled, currentGeneration == generation {
             do {
-                guard let connection = try await endpoint.accept() else { return }
+                guard let incoming = try await endpoint.accept() else {
+                    // Never die silently: recovery below re-verifies the
+                    // endpoint so a closed driver is replaced instead of
+                    // leaving a published-but-undialable generation behind.
+                    throw AcceptQueueEndedError()
+                }
                 consecutiveFailures = 0
                 guard currentGeneration == generation else {
-                    await connection.close(errorCode: 1, reason: "stale_generation")
+                    await incoming.abandon()
                     return
                 }
-                await startAdmission(connection: connection, generation: generation)
+                guard startAdmission(incoming: incoming, generation: generation) else {
+                    // Admission is full. Abandoning here, on the loop, is
+                    // deliberate backpressure: rejection work stays bounded to
+                    // one attempt at a time instead of a remote flood minting
+                    // unowned tasks.
+                    await incoming.abandon()
+                    continue
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -235,55 +257,35 @@ public actor CmxIrohEndpointServer {
         }
     }
 
+    /// Starts one admission, or returns `false` when admission is at capacity
+    /// and the caller must abandon the attempt itself.
     private func startAdmission(
-        connection: any CmxIrohConnection,
+        incoming: any CmxIrohIncomingConnection,
         generation: UInt64
-    ) async {
-        let remoteIdentity = await connection.remoteIdentity()
-        guard currentGeneration == generation, !Task.isCancelled else {
-            await connection.close(errorCode: 1, reason: "stale_generation")
-            return
-        }
+    ) -> Bool {
         guard pendingAdmissions.count < maximumPendingAdmissions else {
-            await connection.close(errorCode: 1, reason: "admission_capacity")
-            return
-        }
-        let pendingForIdentity = pendingAdmissions.values.lazy.filter {
-            $0.remoteIdentity == remoteIdentity
-        }.count
-        guard pendingForIdentity < maximumPendingAdmissionsPerIdentity else {
-            await connection.close(
-                errorCode: 1,
-                reason: "admission_identity_capacity"
-            )
-            return
-        }
-        let activeForIdentity = activeConnections.values.lazy.filter {
-            $0.remoteIdentity == remoteIdentity
-        }.count
-        let hasReplaceableConnection = activeConnections.values.contains {
-            $0.remoteIdentity == remoteIdentity && !$0.isUsable
-        }
-        let canReserveReplacement = pendingForIdentity == 0
-            && maximumConnectionsPerIdentity > 1
-            && activeForIdentity >= maximumConnectionsPerIdentity
-            && hasReplaceableConnection
-        guard pendingAdmissions.count + activeConnections.count < maximumConnections
-                || canReserveReplacement else {
-            await connection.close(errorCode: 1, reason: "connection_capacity")
-            return
-        }
-        guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity
-                || canReserveReplacement else {
-            await connection.close(
-                errorCode: 1,
-                reason: "connection_identity_capacity"
-            )
-            return
+            return false
         }
         let id = UUID()
         let handler = handler
+        // The handshake runs inside this per-connection task, bounded by the
+        // admission deadline below and by the driver's own handshake timeout,
+        // so a peer that stops making progress costs only its own slot.
         let handlerTask = Task { [weak self] in
+            let connection: any CmxIrohConnection
+            do {
+                connection = try await incoming.establish()
+            } catch {
+                await self?.failEstablishment(id)
+                return
+            }
+            guard let self else {
+                await connection.close(errorCode: 1, reason: "server_deallocated")
+                return
+            }
+            guard await self.registerEstablished(id, connection: connection) else {
+                return
+            }
             do {
                 try await handler(
                     connection,
@@ -297,9 +299,9 @@ public actor CmxIrohEndpointServer {
                         }
                     )
                 )
-                await self?.finishHandler(id, error: nil)
+                await self.finishHandler(id, error: nil)
             } catch {
-                await self?.finishHandler(id, error: error)
+                await self.finishHandler(id, error: error)
             }
         }
         let clock = clock
@@ -313,19 +315,103 @@ public actor CmxIrohEndpointServer {
         }
         pendingAdmissions[id] = PendingAdmission(
             generation: generation,
-            remoteIdentity: remoteIdentity,
-            connection: connection,
+            incoming: incoming,
             handlerTask: handlerTask,
             deadlineTask: deadlineTask
         )
+        return true
+    }
+
+    /// Records a completed handshake against its pending admission and applies
+    /// the identity-scoped capacity policy that used to run before the (then
+    /// inline) handshake. Returns whether the connection may proceed to the
+    /// application handler; a rejected or expired connection is closed here.
+    private func registerEstablished(
+        _ id: UUID,
+        connection: any CmxIrohConnection
+    ) async -> Bool {
+        let remoteIdentity = await connection.remoteIdentity()
+        guard var admission = pendingAdmissions[id],
+              admission.generation == currentGeneration,
+              admission.connection == nil else {
+            // Timed out, superseded, or the server stopped while establishing.
+            await connection.close(errorCode: 1, reason: "admission_expired")
+            return false
+        }
+        let pendingForIdentity = pendingAdmissions.lazy.filter {
+            $0.key != id && $0.value.remoteIdentity == remoteIdentity
+        }.count
+        guard pendingForIdentity < maximumPendingAdmissionsPerIdentity else {
+            await rejectEstablished(
+                id,
+                connection: connection,
+                reason: "admission_identity_capacity"
+            )
+            return false
+        }
+        let activeForIdentity = activeConnections.values.lazy.filter {
+            $0.remoteIdentity == remoteIdentity
+        }.count
+        let hasReplaceableConnection = activeConnections.values.contains {
+            $0.remoteIdentity == remoteIdentity && !$0.isUsable
+        }
+        let canReserveReplacement = pendingForIdentity == 0
+            && maximumConnectionsPerIdentity > 1
+            && activeForIdentity >= maximumConnectionsPerIdentity
+            && hasReplaceableConnection
+        let otherPendingCount = pendingAdmissions.count - 1
+        guard otherPendingCount + activeConnections.count < maximumConnections
+                || canReserveReplacement else {
+            await rejectEstablished(
+                id,
+                connection: connection,
+                reason: "connection_capacity"
+            )
+            return false
+        }
+        guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity
+                || canReserveReplacement else {
+            await rejectEstablished(
+                id,
+                connection: connection,
+                reason: "connection_identity_capacity"
+            )
+            return false
+        }
+        admission.remoteIdentity = remoteIdentity
+        admission.connection = connection
+        pendingAdmissions[id] = admission
+        return true
+    }
+
+    private func rejectEstablished(
+        _ id: UUID,
+        connection: any CmxIrohConnection,
+        reason: String
+    ) async {
+        if let admission = pendingAdmissions.removeValue(forKey: id) {
+            admission.deadlineTask.cancel()
+        }
+        await connection.close(errorCode: 1, reason: reason)
+    }
+
+    private func failEstablishment(_ id: UUID) async {
+        guard let admission = pendingAdmissions.removeValue(forKey: id) else {
+            return
+        }
+        admission.deadlineTask.cancel()
+        await admission.incoming.abandon()
     }
 
     private func markAdmitted(_ id: UUID, generation: UInt64) async -> Bool {
         guard currentGeneration == generation,
-              let admission = pendingAdmissions.removeValue(forKey: id),
-              admission.generation == generation else {
+              let admission = pendingAdmissions[id],
+              admission.generation == generation,
+              let remoteIdentity = admission.remoteIdentity,
+              let connection = admission.connection else {
             return false
         }
+        pendingAdmissions[id] = nil
         admission.deadlineTask.cancel()
 
         // An authenticated replacement may use the one admission reservation
@@ -334,7 +420,7 @@ public actor CmxIrohEndpointServer {
         // exclusively by markUsable below.
         let activeForIdentity = activeConnections.filter { _, connection in
             connection.generation == generation
-                && connection.remoteIdentity == admission.remoteIdentity
+                && connection.remoteIdentity == remoteIdentity
         }
         let requiresReplacement = activeConnections.count >= maximumConnections
             || activeForIdentity.count >= maximumConnectionsPerIdentity
@@ -352,8 +438,8 @@ public actor CmxIrohEndpointServer {
         nextConnectionSequence &+= 1
         activeConnections[id] = ActiveConnection(
             generation: generation,
-            remoteIdentity: admission.remoteIdentity,
-            connection: admission.connection,
+            remoteIdentity: remoteIdentity,
+            connection: connection,
             handlerTask: admission.handlerTask,
             sequence: nextConnectionSequence,
             isUsable: false
@@ -399,10 +485,12 @@ public actor CmxIrohEndpointServer {
     private func finishHandler(_ id: UUID, error: (any Error)?) async {
         if let admission = pendingAdmissions.removeValue(forKey: id) {
             admission.deadlineTask.cancel()
-            await admission.connection.close(
-                errorCode: 1,
-                reason: error == nil ? "admission_incomplete" : "admission_failed"
-            )
+            let reason = error == nil ? "admission_incomplete" : "admission_failed"
+            if let connection = admission.connection {
+                await connection.close(errorCode: 1, reason: reason)
+            } else {
+                await admission.incoming.abandon()
+            }
             return
         }
         guard let active = activeConnections.removeValue(forKey: id) else {
@@ -421,10 +509,11 @@ public actor CmxIrohEndpointServer {
             return
         }
         admission.handlerTask.cancel()
-        await admission.connection.close(
-            errorCode: 1,
-            reason: "admission_timeout"
-        )
+        if let connection = admission.connection {
+            await connection.close(errorCode: 1, reason: "admission_timeout")
+        } else {
+            await admission.incoming.abandon()
+        }
     }
 
     private func cancelConnections(
@@ -438,7 +527,11 @@ public actor CmxIrohEndpointServer {
         for admission in stale.values {
             admission.handlerTask.cancel()
             admission.deadlineTask.cancel()
-            await admission.connection.close(errorCode: 1, reason: reason)
+            if let connection = admission.connection {
+                await connection.close(errorCode: 1, reason: reason)
+            } else {
+                await admission.incoming.abandon()
+            }
         }
         let active = activeConnections.filter { _, connection in
             connection.generation != retainedGeneration

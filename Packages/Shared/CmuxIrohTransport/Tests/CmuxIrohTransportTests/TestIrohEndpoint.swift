@@ -89,7 +89,7 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         nil
     }
 

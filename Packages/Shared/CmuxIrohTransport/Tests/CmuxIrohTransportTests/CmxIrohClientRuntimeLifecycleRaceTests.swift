@@ -450,7 +450,7 @@ private actor ClientRuntimeBlockingCloseEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? { nil }
+    func accept() async throws -> (any CmxIrohIncomingConnection)? { nil }
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { healthStream }
 

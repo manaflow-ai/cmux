@@ -43,7 +43,7 @@ actor TestHangingDialEndpoint: CmxIrohEndpoint {
         })
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         nil
     }
 

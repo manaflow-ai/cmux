@@ -140,13 +140,13 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         throw lastError ?? CmxIrohLibError.invalidEndpointIdentity
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
+        // Only drain the accept queue here. The server-side handshake belongs
+        // to the returned attempt's establish(), owned by the per-connection
+        // admission task: one peer that dies after its Initial packet must not
+        // wedge the host's whole accept pipeline (the 2026-08-26 relay wedge).
         guard let incoming = await driver.acceptNext() else { return nil }
-        let accepting = try await incoming.accept()
-        guard alpns.contains(try await accepting.alpn()) else {
-            throw CmxIrohLibError.unexpectedALPN
-        }
-        return try CmxIrohLibConnection(driver: await accepting.connect())
+        return CmxIrohLibIncomingConnection(incoming: incoming, alpns: alpns)
     }
 
     func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) async throws {
