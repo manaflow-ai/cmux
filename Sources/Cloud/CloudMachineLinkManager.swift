@@ -62,7 +62,7 @@ actor CloudMachineLinkManager {
         guard let clientURL else { throw ManagerError.clientMissing }
         let task = Task<CloudMachineLink.Connected, Error> { [paths] in
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
-            await self.store(link: link, for: machineID)
+            self.store(link: link, for: machineID)
             let client = await MainActor.run { VMClient.shared }
             guard let client else {
                 throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")

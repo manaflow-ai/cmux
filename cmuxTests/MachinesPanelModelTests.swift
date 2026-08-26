@@ -200,7 +200,7 @@ final class MachinesPanelModelTests: XCTestCase {
     }
 
     func testApplyingFreeAccessRecomputesOnlyThatFacet() {
-        let created = 1_787_400_000_000
+        let created: Int64 = 1_787_400_000_000
         let summary = VMSummary(
             id: "noble-wren",
             provider: "blaxel",
@@ -229,7 +229,7 @@ final class MachinesPanelModelTests: XCTestCase {
     }
 
     func testSnapshotCarriesFreeAccessState() {
-        let created = 1_787_400_000_000
+        let created: Int64 = 1_787_400_000_000
         let summary = VMSummary(
             id: "noble-wren",
             provider: "blaxel",
