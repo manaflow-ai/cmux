@@ -1907,6 +1907,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 payloadWorkspaceId: livePayloadWorkspaceId()
             )
         }
+        reorder.performPendingDropAtPoint = { [weak self] pendingDrop, _ in
+            guard let self else { return false }
+            let targets = self.refreshReorderDropTargets()
+            if let performPendingWorkspaceDrop = actions.performPendingWorkspaceDrop {
+                return performPendingWorkspaceDrop(pendingDrop, targets)
+            }
+            return false
+        }
         reorder.clearDropIndicator = { [weak self] in
             self?.reorderDropDragExited()
         }
@@ -1953,6 +1961,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         reorder.hasLiveWorkspaceDrag = { false }
         reorder.updateDrag = { _, _ in false }
         reorder.performDropAtPoint = { _, _ in false }
+        reorder.performPendingDropAtPoint = { _, _ in false }
         reorder.clearDropIndicator = {}
         reorder.setWorkspaceDropTargetCollectionActive = { _ in }
 

@@ -37,6 +37,9 @@ struct SidebarWorkspaceTableActions {
     /// restore presentation while the native session stays alive.
     let updateWorkspaceDrag: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate?
     let performWorkspaceDrop: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> Bool
+    /// Commits a drop accepted before the target snapshot arrived and the
+    /// native source completed.
+    let performPendingWorkspaceDrop: ((SidebarWorkspaceReorderPendingDrop, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
     /// Commits a previously resolved plan verbatim (what the indicator showed).
     let commitWorkspaceDropPlan: (SidebarWorkspaceReorderDropPlan) -> Bool
     let clearWorkspaceDropIndicator: () -> Void
@@ -69,6 +72,7 @@ struct SidebarWorkspaceTableActions {
         isValidWorkspaceDrag: @escaping () -> Bool,
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate?,
         performWorkspaceDrop: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> Bool,
+        performPendingWorkspaceDrop: ((SidebarWorkspaceReorderPendingDrop, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)? = nil,
         commitWorkspaceDropPlan: @escaping (SidebarWorkspaceReorderDropPlan) -> Bool,
         clearWorkspaceDropIndicator: @escaping () -> Void,
         currentDropIndicator: @escaping () -> SidebarDropIndicator?,
@@ -94,6 +98,7 @@ struct SidebarWorkspaceTableActions {
         self.isValidWorkspaceDrag = isValidWorkspaceDrag
         self.updateWorkspaceDrag = updateWorkspaceDrag
         self.performWorkspaceDrop = performWorkspaceDrop
+        self.performPendingWorkspaceDrop = performPendingWorkspaceDrop
         self.commitWorkspaceDropPlan = commitWorkspaceDropPlan
         self.clearWorkspaceDropIndicator = clearWorkspaceDropIndicator
         self.currentDropIndicator = currentDropIndicator

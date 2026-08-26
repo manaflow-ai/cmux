@@ -12028,6 +12028,15 @@ struct VerticalTabsSidebar: View, Equatable {
                     renderContext: renderContext
                 )
             },
+            performPendingWorkspaceDrop: { pendingDrop, targets in
+                performWorkspaceReorderDrop(
+                    point: pendingDrop.point,
+                    targets: targets,
+                    pasteboardWorkspaceId: pendingDrop.workspaceId,
+                    pendingSessionId: pendingDrop.sessionId,
+                    renderContext: renderContext
+                )
+            },
             commitWorkspaceDropPlan: { plan in
                 defer {
                     // The table source owns terminal cleanup. A successful
