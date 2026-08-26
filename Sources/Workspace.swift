@@ -5713,10 +5713,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelId: UUID,
         agentSessionEnded: Bool = false
     ) -> Bool {
-        let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
-        if removed,
+        let removedBinding = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        if removedBinding != nil,
            agentSessionEnded,
-           let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
+           let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
+           Self.restorableAgentForSessionRestore(
+               restoredAgent,
+               resumeBinding: removedBinding
+           ) != nil {
             // A restore-time rejection is an authoritative end of the stale
             // checkpoint. Keep a completed tombstone so the old snapshot cannot
             // be auto-resumed on the next save, while the terminal's tracked cwd
@@ -5726,7 +5730,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
-        return removed
+        return removedBinding != nil
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {

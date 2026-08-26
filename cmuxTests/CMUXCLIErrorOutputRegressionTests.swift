@@ -363,15 +363,6 @@ import Testing
         let checkpointID = "01a03bc1-7649-7ec3-bdf7-03acf979e086"
         let surfaceID = UUID().uuidString.lowercased()
         let workspaceID = UUID().uuidString.lowercased()
-        let launchCommand: [String: Any] = [
-            "launcher": "codex",
-            "executable_path": executable.path,
-            "arguments": [executable.path],
-            "working_directory": workingDirectory.path,
-            "environment": ["CODEX_HOME": codexHome.path],
-            "verification_home": root.path,
-            "source": "environment",
-        ]
         let response = try restoreResponse(
             result: [
                 "restore_record": [
@@ -381,7 +372,10 @@ import Testing
                     "source": "session-snapshot",
                     "working_directory": workingDirectory.path,
                     "environment": ["CODEX_HOME": codexHome.path],
-                    "launch_command": launchCommand,
+                    // Exercise the older prepared-argv-only shape: the
+                    // checkpoint still needs validation even without launch
+                    // capture metadata.
+                    "prepared_arguments": ["codex", "resume", checkpointID],
                 ],
                 // This binding models a pre-#10100 snapshot: it has no durable
                 // provenance, but it still claims the stale Codex checkpoint.
@@ -417,6 +411,7 @@ import Testing
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["HOME"] = root.path
         environment["CODEX_HOME"] = codexHome.path
+        environment["PATH"] = "\(root.path):/usr/bin:/bin"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -432,7 +427,7 @@ import Testing
             "a missing Codex checkpoint must never reach codex resume"
         )
         XCTAssertTrue(
-            result.stderr.contains("Codex session is no longer available"),
+            result.stderr.contains("saved Codex checkpoint is unavailable"),
             result.diagnostics
         )
 
@@ -800,7 +795,7 @@ import Testing
         let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
-                "kind": "codex",
+                "kind": "command",
                 "checkpoint_id": checkpointID,
                 "working_directory": root.path,
                 "environment": ["LEGACY_RESTORE_VALUE": "kept"],
@@ -821,7 +816,7 @@ import Testing
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["restore", "codex", checkpointID],
+            arguments: ["restore", "command", checkpointID],
             environment: environment,
             timeout: 5
         )

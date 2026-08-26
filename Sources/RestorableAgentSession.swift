@@ -1582,7 +1582,13 @@ struct RestorableAgentSessionIndex: Sendable {
             guard !sessionID.isEmpty else { return .missing }
             let launchEnvironment = record.launchCommand?.environment
             let rawHome = Self.normalizedNonEmptyValue(launchEnvironment?["CODEX_HOME"])
+                ?? Self.normalizedNonEmptyValue(environment["CODEX_HOME"])
                 ?? Self.normalizedNonEmptyValue(record.launchCommand?.verificationHome).map {
+                    URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true)
+                        .appendingPathComponent(".codex", isDirectory: true)
+                        .path
+                }
+                ?? Self.normalizedNonEmptyValue(environment["HOME"]).map {
                     URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true)
                         .appendingPathComponent(".codex", isDirectory: true)
                         .path
@@ -1647,14 +1653,21 @@ struct RestorableAgentSessionIndex: Sendable {
                     isComplete = false
                     continue
                 }
+                let codexVerification = kind == .codex
+                    ? codexDurableVerification(for: effectiveRecord)
+                    : nil
+                if case .unavailable = codexVerification {
+                    // A transient Codex store/read failure is not evidence that
+                    // the session is gone. Keep the index incomplete so
+                    // reconciliation preserves the existing binding.
+                    isComplete = false
+                }
                 guard hookRecordIsRestorable(
                     effectiveRecord,
                     kind: kind,
                     fileManager: fileManager,
                     claudeTranscriptLookup: claudeTranscriptLookup,
-                    codexDurableVerification: kind == .codex
-                        ? codexDurableVerification(for: effectiveRecord)
-                        : nil
+                    codexDurableVerification: codexVerification
                 ) else {
                     continue
                 }

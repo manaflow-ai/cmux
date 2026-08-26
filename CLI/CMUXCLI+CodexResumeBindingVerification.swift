@@ -77,7 +77,6 @@ extension CMUXCLI {
     ) -> CodexRestoreValidationResult? {
         guard record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
               record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
-              record.launchCommand != nil || bindingPayload != nil,
               let sessionId = normalizedHookValue(record.checkpointID) else {
             return nil
         }
