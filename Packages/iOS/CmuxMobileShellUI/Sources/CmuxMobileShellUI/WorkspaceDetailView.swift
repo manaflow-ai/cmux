@@ -445,8 +445,12 @@ struct WorkspaceDetailView: View {
             },
             label: {
                 switch value.labelToken {
-                case .standard(let title, let subtitle):
-                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
+                case .standard(let title, let subtitle, let isReconnecting):
+                    WorkspaceToolbarTitleView(
+                        title: title,
+                        subtitle: subtitle,
+                        isReconnecting: isReconnecting
+                    )
                 }
             }
         )
@@ -454,20 +458,34 @@ struct WorkspaceDetailView: View {
     }
 
     private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
+        let isReconnecting = effectiveConnectionStatus == .reconnecting
         if let browser = activeBrowser {
             // Browser-style surfaces keep the workspace as the pill's title,
             // like the terminal; the surface's own title (the page or tab)
             // rides the subtitle line.
-            return .standard(title: workspace.name, subtitle: browser.title)
+            return .standard(
+                title: workspace.name,
+                subtitle: browser.title,
+                isReconnecting: isReconnecting
+            )
         } else if let browser = activeBrowserStream {
-            return .standard(title: workspace.name, subtitle: browser.title)
+            return .standard(
+                title: workspace.name,
+                subtitle: browser.title,
+                isReconnecting: isReconnecting
+            )
         } else if let simulator = activeSimulatorStream {
             return .standard(
                 title: workspace.name,
-                subtitle: simulator.selectedDeviceName ?? simulator.title
+                subtitle: simulator.selectedDeviceName ?? simulator.title,
+                isReconnecting: isReconnecting
             )
         } else {
-            return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
+            return .standard(
+                title: workspace.name,
+                subtitle: selectedToolbarSubtitle,
+                isReconnecting: isReconnecting
+            )
         }
     }
     #endif
@@ -488,9 +506,11 @@ struct WorkspaceDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
-        // The disconnected terminal stays visible; block interaction so
-        // keystrokes aren't silently dropped by the disconnected drain path.
-        // The status pill attaches after this modifier and stays tappable.
+        // The unavailable terminal stays visible; block interaction so
+        // keystrokes aren't silently dropped once reconnect attempts stop.
+        // A terminal that is merely reconnecting stays interactive (see
+        // `terminalInputIsBlocked`). The status pill attaches after this
+        // modifier and stays tappable.
         .allowsHitTesting(!terminalInputIsBlocked)
         #if os(iOS)
         // Hit-testing only blocks new touches: a terminal focused before the
@@ -509,9 +529,10 @@ struct WorkspaceDetailView: View {
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
-            // The terminal's only connection chrome: last-known content stays
-            // visible and scrollable underneath while the pill shows the
-            // reconnect progress (or offers Reconnect once attempts stop).
+            // Shown only once reconnect attempts stop (unavailable), offering
+            // Reconnect over the still-visible last-known content. An active
+            // reconnect surfaces as the title bar's quiet spinner instead of
+            // covering the terminal.
             MobileMacConnectionStatusPill(
                 host: host,
                 status: effectiveConnectionStatus,
@@ -601,11 +622,11 @@ struct WorkspaceDetailView: View {
     }
 
     /// Same-client foreground recovery flips the store's recovery flags while
-    /// `workspace.macConnectionStatus` stays `.connected`; the pill reflects
-    /// the recovery. Input gating deliberately does NOT use this (see
-    /// `terminalInputIsBlocked`): a probe's "Reconnecting" display coexists
-    /// with a working keyboard. Hidden retained details keep their raw
-    /// status: the guard only applies to the selected workspace on the
+    /// `workspace.macConnectionStatus` stays `.connected`; the title bar's
+    /// spinner reflects the recovery. Input gating deliberately does NOT use
+    /// this (see `terminalInputIsBlocked`): a probe's reconnecting display
+    /// coexists with a working keyboard. Hidden retained details keep their
+    /// raw status: the guard only applies to the selected workspace on the
     /// foreground connection.
     var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
@@ -620,15 +641,16 @@ struct WorkspaceDetailView: View {
         return connectionStatus
     }
 
-    /// Input viability is narrower than the displayed status: a same-client
-    /// probe reads "Reconnecting" while the transport is still connected and
-    /// the RPC client still carries keystrokes, so blocking or resigning
-    /// there would dismiss a working keyboard mid-typing. Block only when
-    /// the workspace status itself is disconnected or foreground recovery
-    /// actually failed. Internal so the +Surfaces chrome-return refocus can
-    /// share the same policy.
+    /// Input viability is narrower than the displayed status: the terminal
+    /// stays fully interactive while a reconnect is in flight so the user can
+    /// finish typing a thought — keystrokes ride the send buffer, and a send
+    /// that races the dead window fails visibly through the send-status pill
+    /// instead of dismissing a working keyboard mid-word. Block only when the
+    /// connection is unavailable (reconnect attempts stopped) or foreground
+    /// recovery actually failed. Internal so the +Surfaces chrome-return
+    /// refocus can share the same policy.
     var terminalInputIsBlocked: Bool {
-        if connectionStatus != .connected {
+        if connectionStatus == .unavailable {
             return true
         }
         if store.selectedWorkspaceID == workspace.id,

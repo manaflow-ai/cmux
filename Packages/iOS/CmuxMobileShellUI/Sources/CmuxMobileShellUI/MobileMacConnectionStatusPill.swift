@@ -3,8 +3,9 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// A compact connection-status pill overlaid on the terminal view, shown only
-/// for problem states (reconnecting / offline). A healthy connection shows no
-/// chrome.
+/// when the connection is down and reconnect attempts have stopped. A healthy
+/// connection shows no chrome, and reconnecting surfaces as the quieter
+/// title-bar spinner (`WorkspaceToolbarTitleView`) instead of a pill.
 struct MobileMacConnectionStatusPill: View {
     let host: String
     let status: MobileMacConnectionStatus
@@ -12,10 +13,8 @@ struct MobileMacConnectionStatusPill: View {
 
     @ViewBuilder
     var body: some View {
-        // Only surface the pill for problem states (reconnecting / offline).
-        // A healthy connection shows no chrome.
-        if status != .connected {
-            if let reconnect, status == .unavailable {
+        if status == .unavailable {
+            if let reconnect {
                 Button(action: reconnect) {
                     pill
                 }
@@ -37,17 +36,9 @@ struct MobileMacConnectionStatusPill: View {
 
     private var pill: some View {
         HStack(spacing: 7) {
-            if status == .reconnecting {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(.white)
-                    .frame(width: 10, height: 10)
-                    .accessibilityHidden(true)
-            } else {
-                Circle()
-                    .fill(status.tintColor)
-                    .frame(width: 8, height: 8)
-            }
+            Circle()
+                .fill(status.tintColor)
+                .frame(width: 8, height: 8)
 
             Text(status.label)
                 .font(.caption.weight(.semibold))

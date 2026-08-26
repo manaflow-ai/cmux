@@ -75,8 +75,9 @@ extension WorkspaceDetailView {
                     // dark theme (and vice versa).
                     .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
                     // Same recovery chrome as the terminal: the last synced
-                    // surface stays visible underneath while the pill shows
-                    // reconnect progress (it renders nothing when connected).
+                    // surface stays visible underneath, the title bar spinner
+                    // covers reconnecting, and the pill appears only once
+                    // reconnect attempts stop (unavailable).
                     .overlay(alignment: .topLeading) {
                         MobileMacConnectionStatusPill(
                             host: host,

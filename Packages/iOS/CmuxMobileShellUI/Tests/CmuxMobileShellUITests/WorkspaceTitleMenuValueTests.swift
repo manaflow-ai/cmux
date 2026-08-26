@@ -5,18 +5,28 @@ import Testing
 @Suite struct WorkspaceTitleMenuValueTests {
     @Test func labelBranchChangesInvalidateTheMenuValue() {
         let standard = menuValue(
-            labelToken: .standard(title: "Workspace", subtitle: "Terminal")
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", isReconnecting: false)
         )
         let browser = menuValue(
-            labelToken: .standard(title: "Workspace", subtitle: "GitHub - cmux")
+            labelToken: .standard(title: "Workspace", subtitle: "GitHub - cmux", isReconnecting: false)
         )
         #expect(menuValue(labelToken: standard.labelToken) == standard)
         #expect(browser != standard)
     }
 
+    @Test func reconnectingTransitionInvalidatesTheMenuValue() {
+        let idle = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", isReconnecting: false)
+        )
+        let reconnecting = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", isReconnecting: true)
+        )
+        #expect(reconnecting != idle)
+    }
+
     @Test func customizationCapabilityInvalidatesTheMenuValue() {
         let available = menuValue(
-            labelToken: .standard(title: "Workspace", subtitle: "Terminal"),
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", isReconnecting: false),
             canCustomizeWorkspace: true
         )
         let unavailable = menuValue(
