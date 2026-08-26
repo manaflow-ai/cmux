@@ -52,7 +52,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 deadline: deadline,
                 branchContext: branchContext
             ).map(\.path)
-                + [repository.gitDirectory, repository.commonDirectory]
                 + paths
         }
         paths.append(contentsOf: result.referenceStoragePaths)
@@ -213,9 +212,17 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         if isInRepository {
             return true
         }
-        // External files/custom stores can sit on an unavailable mount. Do not
-        // synchronously stat them during a bounded watcher traversal.
-        guard storageName == "reftable" else { return false }
+        // External stores are accepted only when their bounded marker can be
+        // read; this keeps custom packed-ref stores observable without a
+        // synchronous directory stat on an unavailable mount.
+        guard storageName == "reftable" || storageName == "files" else { return false }
+        if storageName == "files" {
+            return configReader.read(
+                at: URL(fileURLWithPath: path).appendingPathComponent("packed-refs"),
+                maximumByteCount: 1,
+                deadline: deadline
+            ).isAvailable
+        }
         let tableList = URL(fileURLWithPath: path).appendingPathComponent("tables.list")
         switch configReader.read(
             at: tableList,

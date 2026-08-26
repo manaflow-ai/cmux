@@ -368,10 +368,18 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 case .missing, .unavailable:
                     break
                 }
-            } else if name == "refs" || name == "packed-refs" {
-                // External custom stores are deliberately not probed here;
-                // a network/FUSE stat could outlive the shared snapshot deadline.
+            } else if name == "refs" {
+                // A loose-ref directory is watched when the path itself is
+                // already inside the repository; external stores are only
+                // admitted by the bounded config traversal.
                 continue
+            } else if name == "packed-refs",
+                      configReader.read(
+                          at: URL(fileURLWithPath: path),
+                          maximumByteCount: 1,
+                          deadline: deadline
+                      ).isAvailable {
+                paths.append(path)
             }
         }
         return paths

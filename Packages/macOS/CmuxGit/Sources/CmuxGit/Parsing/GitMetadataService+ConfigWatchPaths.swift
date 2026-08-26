@@ -146,11 +146,8 @@ extension GitMetadataService {
             if depth + 1 >= safetyConfiguration.submoduleDepth
                 || remainingRepositoryCount <= 1
                 || DispatchTime.now() >= deadline {
-                pathsByRepository[submoduleRepository.workTreeRoot] = [
-                    submoduleRepository.gitDirectory,
-                    submoduleRepository.commonDirectory,
-                ]
-                continue
+                forceWorkTreeRoots.insert(repository.workTreeRoot)
+                break
             }
             let childResult = await collectBranchAwareConfigPaths(
                 repository: submoduleRepository,
