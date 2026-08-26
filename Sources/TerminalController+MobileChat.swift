@@ -279,7 +279,6 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let terminalPanel = terminalTarget.panel
         let clearResult = clearAgentPrompt(terminalTarget)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
