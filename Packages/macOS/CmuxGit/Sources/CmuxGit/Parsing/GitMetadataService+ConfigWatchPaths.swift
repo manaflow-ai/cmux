@@ -91,6 +91,12 @@ extension GitMetadataService {
         ).watchPathResult()
         pathsByRepository[repository.workTreeRoot] = configTraversal.paths
             + references.storageWatchPaths
+        if !configTraversal.isComplete {
+            // An omitted include can live anywhere below the checkout (or its
+            // linked Git directory). Reuse the existing conservative root
+            // safety valve instead of recursively watching `.git` itself.
+            forceWorkTreeRoots.insert(repository.workTreeRoot)
+        }
         guard DispatchTime.now() < deadline else {
             forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
@@ -278,8 +284,6 @@ extension GitMetadataService {
         deadline: DispatchTime
     ) -> [String] {
         [
-            repository.gitDirectory,
-            repository.commonDirectory,
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),

@@ -227,9 +227,12 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         let effectiveDeadline = deadline
             ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
         [repository.gitDirectory, repository.commonDirectory].contains { directory in
-            let marker = URL(fileURLWithPath: directory)
+            let reftableDirectory = URL(fileURLWithPath: directory)
                 .appendingPathComponent("reftable", isDirectory: true)
-                .appendingPathComponent("tables.list")
+            guard storageProbe.isDirectory(atPath: reftableDirectory.path) else {
+                return false
+            }
+            let marker = reftableDirectory.appendingPathComponent("tables.list")
             switch configReader.read(
                 at: marker,
                 maximumByteCount: 1,
@@ -237,7 +240,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             ) {
             case .contents, .oversized:
                 return true
-            case .missing, .unavailable:
+            case .missing:
+                // An empty reftable directory is valid for an unborn checkout;
+                // the injected directory probe is the authoritative signal.
+                return true
+            case .unavailable:
                 return false
             }
         }
@@ -399,13 +406,15 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 appendExternalStorageWatchPath(
                     URL(fileURLWithPath: path).appendingPathComponent("tables.list"),
                     to: &paths,
-                    deadline: deadline
+                    deadline: deadline,
+                    allowParentSentinel: false
                 )
             } else if name == "packed-refs" || name.hasPrefix("refs/") {
                 appendExternalStorageWatchPath(
                     URL(fileURLWithPath: path),
                     to: &paths,
-                    deadline: deadline
+                    deadline: deadline,
+                    allowParentSentinel: name.hasPrefix("refs/")
                 )
             }
         }
@@ -417,13 +426,15 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     private func appendExternalStorageWatchPath(
         _ targetURL: URL,
         to paths: inout [String],
-        deadline: DispatchTime
+        deadline: DispatchTime,
+        allowParentSentinel: Bool
     ) {
         let target = targetURL.standardizedFileURL
         if configReader.isLocalRegularFile(at: target, deadline: deadline) {
             paths.append(target.path)
             return
         }
+        guard allowParentSentinel else { return }
         let parent = target.deletingLastPathComponent()
         guard configReader.isLocalDirectory(at: parent, deadline: deadline) else { return }
         paths.append(parent.path)

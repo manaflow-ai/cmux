@@ -63,12 +63,9 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             branchContext: branchContext
         ).map { $0.standardizedFileURL.path }
         if !result.isComplete {
-            // Keep stable repository metadata-directory sentinels ahead of the
-            // path budget. If an include is beyond the cap, any event below a
-            // known Git directory still rebuilds the bounded plan.
-            let metadataSentinels = [repository.gitDirectory, repository.commonDirectory]
-                .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-            paths = rootWatchPaths + metadataSentinels + paths
+            // The caller promotes the repository root to a conservative,
+            // throttled watcher when this bounded walk is incomplete.
+            paths = rootWatchPaths + paths
         } else {
             // Keep a parent sentinel when extensions.worktreeConfig is enabled
             // but config.worktree has not been created yet.
@@ -249,13 +246,15 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     /// Adds a regular external marker or its bounded local parent sentinel.
     private func appendExternalWatchPath(
         _ targetURL: URL,
-        state: inout GitConfigTraversalState
+        state: inout GitConfigTraversalState,
+        allowParentSentinel: Bool = true
     ) {
         let target = targetURL.standardizedFileURL
         if configReader.isLocalRegularFile(at: target, deadline: deadline) {
             state.referenceStoragePaths.append(target.path)
             return
         }
+        guard allowParentSentinel else { return }
         let parent = target.deletingLastPathComponent()
         guard configReader.isLocalDirectory(at: parent, deadline: deadline) else { return }
         state.referenceStoragePaths.append(parent.path)
@@ -280,7 +279,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         }
         appendExternalWatchPath(
             root.appendingPathComponent("packed-refs", isDirectory: false),
-            state: &state
+            state: &state,
+            allowParentSentinel: false
         )
     }
 

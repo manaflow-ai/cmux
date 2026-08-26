@@ -235,7 +235,6 @@ extension GitMetadataService {
                     joinedPath(root: submoduleRepository.commonDirectory, relativePath: "config"),
                     joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config"),
                     joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config.worktree"),
-                    submoduleRepository.gitDirectory,
                 ]
             paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
                 repository: submoduleRepository,
