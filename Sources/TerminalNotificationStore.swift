@@ -1973,7 +1973,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
         let liveTabId = AppDelegate.shared?
             .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
-        let ids = notifications.compactMap { notification -> UUID? in
+        let ids: [UUID] = notifications.compactMap { notification -> UUID? in
             guard notification.correlationKey == correlationKey,
                   notification.matchesClear(
                       tabId: tabId,
@@ -1985,7 +1985,7 @@ final class TerminalNotificationStore: ObservableObject {
             return notification.id
         }
         ids.forEach(remove)
-        removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
+        removePendingNotificationRequests(withIdentifiers: ids.map { $0.uuidString })
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
