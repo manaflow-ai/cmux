@@ -230,6 +230,7 @@ struct WorkstreamTaskToolTodos: Sendable {
     /// Seeds the accumulator from persisted agent rows after an app restart.
     mutating func seed(with restored: [WorkstreamTaskTodo]) {
         pendingPreOperations.removeAll(keepingCapacity: true)
+        pendingPostOperations.removeAll(keepingCapacity: true)
         todos = restored
         hasEvictedTodos = true
         hasCompleteTaskList = false
