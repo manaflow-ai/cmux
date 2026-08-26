@@ -2284,6 +2284,30 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testAutoNamingSpawnLeaseCoalescesOverlappingStops() throws {
+        let context = try makeClaudeHookContext(name: "auto-name-spawn-lease")
+        defer { context.cleanup() }
+
+        let sessionId = "auto-name-spawn-lease-session"
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path
+        ])
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
+        let now = Date()
+        XCTAssertTrue(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
+        XCTAssertFalse(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
+        XCTAssertTrue(try store.claimAutoNamingSpawn(
+            sessionId: sessionId,
+            now: now.addingTimeInterval(AutoNamingEngine().config.inFlightExpiry + 1)
+        ))
+    }
+
     func testCodexStopKeepsDetachedAutoNameForManualWorkspaceWithReplayableTitle() throws {
         let context = try makeClaudeHookContext(name: "codex-manual-auto-title")
         defer { context.cleanup() }
