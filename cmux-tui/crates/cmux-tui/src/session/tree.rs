@@ -87,22 +87,6 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
-    /// Remove pane tabs that cannot be backed by an attached surface.
-    ///
-    /// Remote tree snapshots and surface detach events travel on separate
-    /// streams. Applying this filter before publishing a snapshot keeps the
-    /// renderer from observing a tab whose surface has already been removed.
-    pub fn retain_surfaces(&mut self, surfaces: &HashSet<SurfaceId>) {
-        for workspace in &mut self.workspaces {
-            for screen in &mut workspace.screens {
-                for pane in &mut screen.panes {
-                    pane.tabs.retain(|tab| surfaces.contains(&tab.surface));
-                    pane.active_tab = pane.active_tab.min(pane.tabs.len().saturating_sub(1));
-                }
-            }
-        }
-    }
-
     /// Retain the server's authoritative tab topology, removing only tabs
     /// with explicit detach/retire evidence. The local surface mirror is a
     /// lazy cache and can be empty during startup or reconnect.
@@ -662,29 +646,6 @@ mod tests {
 
         assert_eq!(screen.display_name(0), "0");
         assert_eq!(screen.display_name(9), "9");
-    }
-
-    #[test]
-    fn retain_surfaces_drops_missing_tabs_and_clamps_active_index() {
-        let mut tree = parse_tree(&json!({
-            "workspaces": [{
-                "id": 1, "active": true,
-                "screens": [{
-                    "id": 2, "active": true, "active_pane": 3,
-                    "layout": {"type": "leaf", "pane": 3},
-                    "panes": [{"id": 3, "active_tab": 1, "tabs": [
-                        {"surface": 7, "title": "gone"},
-                        {"surface": 8, "title": "kept"}
-                    ]}]
-                }]
-            }]
-        }));
-
-        tree.retain_surfaces(&HashSet::from([8]));
-
-        let pane = &tree.workspaces[0].screens[0].panes[0];
-        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8]);
-        assert_eq!(pane.active_tab, 0);
     }
 
     #[test]
