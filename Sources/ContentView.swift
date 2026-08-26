@@ -11066,7 +11066,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 if let newValue {
                     _ = dragState.activateDragging(tabId: newValue)
                 } else {
-                    dragState.finishDrag()
+                    // A destination may tear down its SwiftUI presentation as
+                    // soon as it accepts a drop. That is not native source
+                    // completion: retain the coordinator session until AppKit
+                    // calls the source/controller's terminal callback.
+                    dragState.dismissPresentation()
                 }
             }
         )
@@ -12026,7 +12030,10 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             commitWorkspaceDropPlan: { plan in
                 defer {
-                    dragState.finishDrag()
+                    // The table source owns terminal cleanup. A successful
+                    // drop only removes this view's transient presentation so
+                    // its retained AppKit callback can fence the session.
+                    dragState.dismissPresentation()
                     dragAutoScrollController.stop()
                 }
                 return performWorkspaceReorderPlan(plan)
@@ -12094,6 +12101,13 @@ struct VerticalTabsSidebar: View, Equatable {
             setBonsplitDropIndicator: { indicator in
                 dragState.setDropIndicator(indicator)
             },
+            workspaceIdForDrag: { rowId, fallbackId in
+                guard case .group(let groupId) = rowId,
+                      let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
+                    return fallbackId
+                }
+                return group.isEmpty ? group.id : group.anchorWorkspaceId
+            },
             currentWorkspaceDragSessionId: { dragState.currentWorkspaceDragSessionId },
             finishWorkspaceDrag: { sessionId, capabilityValue in
                 dragState.finishDrag(
@@ -12101,13 +12115,6 @@ struct VerticalTabsSidebar: View, Equatable {
                     capabilityValue: capabilityValue
                 )
                 dragAutoScrollController.stop()
-            },
-            workspaceIdForDrag: { rowId, fallbackId in
-                guard case .group(let groupId) = rowId,
-                      let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
-                    return fallbackId
-                }
-                return group.isEmpty ? group.id : group.anchorWorkspaceId
             }
         )
 
@@ -13946,7 +13953,10 @@ struct VerticalTabsSidebar: View, Equatable {
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
         defer {
-            dragState.finishDrag()
+            // This destination has accepted or rejected the drop, but the
+            // native source is still alive until AppKit sends its terminal
+            // completion callback. Do not let a drop path end that session.
+            dragState.dismissPresentation()
             dragAutoScrollController.stop()
         }
         guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId),
@@ -16987,7 +16997,9 @@ struct SidebarTabDropDelegate: DropDelegate {
     func performDrop(pointerX: CGFloat, pointerY: CGFloat?, shouldClearDrag: Bool = true) -> Bool {
         defer {
             if shouldClearDrag {
-                dragState.finishDrag()
+                // SwiftUI drop delivery is presentation cleanup only. The
+                // retained native source is the single owner of session end.
+                dragState.dismissPresentation()
             }
             dragAutoScrollController.stop()
         }

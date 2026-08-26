@@ -51,6 +51,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var activeWorkspaceDragCapabilityValue: String?
     private var pendingWorkspaceDragSessionId: UUID?
     private var pendingWorkspaceDragWorkspaceId: UUID?
+    private var hasPendingOrActiveWorkspaceDrag: Bool {
+        isWorkspaceDragSourceActive
+            || pendingWorkspaceDragSessionId != nil
+            || pendingWorkspaceDragWorkspaceId != nil
+    }
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
     private var appliedUnreadSnapshot = SidebarUnreadSnapshot()
@@ -188,7 +193,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // A representable can be dismantled while AppKit still owns the native
         // drag session (fullscreen/display reconstruction). Keep the action
         // graph and table delegate alive until the terminal source callback.
-        if !isWorkspaceDragSourceActive {
+        if !hasPendingOrActiveWorkspaceDrag {
             actions?.endWorkspaceDrag()
             actions = nil
         }
@@ -208,7 +213,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cancelSelectionIntent()
         clearDropViewActions(in: container)
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
-        if !isWorkspaceDragSourceActive {
+        if !hasPendingOrActiveWorkspaceDrag {
             detachController(from: container.tableView)
         }
         container.clipView.workspaceController = nil
@@ -352,7 +357,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
-        if !isWorkspaceDragSourceActive {
+        if !hasPendingOrActiveWorkspaceDrag {
             actions?.endWorkspaceDrag()
             actions = nil
         }
@@ -867,8 +872,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             pendingWorkspaceDragWorkspaceId = workspaceId
         }
         pendingWorkspaceDragSessionId = sessionId
+        retainWorkspaceDragSource(tableView)
         let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
         return SidebarTabDragPayload(tabId: payloadWorkspaceId, sessionId: sessionId).pasteboardItem()
+    }
+
+    /// Retains the table/controller pair as soon as AppKit asks for a drag
+    /// writer. This closes the small window before `willBeginAt` where a
+    /// fullscreen/display rebuild could otherwise dismantle the representable
+    /// and release the delegate before AppKit's terminal callback.
+    private func retainWorkspaceDragSource(_ tableView: NSTableView) {
+        guard let tableView = tableView as? SidebarWorkspaceTableViewImpl else { return }
+        activeWorkspaceDragTableView = tableView
+        tableView.activeWorkspaceDragController = self
     }
 
     func tableView(
@@ -999,8 +1015,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard !isWorkspaceDragSourceActive else { return }
         isWorkspaceDragSourceActive = true
         if let tableView = containerView?.tableView {
-            activeWorkspaceDragTableView = tableView
-            tableView.activeWorkspaceDragController = self
+            retainWorkspaceDragSource(tableView)
         }
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press
@@ -1015,14 +1030,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidEnd() {
-        guard isWorkspaceDragSourceActive else {
+        guard hasPendingOrActiveWorkspaceDrag else {
             clearWorkspaceDragPresentation()
             pendingWorkspaceDragSessionId = nil
             return
         }
         isWorkspaceDragSourceActive = false
-        if let sessionId = activeWorkspaceDragSessionId,
-           let capabilityValue = activeWorkspaceDragCapabilityValue,
+        let sessionId = activeWorkspaceDragSessionId ?? pendingWorkspaceDragSessionId
+        let capabilityValue = activeWorkspaceDragCapabilityValue ?? {
+            guard let sessionId,
+                  let workspaceId = pendingWorkspaceDragWorkspaceId else { return nil }
+            return SidebarTabDragPayload(
+                tabId: workspaceId,
+                sessionId: sessionId
+            ).pasteboardValue
+        }()
+        if let sessionId,
+           let capabilityValue,
            let finishWorkspaceDrag = actions?.finishWorkspaceDrag {
             finishWorkspaceDrag(sessionId, capabilityValue)
         } else {
