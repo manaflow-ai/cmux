@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `atomcode`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Integrations
 
@@ -19,6 +19,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | --- | --- | --- | --- | --- |
 | Claude Code | `claude` through wrapper | wrapper-injected settings | `claude --resume <id>` | PermissionRequest |
 | Codex | `codex` | `~/.codex/hooks.json`, `~/.codex/config.toml` | `codex resume <id>` | PreToolUse, PermissionRequest telemetry |
+| AtomCode | `atomcode` | `~/.atomcode/hooks.json` or `$ATOMCODE_HOME/hooks.json` | session record only (resume command not yet verified) | PreToolUse, PostToolUse, PostToolUseFailure telemetry |
 | Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` | PreToolUse |
 | OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
 | Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` | tool_execution_start / tool_execution_end telemetry |
@@ -35,6 +36,15 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
 
+AtomCode's hook engine uses the Claude Code JSON-on-stdin contract. cmux installs
+named entries in `hooks.json` for `SessionStart`, `UserPromptSubmit`, `Stop`,
+`StopFailure`, and `SessionEnd`, plus non-blocking tool telemetry. AtomCode
+5.0.8 and newer emit the per-turn `Stop`/`StopFailure` events; older releases
+can still report session and tool lifecycle events but cannot produce a
+per-turn completion summary until upgraded. `Stop` drives the normal Done
+summary, while `StopFailure` records an error summary. cmux does not invent a
+turn boundary when an older AtomCode release omits those events.
+
 OpenCode also supports project-local Feed installation:
 
 ```bash
@@ -46,6 +56,10 @@ That writes `.opencode/plugins/cmux-feed.js` in the current directory.
 ## What the hooks record
 
 Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, current lifecycle (`running`, `idle`, `needsInput`, or `unknown`), and a sanitized launch command. On app relaunch, cmux rebuilds each workspace and runs the agent's native resume command with the saved session ID.
+
+AtomCode's session record is retained for status and history, but cmux does not
+register an automatic resume command until AtomCode exposes a verified resume
+CLI contract.
 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
@@ -140,6 +154,7 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Agent | Config directory override | Disable cmux hooks for one process |
 | --- | --- | --- |
 | Codex | `CODEX_HOME` | `CMUX_CODEX_HOOKS_DISABLED=1` |
+| AtomCode | `ATOMCODE_HOME` | `CMUX_ATOMCODE_HOOKS_DISABLED=1` |
 | Grok | `GROK_HOME` | `CMUX_GROK_HOOKS_DISABLED=1` |
 | OpenCode | `OPENCODE_CONFIG_DIR` | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
 | Pi | `PI_CODING_AGENT_DIR` | `CMUX_PI_HOOKS_DISABLED=1` |

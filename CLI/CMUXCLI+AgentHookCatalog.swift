@@ -27,6 +27,25 @@ extension CMUXCLI {
             postInstallAction: .codexConfigToml
         ),
         AgentHookDef(
+            name: "atomcode", displayName: String(localized: "agent.atomcode.displayName", defaultValue: "AtomCode"), statusKey: "atomcode",
+            configDir: ".atomcode", configFile: "hooks.json", configDirEnvOverride: "ATOMCODE_HOME",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "atomcode", disableEnvVar: "CMUX_ATOMCODE_HOOKS_DISABLED",
+            hookMarker: "cmux hooks atomcode", format: .atomcodeJSON(timeoutMs: 10_000),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                // AtomCode emits StopFailure for provider/timeout failures.
+                // It uses the same stdin payload contract, so the shared stop
+                // reducer can record an error turn without fabricating a
+                // completion event.
+                .init(agentEvent: "StopFailure", cmuxSubcommand: "stop"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            feedHookEvents: ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
+        ),
+        AgentHookDef(
             name: "grok", displayName: "Grok", statusKey: "grok",
             configDir: ".grok/hooks", configFile: "cmux-session.json",
             configDirEnvOverride: "GROK_HOME", configDirEnvOverrideSubpath: "hooks",

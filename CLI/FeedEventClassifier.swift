@@ -304,6 +304,28 @@ struct FeedEventClassifier {
             "Notification": .statusNotification,
             "notification": .statusNotification,
         ],
+        // AtomCode follows the Claude Code stdin/stdout hook contract. Its
+        // tool hooks are telemetry-only (there is no verified cmux approval
+        // decision path); StopFailure still closes the turn as a response so
+        // the generic hook reducer can record its error payload.
+        "atomcode": [
+            "PreToolUse": .toolStart,
+            "pre_tool_use": .toolStart,
+            "PostToolUse": .toolEnd,
+            "post_tool_use": .toolEnd,
+            "PostToolUseFailure": .toolEnd,
+            "post_tool_use_failure": .toolEnd,
+            "UserPromptSubmit": .promptSubmit,
+            "user_prompt_submit": .promptSubmit,
+            "SessionStart": .sessionStart,
+            "session_start": .sessionStart,
+            "Stop": .response,
+            "stop": .response,
+            "StopFailure": .response,
+            "stop_failure": .response,
+            "SessionEnd": .sessionEnd,
+            "session_end": .sessionEnd,
+        ],
         "hermes-agent": [
             // `pre_tool_call` is a tool *starting* — Hermes raises a
             // separate `pre_approval_request` for real approvals, so this

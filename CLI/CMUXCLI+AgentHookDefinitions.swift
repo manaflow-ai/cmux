@@ -61,6 +61,7 @@ extension CMUXCLI {
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Nested type/command/timeout hooks; timeout unit is agent-specific.
+            case atomcodeJSON(timeoutMs: Int) // AtomCode: {"hooks": {"name": {"event", "command", "timeout_ms"}}}
             case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML

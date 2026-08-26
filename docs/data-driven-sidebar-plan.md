@@ -53,7 +53,7 @@ Emitted names by category (`CmuxEventPublishing.swift`):
 - `window.*` — lifecycle
 - `workstream.*` — start / progress / complete
 
-Subscribe via `CmuxEventBus.subscribe(afterSequence:names:categories:)`; the socket `events` command streams them. Agent lifecycle hooks (`CLI/CMUXCLI+AgentHookDefinitions.swift`) exist for codex/grok/cursor/gemini/kiro/antigravity/hermes — session-start/prompt-submit/stop/notification/session-end/shell-exec — recorded to `~/.cmuxterm/{agent}-hook-sessions.json`.
+Subscribe via `CmuxEventBus.subscribe(afterSequence:names:categories:)`; the socket `events` command streams them. Agent lifecycle hooks (`CLI/CMUXCLI+AgentHookDefinitions.swift`) exist for codex/atomcode/grok/cursor/gemini/kiro/antigravity/hermes — session-start/prompt-submit/stop/notification/session-end/shell-exec — recorded to `~/.cmuxterm/{agent}-hook-sessions.json`.
 
 ## Architecture
 

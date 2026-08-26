@@ -135,7 +135,7 @@ Notifications that originate from an agent completion signal (agent hooks instal
 
 | Field | Description |
 |----------|-------------|
-| `kind` | Stable lowercase agent slug (`claude`, `codex`, `grok`, `antigravity`, …) |
+| `kind` | Stable lowercase agent slug (`claude`, `codex`, `atomcode`, `grok`, `antigravity`, …) |
 | `category` | `turn-complete`, `needs-permission`, or `idle-reminder` |
 | `pending` | `true` when the turn ended with background work still running |
 | `isSubagent` | `true` when the event came from a nested subagent session |

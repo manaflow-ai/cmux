@@ -16814,7 +16814,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, atomcode, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -30122,6 +30122,12 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .atomcodeJSON(let timeoutMs):
+                result[Self.atomcodeHookKey(agentEvent: event.agentEvent, feed: false)] = Self.atomcodeHookEntry(
+                    command: cmd,
+                    agentEvent: event.agentEvent,
+                    timeoutMs: timeoutMs
+                )
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -30160,6 +30166,12 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .atomcodeJSON:
+                result[Self.atomcodeHookKey(agentEvent: agentEvent, feed: true)] = Self.atomcodeHookEntry(
+                    command: feedCmd,
+                    agentEvent: agentEvent,
+                    timeoutMs: feedTimeoutMs
+                )
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -31049,6 +31061,11 @@ export default CMUXSessionRestore;
                 } else {
                     hooks[event] = rewrittenGroups
                 }
+            case .atomcodeJSON:
+                guard let entry = value as? [String: Any] else { continue }
+                if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
+                    hooks.removeValue(forKey: event)
+                }
             case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
@@ -31077,6 +31094,15 @@ export default CMUXSessionRestore;
                     }
                 }
                 hooks[event] = groups
+            case .atomcodeJSON:
+                guard let entry = value as? [String: Any] else { continue }
+                var key = event
+                var suffix = 2
+                while hooks[key] != nil {
+                    key = "\(event)_\(suffix)"
+                    suffix += 1
+                }
+                hooks[key] = entry
             case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
@@ -31385,6 +31411,12 @@ export default CMUXSessionRestore;
                     hooks.removeValue(forKey: event)
                 } else {
                     hooks[event] = rewrittenGroups
+                }
+            case .atomcodeJSON:
+                guard let entry = value as? [String: Any] else { continue }
+                if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
+                    removed += 1
+                    hooks.removeValue(forKey: event)
                 }
             case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
@@ -32775,6 +32807,7 @@ export default CMUXSessionRestore;
                 )
                 return summary.status == .error ? summary : nil
             }()
+            let atomcodeFailure = atomcodeStopFailureSummary(def: def, input: input)
 
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
@@ -32796,14 +32829,14 @@ export default CMUXSessionRestore;
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
             }()
-            var subtitle = codexFailure?.subtitle ?? String(
+            var subtitle = codexFailure?.subtitle ?? atomcodeFailure?.subtitle ?? String(
                 localized: "agent.codex.completion.subtitle.completed",
                 defaultValue: "Completed"
             )
             if let antigravityFailure {
                 subtitle = antigravityFailure.subtitle
             }
-            if codexFailure == nil, antigravityFailure == nil, let projectName, !projectName.isEmpty {
+            if codexFailure == nil, antigravityFailure == nil, atomcodeFailure == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.subtitle.completedInProject",
@@ -32814,6 +32847,7 @@ export default CMUXSessionRestore;
             }
             let body = codexFailure?.body
                 ?? antigravityFailure?.body
+                ?? atomcodeFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String.localizedStringWithFormat(
@@ -32824,7 +32858,7 @@ export default CMUXSessionRestore;
                     def.displayName
             )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
-            let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
+            let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil && atomcodeFailure == nil) ? .idle : .error
             let lifecycleAfterStop: AgentHibernationLifecycleState = {
                 if antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
@@ -32904,7 +32938,7 @@ export default CMUXSessionRestore;
             // reducer's per-session fold handles stale sessions (a newer
             // running session outranks this one) and subagent tagging keeps
             // nested sessions off the pane badge — no emit-side guessing.
-            let stopHadFailure = codexFailure != nil || antigravityFailure != nil
+            let stopHadFailure = codexFailure != nil || antigravityFailure != nil || atomcodeFailure != nil
             emitJournal(
                 stopHadFailure ? .errorReported : .turnCompleted,
                 workspaceId: workspaceId,
@@ -33035,7 +33069,7 @@ export default CMUXSessionRestore;
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
-                } else if antigravityFailure != nil {
+                } else if antigravityFailure != nil || atomcodeFailure != nil {
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName

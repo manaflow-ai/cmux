@@ -10,6 +10,8 @@ extension CmuxTaskManagerCodingAgentDefinition {
         .init(id: "codex", displayName: "Codex", assetName: "AgentIcons/Codex",
               launchKinds: ["codex", "omx"], directBasenames: ["codex", "omx"],
               argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]),
+        .init(id: "atomcode", displayName: String(localized: "agent.atomcode.displayName", defaultValue: "AtomCode"), assetName: nil,
+              launchKinds: ["atomcode"], directBasenames: ["atomcode"], argumentNeedles: ["atomcode"]),
         .init(id: "grok", displayName: "Grok", assetName: nil,
               launchKinds: ["grok"], directBasenames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
               argumentNeedles: ["grok", "grok-build", "@xai/grok"]),

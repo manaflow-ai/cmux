@@ -4290,6 +4290,23 @@
         }
       }
     },
+    "agent.atomcode.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AtomCode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AtomCode"
+          }
+        }
+      }
+    },
     "agent.kimi.displayName": {
       "extractionState": "manual",
       "localizations": {
