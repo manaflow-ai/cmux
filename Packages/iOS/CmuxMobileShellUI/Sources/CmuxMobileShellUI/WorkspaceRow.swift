@@ -133,11 +133,15 @@ struct WorkspaceRow: View {
     }
 
     private var unreadDotRailLayoutGap: CGFloat {
-        let dotTrailing = (WorkspaceUnreadDot.gutterWidth + WorkspaceUnreadDot.dotDiameter) / 2
+        // Indicators are leading-aligned in the gutter, so the widest one (the
+        // count badge) ends at badgeDiameter. Reserving for it keeps the
+        // visual gap promise for badge rows and one uniform rail column for
+        // every row, badge or dot.
+        let indicatorTrailing = WorkspaceUnreadDot.badgeDiameter
             - CGFloat(unreadIndicatorLeftShift)
         return max(
             0,
-            Self.unreadDotRailVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
+            Self.unreadDotRailVisualGap + indicatorTrailing - WorkspaceUnreadDot.gutterWidth
         )
     }
 

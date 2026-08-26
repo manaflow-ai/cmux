@@ -13,8 +13,11 @@ import SwiftUI
 /// marks a workspace unread should reuse it rather than invent another badge.
 struct WorkspaceUnreadDot: View {
     /// Width every row reserves for the indicator column, kept narrow so the
-    /// list does not drift right. The badge overflows it symmetrically (as the
-    /// dot always has), which layout math accounts for via `dotDiameter`.
+    /// list does not drift right. Indicators are LEADING-aligned in it: the
+    /// badge is wider than the dot, and anchoring both to the same left edge
+    /// keeps the leading margin identical whether a row shows a dot, a badge,
+    /// or nothing. All overflow goes toward the rail, which `WorkspaceRow`'s
+    /// layout math reserves via `badgeDiameter`.
     static let gutterWidth: CGFloat = 10
     /// Diameter of the count-less fallback dot.
     static let dotDiameter: CGFloat = 11
@@ -63,7 +66,7 @@ struct WorkspaceUnreadDot: View {
                     .opacity(unread.isUnread ? 1 : 0)
             }
         }
-        .frame(width: Self.gutterWidth)
+        .frame(width: Self.gutterWidth, alignment: .leading)
         .offset(x: -CGFloat(leftShift))
         // The indicator is decorative here; rows fold the unread state into
         // their combined accessibility summary instead.
