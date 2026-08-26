@@ -3,6 +3,9 @@ public import Foundation
 
 /// Fetches HTML page titles through validated, IP-pinned connections.
 public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
+    /// Maximum UTF-8 byte length returned for a fetched page title.
+    public static let maximumTitleUTF8Bytes = 2_048
+
     typealias Sleep = @Sendable (Duration) async throws -> Void
 
     private let addressPolicy: NetworkAddressPolicy
@@ -117,7 +120,7 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
                   let title = titleExtractor.title(from: response.body) else {
                 return nil
             }
-            return String(title.prefix(2_048))
+            return titleLimitedToUTF8Bytes(title)
         }
         return nil
     }
@@ -139,5 +142,20 @@ public actor BrowserPageMetadataService: BrowserPageMetadataFetching {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         return contentType == "text/html" || contentType == "application/xhtml+xml"
+    }
+
+    private func titleLimitedToUTF8Bytes(_ title: String) -> String {
+        var byteCount = 0
+        var endIndex = title.startIndex
+        while endIndex < title.endIndex {
+            let nextIndex = title.index(after: endIndex)
+            let characterByteCount = title[endIndex..<nextIndex].utf8.count
+            guard characterByteCount <= Self.maximumTitleUTF8Bytes - byteCount else {
+                break
+            }
+            byteCount += characterByteCount
+            endIndex = nextIndex
+        }
+        return endIndex == title.endIndex ? title : String(title[..<endIndex])
     }
 }

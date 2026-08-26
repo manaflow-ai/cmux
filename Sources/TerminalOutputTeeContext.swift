@@ -48,6 +48,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private let linkForwarder: TerminalCapturedLinkForwarder
     private var detectors: [DetectorBinding]
     private var linkScanner = TerminalEmittedLinkScanner()
+    private var linkCaptureGeneration: UInt64
     private var linkScannerNeedsReset = false
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
@@ -61,6 +62,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.linkCaptureSettingsGate = linkCaptureSettingsGate
+        self.linkCaptureGeneration = linkCaptureSettingsGate.captureGeneration()
         self.linkForwarder = TerminalCapturedLinkForwarder(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
@@ -98,8 +100,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consumeLinks(_ bytes: UnsafeBufferPointer<UInt8>) {
-        if linkScannerNeedsReset {
+        let currentGeneration = linkCaptureSettingsGate.captureGeneration()
+        if linkScannerNeedsReset || currentGeneration != linkCaptureGeneration {
             linkScanner.reset()
+            linkCaptureGeneration = currentGeneration
             linkScannerNeedsReset = false
         }
         let captured = linkScanner.consume(bytes)

@@ -130,7 +130,7 @@ struct WorkspaceLinksTests {
         #expect(object["links"] == nil)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
         #expect(decoded.links == nil)
-        #expect(decoded.restoredLinks(limit: 500).isEmpty)
+        #expect(decoded.restoredLinks.isEmpty)
     }
 
     @MainActor
@@ -432,7 +432,6 @@ struct WorkspaceLinksTests {
         }
         defaults.set(false, forKey: LinksCaptureSettings.enabledKey)
         gate.refresh()
-        context.noteLinkCaptureDisabled()
         defaults.set(true, forKey: LinksCaptureSettings.enabledKey)
         gate.refresh()
         Array("\u{1B}\\\n".utf8).withUnsafeBufferPointer {

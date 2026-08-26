@@ -94,11 +94,13 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         self.linkCaptureSettingsGate = TerminalLinkCaptureSettingsGate()
         self.linkCaptureIngress = TerminalLinkCaptureIngress { workspaceID, panelID in
             guard let appDelegate = AppDelegate.shared else { return nil }
-            if let panelID,
-               let currentOwner = appDelegate.workspaceContainingPanel(
-                panelId: panelID,
-                preferredWorkspaceId: workspaceID
-               ) {
+            if let panelID {
+                guard let currentOwner = appDelegate.workspaceContainingPanel(
+                    panelId: panelID,
+                    preferredWorkspaceId: workspaceID
+                ) else {
+                    return nil
+                }
                 return currentOwner.workspace
             }
             return appDelegate.workspaceFor(tabId: workspaceID)

@@ -123,4 +123,28 @@ struct BrowserPageMetadataServiceTests {
         #expect(await transport.recordedAddresses() == Array(addresses.prefix(4)))
     }
 
+    @Test("Fetched titles are bounded by UTF-8 bytes without splitting characters")
+    func titleLengthUsesUTF8Bytes() async throws {
+        let address = BrowserPageMetadataResolvedAddress(
+            family: .ipv4,
+            bytes: [93, 184, 216, 34]
+        )
+        let originalTitle = String(repeating: "界", count: 1_000)
+        let transport = RecordingPageMetadataTransport(responses: [
+            fixture.response(body: "<title>\(originalTitle)</title>"),
+        ])
+        let service = BrowserPageMetadataService(
+            resolver: StubPageMetadataResolver(addressesByHost: ["example.com": [address]]),
+            transport: transport
+        )
+
+        let fetchedTitle = try #require(try await service.title(
+            for: #require(URL(string: "https://example.com/title"))
+        ))
+
+        #expect(fetchedTitle.utf8.count <= BrowserPageMetadataService.maximumTitleUTF8Bytes)
+        #expect(fetchedTitle.count < originalTitle.count)
+        #expect(originalTitle.hasPrefix(fetchedTitle))
+    }
+
 }

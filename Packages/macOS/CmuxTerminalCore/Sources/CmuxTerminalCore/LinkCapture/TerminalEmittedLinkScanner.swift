@@ -70,7 +70,6 @@ public struct TerminalEmittedLinkScanner: Sendable {
     public mutating func consume(_ bytes: UnsafeBufferPointer<UInt8>) -> [TerminalCapturedLink] {
         guard !bytes.isEmpty else { return [] }
         var captured: [TerminalCapturedLink] = []
-        captured.reserveCapacity(1)
 
         var index = bytes.startIndex
         while index < bytes.endIndex {

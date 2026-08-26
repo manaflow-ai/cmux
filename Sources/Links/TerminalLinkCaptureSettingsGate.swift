@@ -3,12 +3,14 @@ import Foundation
 
 /// Publishes a lock-free enablement gate to Ghostty's synchronous PTY callback.
 ///
-/// SAFETY: the only cross-thread mutation uses `AtomicBooleanGate`. UserDefaults
-/// is documented thread-safe, and the NotificationCenter token is installed and
-/// removed only during the gate's main-actor-owned lifecycle.
+/// SAFETY: cross-thread enablement and generation reads/writes use the two
+/// injected C11 atomic values. UserDefaults is documented thread-safe, and the
+/// NotificationCenter token is installed and removed only during the
+/// gate's main-actor-owned lifecycle.
 final class TerminalLinkCaptureSettingsGate: @unchecked Sendable {
     private let settings: LinksCaptureSettings
     private let enabledGate: AtomicBooleanGate
+    private let generationValue: AtomicUInt64Value
     private let notificationCenter: NotificationCenter
     private var defaultsObserver: NSObjectProtocol?
 
@@ -20,6 +22,7 @@ final class TerminalLinkCaptureSettingsGate: @unchecked Sendable {
         self.settings = settings
         let snapshot = settings.snapshot()
         self.enabledGate = AtomicBooleanGate(snapshot.enabled)
+        self.generationValue = AtomicUInt64Value()
         self.notificationCenter = notificationCenter
         self.defaultsObserver = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -44,7 +47,14 @@ final class TerminalLinkCaptureSettingsGate: @unchecked Sendable {
         settings.snapshot()
     }
 
+    func captureGeneration() -> UInt64 {
+        generationValue.loadRelaxed()
+    }
+
     func refresh() {
-        enabledGate.storeRelease(settings.snapshot().enabled)
+        let enabled = settings.snapshot().enabled
+        guard enabledGate.loadAcquire() != enabled else { return }
+        _ = generationValue.wrappingIncrementRelaxed()
+        enabledGate.storeRelease(enabled)
     }
 }

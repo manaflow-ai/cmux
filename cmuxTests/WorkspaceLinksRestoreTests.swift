@@ -94,6 +94,18 @@ struct WorkspaceLinksRestoreTests {
         #expect(!state.fetchTitlesEnabled)
     }
 
+    @MainActor
+    @Test
+    func retiredWorkspaceRejectsLinksPaneCreation() throws {
+        let workspace = Workspace()
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+
+        workspace.retireFromOwningTabManager()
+
+        #expect(workspace.newWorkspaceLinksSurface(inPane: paneID) == nil)
+        #expect(workspace.openOrFocusWorkspaceLinksSurface(inPane: paneID) == nil)
+    }
+
     private func makeEntry(
         url: String,
         sourcePanelID: UUID?,

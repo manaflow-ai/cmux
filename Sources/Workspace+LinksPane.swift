@@ -10,6 +10,7 @@ extension Workspace {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> LinksPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
@@ -68,6 +69,7 @@ extension Workspace {
         inPane paneId: PaneID,
         focus: Bool = true
     ) -> LinksPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         for (existingId, panel) in panels {
             guard let linksPanel = panel as? LinksPanel else { continue }
             if focus {
@@ -87,7 +89,7 @@ extension Workspace {
         panelIDMap: [UUID: UUID]
     ) {
         let restoredEntries = snapshot
-            .restoredLinks(limit: linksState.retentionLimit)
+            .restoredLinks
             .map { entry in
                 var entry = entry
                 entry.sourcePanelId = entry.sourcePanelId.flatMap { panelIDMap[$0] }

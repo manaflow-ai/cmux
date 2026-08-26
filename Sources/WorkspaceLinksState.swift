@@ -357,6 +357,9 @@ final class WorkspaceLinksState {
             entry.activeTitleFetchID = nil
             entriesByURL[url] = entry
         }
+        if !inFlightURLs.isEmpty {
+            markStructuralChange()
+        }
     }
 
     private func markStructuralChange() {

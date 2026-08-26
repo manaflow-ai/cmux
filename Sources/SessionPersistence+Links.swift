@@ -1,10 +1,11 @@
+import CmuxBrowser
 import Foundation
 
 struct SessionWorkspaceLinkSnapshot: Codable, Equatable, Sendable {
     private static let maximumURLUTF8Bytes = 4_096
     private static let maximumHostUTF8Bytes = 512
     private static let maximumSourceTitleUTF8Bytes = 512
-    private static let maximumFetchedTitleUTF8Bytes = 2_048
+    private static let maximumFetchedTitleUTF8Bytes = BrowserPageMetadataService.maximumTitleUTF8Bytes
     private static let maximumOriginUTF8Bytes = 64
 
     var id: UUID
@@ -81,8 +82,7 @@ extension SessionWorkspaceSnapshot {
             )
     }
 
-    func restoredLinks(limit: Int) -> [WorkspaceCapturedLink] {
-        let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(limit)
-        return (links?.snapshots ?? []).prefix(cap).compactMap(\.linkEntry)
+    var restoredLinks: [WorkspaceCapturedLink] {
+        (links?.snapshots ?? []).compactMap(\.linkEntry)
     }
 }
