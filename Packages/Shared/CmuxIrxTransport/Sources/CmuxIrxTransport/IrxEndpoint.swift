@@ -244,8 +244,22 @@ public actor IrxEndpointSupervisor {
             ]
         )
         // Readiness = the relay link is up. Dials before this point are the
-        // old stack's launch race; callers await readiness instead.
-        await bound.online()
+        // old stack's launch race; callers await readiness instead. Bounded:
+        // a relay that never admits us (e.g. a silently refused wrong-key
+        // token) must fail the bind loudly, not hang activation forever.
+        let cameOnline = try await withIrxDeadline(.seconds(20)) {
+            await bound.online()
+            return true
+        }
+        guard cameOnline == true else {
+            journal.record(
+                "endpoint", "online-timeout",
+                ["generation": String(generation)]
+            )
+            try? await bound.close()
+            driver = nil
+            throw IrxEndpointError.bindFailed("relay link never came up (20s)")
+        }
         onlineReached = true
         let readyMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000

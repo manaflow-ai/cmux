@@ -312,7 +312,10 @@ public actor IrxBrokerService {
     // MARK: - Relay credentials
 
     public func cachedRelayCredentials() -> [IrxRelayCredential] {
-        credentialCache.load()?.usable(at: Date()) ?? []
+        guard let snapshot = credentialCache.load(),
+            snapshot.endpointIDHex == identity.endpointIDHex
+        else { return [] }
+        return snapshot.usable(at: Date())
     }
 
     /// Mints fresh endpoint-bound relay credentials. Only relay URLs present
@@ -355,7 +358,12 @@ public actor IrxBrokerService {
         guard !minted.isEmpty else {
             throw IrxBrokerServiceError.noCredentialsIssued
         }
-        credentialCache.save(IrxRelayCredentialSnapshot(credentials: minted, mintedAt: Date()))
+        credentialCache.save(
+            IrxRelayCredentialSnapshot(
+                credentials: minted,
+                mintedAt: Date(),
+                endpointIDHex: identity.endpointIDHex
+            ))
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
         journal.record(
