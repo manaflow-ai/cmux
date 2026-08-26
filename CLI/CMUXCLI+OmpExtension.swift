@@ -370,7 +370,6 @@ function sendFeed(
   const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
   const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
   const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
-  const toolInput = objectValue(event, ["args", "input"]);
   const isError = objectValue(event, ["isError", "is_error"]);
 
   const payload: Record<string, unknown> = {
@@ -385,6 +384,7 @@ function sendFeed(
   if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
   // Security: tool_input can contain tokens, secrets, or auth headers from
   // bash commands. Do not send it to Feed — tool_name is enough for progress.
+  if (isError !== undefined) payload.is_error = isError;
 
   const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
   try {
