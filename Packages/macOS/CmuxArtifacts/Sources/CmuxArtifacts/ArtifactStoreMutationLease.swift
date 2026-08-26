@@ -30,8 +30,8 @@ final class ArtifactStoreMutationLease {
               (status.st_mode & S_IFMT) == S_IFDIR else {
             throw ArtifactStoreError.pathOutsideStore(directory.path)
         }
-        guard openedPath(for: descriptor)
-                == (expectedCanonicalPath ?? canonicalPath(directory)) else {
+        guard Self.openedPath(for: descriptor)
+                == (expectedCanonicalPath ?? Self.canonicalPath(directory)) else {
             throw ArtifactStoreError.pathOutsideStore(directory.path)
         }
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
@@ -262,7 +262,7 @@ final class ArtifactStoreMutationLease {
         var sourceStatus = stat()
         guard fstat(sourceDescriptor, &sourceStatus) == 0,
               (sourceStatus.st_mode & S_IFMT) == S_IFDIR,
-              openedPath(for: sourceDescriptor) == expectedSourceParentPath else {
+              Self.openedPath(for: sourceDescriptor) == expectedSourceParentPath else {
             throw ArtifactStoreError.pathOutsideStore(source.path)
         }
 
@@ -308,18 +308,18 @@ final class ArtifactStoreMutationLease {
         }
     }
 
-    private func canonicalPath(_ url: URL) -> String {
+    private static func canonicalPath(_ url: URL) -> String {
         url.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
-    private func openedPath(for descriptor: Int32) -> String? {
+    private static func openedPath(for descriptor: Int32) -> String? {
         var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
         let result = buffer.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) -> Int32 in
             guard let baseAddress = bytes.baseAddress else { return -1 }
             return Darwin.fcntl(descriptor, F_GETPATH, baseAddress)
         }
         guard result == 0 else { return nil }
-        return canonicalPath(URL(fileURLWithPath: String(
+        return Self.canonicalPath(URL(fileURLWithPath: String(
             decoding: buffer.prefix { $0 != 0 },
             as: UTF8.self
         )))

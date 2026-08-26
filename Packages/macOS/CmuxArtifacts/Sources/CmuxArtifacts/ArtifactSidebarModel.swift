@@ -242,9 +242,10 @@ public final class ArtifactSidebarModel {
                                 break
                             }
                             self.watcherReloadInFlight = true
+                            var generation = self.watcherEventGeneration
                             repeat {
                                 self.watcherReloadPending = false
-                                let generation = self.watcherEventGeneration
+                                generation = self.watcherEventGeneration
                                 do {
                                     try await self.watcherClock.sleep(for: self.watcherDebounce)
                                 } catch {
