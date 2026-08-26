@@ -59,10 +59,10 @@ public extension CmxIrohEndpoint {
     /// Test and alternate endpoints opt out of local advertisement by default.
     func localDirectAddresses() async -> [String] { [] }
 
-    /// Test and alternate endpoints reject relay profile replacement by default.
-    func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) async throws {
-        guard profile.source == .managed else {
-            throw CmxIrohEndpointConfigurationError.unsupportedRelayProfileReplacement
-        }
+    /// Test and alternate endpoints reject relay profile replacement by
+    /// default, so a supervisor can never commit a profile the endpoint did
+    /// not actually apply.
+    func replaceRelayProfile(_: CmxIrohEndpointRelayProfile) async throws {
+        throw CmxIrohEndpointConfigurationError.unsupportedRelayProfileReplacement
     }
 }
