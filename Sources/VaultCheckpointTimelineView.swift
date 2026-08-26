@@ -6,7 +6,7 @@ import SwiftUI
 /// All capabilities arrive as closures — no store references (issue #2586).
 struct VaultCheckpointTimelineView: View {
     let entry: SessionEntry
-    /// Opens a session in a new tab; used to launch fork-from-checkpoint
+    /// Opens a session in a new workspace; used to launch fork-from-checkpoint
     /// results through the exact same path as row resume.
     let onResume: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void

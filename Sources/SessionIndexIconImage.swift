@@ -1,4 +1,19 @@
+import AppKit
 import SwiftUI
+
+/// Neutral icon treatment shared by every non-branded Vault glyph.
+///
+/// Keeping the tint and symbol weight in one place prevents computed day
+/// headers from drifting away from folder/agent fallback icons as each path
+/// evolves independently.
+enum SessionIndexIconStyle {
+    static let neutralTintColor: NSColor = .secondaryLabelColor
+    static let symbolWeight: NSFont.Weight = .regular
+
+    static func pointSize(for slotSize: CGFloat) -> CGFloat {
+        max(slotSize - 2, 10)
+    }
+}
 
 /// Shared AppKit-backed icon view for Vault section headers and previews.
 ///
@@ -20,19 +35,19 @@ struct SessionIndexSectionIconImage: View, Equatable {
         case .folder:
             SessionIndexResolvedSystemSymbolImage(
                 systemName: "folder",
-                pointSize: max(size - 2, 10),
+                pointSize: SessionIndexIconStyle.pointSize(for: size),
                 size: size,
-                weight: .regular,
-                tintColor: .secondaryLabelColor,
+                weight: SessionIndexIconStyle.symbolWeight,
+                tintColor: SessionIndexIconStyle.neutralTintColor,
                 fallbackSource: .workspaceIcon(.folder)
             )
         case .day:
             SessionIndexResolvedSystemSymbolImage(
                 systemName: "calendar",
-                pointSize: max(size - 2, 10),
+                pointSize: SessionIndexIconStyle.pointSize(for: size),
                 size: size,
-                weight: .regular,
-                tintColor: .secondaryLabelColor,
+                weight: SessionIndexIconStyle.symbolWeight,
+                tintColor: SessionIndexIconStyle.neutralTintColor,
                 fallbackSource: .systemSymbol(
                     name: "calendar",
                     accessibilityDescription: nil
@@ -41,10 +56,10 @@ struct SessionIndexSectionIconImage: View, Equatable {
         case .search:
             SessionIndexResolvedSystemSymbolImage(
                 systemName: "magnifyingglass",
-                pointSize: max(size - 2, 10),
+                pointSize: SessionIndexIconStyle.pointSize(for: size),
                 size: size,
-                weight: .regular,
-                tintColor: .secondaryLabelColor,
+                weight: SessionIndexIconStyle.symbolWeight,
+                tintColor: SessionIndexIconStyle.neutralTintColor,
                 fallbackSource: .systemSymbol(
                     name: "magnifyingglass",
                     accessibilityDescription: nil

@@ -25,8 +25,8 @@
     "cli.vault.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux vault <subcommand> [options]\n\nBrowse, search, checkpoint, and fork agent sessions from the Vault index.\n\nSubcommands:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      List indexed agent sessions, newest first.\n  search <query> [--limit <n>]\n      Search sessions. Supports agent:, repo:, ws:, before:/after:\n      operators and quoted phrases, ranked by recency.\n  checkpoints --agent <id> --session <id>\n      List a session's checkpoint timeline (derived turns + manual).\n  checkpoint --agent <id> --session <id> [--name <text>]\n      Create a manual named checkpoint at the session's current tip.\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      Fork a new session from a checkpoint. Prints the new session id\n      and its resume command; --open also opens it as a new tab.\n\nAll subcommands support --json for machine-readable output." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux vault <subcommand> [options]\n\nVaultインデックスからエージェントセッションを閲覧・検索・チェックポイント作成・フォークします。\n\nサブコマンド:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      インデックス済みセッションを新しい順に一覧表示します。\n  search <query> [--limit <n>]\n      セッションを検索します。agent:、repo:、ws:、before:/after: 演算子と\n      引用句をサポートし、新しい順にランク付けされます。\n  checkpoints --agent <id> --session <id>\n      セッションのチェックポイントタイムラインを一覧表示します。\n  checkpoint --agent <id> --session <id> [--name <text>]\n      現在の先端に手動チェックポイントを作成します。\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      チェックポイントから新しいセッションをフォークします。--open で\n      新しいタブとして開きます。\n\nすべてのサブコマンドは --json をサポートします。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux vault <subcommand> [options]\n\nBrowse, search, checkpoint, and fork agent sessions from the Vault index.\n\nSubcommands:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      List indexed agent sessions, newest first.\n  search <query> [--limit <n>]\n      Search sessions. Supports agent:, repo:, ws:, before:/after:\n      operators and quoted phrases, ranked by recency.\n  checkpoints --agent <id> --session <id>\n      List a session's checkpoint timeline (derived turns + manual).\n  checkpoint --agent <id> --session <id> [--name <text>]\n      Create a manual named checkpoint at the session's current tip.\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      Fork a new session from a checkpoint. Prints the new session id\n      and its resume command; --open also opens it in a new workspace.\n\nAll subcommands support --json for machine-readable output." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux vault <subcommand> [options]\n\nVaultインデックスからエージェントセッションを閲覧・検索・チェックポイント作成・フォークします。\n\nサブコマンド:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      インデックス済みセッションを新しい順に一覧表示します。\n  search <query> [--limit <n>]\n      セッションを検索します。agent:、repo:、ws:、before:/after: 演算子と\n      引用句をサポートし、新しい順にランク付けされます。\n  checkpoints --agent <id> --session <id>\n      セッションのチェックポイントタイムラインを一覧表示します。\n  checkpoint --agent <id> --session <id> [--name <text>]\n      現在の先端に手動チェックポイントを作成します。\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      チェックポイントから新しいセッションをフォークします。--open で\n      新しいワークスペースで開きます。\n\nすべてのサブコマンドは --json をサポートします。" } }
       }
     },
     "cli.vault.sessions.empty": {
@@ -46,8 +46,8 @@
     "cli.vault.fork.opened": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Opened in a new tab." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "新しいタブで開きました。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Opened in a new workspace." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいワークスペースで開きました。" } }
       }
     },
     "cli.vault.fork.created": {
@@ -153791,13 +153791,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resume in New Tab"
+            "value": "Resume in New Workspace"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいタブで再開"
+            "value": "新しいワークスペースで再開"
           }
         }
       }

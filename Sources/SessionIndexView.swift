@@ -9,6 +9,18 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum SessionEntryResumeCoordinator {
+    @discardableResult
+    private static func launchInNewWorkspace(
+        _ launch: SessionEntryResumeLaunch,
+        tabManager: TabManager
+    ) -> Workspace? {
+        tabManager.addWorkspaceIfActive(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
+        )
+    }
+
     /// Returns the in-pane target for an indexed session, if one is currently
     /// represented by a real surface in the tab manager.
     ///
@@ -75,12 +87,42 @@ enum SessionEntryResumeCoordinator {
         return keys
     }
 
-    /// Opens an indexed session in the most useful existing surface. A live
-    /// session is focused in place; an ended or stale session follows the
-    /// normal Vault resume path and gets a fresh surface.
+    /// Opens an indexed session in a new split in the selected workspace.
+    ///
+    /// This is intentionally different from ``focusIfActive``: Open Session
+    /// is an explicit second launch, even when the same session is already
+    /// represented by a live pane. Focus Session is the action for reusing an
+    /// existing pane.
     static func open(_ entry: SessionEntry, tabManager: TabManager) {
-        guard !focusIfActive(entry, tabManager: tabManager) else { return }
-        resume(entry, tabManager: tabManager)
+        guard let launch = entry.resumeLaunch else { return }
+
+        guard let workspace = tabManager.selectedWorkspace,
+              !workspace.isRemoteWorkspace,
+              !workspace.isRemoteTmuxMirror,
+              let paneId = workspace.bonsplitController.focusedPaneId
+                  ?? workspace.bonsplitController.allPaneIds.first else {
+            // A remote workspace cannot safely execute a local Vault restore
+            // command. If there is no usable local pane, fall back to the
+            // same isolated-workspace launch used by Resume.
+            _ = launchInNewWorkspace(launch, tabManager: tabManager)
+            return
+        }
+
+        // A zoomed pane has no room to represent the new split until it is
+        // restored to the normal layout.
+        workspace.clearSplitZoom()
+        if workspace.splitPaneWithNewTerminal(
+            targetPane: paneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: launch.startupRestoreAgent
+        ) == nil {
+            // Keep the action useful if the selected workspace retires between
+            // menu presentation and invocation.
+            _ = launchInNewWorkspace(launch, tabManager: tabManager)
+        }
     }
 
     /// Focuses the current surface for `entry` when the live agent index still
@@ -96,41 +138,11 @@ enum SessionEntryResumeCoordinator {
 
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
         guard let launch = entry.resumeLaunch else { return }
-        let targetCwd = launch.workingDirectory
-
-        let selected = tabManager.selectedWorkspace
-        let selectedTab = tabManager.selectedTabId.flatMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
-        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
-        let workspaceCwd = selected?.currentDirectory
-        let pwdMatches: Bool = {
-            guard !isRemoteSelection,
-                  let targetCwd, !targetCwd.isEmpty,
-                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
-            let lhs = (targetCwd as NSString).standardizingPath
-            let rhs = (workspaceCwd as NSString).standardizingPath
-            return lhs == rhs
-        }()
-
-        if pwdMatches,
-           let workspace = selected,
-           let paneId = workspace.bonsplitController.focusedPaneId {
-            workspace.newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: targetCwd,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
-            return
-        }
-
-        tabManager.addWorkspaceIfActive(
-            workingDirectory: targetCwd,
-            initialTerminalInput: launch.initialInput,
-            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
-        )
+        // Resume is deliberately workspace-scoped. It must remain predictable
+        // even when the selected workspace happens to share the session's cwd;
+        // Open Session is the separate action for a split in the current
+        // workspace.
+        _ = launchInNewWorkspace(launch, tabManager: tabManager)
     }
 }
 
@@ -154,15 +166,14 @@ struct SessionIndexView: View {
     /// no popover — their key space doesn't map to a popover search scope).
     @State private var expandedDaySections: Set<SectionKey> = []
     let onResume: ((SessionEntry) -> Void)?
-    /// Opens an existing live session in place, falling back to resume when
-    /// the indexed surface is no longer present.
+    /// Launches the indexed session in a new split in the selected workspace.
     let onOpen: ((SessionEntry) -> Void)?
     /// Snapshot of managed sessions currently represented by real panes. Rows
     /// use it only for status and menu presentation; the actual focus mutation
     /// still goes through `onOpen`/`onFocus` and `SessionEntryResumeCoordinator`.
     let activeSessionKeys: Set<String>
-    /// Focus-only action. Unlike `onOpen`, it never falls back to resuming a
-    /// session if the pane disappears between menu presentation and click.
+    /// Focus-only action. Unlike `onOpen`, it never launches another session
+    /// if the pane disappears between menu presentation and click.
     let onFocus: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
@@ -1092,7 +1103,7 @@ private func sessionRowMenuItems(
         Button {
             onResume(entry)
         } label: {
-            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
+            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Workspace"))
         }
         Divider()
     }
@@ -1166,7 +1177,7 @@ struct SessionTranscriptPreviewView: View {
 
     let entry: SessionEntry
     let sizeModel: SessionTranscriptPopoverSizeModel
-    /// Resume-in-new-tab capability; fork-from-checkpoint launches through it.
+    /// Resume-in-new-workspace capability; fork-from-checkpoint launches through it.
     var onResume: ((SessionEntry) -> Void)?
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void

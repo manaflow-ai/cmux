@@ -20,16 +20,16 @@ struct SessionIndexAgentIconImage: View, Equatable {
                     name: "person.crop.circle.fill",
                     accessibilityDescription: nil
                 ),
-                fallbackTintColor: .secondaryLabelColor
+                fallbackTintColor: SessionIndexIconStyle.neutralTintColor
             ))
             .frame(width: size, height: size)
         } else {
             SessionIndexResolvedSystemSymbolImage(
                 systemName: agent.systemImageName ?? "person.crop.circle",
-                pointSize: max(size - 2, 10),
+                pointSize: SessionIndexIconStyle.pointSize(for: size),
                 size: size,
-                weight: .regular,
-                tintColor: .secondaryLabelColor,
+                weight: SessionIndexIconStyle.symbolWeight,
+                tintColor: SessionIndexIconStyle.neutralTintColor,
                 fallbackSource: .systemSymbol(
                     name: "person.crop.circle.fill",
                     accessibilityDescription: nil

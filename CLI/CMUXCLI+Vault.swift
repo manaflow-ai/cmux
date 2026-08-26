@@ -3,7 +3,7 @@ import Foundation
 /// `cmux vault …` — the Vault session index over the control socket, so
 /// terminal agents can browse, search, checkpoint, and fork agent sessions
 /// exactly like the Vault UI. Read verbs never focus anything; `fork` opens
-/// the new session's tab only with an explicit `--open`.
+/// the new session's workspace only with an explicit `--open`.
 extension CMUXCLI {
     static let vaultUsage = String(
         localized: "cli.vault.usage",
@@ -24,7 +24,7 @@ extension CMUXCLI {
               Create a manual named checkpoint at the session's current tip.
           fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]
               Fork a new session from a checkpoint. Prints the new session id
-              and its resume command; --open also opens it as a new tab.
+              and its resume command; --open also opens it in a new workspace.
 
         All subcommands support --json for machine-readable output.
         """
@@ -144,7 +144,7 @@ extension CMUXCLI {
                 if payload["opened"] as? Bool == true {
                     print(String(
                         localized: "cli.vault.fork.opened",
-                        defaultValue: "Opened in a new tab."
+                        defaultValue: "Opened in a new workspace."
                     ))
                 }
             }
