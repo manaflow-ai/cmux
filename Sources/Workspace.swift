@@ -2547,6 +2547,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
     private var featureFlagsObserver: NSObjectProtocol?
+    private var browserAvailabilityObserver: NSObjectProtocol?
+    private var browserAvailabilityDefaultsObserver: NSObjectProtocol?
 
     /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
     /// surface-id mapping, and the pane-layout bookkeeping. The legacy
@@ -3962,6 +3964,26 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 self.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
+        browserAvailabilityObserver = NotificationCenter.default.addObserver(
+            forName: BrowserAvailabilitySettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isRetiredFromOwningTabManager else { return }
+                self.reapplySurfaceTabBarButtonsForFeatureFlags()
+            }
+        }
+        browserAvailabilityDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isRetiredFromOwningTabManager else { return }
+                self.reapplySurfaceTabBarButtonsForFeatureFlags()
+            }
+        }
     }
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
@@ -3979,6 +4001,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
+        }
+        if let browserAvailabilityObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityObserver)
+        }
+        if let browserAvailabilityDefaultsObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityDefaultsObserver)
         }
         deferredAgentResumeIndexTask?.cancel()
         activeRemoteSessionControllerID = nil
@@ -4029,6 +4057,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
             if builtInAction == .newAgentChat { return CmuxFeatureFlags.shared.isAgentChatUIEnabled }
             if builtInAction == .newSimulator { return CmuxFeatureFlags.shared.isSimulatorEnabled }
+            if builtInAction == .newBrowser { return BrowserAvailabilitySettings.isEnabled() }
             return true
         }
         let executableButtons = Dictionary(
@@ -9921,6 +9950,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
             self.featureFlagsObserver = nil
+        }
+        if let browserAvailabilityObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityObserver)
+            self.browserAvailabilityObserver = nil
+        }
+        if let browserAvailabilityDefaultsObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityDefaultsObserver)
+            self.browserAvailabilityDefaultsObserver = nil
         }
         teardownAllPanels(retireDock: true)
         teardownRemoteConnection()
