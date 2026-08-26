@@ -521,9 +521,11 @@ extension Workspace {
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
         if let deferredRestore = detached.deferredAgentResumeRestore {
+            let adoptedRemoteContext = surfaceResumeBindingsByPanelId[detached.panelId]?
+                .launchFlavor.remoteContext
             deferAgentResumeRestore(
                 panelId: detached.panelId,
-                restore: deferredRestore
+                restore: deferredRestore.retargetingRemoteOwner(adoptedRemoteContext)
             )
         }
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)

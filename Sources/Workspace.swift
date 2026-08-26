@@ -10435,7 +10435,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             toTabId: id,
             surfaceId: detached.panelId
         )
-        seedDetachedRestoredAgentState(from: detached)
         let transferredResumeBinding: SurfaceResumeBindingSnapshot? = {
             if let resumeBinding = detached.resumeBinding,
                !resumeBinding.isProcessDetected {
@@ -10499,6 +10498,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 )
             }
         }
+        // Seed deferred restore work only after the destination binding and
+        // persistent-SSH context have been retargeted. The resolver starts an
+        // asynchronous ownership scan, so publishing it earlier can race the
+        // adoption and reject a valid moved session.
+        seedDetachedRestoredAgentState(from: detached)
         if detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended {
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[detached.panelId] =
                 didAdoptWorkspaceRemoteTracking ? id : detached.sessionRestoreWorkspaceId

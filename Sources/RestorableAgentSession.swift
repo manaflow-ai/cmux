@@ -3104,6 +3104,34 @@ struct DeferredAgentResumeRestore: Sendable {
         self.workingDirectory = workingDirectory
         self.resumeWorkingDirectory = resumeWorkingDirectory
     }
+
+    /// Retargets a transferred persistent-SSH restore after its binding has
+    /// been adopted by the destination workspace.
+    func retargetingRemoteOwner(
+        _ destinationContext: SurfaceResumeRemoteContext?
+    ) -> Self {
+        guard restoresRemoteWorkspaceTerminalSnapshot,
+              let sourceContext = remoteResumeContext,
+              let destinationContext,
+              sourceContext.surfaceID == destinationContext.surfaceID,
+              sourceContext.persistentPTYSessionID
+                  .trimmingCharacters(in: .whitespacesAndNewlines)
+                  == destinationContext.persistentPTYSessionID
+                      .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return self
+        }
+        return Self(
+            stablePanelID: stablePanelID,
+            restorableAgent: restorableAgent,
+            resumeBinding: resumeBinding,
+            restoresRemoteWorkspaceTerminalSnapshot:
+                restoresRemoteWorkspaceTerminalSnapshot,
+            remoteResumeContext: destinationContext,
+            remoteResumeCommandEmbedded: remoteResumeCommandEmbedded,
+            workingDirectory: workingDirectory,
+            resumeWorkingDirectory: resumeWorkingDirectory
+        )
+    }
 }
 
 private extension CmuxTopProcessArguments {

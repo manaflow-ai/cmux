@@ -92,6 +92,73 @@ struct TerminalStartupRestoreFailureTests {
         #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] != nil)
     }
 
+    @Test("Transferred persistent SSH restore adopts the destination owner")
+    func transferredPersistentSSHRestoreRetargetsRemoteOwner() throws {
+        let panelID = UUID()
+        let sourceWorkspaceID = UUID()
+        let destinationWorkspaceID = UUID()
+        let persistentPTYSessionID = "persistent-transfer-session"
+        let sourceContext = SurfaceResumeRemoteContext(
+            workspaceID: sourceWorkspaceID,
+            surfaceID: panelID,
+            persistentPTYSessionID: persistentPTYSessionID
+        )
+        let destinationContext = SurfaceResumeRemoteContext(
+            workspaceID: destinationWorkspaceID,
+            surfaceID: panelID,
+            persistentPTYSessionID: " \(persistentPTYSessionID) "
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume persistent-transfer-session",
+            cwd: "/tmp/persistent-transfer-session",
+            checkpointId: persistentPTYSessionID,
+            source: "agent-hook",
+            autoResume: true,
+            launchFlavor: .persistentSSH(sourceContext),
+            updatedAt: 1_800_000_304
+        )
+        let restore = DeferredAgentResumeRestore(
+            stablePanelID: panelID,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: true,
+            remoteResumeContext: sourceContext,
+            remoteResumeCommandEmbedded: true,
+            workingDirectory: binding.cwd,
+            resumeWorkingDirectory: binding.cwd
+        )
+
+        let retargeted = restore.retargetingRemoteOwner(destinationContext)
+        #expect(retargeted.remoteResumeContext == destinationContext)
+        #expect(retargeted.remoteResumeCommandEmbedded)
+        #expect(retargeted.resumeBinding == binding)
+
+        let mismatchedSession = restore.retargetingRemoteOwner(
+            SurfaceResumeRemoteContext(
+                workspaceID: destinationWorkspaceID,
+                surfaceID: panelID,
+                persistentPTYSessionID: "different-session"
+            )
+        )
+        #expect(mismatchedSession.remoteResumeContext == sourceContext)
+
+        let localRestore = DeferredAgentResumeRestore(
+            stablePanelID: panelID,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: false,
+            remoteResumeContext: sourceContext,
+            workingDirectory: binding.cwd,
+            resumeWorkingDirectory: binding.cwd
+        )
+        #expect(
+            localRestore.retargetingRemoteOwner(destinationContext)
+                .remoteResumeContext == sourceContext
+        )
+    }
+
     @Test("Failed Dock adoption clears source-owned hibernation tracking")
     func failedDockAdoptionClearsSourceHibernationTracking() throws {
         let defaults = try makeAutoResumeDefaults()
