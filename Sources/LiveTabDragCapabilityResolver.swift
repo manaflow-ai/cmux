@@ -17,7 +17,7 @@ final class LiveTabDragCapabilityResolver {
 
     private struct Cache {
         let registryIdentity: ObjectIdentifier
-        let pasteboardIdentity: ObjectIdentifier
+        let pasteboardName: NSPasteboard.Name
         let pasteboardChangeCount: Int
         let transfer: TabDragTransfer?
     }
@@ -43,11 +43,11 @@ final class LiveTabDragCapabilityResolver {
             return nil
         }
         let registryIdentity = ObjectIdentifier(registry)
-        let pasteboardIdentity = ObjectIdentifier(pasteboard)
+        let pasteboardName = pasteboard.name
         let changeCount = pasteboard.changeCount
         if let cache,
            cache.registryIdentity == registryIdentity,
-           cache.pasteboardIdentity == pasteboardIdentity,
+           cache.pasteboardName == pasteboardName,
            cache.pasteboardChangeCount == changeCount {
             return cache.transfer
         }
@@ -55,7 +55,7 @@ final class LiveTabDragCapabilityResolver {
         let transfer = transferResolver(registry, pasteboard)
         cache = Cache(
             registryIdentity: registryIdentity,
-            pasteboardIdentity: pasteboardIdentity,
+            pasteboardName: pasteboardName,
             pasteboardChangeCount: changeCount,
             transfer: transfer
         )
