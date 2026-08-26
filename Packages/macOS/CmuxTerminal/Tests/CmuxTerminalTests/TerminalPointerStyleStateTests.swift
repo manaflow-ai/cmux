@@ -201,6 +201,36 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
+    @Test("unsupported link bases restore after an unfocused hover")
+    func unsupportedLinkBaseRestoresAfterUnfocusedHover() {
+        var state = TerminalPointerStyleState()
+        let runtimeLifetimeId = activate(&state)
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.focusChanged(false))
+        state.apply(.ghosttyLinkHoverChanged(
+            true,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_POINTER,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyShape(
+            GHOSTTY_MOUSE_SHAPE_HELP,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.ghosttyLinkHoverChanged(
+            false,
+            runtimeLifetimeId: runtimeLifetimeId
+        ))
+        state.apply(.focusChanged(true))
+
+        #expect(state.effectiveCursor == NSCursor.crosshair)
+    }
+
     @Test("focus loss temporarily restores the terminal default")
     func focusLossRestoresDefaultWithoutDiscardingSurfaceState() {
         var state = TerminalPointerStyleState()
