@@ -39,6 +39,92 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
+    @Test func capturePaneRejectsPositionalSurfaceWhenCallerSurfaceIsUnset() throws {
+        let (requests, result) = try runCapturePane(
+            arguments: ["capture-pane", Self.targetSurfaceRef],
+            callerSurfaceId: nil
+        )
+
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(
+            (result.stderr + result.stdout).contains("unknown positional arg '\(Self.targetSurfaceRef)'"),
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+        #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
+    }
+
+    @Test func capturePaneRejectsPositionalSurfaceInsteadOfCallerEnvironmentSurface() throws {
+        let (requests, result) = try runCapturePane(
+            arguments: ["capture-pane", Self.targetSurfaceRef],
+            callerSurfaceId: "surface:294"
+        )
+
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(
+            (result.stderr + result.stdout).contains("unknown positional arg '\(Self.targetSurfaceRef)'"),
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+        #expect(!(result.stdout + result.stderr).contains("caller screen"))
+        #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
+    }
+
+    @Test func capturePaneFlagsPreserveTargetAndScrollbackOptions() throws {
+        let (requests, result) = try runCapturePane(arguments: [
+            "capture-pane",
+            "--surface", Self.targetSurfaceRef,
+            "--scrollback",
+            "--lines", "7",
+        ])
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "surface.read_text")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["surface_id"] as? String == Self.targetSurfaceRef)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["window_id"] == nil)
+        #expect(params["scrollback"] as? Bool == true)
+        #expect(params["lines"] as? Int == 7)
+    }
+
+    @Test(arguments: ["unexpected", "--bogus"])
+    func capturePaneRejectsUnknownExtraArguments(_ extraArgument: String) throws {
+        let (requests, result) = try runCapturePane(arguments: [
+            "capture-pane",
+            "--surface", Self.targetSurfaceRef,
+            extraArgument,
+        ])
+
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(
+            (result.stderr + result.stdout).contains(extraArgument),
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+        #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
+    }
+
+    @Test func capturePaneHelpDocumentsFlagOnlyTargeting() throws {
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["capture-pane", "--help"],
+            environment: [
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_SOCKET_PATH": Self.makeSocketPath("capture-help"),
+            ],
+            timeout: 5
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(
+            result.stdout.contains("Positional arguments are not supported"),
+            Comment(rawValue: result.stdout)
+        )
+        #expect(
+            result.stdout.contains("--surface <id|ref|index>"),
+            Comment(rawValue: result.stdout)
+        )
+    }
+
     @Test func numericSurfaceHandleStillInheritsCallerWorkspaceForIndexResolution() throws {
         let socketPath = Self.makeSocketPath("numeric")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -379,6 +465,52 @@ struct CLIExplicitSurfaceRoutingTests {
         if let expectedKey {
             #expect(params["key"] as? String == expectedKey)
         }
+    }
+
+    private func runCapturePane(
+        arguments: [String],
+        callerSurfaceId: String? = Self.callerSurfaceId
+    ) throws -> (requests: [[String: Any]], result: ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("capture")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "surface.read_text" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: ["text": "capture screen\n"])
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath)
+        if let callerSurfaceId {
+            environment["CMUX_SURFACE_ID"] = callerSurfaceId
+        } else {
+            environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        }
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        return (try state.requestObjects(), result)
     }
 
     private func cliEnvironment(socketPath: String) -> [String: String] {
