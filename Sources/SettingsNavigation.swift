@@ -344,7 +344,7 @@ enum SettingsSearchIndex {
         setting(.app, "workspace-group-new-workspace-placement", String(localized: "settings.app.workspaceGroupNewWorkspacePlacement", defaultValue: "Group New Workspace Placement"), "workspace group command n plus insert position after current top end"),
         setting(.app, "fork-conversation-default", String(localized: "settings.app.forkConversationDefaultDestination", defaultValue: "Fork Conversation Default"), "fork conversation default right left top bottom split tab workspace"),
         setting(.app, "workspace-inherit-working-directory", String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"), "workspace cwd directory current ghostty working-directory"),
-        setting(.app, "keep-expanded-on-new-tab", String(localized: "settings.app.keepExpandedOnNewTab", defaultValue: "Keep Pane Expanded on New Tab"), "pane zoom expanded new tab surface terminal preserve layout"),
+        setting(.app, "keep-expanded-on-new-tab", String(localized: "settings.app.keepExpandedOnNewTab", defaultValue: "Keep Pane Expanded on New Tab"), SettingsSearchAliasIndex.aliases(target: .app, idSuffix: "keep-expanded-on-new-tab")),
         setting(.app, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
         setting(.app, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut"),
         setting(.app, "focus-pane-first-click", String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"), "mouse click focus"),

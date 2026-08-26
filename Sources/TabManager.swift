@@ -4117,9 +4117,11 @@ class TabManager: ObservableObject {
         in workspace: Workspace,
         initialInput: String? = nil
     ) -> TerminalPanel? {
-        guard let focusedPaneId = workspace.bonsplitController.focusedPaneId else { return nil }
-        return workspace.withNewTerminalTabZoomPolicy(inPane: focusedPaneId) {
-            workspace.newTerminalSurfaceInFocusedPaneOutcome(
+        guard let paneId = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first else { return nil }
+        return workspace.withNewTerminalTabZoomPolicy(inPane: paneId) {
+            workspace.newTerminalSurfaceInPaneOutcome(
+                inPane: paneId,
                 focus: true,
                 initialInput: initialInput
             )

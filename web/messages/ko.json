@@ -1006,7 +1006,7 @@
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다.",
           "globalFontMagnification": "cmux가 소유한 터미널, 탭 제목, 사이드바, 설정, 오버레이, 앱 chrome을 이 비율로 확대/축소합니다. 렌더링된 브라우저 페이지 콘텐츠는 제외됩니다.",
-          "keepExpandedOnNewTab": "true이면 확대된 창에서 새 탭을 만들 때 창을 확장된 상태로 유지하고 새 탭에 포커스를 둡니다."
+          "keepExpandedOnNewTab": "true이면 확대된 패널에서 새 탭을 만들 때 패널을 확장된 상태로 유지하고 새 탭에 포커스를 둡니다."
         },
         "terminal": {
           "sessionContentMaxWidth": "터미널 및 내장 에이전트 채팅 콘텐츠의 선택적 최대 너비(포인트)입니다. 전체 패널 너비를 사용하려면 false로 설정하세요.",

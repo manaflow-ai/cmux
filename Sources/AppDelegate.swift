@@ -9075,9 +9075,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // have no local pane to deliver the text to.
         let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
             ?? (workspace.isRemoteTmuxMirror ? nil : {
-                guard let paneId = workspace.bonsplitController.focusedPaneId else { return nil }
+                guard let paneId = workspace.bonsplitController.focusedPaneId
+                    ?? workspace.bonsplitController.allPaneIds.first else { return nil }
                 return workspace.withNewTerminalTabZoomPolicy(inPane: paneId, applyPolicy: shouldBringToFront) {
-                    workspace.newTerminalSurfaceInFocusedPaneOutcome(focus: shouldBringToFront)
+                    workspace.newTerminalSurfaceInPaneOutcome(
+                        inPane: paneId,
+                        focus: shouldBringToFront
+                    )
                 }.panel
             }())
         guard let terminalPanel else { return false }

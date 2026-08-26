@@ -10912,12 +10912,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialInput: String? = nil
     ) -> TerminalPanelCreationOutcome {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return .failed }
+        return newTerminalSurfaceInPaneOutcome(
+            inPane: focusedPaneId,
+            focus: focus,
+            initialInput: initialInput
+        )
+    }
+
+    /// Creates a terminal tab in an explicit pane while retaining canvas and
+    /// remote-tmux creation behavior.
+    @discardableResult
+    func newTerminalSurfaceInPaneOutcome(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        initialInput: String? = nil
+    ) -> TerminalPanelCreationOutcome {
+        guard bonsplitController.allPaneIds.contains(paneId) else { return .failed }
         // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
         // remember the anchor panel so the new one joins its pane instead of
         // floating as a separate canvas pane.
         let canvasAnchorPanelId = layoutMode == .canvas ? focusedPanelId : nil
         let outcome = newTerminalSurfaceOutcome(
-            inPane: focusedPaneId,
+            inPane: paneId,
             focus: focus,
             initialInput: initialInput,
             inheritWorkingDirectoryFallback: true
