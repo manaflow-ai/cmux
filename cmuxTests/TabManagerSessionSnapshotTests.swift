@@ -2122,6 +2122,52 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, restored.tabs.last?.id)
     }
 
+    func testRestoreSessionSnapshotKeepsCmuxTuiCloudVMBinding() throws {
+        let panelId = UUID()
+        var workspace = Self.localWorkspaceSnapshot(title: "vm:vivid-gecko", panelId: panelId)
+        workspace.cloudVM = SessionCloudVMBindingSnapshot(vmID: "vivid-gecko", isBase: true)
+        let snapshot = SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [workspace])
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "vm:vivid-gecko" })
+        XCTAssertEqual(restoredWorkspace.cloudVMBinding, WorkspaceCloudVMBinding(vmID: "vivid-gecko", isBase: true))
+        XCTAssertEqual(restoredWorkspace.cloudVMID, "vivid-gecko")
+        XCTAssertNil(restoredWorkspace.remoteConfiguration)
+
+        // The binding round-trips through the next save too.
+        let resaved = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            resaved.workspaces.first { $0.customTitle == "vm:vivid-gecko" }?.cloudVM,
+            SessionCloudVMBindingSnapshot(vmID: "vivid-gecko", isBase: true)
+        )
+    }
+
+    func testWorkspaceSnapshotWithoutCloudVMBindingRestoresUnbound() throws {
+        // Manifests written before the Cloud tree have no `cloudVM` key.
+        let panelId = UUID()
+        let legacy = Self.localWorkspaceSnapshot(title: "Local", panelId: panelId)
+        let data = try JSONEncoder().encode(legacy)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(json.contains("\"cloudVM\""))
+        let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+        XCTAssertNil(decoded.cloudVM)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [decoded]))
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Local" })
+        XCTAssertNil(restoredWorkspace.cloudVMBinding)
+        XCTAssertNil(restoredWorkspace.cloudVMID)
+
+        // A malformed machine id in a snapshot never becomes a binding.
+        XCTAssertNil(Workspace.restoredCloudVMBinding(from: SessionCloudVMBindingSnapshot(vmID: "bad id!", isBase: false)))
+        XCTAssertEqual(
+            Workspace.restoredCloudVMBinding(from: SessionCloudVMBindingSnapshot(vmID: " coral-gecko ", isBase: false)),
+            WorkspaceCloudVMBinding(vmID: "coral-gecko", isBase: false)
+        )
+    }
+
     func testRestoreSessionSnapshotKeepsSingleManagedCloudVMInSavedOrder() throws {
         let managedPanelId = UUID()
         let localPanelId = UUID()
