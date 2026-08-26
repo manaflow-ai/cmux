@@ -52,6 +52,7 @@ struct AgentChatSidecarProcessTests {
         let didTerminate = AgentChatSidecarProcessTerminator(
             identityProvider: { _ in replacement },
             processGroupProvider: { _ in 4127 },
+            processGroupExistsProvider: { _ in false },
             signalSender: { pid, signal in
                 signals.append((pid, signal))
                 return 0
@@ -72,6 +73,7 @@ struct AgentChatSidecarProcessTests {
         let didTerminate = AgentChatSidecarProcessTerminator(
             identityProvider: { _ in current },
             processGroupProvider: { _ in 4127 },
+            processGroupExistsProvider: { _ in false },
             signalSender: { pid, signal in
                 signals.append((pid, signal))
                 if signal == SIGTERM { current = nil }
@@ -89,12 +91,36 @@ struct AgentChatSidecarProcessTests {
         #expect(signals.first?.1 == SIGTERM)
     }
 
+    @Test func terminationDoesNotClaimCleanupWhenGroupOutlivesItsAnchors() {
+        var current: AgentPIDProcessIdentity? = expected
+        var signals: [(pid_t, Int32)] = []
+        let didTerminate = AgentChatSidecarProcessTerminator(
+            identityProvider: { _ in current },
+            processGroupProvider: { _ in 4127 },
+            processGroupExistsProvider: { _ in true },
+            signalSender: { pid, signal in
+                signals.append((pid, signal))
+                if signal == SIGTERM { current = nil }
+                return 0
+            },
+            sleepNanoseconds: { _ in }
+        ).terminate(
+            identities: [expected],
+            processGroupID: 4127
+        )
+
+        #expect(!didTerminate)
+        #expect(signals.count == 1)
+        #expect(signals.first?.1 == SIGTERM)
+    }
+
     @Test func terminationFailsClosedWhenOneCapturedPIDWasReused() {
         let second = AgentPIDProcessIdentity(pid: 4128, startSeconds: 200, startMicroseconds: 0)
         var signals: [(pid_t, Int32)] = []
         let didTerminate = AgentChatSidecarProcessTerminator(
             identityProvider: { pid in pid == expected.pid ? expected : replacement },
             processGroupProvider: { _ in 4127 },
+            processGroupExistsProvider: { _ in true },
             signalSender: { pid, signal in
                 signals.append((pid, signal))
                 return 0
@@ -122,6 +148,7 @@ struct AgentChatSidecarProcessTests {
                 return secondReads == 1 ? second : secondReplacement
             },
             processGroupProvider: { _ in 4127 },
+            processGroupExistsProvider: { _ in true },
             signalSender: { pid, signal in
                 signals.append((pid, signal))
                 return 0
