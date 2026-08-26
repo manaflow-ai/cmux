@@ -189,7 +189,7 @@ struct MobileStateSyncFrameCodingTests {
         )
         let object = try MobileSyncFrameCoder().jsonObject(from: group)
         #expect(object["is_empty"] as? Bool == true)
-        #expect(object["anchor_workspace_id"] is NSNull)
+        #expect(object["anchor_workspace_id"] as? String == "group-empty")
 
         let decoded = try MobileSyncFrameCoder().decode(
             GroupSyncRecord.self,
@@ -200,13 +200,13 @@ struct MobileStateSyncFrameCodingTests {
               "is_collapsed": false,
               "is_pinned": true,
               "is_empty": true,
-              "anchor_workspace_id": null,
+              "anchor_workspace_id": "group-empty",
               "sort_index": 0
             }
             """
         )
         #expect(decoded.isEmpty)
-        #expect(decoded.anchorWorkspaceID == nil)
+        #expect(decoded.anchorWorkspaceID == "group-empty")
     }
 
     @Test func deltaEventRoundTripsThroughJSONObject() throws {

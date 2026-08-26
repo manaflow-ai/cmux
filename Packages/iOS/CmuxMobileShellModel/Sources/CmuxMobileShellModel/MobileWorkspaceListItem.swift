@@ -164,10 +164,26 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         var emptyBeforeGroup: [MobileWorkspaceGroupPreview.ID: [MobileWorkspaceGroupPreview]] = [:]
         var trailingPinned: [MobileWorkspaceGroupPreview] = []
         var trailingUnpinned: [MobileWorkspaceGroupPreview] = []
-        for (index, group) in groups.enumerated() where emptyGroupIDs.contains(group.id) {
-            let nextLiveSameTierGroup = groups.dropFirst(index + 1).first {
-                groupsWithMembers.contains($0.id) && $0.isPinned == group.isPinned
+        var nextLivePinnedGroup: MobileWorkspaceGroupPreview?
+        var nextLiveUnpinnedGroup: MobileWorkspaceGroupPreview?
+        var nextLiveSameTierByIndex: [MobileWorkspaceGroupPreview?] = Array(
+            repeating: nil,
+            count: groups.count
+        )
+        for index in groups.indices.reversed() {
+            let group = groups[index]
+            nextLiveSameTierByIndex[index] = group.isPinned
+                ? nextLivePinnedGroup
+                : nextLiveUnpinnedGroup
+            guard groupsWithMembers.contains(group.id) else { continue }
+            if group.isPinned {
+                nextLivePinnedGroup = group
+            } else {
+                nextLiveUnpinnedGroup = group
             }
+        }
+        for (index, group) in groups.enumerated() where emptyGroupIDs.contains(group.id) {
+            let nextLiveSameTierGroup = nextLiveSameTierByIndex[index]
             if let nextLiveSameTierGroup {
                 emptyBeforeGroup[nextLiveSameTierGroup.id, default: []].append(group)
             } else if group.isPinned {

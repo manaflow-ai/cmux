@@ -87,14 +87,30 @@ enum SidebarWorkspaceRenderItem {
         var emptyBeforeGroup: [UUID: [WorkspaceGroup]] = [:]
         var trailingPinned: [WorkspaceGroup] = []
         var trailingUnpinned: [WorkspaceGroup] = []
+        var nextLivePinnedGroup: WorkspaceGroup?
+        var nextLiveUnpinnedGroup: WorkspaceGroup?
+        var nextLiveSameTierByIndex: [WorkspaceGroup?] = Array(
+            repeating: nil,
+            count: ordered.count
+        )
+        for index in ordered.indices.reversed() {
+            let group = ordered[index]
+            nextLiveSameTierByIndex[index] = group.isPinned
+                ? nextLivePinnedGroup
+                : nextLiveUnpinnedGroup
+            guard memberGroupIds.contains(group.id) else { continue }
+            if group.isPinned {
+                nextLivePinnedGroup = group
+            } else {
+                nextLiveUnpinnedGroup = group
+            }
+        }
         for (index, group) in ordered.enumerated() where !memberGroupIds.contains(group.id) {
             // Preserve the group's authoritative slot within its pin tier.
             // Crossing tiers would violate the sidebar's pinned-first
             // invariant, so only a later live group in the same tier is a
             // valid insertion anchor; otherwise defer to that tier boundary.
-            let nextLiveSameTierGroup = ordered.dropFirst(index + 1).first {
-                memberGroupIds.contains($0.id) && $0.isPinned == group.isPinned
-            }
+            let nextLiveSameTierGroup = nextLiveSameTierByIndex[index]
             if let nextLiveSameTierGroup {
                 emptyBeforeGroup[nextLiveSameTierGroup.id, default: []].append(group)
             } else if group.isPinned {

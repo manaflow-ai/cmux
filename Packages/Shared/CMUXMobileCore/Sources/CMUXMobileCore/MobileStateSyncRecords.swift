@@ -328,11 +328,10 @@ public struct GroupSyncRecord: MobileSyncRecord {
         try container.encode(isCollapsed, forKey: .isCollapsed)
         try container.encode(isPinned, forKey: .isPinned)
         try container.encodeIfPresent(iconSymbol, forKey: .iconSymbol)
-        if let anchorWorkspaceID {
-            try container.encode(anchorWorkspaceID, forKey: .anchorWorkspaceID)
-        } else {
-            try container.encodeNil(forKey: .anchorWorkspaceID)
-        }
+        // Keep the established non-null wire shape for older phones. The
+        // explicit `is_empty` bit makes this stable group identity incapable
+        // of being mistaken for a live workspace by new clients.
+        try container.encode(anchorWorkspaceID ?? id, forKey: .anchorWorkspaceID)
         try container.encode(isEmpty, forKey: .isEmpty)
         try container.encode(sortIndex, forKey: .sortIndex)
     }
