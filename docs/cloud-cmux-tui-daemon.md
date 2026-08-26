@@ -197,3 +197,53 @@ attach endpoint (`web/services/vms/drivers/*.ts`) to inject and start the new
 daemon; land `feat-tui-manual-io`'s pump against a `remote connect
 --headless` socket; the right-pane catalog. The spike deliberately excludes
 all four.
+
+
+## Cloud tree and agent routing (2026-08-26)
+
+The right sidebar's Cloud tab and the CLI share one view of a machine, built
+from the daemon's own session model rather than a cloud-specific catalog:
+
+```
+<machine>                        status · memory · disk · link
+  workspaces/
+    <name>  ws_…  *              cmux-tui workspace (focused marked *)
+      ● term_…  <title>  <cwd>  [agent claude running]  (open: surface:3)
+  desktop                        noVNC screen (Mac-side synthetic node)
+  ports/
+    3000  http                   forwarded port (Mac-side synthetic node)
+```
+
+The app keeps one headless `cmux-tui remote connect --headless` link per
+awake machine and reads `session current snapshot --json` plus the
+`session current events --jsonl` stream over that link's local socket; the
+tree is push-updated, never polled. Desktop and ports are not cmux-tui
+resources — they are the Mac's own nodes backed by `vm.desktop_open` /
+`vm.port_open` (the same `open-port` + browser-pane path as before).
+
+Socket methods (the CLI, the sidebar tree, and agents all go through them):
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, desktop, memory_mb?, disk_mb?, link: {state, error?}, workspaces: [{id, name, focused, terminals: [{id, title, cwd?, lifecycle, agent?: {state, source}, open_surface_id?}]}], ports: [{port, label?}]}]}` |
+| `vm.terminal_open` | `{id, terminal_id, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — `workspace_id` is the local target; an existing pane showing the terminal is focused instead of duplicated |
+| `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
+| `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
+| `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url}` |
+| `vm.link_socket` | `{id}` | `{socket_path, session}` — the headless link's local mux socket |
+
+CLI addresses are the tree's lines: `cmux vm tree`, then
+`cmux vm open <machine>[/<ws>[/<term>]]`, `cmux vm open <machine>:desktop`,
+`cmux vm open <machine>:port/<n>`. A terminal opens locally as a pane running
+`cmux-tui attach --terminal <term_…>` against the link socket, so one remote
+terminal renders in one pane with no session chrome.
+
+Agents route work with the same primitives: `cmux vm route` prints the machine
+`vm run` would choose (sticky per directory → idle pool machine → sleeper →
+provision) without running anything; `cmux vm agent --agent <claude|codex|opencode|pi>
+-- <prompt>` starts the agent as a detached terminal in the chosen machine's
+session (so it survives the pane and reattaches from any device); `cmux vm run`,
+`exec`, `push`/`pull`, and `wait` stay the headless verbs. CodeRouter is
+orthogonal: it routes model credentials, not compute, and is configured inside
+the machine the same way as locally. The `skills/cmux-cloud-vm` skill teaches
+this policy to Claude Code, Codex, OpenCode, and Pi.

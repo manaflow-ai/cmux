@@ -780,6 +780,8 @@ extension CMUXCLI {
         let id: String
         let created: Bool
         let reason: String
+        /// `vm route` without `--provision`: the router stopped short of creating a machine.
+        var wouldProvision: Bool = false
     }
 
     /// Sticky work→machine bindings, keyed by the caller's directory. Reusing
@@ -898,10 +900,15 @@ extension CMUXCLI {
     /// 5. At the plan cap: the least-loaded busy pool machine.
     /// Pool membership is the persisted id list from `createPoolVM`; the router
     /// never touches machines the user created themselves, whatever their label.
-    private func selectVMForRun(
+    /// Internal (not private) so `vm route` can print the decision and `vm agent` can reuse
+    /// it; there is exactly one routing policy. `allowProvision: false` stops before creating a
+    /// machine and reports `wouldProvision` instead.
+    func selectVMForRun(
         machineOverride: String?,
         forceNew: Bool,
         memoryMb: Int?,
+        workDirectory: String = FileManager.default.currentDirectoryPath,
+        allowProvision: Bool = true,
         client: SocketClient
     ) throws -> VMRunSelection {
         if let machineOverride {
@@ -933,7 +940,7 @@ extension CMUXCLI {
             }
             // Sticky binding beats load: the machine that last ran this
             // directory's work holds its synced checkout and installed deps.
-            let workKey = Self.vmRunWorkKey(forDirectory: FileManager.default.currentDirectoryPath)
+            let workKey = Self.vmRunWorkKey(forDirectory: workDirectory)
             if let binding = Self.loadVMRunBindings()[workKey],
                pool.contains(where: { ($0["id"] as? String) == binding.machine }) {
                 return VMRunSelection(id: binding.machine, created: false, reason: "reused, warm machine for this directory")
@@ -966,6 +973,9 @@ extension CMUXCLI {
             }
         }
 
+        guard allowProvision else {
+            return VMRunSelection(id: "", created: false, reason: "would provision a fresh pool machine", wouldProvision: true)
+        }
         do {
             let id = try createPoolVM(memoryMb: memoryMb, client: client)
             return VMRunSelection(id: id, created: true, reason: "provisioned a fresh pool machine")
@@ -1070,5 +1080,300 @@ extension CMUXCLI {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
+    }
+}
+
+
+// MARK: - vm route / vm agent (route work, not just commands)
+
+extension CMUXCLI {
+    static var vmRouteUsage: String {
+        """
+        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <2g|4g|8g|16g|32g>] [--json]
+
+        Print the machine `cmux vm run` / `cmux vm agent` would use for work in a
+        directory, and why — without running anything. The policy is the router's
+        own: the machine already bound to the directory (warm checkout, installed
+        deps), else an awake idle pool machine, else a sleeping one. When the pool
+        is empty or busy the router would provision a fresh machine; `vm route`
+        says so and stops unless --provision is passed.
+
+        Options:
+          --cwd <dir>    Route for this directory (default: the current one).
+          --new          Ignore the pool and report a fresh machine.
+          --provision    Actually create the machine when routing would.
+          --size <s>     Memory preset for a machine --provision creates.
+          --json         {machine, created, reason, would_provision, directory}
+        """
+    }
+
+    static let vmAgentNames = ["claude", "codex", "opencode", "pi"]
+
+    static var vmAgentUsage: String {
+        """
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>
+
+        Run a coding agent on a cloud machine. The machine is chosen like `vm run`
+        (sticky per directory, then idle pool machine, then a fresh one) unless
+        --machine pins one. The agent starts as a detached terminal in the
+        machine's cmux-tui session, so it keeps running when you close the pane
+        and can be reattached from any device with `cmux vm open <machine>/<ws>/<term>`.
+
+        A bare prompt runs the agent's one-shot form (claude -p, codex exec,
+        opencode run, pi -p). Arguments that start with a flag or a subcommand
+        pass through verbatim.
+
+        Options:
+          --agent <name>   claude | codex | opencode | pi (preinstalled on every machine).
+          --machine <id>   Skip routing and use this machine.
+          --sync           Push --cwd (default: the current directory) to work/<basename>
+                           first and start the agent there.
+          --cwd <dir>      Local directory to route for (and sync with --sync).
+          --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
+          --no-open        Do not open a pane in this app; just start it.
+          --new            Force a fresh pool machine.
+          --size <s>       Memory preset for a machine this call creates.
+
+        Examples:
+          cmux vm agent --agent claude --sync -- "run the test suite and fix failures"
+          cmux vm agent --agent codex --machine vivid-newt -- exec "summarize work/app"
+          cmux vm agent --agent opencode --no-open --json -- "add a README"
+        """
+    }
+
+    /// Non-interactive argv for an agent given the words after `--`. A bare prompt gets the
+    /// agent's one-shot form; anything that starts with a flag or a known subcommand passes
+    /// through verbatim so `-- exec …` / `-- --resume …` keep meaning what they say.
+    static func vmAgentArgv(agent: String, args: [String]) -> [String]? {
+        guard vmAgentNames.contains(agent), let first = args.first else { return nil }
+        let passthroughSubcommands: [String: Set<String>] = [
+            "claude": ["mcp", "config", "doctor", "update", "install", "auth", "setup-token", "plugin", "agents"],
+            "codex": ["exec", "e", "login", "logout", "mcp", "apply", "resume", "completion", "debug", "sandbox", "cloud", "app-server", "features"],
+            "opencode": ["run", "auth", "serve", "web", "models", "upgrade", "agent", "session", "export", "import", "github", "mcp", "acp"],
+            "pi": ["config", "install", "uninstall", "update", "list", "login", "logout", "mcp"],
+        ]
+        if first.hasPrefix("-") || (passthroughSubcommands[agent] ?? []).contains(first) {
+            return [agent] + args
+        }
+        let prompt = args.joined(separator: " ")
+        switch agent {
+        case "claude": return ["claude", "-p", prompt]
+        case "codex": return ["codex", "exec", prompt]
+        case "opencode": return ["opencode", "run", prompt]
+        case "pi": return ["pi", "-p", prompt]
+        default: return nil
+        }
+    }
+
+    /// The default terminal name for an agent run: the agent plus the start of its prompt.
+    static func vmAgentTerminalName(agent: String, args: [String]) -> String {
+        let prompt = args.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else { return agent }
+        let clipped = prompt.count > 40 ? String(prompt.prefix(40)).trimmingCharacters(in: .whitespaces) + "…" : prompt
+        return "\(agent): \(clipped)"
+    }
+
+    /// What the machine's cmux-tui session runs: a login shell so the persistent-home tool
+    /// paths (/root/.npm-global, bun, uv) resolve even before .bashrc is sourced, then exec.
+    func vmAgentShellCommand(argv: [String]) -> [String] {
+        let joined = argv.map(shellQuote).joined(separator: " ")
+        return ["bash", "-lc", "export PATH=/root/.npm-global/bin:/root/.bun/bin:/root/.local/bin:$PATH; exec \(joined)"]
+    }
+
+    func runVMRouteCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") {
+            print(Self.vmRouteUsage)
+            return
+        }
+        var cwdOption: String?
+        var forceNew = false
+        var provision = false
+        var sizeOption: String?
+        var index = 0
+        while index < rest.count {
+            let arg = rest[index]
+            func takeValue() throws -> String {
+                guard index + 1 < rest.count else {
+                    throw CLIError(message: "\(arg) requires a value\n\n\(Self.vmRouteUsage)")
+                }
+                index += 1
+                return rest[index]
+            }
+            switch arg {
+            case "--cwd": cwdOption = try takeValue()
+            case "--new": forceNew = true
+            case "--provision": provision = true
+            case "--size": sizeOption = try takeValue()
+            case "--json": break
+            default:
+                throw CLIError(message: "Unknown option \(arg)\n\n\(Self.vmRouteUsage)")
+            }
+            index += 1
+        }
+        var memoryMb: Int?
+        if let sizeOption {
+            guard let parsed = Self.parseCloudVMSize(sizeOption) else {
+                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).")
+            }
+            memoryMb = parsed
+        }
+        let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            ?? FileManager.default.currentDirectoryPath
+        let selection = try selectVMForRun(
+            machineOverride: nil,
+            forceNew: forceNew,
+            memoryMb: memoryMb,
+            workDirectory: workDirectory,
+            allowProvision: provision,
+            client: client
+        )
+        if jsonOutput {
+            var payload: [String: Any] = [
+                "created": selection.created,
+                "reason": selection.reason,
+                "would_provision": selection.wouldProvision,
+                "directory": workDirectory,
+            ]
+            payload["machine"] = selection.wouldProvision ? NSNull() : selection.id
+            print(jsonString(payload))
+            return
+        }
+        if selection.wouldProvision {
+            print(String(
+                format: String(localized: "cli.vm.route.wouldProvision", defaultValue: "No pool machine is free for %@ \u{2014} `cmux vm run` would provision a fresh one (add --provision to create it now)."),
+                workDirectory
+            ))
+            return
+        }
+        print("machine=\(selection.id) created=\(selection.created)")
+        print("reason: \(selection.reason)")
+    }
+
+    func runVMAgentCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") {
+            print(Self.vmAgentUsage)
+            return
+        }
+        var flags: [String] = rest
+        var agentArgs: [String] = []
+        if let separator = rest.firstIndex(of: "--") {
+            flags = Array(rest[..<separator])
+            agentArgs = Array(rest[(separator + 1)...])
+        }
+        var agent: String?
+        var machineOverride: String?
+        var sync = false
+        var cwdOption: String?
+        var nameOption: String?
+        var noOpen = false
+        var forceNew = false
+        var sizeOption: String?
+        var index = 0
+        while index < flags.count {
+            let arg = flags[index]
+            func takeValue() throws -> String {
+                guard index + 1 < flags.count else {
+                    throw CLIError(message: "\(arg) requires a value\n\n\(Self.vmAgentUsage)")
+                }
+                index += 1
+                return flags[index]
+            }
+            switch arg {
+            case "--agent": agent = try takeValue().lowercased()
+            case "--machine": machineOverride = try takeValue()
+            case "--sync": sync = true
+            case "--cwd": cwdOption = try takeValue()
+            case "--name": nameOption = try takeValue()
+            case "--no-open": noOpen = true
+            case "--new": forceNew = true
+            case "--size": sizeOption = try takeValue()
+            case "--json": break
+            default:
+                throw CLIError(message: "Unknown option \(arg)\n\n\(Self.vmAgentUsage)")
+            }
+            index += 1
+        }
+        guard let agent, Self.vmAgentNames.contains(agent) else {
+            throw CLIError(message: "vm agent: --agent must be one of \(Self.vmAgentNames.joined(separator: ", "))\n\n\(Self.vmAgentUsage)")
+        }
+        guard let argv = Self.vmAgentArgv(agent: agent, args: agentArgs) else {
+            throw CLIError(message: Self.vmAgentUsage)
+        }
+        var memoryMb: Int?
+        if let sizeOption {
+            guard let parsed = Self.parseCloudVMSize(sizeOption) else {
+                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).")
+            }
+            memoryMb = parsed
+        }
+        let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            ?? FileManager.default.currentDirectoryPath
+
+        let selection = try selectVMForRun(
+            machineOverride: machineOverride,
+            forceNew: forceNew,
+            memoryMb: memoryMb,
+            workDirectory: workDirectory,
+            client: client
+        )
+        cliWriteStderr("[cmux vm agent] \(selection.id) (\(selection.reason))\n")
+        Self.saveVMRunBinding(workKey: Self.vmRunWorkKey(forDirectory: workDirectory), machine: selection.id)
+
+        var remoteCwd = "/root"
+        var syncedRemoteDir: String?
+        if sync {
+            let basename = (workDirectory as NSString).lastPathComponent
+            let remoteDir = "work/\(basename)"
+            try runVMPushCommand(
+                rest: [selection.id, workDirectory, remoteDir],
+                client: client,
+                jsonOutput: false,
+                quiet: true
+            )
+            syncedRemoteDir = remoteDir
+            remoteCwd = "/root/\(remoteDir)"
+        }
+
+        let name = nameOption ?? Self.vmAgentTerminalName(agent: agent, args: agentArgs)
+        let params: [String: Any] = [
+            "id": selection.id,
+            "command": vmAgentShellCommand(argv: argv),
+            "cwd": remoteCwd,
+            "name": name,
+            "open": !noOpen,
+        ]
+        let response = try client.sendV2(method: "vm.terminal_new", params: params, responseTimeout: 240)
+        let terminalId = (response["terminal_id"] as? String) ?? "?"
+        let workspaceId = (response["workspace_id"] as? String) ?? "?"
+        let surfaceId = (response["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if jsonOutput {
+            var payload: [String: Any] = [
+                "machine": selection.id,
+                "created": selection.created,
+                "reason": selection.reason,
+                "agent": agent,
+                "command": argv,
+                "name": name,
+                "terminal_id": terminalId,
+                "workspace_id": workspaceId,
+                "cwd": remoteCwd,
+                "reattach": "cmux vm open \(selection.id)/\(workspaceId)/\(terminalId)",
+            ]
+            if let surfaceId { payload["surface_id"] = surfaceId }
+            if let syncedRemoteDir { payload["synced_to"] = syncedRemoteDir }
+            print(jsonString(payload))
+            return
+        }
+        print(String(
+            format: String(localized: "cli.vm.agent.started", defaultValue: "Started %1$@ on %2$@ \u{2014} terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."),
+            agent, selection.id, terminalId, workspaceId
+        ))
+        print(String(
+            format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@"),
+            selection.id, workspaceId, terminalId
+        ))
+        if let surfaceId {
+            print("OK surface=\(surfaceId) terminal=\(terminalId) workspace=\(workspaceId)")
+        }
     }
 }
