@@ -393,6 +393,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "kimi":
             return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "vibe":
+            return withOption("vibe", executable: "vibe", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         default:
             return nil
         }
