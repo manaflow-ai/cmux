@@ -510,6 +510,7 @@ struct SudoSpoolStore {
             ), existing == expected else {
                 throw SudoSpoolError.settlementIncomplete
             }
+            return
         }
     }
 
