@@ -16,8 +16,8 @@ extension CmxIrohHostRuntimeTests {
     func nonTransientRefreshRejectionFailsClosedThenRestarts() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
-        let firstEndpoint = TestIrohEndpoint(identity: fixture.endpointID)
-        let restartEndpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let firstEndpoint = try fixture.relayReadyEndpoint()
+        let restartEndpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,

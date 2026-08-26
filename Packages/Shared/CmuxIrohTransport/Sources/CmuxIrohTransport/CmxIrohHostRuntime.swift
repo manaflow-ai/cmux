@@ -74,6 +74,9 @@ public actor CmxIrohHostRuntime {
     let registrationClock: any CmxIrohRelayClock
     let registrationRetrySchedule: CmxIrohRetrySchedule
     let registrationRetryJitter: @Sendable () -> Double
+    /// One bounded signal-or-deadline window for the startup relay-readiness
+    /// wait. A timeout keeps the endpoint unpublished and retries the wait.
+    let relayReadinessTimeout: Duration
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
     let handleRoute: RouteHandler
@@ -93,6 +96,14 @@ public actor CmxIrohHostRuntime {
     var offlineSessions: CmxIrohOfflinePairingSessions?
     var connectivityEventTask: Task<Void, Never>?
     var relayActivationTask: Task<Void, Never>?
+    var initialPublicationTask: Task<Void, Never>?
+    /// True while activation still owes the first ready publication. It makes
+    /// the next refresh round publish even when reachability is unchanged.
+    var initialPublicationPending = false
+    /// True only between a cache-first activation and its first completed live
+    /// resolve, allowing that resolve to adopt a replaced broker binding in
+    /// place instead of failing closed.
+    var allowsReplacedBindingAdoption = false
     var lanPublicationTask: Task<Void, Never>?
     var lanPublicationGeneration: UInt64 = 0
     var registrationRefreshTask: Task<Void, Never>?
@@ -131,6 +142,7 @@ public actor CmxIrohHostRuntime {
         registrationRetryJitter: @escaping @Sendable () -> Double = {
             Double.random(in: 0 ... 1)
         },
+        relayReadinessTimeout: Duration = .seconds(15),
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleRoute: @escaping RouteHandler = { _, _ in },
@@ -149,6 +161,7 @@ public actor CmxIrohHostRuntime {
         self.registrationClock = registrationClock
         self.registrationRetrySchedule = registrationRetrySchedule
         self.registrationRetryJitter = registrationRetryJitter
+        self.relayReadinessTimeout = relayReadinessTimeout
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
         self.handleRoute = handleRoute
@@ -161,7 +174,11 @@ public actor CmxIrohHostRuntime {
     }
 
 
-    /// Activates connectivity and resolves authenticated broker policy before any cached fallback.
+    /// Activates connectivity, restoring a verified cached policy immediately
+    /// when one matches this binding, and reconciles authenticated broker
+    /// policy in the background. Publication of the binding and route hints
+    /// waits for a usable home relay so the Mac is never
+    /// discoverable-but-undialable.
     public func start() async throws {
         guard lifecyclePhase.allowsStart else {
             throw CmxIrohHostRuntimeError.alreadyActive
@@ -173,6 +190,8 @@ public actor CmxIrohHostRuntime {
         registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
+        initialPublicationPending = false
+        allowsReplacedBindingAdoption = false
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .starting,
             endpointID: nil,
@@ -208,11 +227,26 @@ public actor CmxIrohHostRuntime {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
 
-            let policy = try await resolveInitialPolicy(
-                engine: connectivityEngine,
-                expectedEndpointID: endpointID,
-                revision: revision
-            )
+            let requiresRelayReadiness = !protocolConfiguration
+                .allowsNATTraversalAfterAdmission
+            // A verified same-binding cached policy activates admission and
+            // the endpoint immediately; the authenticated broker round then
+            // runs in the background and reconciles. First launch (no cache),
+            // an invalid cache, and relay-required debug hosts keep the
+            // blocking resolve.
+            let cachedStartPolicy = requiresRelayReadiness
+                ? nil
+                : validatedCachedStartPolicy(expectedEndpointID: endpointID)
+            let policy: ResolvedPolicy
+            if let cachedStartPolicy {
+                policy = cachedStartPolicy
+            } else {
+                policy = try await resolveInitialPolicy(
+                    engine: connectivityEngine,
+                    expectedEndpointID: endpointID,
+                    revision: revision
+                )
+            }
             try requireCurrent(revision)
 
             let offlineSessions = CmxIrohOfflinePairingSessions(
@@ -278,8 +312,6 @@ public actor CmxIrohHostRuntime {
                 bindingID: policy.binding.bindingID
             )
             var publishedPolicy = policy
-            let requiresRelayReadiness = !protocolConfiguration
-                .allowsNATTraversalAfterAdmission
             if requiresRelayReadiness {
                 if let relayCoordinator {
                     try await relayCoordinator.activate(
@@ -318,9 +350,18 @@ public actor CmxIrohHostRuntime {
                 // into `readyPolicy`; do not immediately publish a third copy.
                 registrationRefreshPending = false
             }
+            // Every path re-checks verified readiness immediately before
+            // publication. Relay-required activations arrive here only after
+            // the blocking waitForUsableHomeRelay() above succeeded, so the
+            // check returns true for them without a second wait.
+            let publishInline = await initialPublicationReady(
+                engine: connectivityEngine
+            )
+            try requireCurrent(revision)
             let publishedFreshBinding: Bool
             if let registration = publishedPolicy.registration,
-               let discovery = publishedPolicy.discovery {
+               let discovery = publishedPolicy.discovery,
+               publishInline {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
                 try requireCurrent(revision)
                 if let routeRevision = discovery.revision {
@@ -337,28 +378,66 @@ public actor CmxIrohHostRuntime {
             } else {
                 publishedFreshBinding = false
             }
-            await handleRoute(
-                publishedPolicy.binding,
-                publishedPolicy.routePathHints
-            )
-            try requireCurrent(revision)
+            if publishedFreshBinding || publishedPolicy.registration == nil {
+                // Fresh relay-ready hints, or a cached authority whose local
+                // route identity is refreshed rather than unpublished. A live
+                // policy without a usable home relay publishes nothing yet:
+                // the Mac must not be discoverable-but-undialable.
+                await handleRoute(
+                    publishedPolicy.binding,
+                    publishedPolicy.routePathHints
+                )
+                try requireCurrent(revision)
+            }
             registrationRefreshEnabled = true
             if !publishedFreshBinding {
-                // Cached authority keeps offline admission and LAN discovery
-                // available, but it cannot describe this endpoint generation's
-                // live direct port. Give the lifecycle-owned retry loop the
-                // incomplete activation so the broker is refreshed without
-                // creating a second endpoint or relying on another network event.
                 registrationRefreshPending = false
-                scheduleRegistrationRetry(
-                    revision: revision,
-                    retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
-                )
+                // Every deferred first publication carries the pending flag so
+                // any refresh round that ends up performing it re-checks
+                // verified relay readiness first.
+                initialPublicationPending = true
+                if requiresRelayReadiness {
+                    // Cached authority keeps offline admission and LAN
+                    // discovery available, but it cannot describe this endpoint
+                    // generation's live direct port. Give the lifecycle-owned
+                    // retry loop the incomplete activation.
+                    scheduleRegistrationRetry(
+                        revision: revision,
+                        retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
+                    )
+                } else {
+                    allowsReplacedBindingAdoption = cachedStartPolicy != nil
+                    if let retryAfterSeconds = publishedPolicy
+                        .registrationRetryAfterSeconds {
+                        // A broker cooldown observed during activation keeps
+                        // its validated floor for the next live round.
+                        scheduleRegistrationRetry(
+                            revision: revision,
+                            retryAfterSeconds: retryAfterSeconds
+                        )
+                    } else if cachedStartPolicy != nil {
+                        // Cached authority is verified against the live broker
+                        // immediately, independent of relay readiness, so a
+                        // server-side revocation or replacement cannot hide
+                        // behind a relay outage. Readiness gates only the
+                        // publication inside the refresh round.
+                        scheduleRegistrationRefresh(revision: revision)
+                    }
+                    // The ready gate activates the relay, waits for a usable
+                    // home relay, and then runs the round that performs the
+                    // deferred first publication with fresh path hints.
+                    scheduleInitialPublication(
+                        binding: publishedPolicy.binding,
+                        endpointID: endpointID,
+                        bootstrap: publishedPolicy.relayBootstrap,
+                        revision: revision
+                    )
+                }
             } else if registrationRefreshPending {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
             }
-            if let relayCoordinator, !requiresRelayReadiness {
+            if let relayCoordinator, !requiresRelayReadiness, publishedFreshBinding {
                 scheduleRelayActivation(
                     relayCoordinator,
                     binding: policy.binding,
@@ -555,6 +634,118 @@ public actor CmxIrohHostRuntime {
             (try? await engine.localDirectAddresses()) ?? []
         }
         await handleLANPolicy(context, directAddresses)
+    }
+
+    /// Returns whether the binding may be published immediately: the home
+    /// relay is already usable, or this endpoint will never own a relay.
+    func initialPublicationReady(
+        engine: CmxConnectivityEngine
+    ) async -> Bool {
+        if await engine.hasUsableHomeRelay() { return true }
+        guard relayCoordinator == nil else { return false }
+        return !(await engine.hasConfiguredRelay())
+    }
+
+    func scheduleInitialPublication(
+        binding: CmxIrohBrokerBindingMetadata,
+        endpointID: CmxIrohPeerIdentity,
+        bootstrap: CmxIrohRelayTokenResponse?,
+        revision: UInt64
+    ) {
+        initialPublicationTask?.cancel()
+        initialPublicationTask = Task { [weak self] in
+            await self?.runInitialPublication(
+                binding: binding,
+                endpointID: endpointID,
+                bootstrap: bootstrap,
+                revision: revision
+            )
+        }
+    }
+
+    private func runInitialPublication(
+        binding: CmxIrohBrokerBindingMetadata,
+        endpointID: CmxIrohPeerIdentity,
+        bootstrap: CmxIrohRelayTokenResponse?,
+        revision: UInt64
+    ) async {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              !Task.isCancelled else { return }
+        if let coordinator = relayCoordinator {
+            // Credential installation happens before the readiness wait so a
+            // cached relay bootstrap makes the home relay usable without a
+            // broker round. The coordinator owns bounded retry on failure.
+            try? await coordinator.activate(
+                bindingID: binding.bindingID,
+                endpointIdentity: endpointID,
+                bootstrap: bootstrap
+            )
+        }
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              !Task.isCancelled else { return }
+        guard let connectivityEngine else { return }
+        let relayExpected: Bool
+        if relayCoordinator != nil {
+            relayExpected = true
+        } else {
+            relayExpected = await connectivityEngine.hasConfiguredRelay()
+        }
+        if relayExpected {
+            // The Mac must never be discoverable-but-undialable: a readiness
+            // timeout keeps the endpoint unpublished and retries the wait with
+            // bounded backoff on the injected clock until a verified usable
+            // relay path exists or this lifecycle revision is superseded.
+            var readinessFailureCount = 0
+            while true {
+                guard lifecyclePhase == .active,
+                      lifecycleRevision == revision,
+                      !Task.isCancelled else { return }
+                do {
+                    try await connectivityEngine.waitForUsableHomeRelay(
+                        timeout: relayReadinessTimeout
+                    )
+                    break
+                } catch is CancellationError {
+                    return
+                } catch CmxIrohEndpointSupervisorError.relayReadinessTimedOut {
+                    // Retry below after bounded backoff.
+                } catch {
+                    // The endpoint generation was replaced or deactivated. The
+                    // successor lifecycle owns publication; this one stays
+                    // unpublished and existing failure handling surfaces state.
+                    return
+                }
+                guard lifecyclePhase == .active,
+                      lifecycleRevision == revision,
+                      !Task.isCancelled else { return }
+                let delay = registrationRetrySchedule.delay(
+                    failureCount: readinessFailureCount,
+                    retryAfterSeconds: nil,
+                    jitterUnitInterval: registrationRetryJitter()
+                )
+                readinessFailureCount = min(readinessFailureCount + 1, 20)
+                do {
+                    try await registrationClock.sleep(
+                        until: registrationClock.now().addingTimeInterval(delay)
+                    )
+                } catch {
+                    return
+                }
+            }
+        }
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              !Task.isCancelled else { return }
+        guard initialPublicationPending else { return }
+        guard registrationRefreshFailureCount == 0 else {
+            // A broker cooldown or failure retry is already armed. That
+            // lifecycle-owned round performs the deferred publication once it
+            // succeeds, and it honors the broker's validated retry floor.
+            return
+        }
+        scheduleRegistrationRefresh(revision: revision)
     }
 
     func scheduleRelayActivation(

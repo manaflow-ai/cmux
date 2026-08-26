@@ -27,7 +27,7 @@ extension CmxIrohHostRuntimeTests {
         let bindings = HostRuntimeBindingRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [
-                TestIrohEndpoint(identity: fixture.endpointID),
+                try fixture.relayReadyEndpoint(),
             ]),
             broker: broker,
             configuration: fixture.configuration,
