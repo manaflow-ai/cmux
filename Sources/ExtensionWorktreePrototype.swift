@@ -18,6 +18,33 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     /// inside the new workspace's interactive shell. This is *setup*, never the
     /// workspace's primary process.
     let setupCommand: String
+
+    /// Keeps the optional filesystem identity labels available on every toolchain.
+    /// Swift omits stored properties with default values from a synthesized
+    /// memberwise initializer, which would otherwise drop the rollback identity.
+    init(
+        projectRootPath: String,
+        worktreePath: String,
+        branchName: String,
+        workspaceTitle: String,
+        createdHead: String,
+        generatedArtifactRelativePath: String,
+        generatedArtifactContents: Data,
+        worktreeDeviceID: UInt64? = nil,
+        worktreeFileID: UInt64? = nil,
+        setupCommand: String
+    ) {
+        self.projectRootPath = projectRootPath
+        self.worktreePath = worktreePath
+        self.branchName = branchName
+        self.workspaceTitle = workspaceTitle
+        self.createdHead = createdHead
+        self.generatedArtifactRelativePath = generatedArtifactRelativePath
+        self.generatedArtifactContents = generatedArtifactContents
+        self.worktreeDeviceID = worktreeDeviceID
+        self.worktreeFileID = worktreeFileID
+        self.setupCommand = setupCommand
+    }
 }
 
 /// Arguments for spawning a workspace in a freshly created worktree.
@@ -538,7 +565,8 @@ enum CmuxExtensionWorktreePrototype {
     ) async {
         guard let expectedIdentity,
               let currentIdentity = filesystemIdentity(at: worktree),
-              currentIdentity == expectedIdentity else {
+              currentIdentity.deviceID == expectedIdentity.deviceID,
+              currentIdentity.fileID == expectedIdentity.fileID else {
             logPrivateDiagnostic("Skipped failed worktree cleanup after identity changed.")
             return
         }

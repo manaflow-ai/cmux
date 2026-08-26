@@ -14,6 +14,18 @@ extension Workspace {
                 surfaceId: terminalPanel.id
             )
         }
+        terminalPanel.surface.onStartupRestoreAdmissionCancelled = { [weak self, weak terminalPanel] in
+            guard let self, let terminalPanel,
+                  let mountedTerminal = self.panels[terminalPanel.id] as? TerminalPanel,
+                  mountedTerminal === terminalPanel,
+                  let restore = self.deferredAgentResumeRestoresByPanelId[terminalPanel.id] else {
+                return
+            }
+            self.cancelDeferredAgentResumeRestore(
+                panelId: terminalPanel.id,
+                restore: restore
+            )
+        }
         terminalPanel.surface.onVisualBell = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel,
                   let target = self.surfaceOwnershipTarget(for: terminalPanel.id),

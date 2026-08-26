@@ -6280,13 +6280,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use a DEV iPhone build with any DEV Mac build."
+            "value": "Use BETA, INTERNAL, or the App Store app with Stable or Nightly. Use this DEV iPhone build with its same-tag DEV Mac build or a granted tag."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。DEV iPhone ビルドは任意の DEV Mac ビルドと一緒に使用できます。"
+            "value": "BETA、INTERNAL、または App Store アプリは Stable または Nightly と一緒に使用してください。この DEV iPhone ビルドは同じタグの DEV Mac ビルド、または許可されたタグと一緒に使用できます。"
           }
         }
       }
@@ -6314,13 +6314,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+            "value": "A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV iPhone ビルドは任意の DEV Mac ビルドに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
+            "value": "DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }
@@ -15035,13 +15035,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sort By"
+            "value": "Sort Computers By"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "並べ替え"
+            "value": "コンピュータの並べ替え"
           }
         }
       }
@@ -20781,13 +20781,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Order"
+            "value": "Custom Order"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ順"
+            "value": "カスタム順"
           }
         }
       }

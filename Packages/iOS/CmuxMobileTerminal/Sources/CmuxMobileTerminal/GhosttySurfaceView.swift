@@ -562,6 +562,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
             "keyboardGuideTop=\(keyboardDockTargetTop)",
             "keyboardDockSource=\(keyboardDockSource)",
+            "keyboardSeatWillOnly=\(host?.debugSeatTrustsOnlyWillFrames == true ? 1 : 0)",
             "keyboardDockTargetTop=\(keyboardDockTargetTop)",
             "keyboardTransitionID=\(keyboardTransitionID)",
             "keyboardTransitionTarget=\(keyboardTransitionTarget)",
@@ -1854,7 +1855,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - animated: Whether visibility changes should fade and slide.
     public func mountArtifactChipView(_ view: UIView?, animated: Bool) {
         artifactChipHost.setContent(view)
-        layoutArtifactChip(using: viewportSnapshot())
         updateArtifactChipVisibility(animated: animated)
     }
 
@@ -1890,8 +1890,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
-        artifactChipHost.layout(in: bounds, topInset: safeAreaInsets.top)
+    /// Re-homes the artifact chip container into the host's keyboard-invariant
+    /// chrome coordinate space — the same adoption ``moveBottomDock(to:)``
+    /// performs for the dock. The keyboard slides the render wrapper (and this
+    /// surface with it), never the host, so a chip anchored in host space
+    /// stays at the terminal's visible top edge through every keyboard leg
+    /// with no keyboard math of its own.
+    func moveArtifactChip(to host: UIView) {
+        artifactChipHost.install(in: host, zPosition: Self.artifactChipZPosition)
+    }
+
+    /// The view whose bounds match the SwiftUI representable that presents
+    /// the artifact-files popover: the adopting host once the chrome is
+    /// re-homed, else this surface. Popover anchors normalized against the
+    /// sliding surface would drift downward by the keyboard slide.
+    public var artifactChipAnchorReferenceView: UIView {
+        bottomDockHostView ?? self
     }
 
     private var artifactChipShouldBeVisible: Bool {
@@ -2109,7 +2123,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             reservedToolbarHeight,
             snapshot.toolbarFrame.height
         )
-        layoutArtifactChip(using: snapshot)
     }
 
     /// Lays out the hierarchy that owns the dock constraints. Once the dock moves
@@ -2728,6 +2741,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutZoomOverlay()
         MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
         if bounds.size != lastLayoutGeometrySyncSize {
+            #if DEBUG
+            // Ancestor-frame dump on every size change: pinpoints which hosting
+            // view reshaped the surface (e.g. keyboard-coupled SwiftUI safe-area
+            // churn). Fires only on actual size changes, so it is quiet in
+            // steady state.
+            var chainNode: UIView? = self
+            var chain: [String] = []
+            while let node = chainNode {
+                chain.append(
+                    "\(String(describing: type(of: node)).prefix(38)) "
+                    + "y=\(Int(node.frame.minY)) h=\(Int(node.frame.height)) "
+                    + "sab=\(Int(node.safeAreaInsets.bottom))"
+                )
+                chainNode = node.superview
+            }
+            MobileDebugLog.anchormux("kb.chain " + chain.joined(separator: " | "))
+            #endif
             lastLayoutGeometrySyncSize = bounds.size
             setNeedsGeometrySync()
         }
