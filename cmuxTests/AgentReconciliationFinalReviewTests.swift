@@ -184,6 +184,95 @@ struct AgentReconciliationFinalReviewTests {
         }
     }
 
+    @Test func bareAttentionEndCannotWildcardClearConcurrentObservations() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        defer {
+            FeedCoordinator.shared.retireAgentAttention(
+                workspaceId: workspace.id,
+                panelId: panelID
+            )
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let generation = AgentPIDProcessIdentity(
+            pid: 7_779,
+            startSeconds: 702,
+            startMicroseconds: 72
+        )
+        let sessionID = "bare-end-concurrent-session"
+        #expect(
+            FeedCoordinator.shared.beginObservedAgentAttention(
+                source: "amp",
+                sessionId: sessionID,
+                observationId: "bare-end-observation-a",
+                scopeId: "bare-end-scope-a",
+                workspaceId: workspace.id,
+                surfaceId: panelID,
+                processGeneration: generation
+            )
+        )
+        #expect(
+            FeedCoordinator.shared.beginObservedAgentAttention(
+                source: "amp",
+                sessionId: sessionID,
+                observationId: "bare-end-observation-b",
+                scopeId: "bare-end-scope-b",
+                workspaceId: workspace.id,
+                surfaceId: panelID,
+                processGeneration: generation
+            )
+        )
+
+        let bareEndResult = TerminalController.shared.v2AgentAttentionEnd(
+            params: [
+                "source": "amp",
+                "session_id": sessionID,
+                "pid": String(generation.pid),
+                "pid_start_seconds": String(generation.startSeconds),
+                "pid_start_microseconds": String(generation.startMicroseconds),
+            ]
+        )
+        guard case .err(let code, _, _) = bareEndResult else {
+            Issue.record("A bare attention end must be rejected instead of wildcard-clearing observations.")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(
+            workspace.sidebarAgentRuntimeObservation
+                .hasAgentFeedAttention(key: "amp", panelId: panelID),
+            "A conclusion without an observation, scope, or boundary must not remove concurrent attention."
+        )
+
+        #expect(
+            FeedCoordinator.shared.endObservedAgentAttention(
+                source: "amp",
+                sessionId: sessionID,
+                observationId: "bare-end-observation-a",
+                scopeId: "bare-end-scope-a",
+                processGeneration: generation
+            ) == 1
+        )
+        #expect(
+            FeedCoordinator.shared.endObservedAgentAttention(
+                source: "amp",
+                sessionId: sessionID,
+                observationId: "bare-end-observation-b",
+                scopeId: "bare-end-scope-b",
+                processGeneration: generation
+            ) == 1
+        )
+    }
+
     @Test func malformedAndCrossWorkspaceAttentionBeginTargetsFailClosed() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

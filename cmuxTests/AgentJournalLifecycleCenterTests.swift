@@ -32,7 +32,7 @@ struct AgentJournalLifecycleCenterTests {
         )
         let databaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "agent-journal-live-completion-(UUID().uuidString)",
+                "agent-journal-live-completion-\(UUID().uuidString)",
                 isDirectory: true
             )
             .appendingPathComponent("journal.sqlite3", isDirectory: false)
@@ -92,6 +92,94 @@ struct AgentJournalLifecycleCenterTests {
         #expect(
             workspace.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .idle,
             "A live Claude process must not block its journaled completion from applying."
+        )
+    }
+
+    @MainActor
+    @Test func remoteJournalAssignmentsContinueAfterInitialLifecycle() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "journal-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_031,
+            relayID: "journal-remote-lifecycle-test",
+            relayToken: String(repeating: "j", count: 64),
+            localSocketPath: "/tmp/cmux-journal-remote-lifecycle-test.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh journal-remote"
+        )
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "agent-journal-remote-lifecycle-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let center = AgentJournalLifecycleCenter(databaseURL: databaseURL)
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+            try? FileManager.default.removeItem(at: databaseURL.deletingLastPathComponent())
+        }
+
+        func append(
+            eventId: String,
+            kind: AgentJournalEventKind,
+            occurredAtMs: Int64
+        ) throws {
+            let draft = AgentJournalEventDraft(
+                eventId: eventId,
+                kind: kind,
+                occurredAtMs: occurredAtMs,
+                source: "amp",
+                agentKey: "amp",
+                sessionId: "remote-journal-session",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: panelID.uuidString
+            )
+            let json = try #require(
+                String(data: JSONEncoder().encode(draft), encoding: .utf8)
+            )
+            #expect(center.handleAppendCommand(json).hasPrefix("OK"))
+        }
+
+        try append(
+            eventId: "remote-journal-start",
+            kind: .turnStarted,
+            occurredAtMs: 1
+        )
+        let clock = ContinuousClock()
+        let runningDeadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < runningDeadline,
+              workspace.agentLifecycleStatesByPanelId[panelID]?["amp"] != .running {
+            await Task.yield()
+        }
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["amp"] == .running)
+
+        try append(
+            eventId: "remote-journal-complete",
+            kind: .turnCompleted,
+            occurredAtMs: 2
+        )
+        let idleDeadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < idleDeadline,
+              workspace.agentLifecycleStatesByPanelId[panelID]?["amp"] != .idle {
+            await Task.yield()
+        }
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["amp"] == .idle,
+            "A remote journal must continue applying later lifecycle phases after its first state."
         )
     }
 
