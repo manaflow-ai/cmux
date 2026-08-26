@@ -550,6 +550,58 @@ import CmuxSettings
         #expect(result.errorOutput == "conversion-warning")
     }
 
+    @Test("Discarded custom-command stderr cannot be held by a background child")
+    func customCommandRunnerDoesNotWaitForBackgroundStderrDescendant() async throws {
+        let runner = NotificationSoundProcessRunner(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            timeoutNanoseconds: 100_000_000,
+            capturesErrorOutput: false
+        )
+        let result = try await runner.run(
+            arguments: ["-c", "sleep 0.5 &"],
+            environment: nil
+        )
+
+        #expect(result.terminationStatus == 0)
+        #expect(result.errorOutput == nil)
+    }
+
+    @Test("The sound matrix includes case-preserving Vault registrations")
+    func notificationSoundAgentLoaderIncludesUppercaseVaultID() async throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-agent-registry-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let config = """
+        {
+          "vault": {
+            "agents": [{
+              "id": "MyAgent",
+              "name": "My Agent",
+              "detect": { "processName": "my-agent" },
+              "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+              "resumeCommand": "my-agent --session {{sessionId}}"
+            }]
+          }
+        }
+        """
+        try config.write(
+            to: configDirectory.appendingPathComponent("cmux.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let options = await NotificationSoundAgentRegistryLoader().load(
+            homeDirectory: home.path
+        )
+        #expect(options.contains { $0.id == "MyAgent" && $0.displayName == "My Agent" })
+    }
+
     @Test func customSoundPruningLeavesUserFilesWithReservedPrefix() throws {
         let fileManager = FileManager.default
         let staging = fileManager.temporaryDirectory
