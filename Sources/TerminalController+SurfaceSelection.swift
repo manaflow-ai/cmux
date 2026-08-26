@@ -83,7 +83,8 @@ extension TerminalController {
         let isOpaqueHandleReference: (String) -> Bool = { raw in
             let pieces = raw.split(separator: ":", omittingEmptySubsequences: false)
             guard pieces.count == 2,
-                  ControlHandleKind(rawValue: String(pieces[0]).lowercased()) != nil,
+                  (ControlHandleKind(rawValue: String(pieces[0]).lowercased()) != nil
+                      || String(pieces[0]).lowercased() == "tab"),
                   let ordinal = Int(pieces[1]),
                   ordinal > 0 else {
                 return false

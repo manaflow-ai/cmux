@@ -120,6 +120,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
       }
     },
+    "socket.surfaceSelection.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request timed out after 5 seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエストは5秒後にタイムアウトしました。" } }
+      }
+    },
     "socket.surfaceSelection.unsupported": {
       "extractionState": "manual",
       "localizations": {

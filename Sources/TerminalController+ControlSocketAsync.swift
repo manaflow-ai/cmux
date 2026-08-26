@@ -215,7 +215,10 @@ extension TerminalController {
             continuation.yield(self.v2Error(
                 id: request.id?.foundationObject,
                 code: "timeout",
-                message: "Request timed out after 5 seconds"
+                message: String(
+                    localized: "socket.surfaceSelection.timeout",
+                    defaultValue: "Request timed out after 5 seconds"
+                )
             ))
             continuation.finish()
         }

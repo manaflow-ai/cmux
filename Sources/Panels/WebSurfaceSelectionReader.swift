@@ -3,6 +3,24 @@ import WebKit
 
 /// Reads DOM or editable-control selection without changing focus or page state.
 nonisolated struct WebSurfaceSelectionReader {
+    @MainActor
+    private final class EvaluationCancellationTarget: @unchecked Sendable {
+        // The weak WebView is only read or mutated on MainActor. The unchecked
+        // conformance lets the cancellation callback schedule that hop without
+        // retaining the WebView after its panel has replaced it.
+        weak var webView: WKWebView?
+
+        init(webView: WKWebView) {
+            self.webView = webView
+        }
+
+        func cancel() {
+            if webView?.isLoading == true {
+                webView?.stopLoading()
+            }
+        }
+    }
+
     private nonisolated struct Payload: Decodable {
         let hasSelection: Bool
         let text: String
@@ -21,10 +39,22 @@ nonisolated struct WebSurfaceSelectionReader {
       if (Object.prototype.hasOwnProperty.call(globalThis, runtimeKey)) return false;
 
       const maxTextCharacters = \(SurfaceSelectionSnapshot.maximumTextBytes / 4);
+      const unicodeSafeEnd = (value, offset) => {
+        let end = Math.max(0, Math.min(value.length, offset));
+        if (end > 0 && end < value.length) {
+          const previous = value.charCodeAt(end - 1);
+          const next = value.charCodeAt(end);
+          if (previous >= 0xD800 && previous <= 0xDBFF &&
+              next >= 0xDC00 && next <= 0xDFFF) {
+            end -= 1;
+          }
+        }
+        return end;
+      };
       const boundedText = (text) => {
         const value = String(text || '');
         if (value.length <= maxTextCharacters) return value;
-        return value.slice(0, maxTextCharacters - 1) + '…';
+        return value.slice(0, unicodeSafeEnd(value, maxTextCharacters - 1)) + '…';
       };
       const boundedControlText = (value, start, end) => {
         const source = String(value || '');
@@ -32,7 +62,8 @@ nonisolated struct WebSurfaceSelectionReader {
         const safeEnd = Math.max(safeStart, Math.min(source.length, Number(end) || 0));
         const length = safeEnd - safeStart;
         if (length <= maxTextCharacters) return source.slice(safeStart, safeEnd);
-        return source.slice(safeStart, safeStart + maxTextCharacters - 1) + '…';
+        const boundedEnd = unicodeSafeEnd(source, safeStart + maxTextCharacters - 1);
+        return source.slice(safeStart, boundedEnd) + '…';
       };
       // Range#toString materializes the complete DOM selection. Walk text
       // nodes instead and stop after the wire budget, so large selections do
@@ -72,7 +103,7 @@ nonisolated struct WebSurfaceSelectionReader {
               const count = Math.min(remaining, end - start);
               used += count;
               if (count < end - start) {
-                boundedRange.setEnd(node, start + count);
+                boundedRange.setEnd(node, unicodeSafeEnd(value, start + count));
                 truncated = true;
                 break;
               }
@@ -363,21 +394,40 @@ nonisolated struct WebSurfaceSelectionReader {
     })()
     """
 
+    private static let evaluationTimeoutMilliseconds = 4_000
     private static let script = """
-    (() => {
-      const runtime = globalThis.__cmuxSurfaceSelectionRuntime;
-      if (!runtime || typeof runtime.read !== 'function') return null;
-      const maxTextCharacters = \(SurfaceSelectionSnapshot.maximumTextBytes / 4);
-      const boundedText = (text) => {
-        const value = String(text || '');
-        if (value.length <= maxTextCharacters) return value;
-        return value.slice(0, maxTextCharacters - 1) + '…';
+    (async () => {
+      const readSelection = () => {
+        const runtime = globalThis.__cmuxSurfaceSelectionRuntime;
+        if (!runtime || typeof runtime.read !== 'function') return null;
+        const maxTextCharacters = \(SurfaceSelectionSnapshot.maximumTextBytes / 4);
+        const unicodeSafeEnd = (value, offset) => {
+          let end = Math.max(0, Math.min(value.length, offset));
+          if (end > 0 && end < value.length) {
+            const previous = value.charCodeAt(end - 1);
+            const next = value.charCodeAt(end);
+            if (previous >= 0xD800 && previous <= 0xDBFF &&
+                next >= 0xDC00 && next <= 0xDFFF) {
+              end -= 1;
+            }
+          }
+          return end;
+        };
+        const boundedText = (text) => {
+          const value = String(text || '');
+          if (value.length <= maxTextCharacters) return value;
+          return value.slice(0, unicodeSafeEnd(value, maxTextCharacters - 1)) + '…';
+        };
+        const result = runtime.read();
+        return JSON.stringify({
+          has_selection: result?.has_selection === true,
+          text: result?.has_selection === true ? boundedText(result.text) : ''
+        });
       };
-      const result = runtime.read();
-      return JSON.stringify({
-        has_selection: result?.has_selection === true,
-        text: result?.has_selection === true ? boundedText(result.text) : ''
-      });
+      return await Promise.race([
+        Promise.resolve().then(readSelection),
+        new Promise((resolve) => setTimeout(() => resolve(null), \(Self.evaluationTimeoutMilliseconds)))
+      ]);
     })()
     """
 
@@ -401,11 +451,26 @@ nonisolated struct WebSurfaceSelectionReader {
         url: String? = nil
     ) async -> SurfaceSelectionReadResult {
         do {
-            guard let encoded = try await webView.evaluateJavaScript(
-                Self.script,
-                contentWorld: .page
-            ) as? String,
-            let data = encoded.data(using: .utf8) else {
+            let cancellationTarget = EvaluationCancellationTarget(webView: webView)
+            guard let encoded = try await withTaskCancellationHandler(operation: {
+                try await webView.callAsyncJavaScript(
+                    Self.script,
+                    arguments: [:],
+                    in: nil,
+                    contentWorld: .page
+                ) as? String
+            }, onCancel: {
+                Task { @MainActor in
+                    // WebKit has no cancellable evaluation handle. Stopping
+                    // an active navigation releases the page-side request
+                    // when a socket deadline cancels this reader; the in-page
+                    // Promise timeout bounds normal evaluations independently.
+                    cancellationTarget.cancel()
+                }
+            }) else {
+                return .unavailable
+            }
+            guard let data = encoded.data(using: .utf8) else {
                 return .unavailable
             }
             let payload = try JSONDecoder().decode(Payload.self, from: data)
