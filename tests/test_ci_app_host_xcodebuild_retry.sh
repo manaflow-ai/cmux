@@ -376,6 +376,8 @@ if [ "$config_home_alias_status" -ne 0 ]; then
 fi
 
 mkdir -p "$RESOLVED_APP_HOST_HOME/.config/ghostty"
+# The mock still goes through the PTY wrapper; allow slow interpreter startup
+# on a loaded builder before asserting the path-validation rejection.
 set +e
 PATH="$TMP_DIR:$PATH" \
 RUNNER_TEMP="$RUNNER_TEMP_DIR" \
