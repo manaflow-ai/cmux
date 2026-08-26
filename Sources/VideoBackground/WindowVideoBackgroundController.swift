@@ -47,7 +47,7 @@ final class WindowVideoBackgroundController {
     private var playerView: (any VideoBackgroundPlayerView)?
     private var activeSource: VideoBackgroundSource?
     private var failedSourceText: String?
-    private var observationTasks: [Task<Void, Never>] = []
+    private var observers: [any NSObjectProtocol] = []
 
     /// Installs (or refreshes) the controller for a main window.
     ///
@@ -81,48 +81,34 @@ final class WindowVideoBackgroundController {
         audioArbiter.register(self, window: window)
     }
 
+    /// Registers synchronously so no transition can slip through between
+    /// install and the window's first paint: an `AsyncSequence`-based
+    /// observer inside a `Task` only starts listening once that task runs,
+    /// which is after the window has typically already become visible.
     private func startObserving(window: NSWindow) {
         let center = NotificationCenter.default
-        observationTasks.append(Task { [weak self] in
-            for await _ in center.notifications(named: UserDefaults.didChangeNotification, object: nil) {
-                await MainActor.run { self?.refreshIfSettingsChanged() }
-            }
-        })
-        observationTasks.append(Task { [weak self] in
-            for await _ in center.notifications(
-                named: NSWindow.didChangeOcclusionStateNotification,
-                object: window
-            ) {
-                await MainActor.run { self?.updatePlaybackState() }
-            }
-        })
-        observationTasks.append(Task { [weak self] in
-            for await _ in center.notifications(named: NSWindow.willCloseNotification, object: window) {
-                await MainActor.run { self?.tearDownForWindowClose() }
-            }
-        })
-        observationTasks.append(Task { [weak self] in
-            for await _ in center.notifications(named: NSWindow.didBecomeKeyNotification, object: window) {
-                await MainActor.run { self?.windowDidBecomeKey() }
-            }
-        })
-        // Performance guardrails: no point decoding video nobody can see.
         let workspaceCenter = NSWorkspace.shared.notificationCenter
-        observationTasks.append(Task { [weak self] in
-            for await _ in workspaceCenter.notifications(named: NSWorkspace.willSleepNotification, object: nil) {
-                await MainActor.run { self?.setSystemSleeping(true) }
-            }
-        })
-        observationTasks.append(Task { [weak self] in
-            for await _ in workspaceCenter.notifications(named: NSWorkspace.didWakeNotification, object: nil) {
-                await MainActor.run { self?.setSystemSleeping(false) }
-            }
-        })
-        observationTasks.append(Task { [weak self] in
-            for await _ in center.notifications(named: .NSProcessInfoPowerStateDidChange, object: nil) {
-                await MainActor.run { self?.updatePlaybackState() }
-            }
-        })
+        func observe(
+            _ name: Notification.Name,
+            object: Any?,
+            in notificationCenter: NotificationCenter = center,
+            _ action: @escaping @Sendable @MainActor (WindowVideoBackgroundController) -> Void
+        ) {
+            observers.append(notificationCenter.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    action(self)
+                }
+            })
+        }
+        observe(UserDefaults.didChangeNotification, object: nil) { $0.refreshIfSettingsChanged() }
+        observe(NSWindow.didChangeOcclusionStateNotification, object: window) { $0.updatePlaybackState() }
+        observe(NSWindow.didBecomeKeyNotification, object: window) { $0.windowDidBecomeKey() }
+        observe(NSWindow.willCloseNotification, object: window) { $0.tearDownForWindowClose() }
+        // Performance guardrails: no point decoding video nobody can see.
+        observe(NSWorkspace.willSleepNotification, object: nil, in: workspaceCenter) { $0.setSystemSleeping(true) }
+        observe(NSWorkspace.didWakeNotification, object: nil, in: workspaceCenter) { $0.setSystemSleeping(false) }
+        observe(.NSProcessInfoPowerStateDidChange, object: nil) { $0.updatePlaybackState() }
     }
 
     private func windowDidBecomeKey() {
@@ -296,9 +282,10 @@ final class WindowVideoBackgroundController {
             audioArbiter.windowWillClose(window, fallback: NSApp.keyWindow)
         }
         removeLayer()
-        for task in observationTasks {
-            task.cancel()
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
-        observationTasks.removeAll()
+        observers.removeAll()
     }
 }
