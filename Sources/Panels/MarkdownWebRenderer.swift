@@ -14,7 +14,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
-    let allowedLocalResourceRoot: URL? = nil
+    let allowedLocalResourceRoot: URL?
     /// Body font size in points, applied as `pageZoom` and to shell-managed SVG zoom.
     let fontSize: Double
     /// Body prose font-family name (empty = System). Applied as an inline

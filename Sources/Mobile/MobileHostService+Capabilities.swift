@@ -147,14 +147,14 @@ extension MobileHostService {
             includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileTaskComposerFlag
             ),
-            includingArtifacts: CmuxFeatureFlags.offMainEffectiveValue(
-                for: CmuxFeatureFlags.artifactsFlag
-            ),
             // Managed policy only: under it every browser pane is closed, so
             // no browser affordance can work. A user-level disable keeps live
             // panes (session restore re-materializes them), and iOS must
             // still be able to view/stream those, so keep advertising then.
-            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy
+            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy,
+            includingArtifacts: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.artifactsFlag
+            )
         )
     }
 

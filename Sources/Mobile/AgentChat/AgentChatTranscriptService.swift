@@ -150,8 +150,8 @@ final class AgentChatTranscriptService {
         token: UUID,
         task: Task<Void, Never>
     )] = [:]
-    private var artifactTailerUseCounter: UInt64 = 0
-    private let artifactCaptureDebounceClock: any Clock<Duration>
+    var artifactTailerUseCounter: UInt64 = 0
+    let artifactCaptureDebounceClock: any Clock<Duration>
     private var eventSubscriptionObserver: NSObjectProtocol?
     let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
