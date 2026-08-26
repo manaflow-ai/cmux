@@ -32,6 +32,7 @@ struct AgentNotificationDelivery: Sendable {
         soundContext: NotificationSoundOverrideContext? = nil,
         agentKind: String? = nil,
         isSubagent: Bool? = nil,
+        correlationKey: String? = nil,
         coalesces: Bool = false
     ) -> Bool {
         if let category,
@@ -58,6 +59,7 @@ struct AgentNotificationDelivery: Sendable {
                 isSubagent: isSubagent
             ),
             soundContext: soundContext,
+            correlationKey: correlationKey,
             coalesces: coalesces
         )
         return true

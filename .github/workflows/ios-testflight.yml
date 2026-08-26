@@ -646,6 +646,27 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload dSYMs to Sentry
+        # Sentry symbolicates crashes server-side from its own dSYM store; the
+        # Symbols/ files inside the IPA only serve App Store Connect. Same gate
+        # as the artifact step above: once the IPA reached TestFlight, symbols
+        # must reach Sentry even if a later step fails, or every crash for this
+        # build shows raw addresses. No --include-sources: the archive builds
+        # on a fleet Mac, so its DWARF source paths do not exist on this
+        # runner.
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.assign_internal_group == '1' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmux-ios
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload "$RUNNER_TEMP/cmux-ios-upload/cmux.xcarchive/dSYMs"
+
       - name: Cleanup keychain
         if: always()
         run: |

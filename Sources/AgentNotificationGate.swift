@@ -26,7 +26,7 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;s=<alert>]` meta segment.
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
 /// Returns `nil` unless BOTH a KNOWN category literal and a valid `p=0|1`
 /// pending flag are present, so the reserved suffix grammar stays exactly the
 /// three known categories — any other `c=...` tail stays part of the legacy
@@ -43,15 +43,18 @@ struct AgentNotificationMeta {
     let agentKind: String?
     let isSubagent: Bool?
     let soundContext: NotificationSoundOverrideContext?
+    /// Opaque identity used by a producer that needs to clear exactly one
+    /// notification without touching newer entries on the same surface.
+    let correlationKey: String?
 
     init?(meta: String) {
         // Accept ONLY the canonical serialization the CLI emits (`c=` then
-        // `p=`, optionally followed by `a=` then `n=`, this order, no
-        // duplicates or extras). Anything else — reordered, duplicated, or
+        // `p=`, optionally followed by `a=`, `n=`, `s=`, then `k=`, this order,
+        // no duplicates or extras). Anything else — reordered, duplicated, or
         // unknown trailing fields — is not metadata and stays part of the
         // legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard (2...5).contains(fields.count),
+        guard (2...6).contains(fields.count),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
         guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else {
@@ -65,6 +68,7 @@ struct AgentNotificationMeta {
         var agentKind: String? = nil
         var isSubagent: Bool? = nil
         var soundContext: NotificationSoundOverrideContext? = nil
+        var correlationKey: String? = nil
         var index = 2
         if index < fields.count, fields[index].hasPrefix("a=") {
             let kind = String(fields[index].dropFirst(2))
@@ -95,12 +99,19 @@ struct AgentNotificationMeta {
             soundContext = context
             index += 1
         }
+        if index < fields.count, fields[index].hasPrefix("k=") {
+            let key = String(fields[index].dropFirst(2))
+            guard let uuid = UUID(uuidString: key) else { return nil }
+            correlationKey = uuid.uuidString.lowercased()
+            index += 1
+        }
         guard index == fields.count else { return nil }
         guard known != .other || soundContext != nil else { return nil }
         self.category = known
         self.agentKind = agentKind
         self.isSubagent = isSubagent
         self.soundContext = soundContext
+        self.correlationKey = correlationKey
     }
 
     /// Mirror of the CLI's `AgentHookNotifyCategory.isValidAgentKindTag` slug
@@ -108,6 +119,10 @@ struct AgentNotificationMeta {
     /// exactly or the meta folds back into the notification body.
     static func isValidAgentKindTag(_ value: String) -> Bool {
         NotificationSoundOverrideContext.isValidAgentID(value)
+    }
+
+    static func isValidCorrelationKey(_ value: String) -> Bool {
+        UUID(uuidString: value) != nil
     }
 }
 

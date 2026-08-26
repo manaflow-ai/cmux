@@ -1139,6 +1139,7 @@ final class TerminalNotificationStore: ObservableObject {
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
+        correlationKey: String? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
         preRegisteredPolicyRequestId: UUID? = nil,
@@ -1186,7 +1187,7 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-            correlationKey: cooldownKey,
+            correlationKey: correlationKey ?? cooldownKey,
             resolvedHooks: resolvedHooks,
             agent: agent,
             soundContext: soundContext
@@ -1554,6 +1555,13 @@ final class TerminalNotificationStore: ObservableObject {
         var idsToClear: [String] = []
         updated.removeAll { existing in
             guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
+            if let correlationKey = notification.correlationKey {
+                // Correlated producers (Cursor approvals and other
+                // identity-scoped events) replace only their own prior entry.
+                // A refresh must not erase a newer unrelated question, error,
+                // or approval that arrived on the same surface.
+                guard existing.correlationKey == correlationKey else { return false }
+            }
             idsToClear.append(existing.id.uuidString)
             return true
         }
@@ -2026,6 +2034,38 @@ final class TerminalNotificationStore: ObservableObject {
         ids.forEach(remove)
         // `remove(id:)` already performs the combined UserNotifications clear
         // for each active record; do not issue a second pending-removal batch.
+    }
+
+    /// Clears one surface notification by its producer correlation key. This
+    /// is intentionally narrower than a surface clear: a completion callback
+    /// may arrive after a newer question, error, or approval was delivered to
+    /// the same pane.
+    func clearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        correlationKey: String,
+        throughNotificationGeneration: UInt64? = nil
+    ) {
+        inFlightPolicyRequests.discard(
+            forSurfaceId: surfaceId,
+            correlationKey: correlationKey,
+            through: throughNotificationGeneration
+        )
+        let liveTabId = AppDelegate.shared?
+            .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
+        let ids: [UUID] = notifications.compactMap { notification -> UUID? in
+            guard notification.correlationKey == correlationKey,
+                  notification.matchesClear(
+                      tabId: tabId,
+                      liveTabId: liveTabId,
+                      surfaceId: surfaceId
+                  ) else {
+                return nil
+            }
+            return notification.id
+        }
+        ids.forEach(remove)
+        removePendingNotificationRequests(withIdentifiers: ids.map { $0.uuidString })
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {

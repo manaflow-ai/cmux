@@ -22,6 +22,7 @@ use bytes::Bytes;
 use cmux_remote_protocol::{FrameFlags, Lane, SessionId};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
+use tokio::task::JoinSet;
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
@@ -37,7 +38,7 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
+use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -47,6 +48,7 @@ const MAX_PENDING_APPROVALS: usize = 64;
 const PREAUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_DIRECT_HTTP_CONNECTIONS: usize = 512;
+const MAX_UNIX_CONNECTIONS: usize = 64;
 const DIRECT_HTTP_UPGRADE_TIMEOUT: Duration = Duration::from_secs(10);
 const TERMINAL_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 pub const DEFAULT_RESUME_LEASE: Duration = Duration::from_secs(2 * 60);
@@ -1436,6 +1438,7 @@ async fn upgrade_websocket(
 #[cfg(unix)]
 pub struct UnixServer {
     path: PathBuf,
+    socket_cleanup: Arc<UnixSocketCleanup>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<Result<(), DaemonError>>>,
 }
@@ -1462,8 +1465,15 @@ impl UnixServer {
 #[cfg(unix)]
 impl Drop for UnixServer {
     fn drop(&mut self) {
+        // The listener is owned by the accept task. Unlink the path here as
+        // well, because aborting a task only schedules cancellation; its
+        // listener may not be dropped before this wrapper returns.
+        let _ = self.socket_cleanup.unlink();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
+        }
+        if let Some(task) = self.task.take() {
+            task.abort();
         }
     }
 }
@@ -1488,12 +1498,19 @@ pub async fn serve_unix_with_shutdown(
     let listener = OwnedUnixListener::bind(path.clone())
         .await
         .map_err(|error| DaemonError::Protocol(format!("could not own Unix socket: {error:#}")))?;
+    let socket_cleanup = listener.cleanup();
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+    let permits = Arc::new(Semaphore::new(MAX_UNIX_CONNECTIONS));
     let task = tokio::spawn(async move {
         let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut connections = JoinSet::new();
         loop {
             tokio::select! {
-                _ = &mut shutdown_rx => return Ok(()),
+                _ = &mut shutdown_rx => {
+                    connections.shutdown().await;
+                    return Ok(())
+                },
+                Some(_) = connections.join_next(), if !connections.is_empty() => {},
                 accepted = listener.listener().accept() => {
                     let (stream, _) = match accepted {
                         Ok(accepted) => {
@@ -1510,7 +1527,10 @@ pub async fn serve_unix_with_shutdown(
                                 )));
                             };
                             tokio::select! {
-                                _ = &mut shutdown_rx => return Ok(()),
+                                _ = &mut shutdown_rx => {
+                                    connections.shutdown().await;
+                                    return Ok(())
+                                },
                                 _ = tokio::time::sleep(delay) => {}
                             }
                             continue;
@@ -1532,15 +1552,19 @@ pub async fn serve_unix_with_shutdown(
                     ) else {
                         continue;
                     };
+                    let Ok(permit) = permits.clone().try_acquire_owned() else {
+                        continue;
+                    };
                     let daemon = daemon.clone();
-                    tokio::spawn(async move {
+                    connections.spawn(async move {
+                        let _permit = permit;
                         let _ = daemon.accept(inbound).await;
                     });
                 }
             }
         }
     });
-    Ok(UnixServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
+    Ok(UnixServer { path, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
 #[derive(Debug)]
@@ -1686,6 +1710,64 @@ mod tests {
         let error = server.shutdown().await.unwrap_err();
 
         assert!(error.to_string().contains("Unix listener task failed"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_shutdown_aborts_active_handlers() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(state.path(), "active-unix-shutdown", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+
+        // A connected peer with no protocol prelude keeps daemon.accept in its
+        // handshake read. JoinSet::shutdown must abort that handler.
+        let _peer = tokio::net::UnixStream::connect(&socket).await.unwrap();
+        tokio::task::yield_now().await;
+        tokio::time::timeout(Duration::from_secs(1), server.shutdown())
+            .await
+            .expect("Unix shutdown hung with an active handler")
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_connection_admission_recovers_after_handlers_finish() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "admission-unix", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+
+        // Fill the bounded handler set, then close every peer. A later peer
+        // must still be admitted after the finished handlers release permits.
+        let mut peers = Vec::with_capacity(MAX_UNIX_CONNECTIONS);
+        for _ in 0..MAX_UNIX_CONNECTIONS {
+            peers.push(tokio::net::UnixStream::connect(&socket).await.unwrap());
+        }
+        drop(peers);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let recovered = tokio::net::UnixStream::connect(&socket).await;
+        assert!(recovered.is_ok(), "Unix admission did not recover: {recovered:?}");
+        server.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_server_drop_removes_socket_path() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "drop-unix", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+        assert!(socket.exists());
+        drop(server);
+        assert!(!socket.exists(), "dropping UnixServer left its socket path behind");
     }
     use crate::connection::{ClientConnection, ClientConnectionConfig, LinkReady, ReconnectPolicy};
     use crate::crypto::{

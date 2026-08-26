@@ -31,12 +31,18 @@ enum AgentHookNotifyCategory: String {
 
     /// Extended meta segment carrying optional agent-event context for the
     /// app's notification-policy hooks:
-    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>]` (canonical field
-    /// order; `a=` is the stable lowercase agent slug, `n=` marks a nested
-    /// subagent session). An agent kind that fails slug validation is dropped
-    /// rather than risking the app-side parser folding the whole meta back
-    /// into the body.
-    func metaSegment(pending: Bool, agentKind: String?, isSubagent: Bool?) -> String? {
+    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;k=<uuid>]` (canonical
+    /// field order; `a=` is the stable lowercase agent slug, `n=` marks a
+    /// nested subagent session, and `k=` is an opaque notification identity).
+    /// An agent kind or correlation key that fails validation is dropped rather
+    /// than risking the app-side parser folding the whole meta back into the
+    /// body.
+    func metaSegment(
+        pending: Bool,
+        agentKind: String?,
+        isSubagent: Bool?,
+        correlationKey: String? = nil
+    ) -> String? {
         guard self != .other else { return nil }
         var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
         if let agentKind, Self.isValidAgentKindTag(agentKind) {
@@ -44,6 +50,9 @@ enum AgentHookNotifyCategory: String {
         }
         if let isSubagent {
             segment += ";n=\(isSubagent ? 1 : 0)"
+        }
+        if let correlationKey, Self.isValidCorrelationKey(correlationKey) {
+            segment += ";k=\(UUID(uuidString: correlationKey)?.uuidString.lowercased() ?? correlationKey)"
         }
         return segment
     }
@@ -59,7 +68,8 @@ enum AgentHookNotifyCategory: String {
         pending: Bool,
         agentID: String,
         alertType: NotificationSoundAlertType? = nil,
-        isSubagent: Bool? = nil
+        isSubagent: Bool? = nil,
+        correlationKey: String? = nil
     ) -> String? {
         let resolvedAlertType: NotificationSoundAlertType?
         switch self {
@@ -82,7 +92,15 @@ enum AgentHookNotifyCategory: String {
             segment += ";n=\(isSubagent ? 1 : 0)"
         }
         segment += ";s=\(context.alertType.rawValue)"
+        if let correlationKey, Self.isValidCorrelationKey(correlationKey) {
+            segment += ";k=\(UUID(uuidString: correlationKey)?.uuidString.lowercased() ?? correlationKey)"
+        }
         return segment
+    }
+
+    /// Correlation keys are opaque UUIDs used only to clear one notification.
+    static func isValidCorrelationKey(_ value: String) -> Bool {
+        UUID(uuidString: value) != nil
     }
 }
 
@@ -272,6 +290,190 @@ enum AgentHookNotificationPolicy {
             return surfaceTitle
         }
         return "\(displayName) · \(surfaceTitle)"
+    }
+
+    /// Cursor invokes `beforeShellExecution` before its native permission
+    /// evaluator and does not include that evaluator's decision in the hook
+    /// payload. Its protocol does expose whether the command is sandboxed, so
+    /// an explicit unsandboxed value is the only conservative candidate we can
+    /// use to ask for the native prompt; it is not authoritative approval
+    /// state (Cursor's allowlist and Run Everything decisions are internal).
+    /// Missing or malformed values remain telemetry-only. Completion/failure
+    /// handlers must correlate against the pending command record.
+    /// Known local Run Everything, Shell(...) allow, and Shell(...) deny
+    /// entries are filtered before this fallback because team/server policy and
+    /// smart-mode decisions are not present in the hook payload.
+    static func shouldRequestCursorNativeApproval(
+        payload: [String: Any]?,
+        approvalMode: String? = nil,
+        allowedShellCommands: [String] = [],
+        deniedShellCommands: [String] = []
+    ) -> Bool {
+        guard payload?["sandbox"] as? Bool == false else { return false }
+        // Without a locally known allowlist mode there is no authoritative
+        // signal that this callback is waiting. Keep the event telemetry-only
+        // rather than manufacturing an uncorrelatable Needs input state.
+        guard approvalMode == "allowlist",
+              let command = payload?["command"] as? String,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              command.utf8.count <= 8_192 else {
+            return false
+        }
+        guard !deniedShellCommands.contains(where: {
+            cursorShellAllowlistEntryMatches($0, command: command)
+        }) else {
+            return false
+        }
+        return !allowedShellCommands.contains {
+            cursorShellAllowlistEntryMatches($0, command: command)
+        }
+    }
+
+    private static func cursorShellAllowlistEntryMatches(
+        _ entry: String,
+        command: String
+    ) -> Bool {
+        let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedEntry.count >= 7, trimmedEntry.count <= 512,
+              trimmedEntry.range(
+                  of: #"^Shell\("#,
+                  options: [.regularExpression, .caseInsensitive]
+              ) != nil,
+              trimmedEntry.last == ")" else {
+            return false
+        }
+        let patternStart = trimmedEntry.index(trimmedEntry.startIndex, offsetBy: 6)
+        let patternEnd = trimmedEntry.index(before: trimmedEntry.endIndex)
+        let pattern = String(trimmedEntry[patternStart..<patternEnd])
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pattern.isEmpty, !normalizedCommand.isEmpty else { return false }
+
+        let commandParts = normalizedCommand.split(
+            maxSplits: 1,
+            whereSeparator: { $0.isWhitespace }
+        )
+        let commandBase = commandParts.first.map(String.init) ?? ""
+        let commandArguments = commandParts.count > 1 ? String(commandParts[1]) : ""
+
+        if pattern.contains(":") {
+            let components = pattern.split(
+                separator: ":",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            guard let basePattern = components.first.map(String.init),
+                  let argumentPattern = components.dropFirst().first.map(String.init),
+                  globMatches(basePattern, value: commandBase) else {
+                return false
+            }
+            if !argumentPattern.contains("*"), !argumentPattern.contains("?") {
+                return commandArguments == argumentPattern
+                    || commandArguments.hasPrefix(argumentPattern + " ")
+            }
+            return globMatches(argumentPattern, value: commandArguments)
+        }
+        if !pattern.contains("*"), !pattern.contains("?") {
+            // Cursor's Shell(prefix) form allows the prefix plus additional
+            // arguments, so Shell(git status) matches git status --short.
+            return normalizedCommand == pattern
+                || normalizedCommand.hasPrefix(pattern + " ")
+        }
+
+        return globMatches(pattern, value: normalizedCommand)
+    }
+
+    private static func globMatches(_ pattern: String, value: String) -> Bool {
+        guard pattern.utf8.count <= 512, value.utf8.count <= 8_192 else { return false }
+        let patternScalars = Array(pattern.unicodeScalars)
+        let valueScalars = Array(value.unicodeScalars)
+        var patternIndex = 0
+        var valueIndex = 0
+        var lastStarIndex: Int?
+        var valueAtLastStar = 0
+
+        while valueIndex < valueScalars.count {
+            if patternIndex < patternScalars.count,
+               (patternScalars[patternIndex] == valueScalars[valueIndex]
+                || patternScalars[patternIndex] == "?") {
+                patternIndex += 1
+                valueIndex += 1
+            } else if patternIndex < patternScalars.count,
+                      patternScalars[patternIndex] == "*" {
+                lastStarIndex = patternIndex
+                valueAtLastStar = valueIndex
+                patternIndex += 1
+            } else if let lastStarIndex {
+                patternIndex = lastStarIndex + 1
+                valueAtLastStar += 1
+                valueIndex = valueAtLastStar
+            } else {
+                return false
+            }
+        }
+        while patternIndex < patternScalars.count, patternScalars[patternIndex] == "*" {
+            patternIndex += 1
+        }
+        return patternIndex == patternScalars.count
+    }
+
+    /// Redacts credentials before a command reaches durable hook state or UI.
+    static func redactSensitiveCommand(_ value: String) -> String {
+        let boundedValue = value.utf8.count > 8_192
+            ? String(decoding: value.utf8.prefix(8_191), as: UTF8.self) + "…"
+            : value
+        let patterns: [(pattern: String, replacement: String)] = [
+            (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
+            (#"(?:~|/)[^\s\"']+"#, "<path>"),
+            (#"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"#, "<token>"),
+            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
+            (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"#, "Bearer <token>"),
+            (#"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"#, "<token>"),
+            (#"(?i)\b(?:authorization|proxy-authorization)\s*:\s*[^\s'\";&|]+(?:\s+[^\s'\";&|]+)*"#, "<credential>:<token>"),
+            (#"(?i)\b(?:x[-_])?(?:api[-_]?key|password|secret|token|authorization|cookie)\s*:\s*(?:Bearer\s+)?(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>:<token>"),
+            (#"(?i)(?:^|\s)--?[A-Za-z0-9]*(?:api[-_]?key|access[-_]?key|password|secret|token|authorization|cookie|passphrase)[A-Za-z0-9_-]*(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
+            (#"(?i)--?(?:api[-_]?key|password|secret|token|authorization|cookie)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>=<token>"),
+            (#"(?i)(?:^|\s)(?:-u|--user)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
+            (#"(?i)(?:^|\s)(?:--passphrase|--password|--pass|--auth|--credential)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
+            (#"(?i)(?:^|\s)(?:-a|-p|-pass)(?:=|\s+|(?=[^\s]))(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
+            (#"(?i)\b[A-Za-z_]*(?:api[_-]?key|password|secret|token|authorization|cookie)[A-Za-z0-9_]*\s*=\s*(?:'[^']*'|\"[^\"]*\"|[^\s;&|]+)"#, "<credential>=<token>"),
+            (#"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#, "<credential>=<token>"),
+            (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>"),
+        ]
+        return patterns.reduce(boundedValue) { partial, entry in
+            partial.replacingOccurrences(
+                of: entry.pattern,
+                with: entry.replacement,
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+    }
+
+    static let cursorNativeApprovalResponse = #"{"permission":"ask"}"#
+
+    /// Returns Cursor's explicit CLI approval-mode override, when present.
+    static func cursorApprovalModeOverride(arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" { break }
+            let rawValue: String?
+            if argument == "--mode", index + 1 < arguments.count {
+                rawValue = arguments[index + 1]
+                index += 2
+            } else if argument.hasPrefix("--mode=") {
+                rawValue = String(argument.dropFirst("--mode=".count))
+                index += 1
+            } else {
+                index += 1
+                continue
+            }
+            guard let rawValue else { continue }
+            let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["allowlist", "auto-review", "unrestricted"].contains(normalized) {
+                return normalized
+            }
+        }
+        return nil
     }
 
     /// Stable per-session fingerprint. Grok 0.2.91 emits an identical generic

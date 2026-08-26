@@ -19,6 +19,7 @@ extension TerminalController {
         replyShape: TerminalNotificationReplyShape = .none,
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
+        correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -62,6 +63,7 @@ extension TerminalController {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            correlationKey: correlationKey,
             agent: agent,
             soundContext: soundContext
         )
@@ -82,6 +84,7 @@ extension TerminalNotificationStore {
         body: String,
         replyShape: TerminalNotificationReplyShape,
         agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
         notificationGeneration: UInt64,
         soundContext: NotificationSoundOverrideContext? = nil
     ) {
@@ -109,6 +112,7 @@ extension TerminalNotificationStore {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
+            correlationKey: correlationKey,
             notificationGeneration: notificationGeneration,
             agent: agent,
             soundContext: soundContext

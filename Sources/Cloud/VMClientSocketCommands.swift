@@ -10,10 +10,17 @@ extension TerminalController {
         switch method {
         case "vm.list":
             return v2VmCall(id: id) {
-                let items = try await VMClient.shared.list()
-                return [
-                    "vms": items.map(Self.socketWorkerVMSummaryPayload),
+                let page = try await VMClient.shared.listPage()
+                var payload: [String: Any] = [
+                    "vms": page.vms.map(Self.socketWorkerVMSummaryPayload),
                 ]
+                if let limits = page.limits {
+                    payload["limits"] = [
+                        "maxActiveVms": limits.maxActiveVms,
+                        "planId": limits.planId,
+                    ]
+                }
+                return payload
             }
         case "vm.create":
             let image = Self.socketWorkerString(params["image"])
@@ -26,8 +33,11 @@ extension TerminalController {
                     message: "vm.create requires `idempotency_key`. Use `cmux vm new` instead of calling the socket method directly."
                 )
             }
+            let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
+            let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
+            let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
@@ -50,6 +60,41 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.status(id: vmId)
                 return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.stats":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.stats requires `id`. Run `cmux vm ls` to find one.")
+            }
+            return v2VmCall(id: id) {
+                let stats = try await VMClient.shared.stats(id: vmId)
+                var payload: [String: Any] = [
+                    "id": vmId,
+                    "state": stats.state.rawValue,
+                    "sampled_at_unix": Int(stats.sampledAt.timeIntervalSince1970),
+                ]
+                payload["cpus"] = stats.cpus
+                payload["cpu_percent"] = stats.cpuPercent
+                payload["load_average_1m"] = stats.loadAverage1m
+                payload["memory_total_mb"] = stats.memoryTotalMb
+                payload["memory_used_mb"] = stats.memoryUsedMb
+                payload["disk_total_mb"] = stats.diskTotalMb
+                payload["disk_used_mb"] = stats.diskUsedMb
+                return payload.compactMapValues { $0 }
+            }
+        case "vm.rename":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")
+            }
+            let displayName = Self.socketWorkerString(params["display_name"])
+            return v2VmCall(id: id) {
+                let stored = try await VMClient.shared.rename(
+                    id: vmId,
+                    displayName: displayName?.isEmpty == false ? displayName : nil
+                )
+                return [
+                    "id": vmId,
+                    "displayName": stored ?? NSNull(),
+                ]
             }
         case "vm.snapshot":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -106,6 +151,17 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let result = try await VMClient.shared.exec(id: vmId, command: command, timeoutMs: timeoutMs)
                 return ["exit_code": result.exitCode, "stdout": result.stdout, "stderr": result.stderr]
+            }
+        case "vm.open_port":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.open_port requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let port = Self.socketWorkerInt(params["port"]), (1...65535).contains(port) else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.open_port requires `port` between 1 and 65535. From the CLI, use `cmux vm open <id> <port>`.")
+            }
+            return v2VmCall(id: id) {
+                let endpoint = try await VMClient.shared.openPort(id: vmId, port: port)
+                return ["url": endpoint.url, "token": endpoint.token, "open_url": endpoint.openUrl]
             }
         case "vm.ssh_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -217,6 +273,9 @@ extension TerminalController {
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
+        if let displayName = vm.displayName, !displayName.isEmpty {
+            payload["displayName"] = displayName
+        }
         if let base = vm.base {
             payload["base"] = [
                 "id": base.id,
