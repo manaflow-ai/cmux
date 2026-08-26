@@ -22,6 +22,7 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
     // with app termination, while the bounded signal wait stays outside it.
     private let lock: OSAllocatedUnfairLock<State>
     private let exitSource: DispatchSourceProcess
+    private let exitCompletion: AgentChatSidecarProcessExitCompletion
 
     init(
         launchId: String,
@@ -32,6 +33,7 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
         self.rootIdentity = rootIdentity
         self.processGroupID = processGroupID
         self.lock = OSAllocatedUnfairLock(initialState: State())
+        self.exitCompletion = AgentChatSidecarProcessExitCompletion()
 
         // DispatchSource is the only non-polling process-exit callback at this
         // POSIX seam; it lets us reap the child without a background waiter.
@@ -92,11 +94,11 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
         return verified
     }
 
-    /// Sends SIGTERM, waits briefly for the validated launch to exit, then
-    /// revalidates before SIGKILL.  Both signals target the launch process
-    /// group, and every signal is gated by a PID/start-time identity check plus
-    /// a current process-group check.  A stale or incomplete session receives
-    /// no signal at all.
+    /// Sends SIGTERM, revalidates, and escalates immediately when this
+    /// synchronous shutdown/deinit path has no async turn to await. Both
+    /// signals target the launch process group, and every signal is gated by a
+    /// PID/start-time identity check plus a current process-group check. The
+    /// recovery path uses `terminateAsync()` to give SIGTERM its grace window.
     @discardableResult
     func terminate() -> Bool {
         let identities = lock.withLock { state -> [AgentPIDProcessIdentity]? in
@@ -144,6 +146,59 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
         return didTerminate
     }
 
+    /// Performs the recovery termination without blocking a cooperative
+    /// executor thread. The process-exit source wakes the grace-period race;
+    /// the terminator still revalidates every captured identity before any
+    /// escalation signal.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    @discardableResult
+    func terminateAsync() async -> Bool {
+        let identities = lock.withLock { state -> [AgentPIDProcessIdentity]? in
+            if state.terminationCompleted { return [] }
+            guard !state.terminationStarted else { return nil }
+            state.terminationStarted = true
+            var values = [rootIdentity]
+            if let serverIdentity = state.serverIdentity,
+               serverIdentity != rootIdentity {
+                values.append(serverIdentity)
+            }
+            return values
+        }
+        guard let identities else { return false }
+        guard !identities.isEmpty else { return true }
+
+        let didTerminate = await AgentChatSidecarProcessTerminator(
+            identityProvider: { pid in
+                if pid == self.rootIdentity.pid {
+                    // A zombie cannot be reused until this parent reaps it,
+                    // so retain its generation as the group anchor.
+                    return AgentPIDProcessIdentity.includingExitedProcess(pid: pid)
+                }
+                return AgentPIDProcessIdentity(pid: pid)
+            }
+        ).terminateAsync(
+            identities: identities,
+            processGroupID: processGroupID,
+            waitForExit: { [exitCompletion] in
+                await exitCompletion.wait()
+            }
+        )
+        lock.withLock { state in
+            state.terminationStarted = false
+            if didTerminate {
+                state.terminationCompleted = true
+            }
+        }
+        if didTerminate {
+            reapRootIfExited()
+        }
+        return didTerminate
+    }
+
     private func reapRootIfExited() {
         var status: Int32 = 0
         while true {
@@ -158,6 +213,9 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
         let shouldReap = lock.withLock { state -> Bool in
             state.rootExited = true
             return state.terminationCompleted
+        }
+        Task { [exitCompletion] in
+            await exitCompletion.finish(true)
         }
         if shouldReap { reapRootIfExited() }
     }

@@ -18,9 +18,6 @@ nonisolated struct AgentChatSidecarProcessTerminator {
     private let processGroupProvider: ProcessGroupProvider
     private let processGroupExistsProvider: ProcessGroupExistsProvider
     private let signalSender: SignalSender
-    private let sleepNanoseconds: (UInt64) -> Void
-    private let graceNanoseconds: UInt64 = 400_000_000
-    private let pollNanoseconds: UInt64 = 25_000_000
 
     init(
         identityProvider: @escaping IdentityProvider = { AgentPIDProcessIdentity(pid: $0) },
@@ -33,24 +30,12 @@ nonisolated struct AgentChatSidecarProcessTerminator {
             let result = Darwin.kill(-processGroupID, 0)
             return result == 0 || errno == EPERM
         },
-        signalSender: @escaping SignalSender = { Darwin.kill($0, $1) },
-        sleepNanoseconds: @escaping (UInt64) -> Void = {
-            var request = timespec()
-            request.tv_sec = Int($0 / 1_000_000_000)
-            request.tv_nsec = Int($0 % 1_000_000_000)
-            while true {
-                var remaining = timespec()
-                let result = Darwin.nanosleep(&request, &remaining)
-                if result == 0 || errno != EINTR { return }
-                request = remaining
-            }
-        }
+        signalSender: @escaping SignalSender = { Darwin.kill($0, $1) }
     ) {
         self.identityProvider = identityProvider
         self.processGroupProvider = processGroupProvider
         self.processGroupExistsProvider = processGroupExistsProvider
         self.signalSender = signalSender
-        self.sleepNanoseconds = sleepNanoseconds
     }
 
     /// Returns the only signal target that is safe for the supplied snapshot.
@@ -92,8 +77,11 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         }
         guard initialValidation.contains(.matching) else {
             // A completely exited launch is already clean.  A PID that now
-            // names another generation is not cleanable by this snapshot.
-            return initialValidation.allSatisfy { $0 == .gone }
+            // names another generation is not cleanable by this snapshot. Do
+            // not call it clean while an unanchored process group still
+            // exists: that would permit descendants to survive unnoticed.
+            return initialValidation.allSatisfy({ $0 == .gone })
+                && !processGroupExistsProvider(processGroupID)
         }
         guard signalIfValidated(
             identities: identities,
@@ -107,29 +95,9 @@ nonisolated struct AgentChatSidecarProcessTerminator {
             return false
         }
 
-        // This is a genuine bounded termination grace period. It stays
-        // synchronous so recovery cannot launch a replacement before the
-        // identity check and escalation for this generation finish.
-        var waited: UInt64 = 0
-        while waited < graceNanoseconds {
-            let currentValidation = identities.map {
-                validation(
-                    identity: $0,
-                    processGroupID: processGroupID
-                )
-            }
-            if currentValidation.contains(.reused) {
-                return false
-            }
-            if currentValidation.allSatisfy({ $0 == .gone }) {
-                return true
-            }
-            sleepNanoseconds(pollNanoseconds)
-            waited += pollNanoseconds
-        }
-
-        // Revalidate immediately before escalating.  Never issue SIGKILL from
-        // a stale PID/group snapshot after a PID has been recycled.
+        // The synchronous path is used only at app quit/deinit. Revalidate
+        // immediately before escalation rather than blocking a caller on a
+        // wall-clock grace period; the async path below waits on process exit.
         let finalValidation = identities.map {
             validation(
                 identity: $0,
@@ -139,7 +107,86 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         if finalValidation.contains(.reused) {
             return false
         }
-        if finalValidation.allSatisfy({ $0 == .gone }) {
+        if finalValidation.allSatisfy({ $0 == .gone })
+            && !processGroupExistsProvider(processGroupID) {
+            return true
+        }
+        return signalIfValidated(
+            identities: identities,
+            processGroupID: processGroupID,
+            signal: SIGKILL,
+            identityProvider: identityProvider,
+            processGroupProvider: processGroupProvider,
+            processGroupExistsProvider: processGroupExistsProvider,
+            signalSender: signalSender
+        )
+    }
+
+    /// Terminates a launch while allowing its root process to run its SIGTERM
+    /// disposal transaction. The wait is driven by a process-exit signal or a
+    /// cancellation-aware deadline; no thread is blocked polling the process
+    /// table.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    func terminateAsync(
+        identities: [AgentPIDProcessIdentity],
+        processGroupID: pid_t,
+        waitForExit: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        guard processGroupID > 1, !identities.isEmpty else { return false }
+        let initialValidation = identities.map {
+            validation(
+                identity: $0,
+                processGroupID: processGroupID
+            )
+        }
+        guard !initialValidation.contains(.reused) else { return false }
+        guard initialValidation.contains(.matching) else {
+            return initialValidation.allSatisfy({ $0 == .gone })
+                && !processGroupExistsProvider(processGroupID)
+        }
+        guard signalIfValidated(
+            identities: identities,
+            processGroupID: processGroupID,
+            signal: SIGTERM,
+            identityProvider: identityProvider,
+            processGroupProvider: processGroupProvider,
+            processGroupExistsProvider: processGroupExistsProvider,
+            signalSender: signalSender
+        ) else {
+            return false
+        }
+
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await waitForExit()
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: .milliseconds(400))
+                    return false
+                } catch {
+                    return false
+                }
+            }
+            _ = await group.next()
+            group.cancelAll()
+        }
+
+        // Revalidate immediately before escalating. Never issue SIGKILL from
+        // a stale PID/group snapshot after a PID has been recycled.
+        let finalValidation = identities.map {
+            validation(
+                identity: $0,
+                processGroupID: processGroupID
+            )
+        }
+        if finalValidation.contains(.reused) { return false }
+        if finalValidation.allSatisfy({ $0 == .gone })
+            && !processGroupExistsProvider(processGroupID) {
             return true
         }
         return signalIfValidated(
@@ -164,6 +211,36 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         return terminate(
             identities: [identity],
             processGroupID: processGroupID
+        )
+    }
+
+    @discardableResult
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    func terminateAsync(
+        session: AgentChatOwnedServerSession,
+        waitForExit: @escaping @Sendable () async -> Bool = {
+            do {
+                try await ContinuousClock().sleep(for: .milliseconds(400))
+            } catch {
+                return false
+            }
+            return false
+        }
+    ) async -> Bool {
+        guard let identity = session.processIdentity,
+              let processGroupID = session.processGroupID,
+              (1...Int(Int32.max)).contains(session.pid),
+              identity.pid == pid_t(session.pid) else {
+            return false
+        }
+        return await terminateAsync(
+            identities: [identity],
+            processGroupID: processGroupID,
+            waitForExit: waitForExit
         )
     }
 

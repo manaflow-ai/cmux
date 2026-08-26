@@ -56,8 +56,7 @@ struct AgentChatSidecarProcessTests {
             signalSender: { pid, signal in
                 signals.append((pid, signal))
                 return 0
-            },
-            sleepNanoseconds: { _ in }
+            }
         ).terminate(
             identities: [expected],
             processGroupID: 4127
@@ -78,8 +77,7 @@ struct AgentChatSidecarProcessTests {
                 signals.append((pid, signal))
                 if signal == SIGTERM { current = nil }
                 return 0
-            },
-            sleepNanoseconds: { _ in }
+            }
         ).terminate(
             identities: [expected],
             processGroupID: 4127
@@ -102,8 +100,7 @@ struct AgentChatSidecarProcessTests {
                 signals.append((pid, signal))
                 if signal == SIGTERM { current = nil }
                 return 0
-            },
-            sleepNanoseconds: { _ in }
+            }
         ).terminate(
             identities: [expected],
             processGroupID: 4127
@@ -124,8 +121,7 @@ struct AgentChatSidecarProcessTests {
             signalSender: { pid, signal in
                 signals.append((pid, signal))
                 return 0
-            },
-            sleepNanoseconds: { _ in }
+            }
         ).terminate(
             identities: [expected, second],
             processGroupID: 4127
@@ -152,8 +148,7 @@ struct AgentChatSidecarProcessTests {
             signalSender: { pid, signal in
                 signals.append((pid, signal))
                 return 0
-            },
-            sleepNanoseconds: { _ in }
+            }
         ).terminate(
             identities: [expected, second],
             processGroupID: 4127
@@ -174,8 +169,7 @@ struct AgentChatSidecarProcessTests {
                 signals.append((pid, signal))
                 errno = EPERM
                 return -1
-            },
-            sleepNanoseconds: { _ in }
+            }
         ).terminate(
             identities: [expected],
             processGroupID: 4127

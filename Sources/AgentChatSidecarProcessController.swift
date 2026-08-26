@@ -170,11 +170,20 @@ nonisolated struct AgentChatSidecarProcessController {
             }
             if waitResult == -1 && errno == EINTR { continue }
             guard waitResult == 0 else { return false }
-            if let expectedIdentity {
-                guard AgentPIDProcessIdentity(pid: processIdentifier) == expectedIdentity else {
-                    return false
-                }
+            if let expectedIdentity,
+               let currentIdentity = AgentPIDProcessIdentity.includingExitedProcess(
+                   pid: processIdentifier
+               ),
+               currentIdentity != expectedIdentity {
+                // A different birth token would mean the direct-child proof
+                // no longer describes this launch.  Fail closed in that
+                // impossible-before-reap case rather than signaling.
+                return false
             }
+            // If the process table is momentarily unreadable, waitpid's
+            // direct-child result still proves that this PID cannot have been
+            // recycled until this parent reaps it. Continue with that stronger
+            // ownership proof instead of abandoning a suspended child.
             let groupID = Darwin.getpgid(processIdentifier)
             let target = groupID == processIdentifier ? -processIdentifier : processIdentifier
             errno = 0

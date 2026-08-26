@@ -173,6 +173,22 @@ nonisolated struct AgentChatActionInFlightGate {
         return false
     }
 
+    private static func terminateSnapshotAsync(
+        _ snapshot: OwnedServerSnapshot
+    ) async -> Bool {
+        if let process = snapshot.process {
+            return await process.terminateAsync()
+        }
+        if let session = snapshot.session {
+            // Legacy in-memory sessions have no process-exit source, so the
+            // async terminator supplies its bounded fallback grace period.
+            return await AgentChatSidecarProcessTerminator().terminateAsync(
+                session: session
+            )
+        }
+        return false
+    }
+
     /// Takes ownership out of the gate before signaling.  A candidate (when
     /// supplied) prevents a late theme/recovery callback from terminating a
     /// newer launch that replaced the one it observed.
@@ -190,10 +206,9 @@ nonisolated struct AgentChatActionInFlightGate {
         return didTerminate
     }
 
-    /// Recovery runs from MainActor tasks, but termination includes a bounded
-    /// synchronous grace period.  Keep that wait off the UI actor; app quit
-    /// uses the synchronous overload below because there is no async turn left
-    /// to await.
+    /// Recovery runs from MainActor tasks, but process-exit waiting and signal
+    /// escalation stay off the UI actor. App quit uses the synchronous
+    /// overload below because there is no async turn left to await.
     #if compiler(>=6.2)
     @concurrent
     #else
@@ -207,9 +222,7 @@ nonisolated struct AgentChatActionInFlightGate {
             matching: candidate,
             matchingLaunchID: launchID
         ) else { return false }
-        let didTerminate = await Task.detached(priority: .utility) {
-            terminateSnapshot(snapshot)
-        }.value
+        let didTerminate = await terminateSnapshotAsync(snapshot)
         finishOwnedServerTermination(snapshot, didTerminate: didTerminate)
         return didTerminate
     }

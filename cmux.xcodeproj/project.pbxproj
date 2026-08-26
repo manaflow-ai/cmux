@@ -42,6 +42,7 @@
 		C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */; };
 		8728A0040000000000000001 /* AgentChatSidecarProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0030000000000000001 /* AgentChatSidecarProcess.swift */; };
 		8728A0100000000000000001 /* AgentChatSidecarProcessController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0090000000000000001 /* AgentChatSidecarProcessController.swift */; };
+		8728A0120000000000000001 /* AgentChatSidecarProcessExitCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0110000000000000001 /* AgentChatSidecarProcessExitCompletion.swift */; };
 		8728A0080000000000000001 /* AgentChatSidecarProcessTerminator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0070000000000000001 /* AgentChatSidecarProcessTerminator.swift */; };
 		8728A0060000000000000001 /* AgentChatSidecarProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8728A0050000000000000001 /* AgentChatSidecarProcessTests.swift */; };
 		C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71A00000000000000002 /* AgentChatThemeSync.swift */; };
@@ -2958,6 +2959,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryObservationTests.swift; sourceTree = "<group>"; };
 		8728A0030000000000000001 /* AgentChatSidecarProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcess.swift; sourceTree = "<group>"; };
 		8728A0090000000000000001 /* AgentChatSidecarProcessController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcessController.swift; sourceTree = "<group>"; };
+		8728A0110000000000000001 /* AgentChatSidecarProcessExitCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcessExitCompletion.swift; sourceTree = "<group>"; };
 		8728A0070000000000000001 /* AgentChatSidecarProcessTerminator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcessTerminator.swift; sourceTree = "<group>"; };
 		8728A0050000000000000001 /* AgentChatSidecarProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSidecarProcessTests.swift; sourceTree = "<group>"; };
 		C0DE71A00000000000000002 /* AgentChatThemeSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatThemeSync.swift; sourceTree = "<group>"; };
@@ -7036,6 +7038,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */,
 				8728A0010000000000000001 /* AgentChatActionInFlightGate.swift */,
 				8728A0030000000000000001 /* AgentChatSidecarProcess.swift */,
+				8728A0110000000000000001 /* AgentChatSidecarProcessExitCompletion.swift */,
 				8728A0090000000000000001 /* AgentChatSidecarProcessController.swift */,
 				8728A0070000000000000001 /* AgentChatSidecarProcessTerminator.swift */,
 				C0DE71A00000000000000002 /* AgentChatThemeSync.swift */,
@@ -9147,6 +9150,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
 				8728A0040000000000000001 /* AgentChatSidecarProcess.swift in Sources */,
 				8728A0100000000000000001 /* AgentChatSidecarProcessController.swift in Sources */,
+				8728A0120000000000000001 /* AgentChatSidecarProcessExitCompletion.swift in Sources */,
 				8728A0080000000000000001 /* AgentChatSidecarProcessTerminator.swift in Sources */,
 				C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */,
 				ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */,
