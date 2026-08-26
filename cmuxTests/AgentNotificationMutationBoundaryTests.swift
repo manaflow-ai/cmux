@@ -80,6 +80,111 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Rejected PID registration preserves an active Feed attention token")
+    func rejectedPIDRegistrationDoesNotEraseFeedAttention() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let token = try #require(
+            workspace.beginAgentFeedAttention(
+                key: "cursor",
+                panelId: panelID,
+                processGeneration: generation
+            )
+        )
+        defer {
+            _ = workspace.endAgentFeedAttention(
+                key: "cursor",
+                panelId: panelID,
+                token: token
+            )
+        }
+
+        let mismatchedGeneration = AgentPIDProcessIdentity(
+            pid: generation.pid,
+            startSeconds: generation.startSeconds + 1,
+            startMicroseconds: generation.startMicroseconds
+        )
+        let result = ControlSidebarPanelOwner.workspace(workspace).recordAgentPID(
+            key: "cursor.rejected-registration",
+            pid: generation.pid,
+            panelId: panelID,
+            acceptedProcessIdentity: mismatchedGeneration,
+            observeProcessExit: false
+        )
+        guard case .rejected = result else {
+            Issue.record("The mismatched PID registration was unexpectedly accepted")
+            return
+        }
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "cursor",
+                panelId: panelID
+            ),
+            "A rejected registration is not proof that the active prompt process exited."
+        )
+    }
+
+    @Test("Workspace-scoped PID ownership authorizes lifecycle updates")
+    func workspaceScopedPIDAuthorizesLifecycleWithoutPanel() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let owner = ControlSidebarPanelOwner.workspace(workspace)
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        guard case .accepted = owner.recordAgentPID(
+            key: "codex.workspace-scoped",
+            pid: generation.pid,
+            panelId: nil,
+            acceptedProcessIdentity: generation,
+            observeProcessExit: false
+        ) else {
+            Issue.record("The workspace-scoped PID registration was rejected")
+            return
+        }
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: generation.pid,
+            startSeconds: generation.startSeconds,
+            startMicroseconds: generation.startMicroseconds
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(workspace.id),
+            key: "codex",
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
+            panelID: nil
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["codex"]
+                == .running,
+            "An exact workspace-scoped PID must authorize the tab lifecycle path."
+        )
+    }
+
     @Test("Panel transfer preserves lifecycle-owned status without a PID key")
     func panelTransferPreservesLifecycleOwnedStatusWithoutPID() throws {
         let workspace = Workspace()
