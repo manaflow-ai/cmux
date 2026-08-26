@@ -2315,7 +2315,7 @@ final class ClaudeHookSessionStore {
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
-        var state = try loadUnlocked()
+        var state = try loadUnlocked(deadline: deadline)
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
@@ -2333,7 +2333,7 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
         if persist {
-            try saveUnlocked(state)
+            try saveUnlocked(state, deadline: deadline)
         }
         return result
     }
@@ -2399,7 +2399,7 @@ final class ClaudeHookSessionStore {
         )
     }
 
-    private func loadUnlocked() throws -> ClaudeHookSessionStoreFile {
+    private func loadUnlocked(deadline: Date? = nil) throws -> ClaudeHookSessionStoreFile {
         guard fileManager.fileExists(atPath: statePath) else {
             return ClaudeHookSessionStoreFile()
         }
@@ -2408,6 +2408,9 @@ final class ClaudeHookSessionStore {
               values.isRegularFile == true,
               let fileSize = values.fileSize else {
             throw CLIError(message: "Claude hook state file is unavailable or too large: \(statePath)")
+        }
+        if deadline != nil, fileSize > Self.maxHookStateFileBytes {
+            throw CLIError(message: "Claude hook state file is too large for the hook deadline: \(statePath)")
         }
         if fileSize > Self.maxRecoverableHookStateFileBytes {
             return try quarantineOversizedState(at: stateURL)
@@ -2504,7 +2507,10 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
+    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile, deadline: Date? = nil) throws {
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
+        }
         let stateURL = URL(fileURLWithPath: statePath)
         let parentURL = stateURL.deletingLastPathComponent()
         try fileManager.createDirectory(
@@ -2514,11 +2520,18 @@ final class ClaudeHookSessionStore {
         )
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
         let data = try encoder.encode(state)
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
+        }
         let tempURL = parentURL.appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
         guard fileManager.createFile(atPath: tempURL.path, contents: data, attributes: [
             .posixPermissions: NSNumber(value: Int16(0o600))
         ]) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: statePath])
+        }
+        if let deadline, Date.now >= deadline {
+            try? fileManager.removeItem(at: tempURL)
+            throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
         }
         let renameResult = tempURL.path.withCString { source in
             stateURL.path.withCString { destination in
@@ -2538,6 +2551,33 @@ final class ClaudeHookSessionStore {
         let cutoff = now - Self.maxStateAgeSeconds
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
+        }
+        for sessionId in Array(state.sessions.keys) {
+            guard var record = state.sessions[sessionId],
+                  let pending = record.pendingCursorShellApprovals,
+                  pending.count > Self.maxPendingCursorShellApprovals else {
+                continue
+            }
+            // State files are user-writable and may have been produced by an
+            // older or interrupted writer. Keep only the newest bounded
+            // approvals. Because the dropped prefix may itself be enormous,
+            // disable command-only correlation for this session instead of
+            // scanning it to build a fence; stable tool ids remain eligible.
+            var recentlyCleared = (record.recentlyClearedCursorShellCommandFingerprints ?? [:]).filter {
+                now - $0.value <= Self.recentlyClearedCursorShellCommandAgeSeconds
+            }
+            record.cursorShellCommandOnlyCorrelationDisabled = true
+            if recentlyCleared.count > Self.maxRecentlyClearedCursorShellCommandFingerprints {
+                record.cursorShellCommandOnlyCorrelationDisabled = true
+                recentlyCleared = Dictionary(
+                    uniqueKeysWithValues: recentlyCleared.sorted { $0.value > $1.value }
+                        .prefix(Self.maxRecentlyClearedCursorShellCommandFingerprints)
+                        .map { ($0.key, $0.value) }
+                )
+            }
+            record.recentlyClearedCursorShellCommandFingerprints = recentlyCleared
+            record.pendingCursorShellApprovals = Array(pending.suffix(Self.maxPendingCursorShellApprovals))
+            state.sessions[sessionId] = record
         }
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
