@@ -1516,8 +1516,15 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            // A persisted agent snapshot can coexist with a non-agent surface
+            // binding (for example, a process-detected tmux attach). Keep the
+            // snapshot available for manual continuation, but never let the
+            // ownership-deferred path synthesize an agent resume command on
+            // top of that binding.
+            let restorableAgentCanAutoResume = restorableAgent != nil &&
+                (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
             let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
-                (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+                (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
             let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
             let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
             let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
@@ -1659,7 +1666,8 @@ extension Workspace {
             // per-launch dedup claim so two panels can't both win the race
             // before the freshly spawned process becomes visible to the index.
             let agentSessionAlreadyActive: Bool = {
-                guard shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
+                guard shouldAutoResumeAgent, restorableAgentCanAutoResume,
+                      restoredHibernation == nil, restoredBindingLaunch == nil,
                       let restorableAgent else {
                     return false
                 }
@@ -1696,7 +1704,8 @@ extension Workspace {
                 )
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
+                if shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                   restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
@@ -1717,7 +1726,7 @@ extension Workspace {
             // ordinary shell instead of waiting behind deferred admission.
             let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
                 restoredHibernation == nil,
-                restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
+                restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent.resumeStartupInput(
