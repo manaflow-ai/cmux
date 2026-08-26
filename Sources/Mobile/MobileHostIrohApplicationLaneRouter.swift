@@ -498,6 +498,21 @@ struct MobileHostIrohApplicationLaneQuota {
     }
 }
 
+/// The two members the router needs from an admitted session. The legacy
+/// server session conforms as-is; the peer transport v2 bridge synthesizes a
+/// conformer over its raw streams, and the router serves both identically.
+/// The error contract carries over: `applicationLaneRejected` means one
+/// stream was reset and the session lives, any other error is
+/// connection-fatal, cancellation is a quiet exit.
+protocol MobileHostRoutableLaneSession: Sendable {
+    var peer: CmxIrohAdmittedPeer { get }
+    func acceptBidirectionalLane() async throws -> (
+        lane: CmxIrohLane, stream: CmxIrohBidirectionalStream
+    )
+}
+
+extension CmxIrohAdmittedServerSession: MobileHostRoutableLaneSession {}
+
 /// Sole Mac-side accept owner for post-admission Iroh application streams.
 ///
 /// Terminal lanes route a validated surface UUID to sequence-framed PTY output
@@ -530,7 +545,7 @@ actor MobileHostIrohApplicationLaneRouter {
     private static let maximumInputFrameByteCount = 16 * 1_024
     private static let maximumInputBufferByteCount = maximumInputFrameByteCount + 4
 
-    private let session: CmxIrohAdmittedServerSession
+    private let session: any MobileHostRoutableLaneSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
     private let simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling
     private var laneTasks: [UUID: Task<Void, Never>] = [:]
@@ -538,7 +553,7 @@ actor MobileHostIrohApplicationLaneRouter {
     private var stopped = false
 
     init(
-        session: CmxIrohAdmittedServerSession,
+        session: any MobileHostRoutableLaneSession,
         artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler(),
         simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling =
             MobileHostIrohRejectingSimulatorStreamLaneHandler()
