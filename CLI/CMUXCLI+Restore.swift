@@ -599,13 +599,15 @@ extension CMUXCLI {
                 defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
             ))
         }
-        guard !arguments.isEmpty else {
-            if allowEmptyWhenPreparedArgumentsExist { return nil }
+        guard !arguments.isEmpty || allowEmptyWhenPreparedArgumentsExist else {
             throw CLIError(message: String(
                 localized: "cli.restore.error.malformedArguments",
                 defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
             ))
         }
+        // An empty rejected capture can still carry replay-safe environment
+        // (for example `CLAUDE_CONFIG_DIR`). Keep that structured metadata while
+        // the planner takes its executable argv from `prepared_arguments`.
         return AgentLaunchCommand(
             launcher: object["launcher"] as? String,
             executablePath: object["executable_path"] as? String,
