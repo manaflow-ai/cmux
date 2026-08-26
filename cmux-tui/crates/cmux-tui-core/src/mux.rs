@@ -2015,11 +2015,10 @@ pub struct Mux {
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
     journal_event_changed: Condvar,
-    /// True once a skipped terminal-host reconnect checkpoint has been
-    /// surfaced as a status event. A machine resume reconnects every hosted
-    /// terminal at once, so per-terminal reporting would toast N times for
-    /// one underlying condition. Cleared when a reconnect checkpoint
-    /// succeeds again.
+    /// True once a skipped terminal-host reconnect checkpoint has been logged.
+    /// A machine resume reconnects every hosted terminal at once, so
+    /// per-terminal reporting would emit N warnings for one underlying
+    /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
@@ -5237,7 +5236,7 @@ impl Mux {
         Ok(())
     }
 
-    /// Reports a skipped terminal-host reconnect checkpoint at most once
+    /// Logs a skipped terminal-host reconnect checkpoint at most once
     /// until a later reconnect checkpoint succeeds. A checkpoint is a
     /// journal-replay optimization: skipping one only moves the next replay
     /// boundary back, so repeated skips are daemon-log noise, not per-toast
@@ -5250,10 +5249,8 @@ impl Mux {
         let message = format!(
             "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
         );
-        if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
+        if !self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
             eprintln!("cmux-tui: {message}");
-        } else {
-            self.emit(MuxEvent::Status(message));
         }
     }
 
