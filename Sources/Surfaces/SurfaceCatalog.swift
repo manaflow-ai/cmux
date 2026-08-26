@@ -236,7 +236,18 @@ final class SurfaceCatalog {
         )
     }
 
+    /// Observers get at most one notification per main-runloop turn: a burst of upserts
+    /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
+    /// one hop, so the sidebar rebuilds once instead of once per mutation.
+    private var changeNotificationPending = false
+
     private func notifyChange() {
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+        guard !changeNotificationPending else { return }
+        changeNotificationPending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.changeNotificationPending = false
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+        }
     }
 }
