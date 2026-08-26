@@ -3900,6 +3900,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 "model": "cursor-test-model",
                 "cwd": str(root),
                 "tool_name": "Shell",
+                "command": "rm -rf build-output",
                 "tool_input": {"command": "rm -rf build-output"},
                 "tool_use_id": requested_tool_call_id,
             }
@@ -3962,6 +3963,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 "postToolUse",
                 {
                     **requested_payload,
+                    "command": "rm -rf a-different-output",
                     "tool_output": "x" * (1024 * 1024 + 128),
                     "duration": 10,
                 },
@@ -6388,6 +6390,119 @@ def test_pi_feed_rejects_oversized_input(cli_path: str, root: Path) -> None:
         raise AssertionError(f"oversized Pi feed reached the socket: {fake.frames!r}")
 
 
+def _session_cat_pids(session_id: int) -> list[int]:
+    result = subprocess.run(
+        ["/bin/ps", "-axo", "pid=,sid=,command="],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"ps failed while checking oversized stdin drainers: {result.stderr}")
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(None, 2)
+        if len(fields) != 3:
+            continue
+        try:
+            pid = int(fields[0])
+            sid = int(fields[1])
+        except ValueError:
+            continue
+        executable = fields[2].split(None, 1)[0]
+        if sid == session_id and Path(executable).name == "cat":
+            pids.append(pid)
+    return pids
+
+
+def test_oversized_feed_stdin_does_not_leave_a_drainer(
+    cli_path: str,
+    root: Path,
+) -> None:
+    """An open producer must not strand a child reading the hook pipe."""
+    environment = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        environment.pop(key, None)
+    environment["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    environment["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    process = subprocess.Popen(
+        [
+            cli_path,
+            "--socket",
+            str(root / "cmux-held-stdin.sock"),
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PostToolUse",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+        start_new_session=True,
+    )
+    try:
+        payload = json.dumps(
+            {
+                "session_id": "held-stdin-overflow",
+                "hook_event_name": "PostToolUse",
+                "padding": "x" * (1024 * 1024 + 128),
+            }
+        ).encode("utf-8")
+        if process.stdin is None:
+            raise AssertionError("oversized stdin test could not open the producer pipe")
+        try:
+            process.stdin.write(payload)
+            process.stdin.flush()
+        except BrokenPipeError:
+            # The fixed reader closes its end as soon as the bound is crossed;
+            # a producer that is still writing can observe that close directly.
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("oversized Feed hook did not return while stdin stayed open") from exc
+
+        deadline = time.monotonic() + 1
+        lingering: list[int] = []
+        while time.monotonic() < deadline:
+            lingering = _session_cat_pids(process.pid)
+            if lingering:
+                break
+            time.sleep(0.02)
+        if lingering:
+            raise AssertionError(
+                f"oversized Feed hook stranded cat drainer processes: {lingering!r}"
+            )
+    finally:
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except BrokenPipeError:
+                pass
+        for pid in _session_cat_pids(process.pid):
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                pass
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -6523,6 +6638,7 @@ def main() -> int:
             test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
             test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
             test_pi_feed_rejects_oversized_input(cli_path, root)
+            test_oversized_feed_stdin_does_not_leave_a_drainer(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")

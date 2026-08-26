@@ -1283,6 +1283,17 @@ try {
     () => stopCalls().length === beforeRetainedIdle + 1,
     "the most recent bounded Amp turn lost settlement ownership"
   );
+  const retainedSettlement = JSON.parse(stopCalls().at(-1).stdin);
+  if (
+    retainedSettlement.cmux_active_sibling_turn_count
+      !== maximumRetainedTurnStateCount
+  ) {
+    throw new Error(
+      `Amp settlement dropped the evicted sibling from its conservative count: ${
+        JSON.stringify(retainedSettlement)
+      }`
+    );
+  }
 
   // Fill the bounded tombstone table and exercise its overflow recovery. A
   // later authoritative session.start must make that one owner eligible

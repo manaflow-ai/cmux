@@ -10,8 +10,8 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
-    @Test("Generic hook recovery prefers the currently live process generation")
-    func genericHookRecoveryPrefersCurrentProcessGeneration() {
+    @Test("Generic hook recovery does not trust a merely live inferred PID")
+    func genericHookRecoveryRequiresProcessBindingCorroboration() {
         let cli = CMUXCLI(args: [])
         let currentPID = Int(getpid())
 
@@ -20,16 +20,16 @@ extension AgentNotificationRegressionTests {
                 agentName: "cursor",
                 mappedPID: 999_991,
                 inferredPID: currentPID
-            ) == currentPID,
-            "A provider restart can deliver a hook before SessionStart rewrites the mapped PID."
+            ) == 999_991,
+            "A live wrapper or shell PID is not ownership proof for a generic hook."
         )
         #expect(
             cli.preferredAgentHookEventPID(
                 agentName: "claude",
-                mappedPID: 999_991,
+                mappedPID: nil,
                 inferredPID: currentPID
-            ) == currentPID,
-            "All generic integrations must attach generation metadata to the live hook process."
+            ) == nil,
+            "Without a mapped owner, an uncorroborated generic PID must fail closed."
         )
     }
 

@@ -581,6 +581,86 @@ struct WorkspaceSidebarObservationTests {
     }
 
     @Test
+    func workspaceOnlyBlockingAttentionSurvivesMissingFocusedPanel() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelId = try #require(workspace.focusedPanelId)
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        let dockPaneId = try #require(dock.bonsplitController.allPaneIds.first)
+        let source = "workspace-only-attention"
+        var target: FeedAttentionTarget?
+        defer {
+            if let target {
+                FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+            }
+            dock.closeAllPanels()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let transfer = try #require(
+            workspace.detachSurface(panelId: panelId)
+        )
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPaneId,
+                focus: false
+            ) == panelId
+        )
+        #expect(workspace.panels.isEmpty)
+        #expect(workspace.focusedPanelId == nil)
+
+        target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: WorkstreamEvent(
+                sessionId: "workspace-only-attention-session",
+                hookEventName: .permissionRequest,
+                source: source,
+                requestId: "workspace-only-attention-request"
+            ),
+            resolved: (ownerId: workspace.id, surfaceId: nil),
+            tabManager: tabManager
+        )
+        #expect(
+            target != nil,
+            "A blocking Feed decision must retain workspace scope when no panel is usable."
+        )
+        let statusKey = FeedCoordinator.attentionStatusKey(forSource: source)
+        #expect(
+            workspace.statusEntries[statusKey]?.value
+                == FeedCoordinator.needsInputStatusValue
+        )
+
+        if let target {
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+            self.assertWorkspaceOnlyAttentionWasCleared(
+                workspace,
+                statusKey: statusKey
+            )
+        }
+    }
+
+    private func assertWorkspaceOnlyAttentionWasCleared(
+        _ workspace: Workspace,
+        statusKey: String
+    ) {
+        #expect(
+            workspace.statusEntries[statusKey] == nil,
+            "Concluding a workspace-scoped Feed decision must clear its badge."
+        )
+    }
+
+    @Test
     func workspaceAttentionScopesSeparateAfterOnePanelMovesToDock() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
