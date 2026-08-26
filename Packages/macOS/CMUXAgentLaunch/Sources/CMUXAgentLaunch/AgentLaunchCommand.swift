@@ -90,7 +90,10 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         self.environment = environment
         self.verificationHome = verificationHome
         self.capturedAt = capturedAt
-        self.source = Self.sourcePreservingUsableArguments(source, arguments: arguments)
+        self.source = arguments.isEmpty
+            || source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "rejected"
+            ? source
+            : nil
         self.rejectionReason = nil
     }
 
@@ -153,23 +156,14 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
         verificationHome = try container.decodeIfPresent(String.self, forKey: .verificationHome)
         capturedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .capturedAt)
         let storedSource = try container.decodeIfPresent(String.self, forKey: .source)
-        source = Self.sourcePreservingUsableArguments(storedSource, arguments: arguments)
+        source = arguments.isEmpty
+            || storedSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "rejected"
+            ? storedSource
+            : nil
         let storedRejectionReason = try container.decodeIfPresent(
             AgentLaunchCaptureRejectionReason.self,
             forKey: .rejectionReason
         )
         rejectionReason = arguments.isEmpty ? storedRejectionReason : nil
-    }
-
-    /// Drops a contradictory legacy rejection marker once a usable argv exists.
-    private static func sourcePreservingUsableArguments(
-        _ source: String?,
-        arguments: [String]
-    ) -> String? {
-        guard !arguments.isEmpty,
-              source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" else {
-            return source
-        }
-        return nil
     }
 }

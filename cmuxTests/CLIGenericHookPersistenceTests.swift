@@ -44,6 +44,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
+        // Keep these Process/socket integration scenarios in this existing
+        // XCTest harness: moving only the new cases to Swift Testing would
+        // split the shared fixture and behavior suite.
         let scenarios: [GenericHookPersistenceScenario] = [
             GenericHookPersistenceScenario(
                 agent: "cursor",
