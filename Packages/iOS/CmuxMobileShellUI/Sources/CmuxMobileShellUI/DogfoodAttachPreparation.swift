@@ -2,9 +2,9 @@ import SwiftUI
 
 /// An event-driven readiness barrier for DEBUG attach-URL launches.
 ///
-/// Normal QR and reconnect flows keep their existing deadlines. Tagged builds
-/// inject the Iroh runtime's activation barrier so their one-shot attach URL is
-/// not consumed while broker registration and relay setup are still starting.
+/// Normal QR and reconnect flows keep their existing deadlines. Hosts may
+/// inject a startup barrier so a one-shot attach URL is not consumed while
+/// launch work is still in flight; the default is a no-op.
 public struct DogfoodAttachPreparation: Sendable {
     private let prepare: @MainActor @Sendable () async -> Void
 

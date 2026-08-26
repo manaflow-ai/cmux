@@ -45,11 +45,10 @@ extension MacComputerSnapshot {
                     rowMacDeviceID: mac.macDeviceID,
                     rowInstanceTag: mac.instanceTag
                 )
-            // The Computer's own method decides its section and which route's
-            // endpoint the row leads with (generic fallback when the method
-            // has no advertised route yet).
+            // The Computer's method decides which route's endpoint the row
+            // leads with (generic fallback when the method has no advertised
+            // route yet).
             let method = store.connectionMethod(for: mac)
-            let directEndpoint = mac.directAddresses.first(where: \.enabled).map(\.id)
             var snapshot = MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
@@ -68,11 +67,9 @@ extension MacComputerSnapshot {
                 presence: presence,
                 buildLabel: summary?.buildLabel
                     ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
-                routeDescription: method == .direct
-                    ? directEndpoint
-                    : method.routeKind.flatMap {
-                        CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes, kind: $0)
-                    } ?? CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                routeDescription: method.routeKind.flatMap {
+                    CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes, kind: $0)
+                } ?? CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 routes: mac.routes,
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: store.workspaceCount(

@@ -7,11 +7,9 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// The Computers screen: the user's Computers — paired Mac app instances
-/// (device + build) — each shown once, grouped under the connection method
-/// that Computer is configured to use (Iroh or Tailscale, set per Computer in
-/// its configuration). The main workspace list owns the Mac picker; this
-/// screen manages the saved set and lets users inspect one or choose whether
-/// it appears on this iPhone. The data is the durable-object–backed device
+/// (device + build) — each shown once. The main workspace list owns the Mac
+/// picker; this screen manages the saved set and lets users inspect one or
+/// choose whether it appears on this iPhone. The data is the durable-object–backed device
 /// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
@@ -45,16 +43,14 @@ struct DeviceTreeView: View {
         MacComputerSnapshot.snapshots(from: store)
     }
 
-    /// Which row lives in which section (method sections + Hidden Computers).
+    /// Which row lives in which section (Computers + Hidden Computers).
     /// The visibility switches mutate the store asynchronously, so the row's
     /// section move lands after the toggle's own transaction has ended;
     /// animating the list on this key keeps that move smooth. Keyed on
     /// membership only, so the 10s presence refresh (same rows, new status
     /// text) doesn't animate.
     private var rowMembership: [String] {
-        MacComputerListSection.sections(from: computers).flatMap { section in
-            [section.id] + section.computers.map(\.id)
-        } + ["hidden"] + store.hiddenComputers.map(\.id)
+        computers.map(\.id) + ["hidden"] + store.hiddenComputers.map(\.id)
     }
 
     var body: some View {
@@ -63,21 +59,15 @@ struct DeviceTreeView: View {
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
-                    // One row per Computer, grouped under the connection
-                    // method that Computer is configured to use. The method
-                    // itself is changed in the Computer's own configuration.
-                    ForEach(MacComputerListSection.sections(from: computers)) { section in
-                        Section {
-                            ComputerVisibilityRows(
-                                visibleComputers: section.computers,
-                                hiddenComputers: [],
-                                mutatingComputerIDs: store.computerVisibilityMutationIDs,
-                                hide: hideComputer,
-                                unhide: unhideComputer,
-                            )
-                        } header: {
-                            Text(section.title)
-                        }
+                    // One row per Computer, in one flat section.
+                    Section {
+                        ComputerVisibilityRows(
+                            visibleComputers: computers,
+                            hiddenComputers: [],
+                            mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                            hide: hideComputer,
+                            unhide: unhideComputer,
+                        )
                     }
                     if !store.hiddenComputers.isEmpty {
                         Section {
@@ -102,7 +92,7 @@ struct DeviceTreeView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.connections.footer",
-                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
+                            defaultValue: "Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
                         ))
                     }
                 }
@@ -202,11 +192,11 @@ struct DeviceTreeView: View {
         return showAddDevice != nil
             ? L10n.string(
                 "mobile.connections.empty",
-                defaultValue: "No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                defaultValue: "No computers yet. Pair with your Mac by scanning the code in cmux's Tailscale Pairing window. Both devices must be signed in to the same cmux account and connected to the same Tailscale network."
             )
             : L10n.string(
                 "mobile.devices.emptyDescription",
-                defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                defaultValue: "Pair this iPhone with your Mac by scanning the code in cmux's Tailscale Pairing window. Both devices must be signed in to the same cmux account and connected to the same Tailscale network."
             )
     }
 

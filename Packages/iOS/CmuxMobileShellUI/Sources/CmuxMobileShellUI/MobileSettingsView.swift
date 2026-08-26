@@ -25,7 +25,6 @@ struct MobileSettingsView: View {
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
-    @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
@@ -124,15 +123,7 @@ struct MobileSettingsView: View {
                             ForEach(connections) { connection in
                                 LabeledContent(
                                     connection.displayName,
-                                    value: connection.role == .focused
-                                        ? L10n.string(
-                                            "mobile.settings.connectionFocused",
-                                            defaultValue: "Focused"
-                                        )
-                                        : L10n.string(
-                                            "mobile.settings.connectionReady",
-                                            defaultValue: "Ready"
-                                        )
+                                    value: Self.connectionRoleLabel(connection)
                                 )
                                 .accessibilityIdentifier(
                                     "MobileSettingsMacConnection-\(connection.macDeviceID)"
@@ -181,23 +172,6 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
-                }
-
-                if let irohSettingsController {
-                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
-                        NavigationLink {
-                            MobileIrohSettingsView(
-                                controller: irohSettingsController,
-                                diagnosticLog: diagnosticLog
-                            )
-                        } label: {
-                            Label(
-                                L10n.string("mobile.settings.iroh", defaultValue: "Networking"),
-                                systemImage: "network"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsIroh")
-                    }
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
@@ -504,8 +478,6 @@ struct MobileSettingsView: View {
                         isSearching: store?.isReconnectingStoredMac == true,
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
-                    connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
                     },
@@ -569,17 +541,26 @@ struct MobileSettingsView: View {
         }
     }
 
+    private static func connectionRoleLabel(
+        _ connection: MobileMacConnectionSnapshot
+    ) -> String {
+        connection.role == .focused
+            ? L10n.string(
+                "mobile.settings.connectionFocused",
+                defaultValue: "Focused"
+            )
+            : L10n.string(
+                "mobile.settings.connectionReady",
+                defaultValue: "Ready"
+            )
+    }
+
     private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
         case .tailscale:
             L10n.string(
                 "mobile.settings.activeTransport.tailscale",
                 defaultValue: "Tailscale"
-            )
-        case .iroh:
-            L10n.string(
-                "mobile.settings.activeTransport.iroh",
-                defaultValue: "Iroh"
             )
         case .websocket:
             L10n.string(
@@ -813,10 +794,9 @@ struct MobileSettingsView: View {
     #endif
 }
 
-/// App-wide log sharing. Lives at the settings top level, not the Iroh
-/// screen: the app log covers every feature (simulator, browser, composer,
-/// lifecycle), and the network log covers all connection diagnostics, not
-/// one transport.
+/// App-wide log sharing. Lives at the settings top level: the app log covers
+/// every feature (simulator, browser, composer, lifecycle), and the network
+/// log covers all connection diagnostics, not one transport.
 private struct MobileSettingsDiagnosticsSection: View {
     @State private var appLogURLs: [URL] = []
     @State private var networkLogURLs: [URL] = []

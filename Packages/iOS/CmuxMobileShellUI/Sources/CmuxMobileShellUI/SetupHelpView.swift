@@ -16,9 +16,8 @@ import SwiftUI
 /// inspects an in-flight pairing. It only reads durable signals (signed in,
 /// known paired Mac) to pick which gate to highlight, and renders static
 /// guidance for each of the four setup gates classified by
-/// ``MobileSetupGuidancePolicy``. The network section explains Iroh's default
-/// direct-or-relay path and keeps Tailscale and other private networks as
-/// optional fallbacks.
+/// ``MobileSetupGuidancePolicy``. The network section explains the Tailscale
+/// connection path.
 struct SetupHelpView: View {
     /// The gate to emphasize, or `nil` when the user has no current blocker (for
     /// example Settings opened while connected). When set, that gate floats to the
@@ -124,7 +123,7 @@ struct SetupHelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string(
                     "mobile.setupHelp.networkBody",
-                    defaultValue: "cmux connects through Iroh, which links this phone to your computer directly when possible and through an encrypted cmux relay when not. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
+                    defaultValue: "cmux connects to your computer over your Tailscale network. Install Tailscale on both devices, join the same network, and scan the pairing code shown on your Mac once. Both devices verify your account."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

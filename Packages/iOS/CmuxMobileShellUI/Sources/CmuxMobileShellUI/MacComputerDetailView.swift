@@ -28,15 +28,6 @@ struct MacComputerDetailView: View {
     /// dismissing it lands back here. The scanner is one tap away inside.
     @State private var showsAddTailscaleConnection = false
     @Environment(\.dismiss) private var dismiss
-    @State private var newDirectAddress = ""
-    @State private var newDirectAddressLabel = ""
-    @State private var showsAddDirectAddress = false
-    /// The id of the Direct address being edited in the shared add/edit
-    /// alert; `nil` means the alert is adding a new entry.
-    @State private var editingDirectAddressID: String?
-    /// Optimistic method selection: moves the picker the moment the user taps
-    /// while the persist + store reload reconcile the authoritative value.
-    @State private var pendingConnectionMethod: MobileConnectionMethod?
 
     /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
     /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
@@ -53,8 +44,7 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomColor: String?
     @State private var pendingCustomIcon: String?
     @State private var pendingLastRouteRemoval: CmxAttachRoute?
-    /// Drives the Forget confirmation; Forget is the only deletion path for a
-    /// Computer whose remaining route is the permanent Iroh identity.
+    /// Drives the Forget confirmation.
     @State private var showsForgetComputer = false
     /// Presents the revoke-failure alert so a failed Forget is never silent.
     @State private var forgetComputerFailed = false
@@ -120,47 +110,6 @@ struct MacComputerDetailView: View {
         }
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .alert(
-            editingDirectAddressID == nil
-                ? L10n.string("mobile.connections.direct.add", defaultValue: "Add Address")
-                : L10n.string("mobile.connections.direct.edit", defaultValue: "Edit Address"),
-            isPresented: $showsAddDirectAddress
-        ) {
-            TextField(
-                L10n.string(
-                    "mobile.connections.direct.addPlaceholder",
-                    defaultValue: "Address or address:port"
-                ),
-                text: $newDirectAddress
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .keyboardType(.URL)
-            .accessibilityIdentifier("MobileComputerDirectAddressField")
-            TextField(
-                L10n.string(
-                    "mobile.connections.direct.labelPlaceholder",
-                    defaultValue: "Label (optional)"
-                ),
-                text: $newDirectAddressLabel
-            )
-            .accessibilityIdentifier("MobileComputerDirectAddressLabelField")
-            Button(editingDirectAddressID == nil
-                ? L10n.string("mobile.connections.direct.addConfirm", defaultValue: "Add")
-                : L10n.string("mobile.common.save", defaultValue: "Save")
-            ) {
-                saveDirectAddress()
-            }
-            .disabled(parsedNewDirectAddress == nil)
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                editingDirectAddressID = nil
-            }
-        } message: {
-            Text(L10n.string(
-                "mobile.connections.direct.addMessage",
-                defaultValue: "A numeric IP where this computer is reachable, like 192.168.1.20 or 192.168.1.20:64000. Without a port, the Mac's advertised port is used."
-            ))
-        }
         .confirmationDialog(
             L10n.string(
                 "mobile.connections.route.deleteComputer.title",
@@ -235,7 +184,7 @@ struct MacComputerDetailView: View {
         } message: {
             Text(L10n.string(
                 "mobile.connections.forget.failedMessage",
-                defaultValue: "The account revoke didn't go through. Check the connection and try again."
+                defaultValue: "The computer couldn't be removed. Try again."
             ))
         }
         .onAppear {
@@ -276,56 +225,13 @@ struct MacComputerDetailView: View {
 
     // MARK: - Connection configuration
 
-    /// This Computer's own networking configuration: the connection method it
-    /// dials (Iroh or Tailscale) and its private network addresses. Both are
-    /// per (device, build) and local to this iPhone.
-    private var selectedMethod: MobileConnectionMethod {
-        pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
-    }
-
-    /// The Settings connection-method UI, moved here verbatim (same picker
-    /// style, labels, and per-method footers) now that the choice is per
-    /// Computer. Private addresses live in their own section below.
+    /// This Computer's Tailscale connection readiness. Tailscale is the only
+    /// connection method; the section warns when this Computer has no
+    /// authorized route yet and offers the add-connection sheet.
     @ViewBuilder
     private var connectionMethodSection: some View {
         Section {
-            Picker(
-                L10n.string(
-                    "mobile.settings.connectionMethod",
-                    defaultValue: "Connection Method"
-                ),
-                selection: Binding(
-                    get: { pendingConnectionMethod ?? selectedMethod },
-                    set: { applyConnectionMethod($0) }
-                )
-            ) {
-                Text(L10n.string(
-                    "mobile.settings.connectionMethod.automatic",
-                    defaultValue: "Iroh"
-                ))
-                .tag(MobileConnectionMethod.automatic)
-                .accessibilityIdentifier("MobileComputerConnectionMethodIroh")
-                Text(L10n.string(
-                    "mobile.settings.connectionMethod.tailscale",
-                    defaultValue: "Tailscale Only"
-                ))
-                .tag(MobileConnectionMethod.tailscale)
-                .accessibilityIdentifier("MobileComputerConnectionMethodTailscale")
-                Text(L10n.string(
-                    "mobile.connections.method.direct",
-                    defaultValue: "Direct"
-                ))
-                .tag(MobileConnectionMethod.direct)
-                .accessibilityIdentifier("MobileComputerConnectionMethodDirect")
-            }
-            .accessibilityIdentifier("MobileComputerConnectionMethod")
-            // Tailscale Only with no authorized route for THIS computer is
-            // undialable until a Tailscale connection is added once. The
-            // choice never auto-opens anything; it hints the consequence and
-            // offers the add-connection sheet right under the picker for when
-            // the user wants it.
-            if (pendingConnectionMethod ?? selectedMethod) == .tailscale,
-               !computerHasUsableTailscaleAuthorization {
+            if !computerHasUsableTailscaleAuthorization {
                 Label {
                     Text(L10n.string(
                         "mobile.connections.tailscaleUnauthorizedWarning",
@@ -352,212 +258,21 @@ struct MacComputerDetailView: View {
                 .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
             }
         } footer: {
-            Text(connectionMethodFooterText)
-        }
-
-        if (pendingConnectionMethod ?? selectedMethod) == .direct {
-            directAddressesSection
-        }
-    }
-
-    /// The Computer's Direct dial candidates: a multi-selectable list — each
-    /// enabled row is a candidate, dialed in order — plus an add field.
-    /// Entries accept `host` or `host:port`; without a port the Mac's
-    /// advertised listener port is dialed (one listener serves all methods).
-    @ViewBuilder
-    private var directAddressesSection: some View {
-        Section {
-            ForEach(directAddressDrafts) { entry in
-                Button {
-                    toggleDirectAddress(entry)
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: entry.enabled ? "checkmark.circle.fill" : "circle")
-                            .font(.title2)
-                            .foregroundStyle(entry.enabled ? Color.accentColor : Color(.tertiaryLabel))
-                        VStack(alignment: .leading, spacing: 2) {
-                            if let label = entry.label, !label.isEmpty {
-                                Text(label)
-                                    .font(.body)
-                                    .foregroundStyle(.primary)
-                                Text(entry.id)
-                                    .font(.footnote.monospaced())
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text(entry.id)
-                                    .font(.body.monospaced())
-                                    .foregroundStyle(.primary)
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 2)
-                    .contentShape(Rectangle())
-                }
-                // Plain style keeps the row text primary/secondary; only the
-                // check circle carries the accent color.
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("MobileComputerDirectAddress-\(entry.id)")
-                // Tap toggles, so editing lives one gesture away on both the
-                // leading swipe and the long-press menu.
-                .swipeActions(edge: .leading) {
-                    Button {
-                        beginEditingDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.edit", defaultValue: "Edit"),
-                            systemImage: "pencil"
-                        )
-                    }
-                    .tint(.orange)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        deleteDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.delete", defaultValue: "Delete"),
-                            systemImage: "trash"
-                        )
-                    }
-                }
-                .contextMenu {
-                    Button {
-                        beginEditingDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.edit", defaultValue: "Edit"),
-                            systemImage: "pencil"
-                        )
-                    }
-                    Button(role: .destructive) {
-                        deleteDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.delete", defaultValue: "Delete"),
-                            systemImage: "trash"
-                        )
-                    }
-                }
-            }
-            Button {
-                newDirectAddress = ""
-                newDirectAddressLabel = ""
-                editingDirectAddressID = nil
-                showsAddDirectAddress = true
-            } label: {
-                Label(
-                    L10n.string(
-                        "mobile.connections.direct.add",
-                        defaultValue: "Add Address"
-                    ),
-                    systemImage: "plus.circle.fill"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerDirectAddressAdd")
-        } header: {
             Text(L10n.string(
-                "mobile.connections.direct.title",
-                defaultValue: "Direct Addresses"
+                "mobile.settings.connectionMethod.tailscaleFooter",
+                defaultValue: """
+                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
+                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
+                authorization exists.
+                """
             ))
-        } footer: {
-            Text(directAddressDrafts.contains(where: \.enabled)
-                ? L10n.string(
-                    "mobile.connections.direct.footer",
-                    defaultValue: "Enabled addresses feed the encrypted dial as hints; the connection is always identity-checked. Ports are optional."
-                )
-                : L10n.string(
-                    "mobile.connections.direct.noneEnabled",
-                    defaultValue: "No address is enabled — this computer stays disconnected until you enable or add one."
-                ))
         }
     }
 
-    private var directAddressDrafts: [MobilePairedMacDirectAddress] {
-        pairedMac?.directAddresses ?? []
-    }
-
-    private var parsedNewDirectAddress: MobilePairedMacDirectAddress? {
-        Self.parseDirectAddress(newDirectAddress)
-    }
-
-    /// Parses `host` or `host:port` (port 1...65535). The host must be a
-    /// numeric IPv4/IPv6 literal the Direct dial can actually use
-    /// (``CmxIrohCustomPrivateAddress``): hostnames, loopback, and scoped
-    /// addresses are refused at entry, because a stored entry the transport
-    /// skips would otherwise fail later with no feedback. IPv6 literals
-    /// without brackets keep their colons by only treating the suffix as a
-    /// port when exactly one colon is present.
-    static func parseDirectAddress(_ raw: String) -> MobilePairedMacDirectAddress? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
-        if parts.count == 2, let port = Int(parts[1]), (1...65535).contains(port),
-           let host = try? CmxIrohCustomPrivateAddress(String(parts[0])) {
-            return MobilePairedMacDirectAddress(address: host.value, port: port)
-        }
-        guard let host = try? CmxIrohCustomPrivateAddress(trimmed) else { return nil }
-        return MobilePairedMacDirectAddress(address: host.value, port: nil)
-    }
-
-    /// Prefills the shared add/edit alert with an existing entry. The id is
-    /// captured so Save replaces that entry (keeping its enabled state)
-    /// instead of appending.
-    private func beginEditingDirectAddress(_ entry: MobilePairedMacDirectAddress) {
-        newDirectAddress = entry.id
-        newDirectAddressLabel = entry.label ?? ""
-        editingDirectAddressID = entry.id
-        showsAddDirectAddress = true
-    }
-
-    private func saveDirectAddress() {
-        guard var entry = parsedNewDirectAddress else {
-            editingDirectAddressID = nil
-            return
-        }
-        let trimmedLabel = newDirectAddressLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        entry.label = trimmedLabel.isEmpty ? nil : trimmedLabel
-        var drafts = directAddressDrafts
-        let editedID = editingDirectAddressID
-        editingDirectAddressID = nil
-        newDirectAddress = ""
-        if let editedID, let index = drafts.firstIndex(where: { $0.id == editedID }) {
-            // A duplicate of ANOTHER entry is a no-op, same as adding one.
-            guard !drafts.contains(where: { $0.id == entry.id && $0.id != editedID }) else {
-                return
-            }
-            entry.enabled = drafts[index].enabled
-            drafts[index] = entry
-        } else {
-            guard !drafts.contains(where: { $0.id == entry.id }) else { return }
-            drafts.append(entry)
-        }
-        persistDirectAddresses(drafts)
-    }
-
-    private func toggleDirectAddress(_ entry: MobilePairedMacDirectAddress) {
-        var drafts = directAddressDrafts
-        guard let index = drafts.firstIndex(where: { $0.id == entry.id }) else { return }
-        drafts[index].enabled.toggle()
-        persistDirectAddresses(drafts)
-    }
-
-    private func deleteDirectAddress(_ entry: MobilePairedMacDirectAddress) {
-        var drafts = directAddressDrafts
-        drafts.removeAll { $0.id == entry.id }
-        persistDirectAddresses(drafts)
-    }
-
-    private func persistDirectAddresses(_ drafts: [MobilePairedMacDirectAddress]) {
-        Task {
-            await store.setDirectAddresses(drafts, macDeviceID: macDeviceID, instanceTag: instanceTag)
-        }
-    }
-
-    /// Revokes this pairing's account binding on every device, then drops the
-    /// local row (the same pipeline the hidden-computer Forget used). The
-    /// entry is built from the pairing's OWN stored scope so the delete
-    /// targets the owning account even if the display scope changed.
+    /// Drops the local row for this pairing on every scope it owns (the same
+    /// pipeline the hidden-computer Forget uses). The entry is built from the
+    /// pairing's OWN stored scope so the delete targets the owning account
+    /// even if the display scope changed.
     private func forgetComputer() {
         guard let mac = pairedMac else { return }
         let entry = MobileHiddenComputer(
@@ -584,42 +299,6 @@ struct MacComputerDetailView: View {
     private var computerHasUsableTailscaleAuthorization: Bool {
         guard let pairedMac else { return false }
         return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
-    }
-
-    private var connectionMethodFooterText: String {
-        switch pendingConnectionMethod ?? selectedMethod {
-        case .direct:
-            return L10n.string(
-                "mobile.settings.connectionMethod.directFooter",
-                defaultValue: "Dials this computer's encrypted Iroh identity using the addresses you enable below — for LAN, WireGuard, or any network where it's reachable. No relay discovery, no other computers' routes."
-            )
-        case .automatic:
-            return L10n.string(
-                "mobile.settings.connectionMethod.automaticFooter",
-                defaultValue: "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
-            )
-        case .tailscale:
-            return L10n.string(
-                "mobile.settings.connectionMethod.tailscaleFooter",
-                defaultValue: """
-                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
-                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
-                authorization exists.
-                """
-            )
-        }
-    }
-
-    /// Persist the per-Computer method. The pending value moves the picker
-    /// immediately; the store reload reconciles it. Choosing Tailscale never
-    /// auto-opens the scanner — the inline warning and Scan row carry that.
-    private func applyConnectionMethod(_ method: MobileConnectionMethod) {
-        guard method != (pendingConnectionMethod ?? selectedMethod) else { return }
-        pendingConnectionMethod = method
-        Task {
-            await store.setConnectionMethod(method, macDeviceID: macDeviceID, instanceTag: instanceTag)
-            pendingConnectionMethod = nil
-        }
     }
 
     // MARK: - Appearance editing
@@ -866,22 +545,20 @@ struct MacComputerDetailView: View {
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
-                if route.kind != .iroh {
-                    Button {
-                        removeRoute(route)
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
-                    .accessibilityLabel(
-                        L10n.string(
-                            "mobile.connections.route.remove",
-                            defaultValue: "Remove route"
-                        )
-                    )
-                    .accessibilityIdentifier("MobileComputerRemoveRoute-\(route.id)")
+                Button {
+                    removeRoute(route)
+                } label: {
+                    Image(systemName: "trash")
                 }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+                .accessibilityLabel(
+                    L10n.string(
+                        "mobile.connections.route.remove",
+                        defaultValue: "Remove route"
+                    )
+                )
+                .accessibilityIdentifier("MobileComputerRemoveRoute-\(route.id)")
             }
             pingStatusLine(for: route)
         }
@@ -994,11 +671,8 @@ struct MacComputerDetailView: View {
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }
-            // Iroh is the permanent identity route and is deliberately not
-            // removable row-by-row, so route deletion alone can never delete
-            // an Iroh-paired Computer. Forget is that record's one deletion
-            // path: it revokes the account binding everywhere, then drops the
-            // local row.
+            // Forget is the record's one whole-Computer deletion path: it
+            // drops every stored row for this pairing.
             Button(role: .destructive) {
                 showsForgetComputer = true
             } label: {
