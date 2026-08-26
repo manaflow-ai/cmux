@@ -381,6 +381,29 @@ struct VMWebSocketDaemonEndpoint {
     let expiresAtUnix: Int64
 }
 
+/// Attach through the cmux-tui remote daemon in the machine (Phase 1 of the
+/// cmuxd-remote → cmux-tui migration). The route carries the ingress token; the
+/// invitation is present only when this device is not yet enrolled with the daemon.
+struct VMCmuxRemoteEndpoint {
+    struct Invitation {
+        let uri: String
+        let invitationId: String
+        let expiresAtUnix: Int64
+    }
+
+    let route: String
+    let token: String
+    let expiresAtUnix: Int64
+    let session: String
+    let invitation: Invitation?
+}
+
+struct VMCmuxRemoteApproval {
+    let approved: Bool
+    let state: String
+    let deviceFingerprint: String?
+}
+
 enum VMAttachEndpoint {
     case ssh(VMSSHEndpoint)
     case websocket(VMWebSocketPtyEndpoint)
@@ -701,6 +724,55 @@ actor VMClient {
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
         return try decodeAttachEndpoint(obj)
+    }
+
+    func openCmuxRemote(id: String, deviceFingerprint: String? = nil) async throws -> VMCmuxRemoteEndpoint {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = ["transport": "cmux-remote"]
+        if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["deviceFingerprint"] = deviceFingerprint
+        }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/attach-endpoint",
+            jsonBody: body,
+            timeoutSeconds: Self.attachTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard (obj["transport"] as? String) == "cmux-remote",
+              let route = obj["route"] as? String, !route.isEmpty,
+              let token = obj["token"] as? String,
+              let session = obj["session"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
+        }
+        let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
+        var invitation: VMCmuxRemoteEndpoint.Invitation?
+        if let raw = obj["invitation"] as? [String: Any],
+           let uri = raw["uri"] as? String, !uri.isEmpty,
+           let invitationId = raw["invitationId"] as? String, !invitationId.isEmpty {
+            let invitationExpires = (raw["expiresAtUnix"] as? Int64) ?? Int64((raw["expiresAtUnix"] as? Double) ?? 0)
+            invitation = .init(uri: uri, invitationId: invitationId, expiresAtUnix: invitationExpires)
+        }
+        return VMCmuxRemoteEndpoint(route: route, token: token, expiresAtUnix: expiresAtUnix, session: session, invitation: invitation)
+    }
+
+    func approveCmuxRemoteEnrollment(id: String, invitationId: String) async throws -> VMCmuxRemoteApproval {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/cmux-remote/approve",
+            jsonBody: ["invitationId": invitationId],
+            timeoutSeconds: 60
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let state = (obj["state"] as? String) ?? "pending"
+        return VMCmuxRemoteApproval(
+            approved: (obj["approved"] as? Bool) ?? false,
+            state: state,
+            deviceFingerprint: obj["deviceFingerprint"] as? String
+        )
     }
 
     func listSessions(id: String) async throws -> [VMCloudSession] {
