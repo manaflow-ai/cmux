@@ -194,13 +194,13 @@ extension CMUXCLI {
             throw CLIError(message: String(localized: "cli.localTmux.error.startRequiresName", defaultValue: "local-tmux start requires a session name"))
         }
         let name = try LocalTmuxSessionNameValidator().validate(rawName)
-        let cwd = try localTmuxWorkingDirectory(invocation.cwd)
+        let requestedCwd = try invocation.cwd.map { try localTmuxWorkingDirectory($0) }
         let existing = try runner.run(arguments: builder.hasSessionArguments(name))
         if existing.succeeded {
             let existingPath = localTmuxSessionPath(name: name, builder: builder, runner: runner)
-            if let requestedCwd = invocation.cwd,
+            if let requestedCwd,
                let existingPath,
-               URL(fileURLWithPath: resolvePath(requestedCwd)).standardizedFileURL.path != existingPath {
+               requestedCwd != existingPath {
                 throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCwd", defaultValue: "local-tmux session already exists with a different working directory; use attach or close it first"))
             }
             if let command = invocation.command,
@@ -222,6 +222,7 @@ extension CMUXCLI {
             return record
         }
 
+        let cwd = try requestedCwd ?? localTmuxWorkingDirectory(nil)
         _ = try runner.requireSuccess(
             builder.newSessionArguments(sessionName: name, workingDirectory: cwd, command: invocation.command),
             context: "start"

@@ -5,8 +5,11 @@ struct LocalTmuxProcessResult: Sendable {
     let status: Int32
     let stdout: String
     let stderr: String
+    let stdoutWasTruncated: Bool
+    let stderrWasTruncated: Bool
 
     var succeeded: Bool { status == 0 }
+    var outputWasTruncated: Bool { stdoutWasTruncated || stderrWasTruncated }
 }
 
 /// Runs short-lived tmux control commands without inheriting cmux socket secrets.
@@ -62,6 +65,8 @@ struct LocalTmuxProcessRunner {
 
         var stdoutData = Data()
         var stderrData = Data()
+        var stdoutWasTruncated = false
+        var stderrWasTruncated = false
         var stdoutOpen = true
         var stderrOpen = true
         var didTimeout = false
@@ -117,14 +122,22 @@ struct LocalTmuxProcessRunner {
             if stdoutOpen {
                 let events = descriptors[descriptorIndex].revents
                 if events & Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL) != 0 {
-                    stdoutOpen = !drainAvailable(from: stdoutFD, into: &stdoutData)
+                    stdoutOpen = !drainAvailable(
+                        from: stdoutFD,
+                        into: &stdoutData,
+                        wasTruncated: &stdoutWasTruncated
+                    )
                 }
                 descriptorIndex += 1
             }
             if stderrOpen {
                 let events = descriptors[descriptorIndex].revents
                 if events & Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL) != 0 {
-                    stderrOpen = !drainAvailable(from: stderrFD, into: &stderrData)
+                    stderrOpen = !drainAvailable(
+                        from: stderrFD,
+                        into: &stderrData,
+                        wasTruncated: &stderrWasTruncated
+                    )
                 }
             }
         }
@@ -136,8 +149,20 @@ struct LocalTmuxProcessRunner {
             _ = Darwin.kill(process.processIdentifier, SIGKILL)
         }
         process.waitUntilExit()
-        if stdoutOpen { _ = drainAvailable(from: stdoutFD, into: &stdoutData) }
-        if stderrOpen { _ = drainAvailable(from: stderrFD, into: &stderrData) }
+        if stdoutOpen {
+            _ = drainAvailable(
+                from: stdoutFD,
+                into: &stdoutData,
+                wasTruncated: &stdoutWasTruncated
+            )
+        }
+        if stderrOpen {
+            _ = drainAvailable(
+                from: stderrFD,
+                into: &stderrData,
+                wasTruncated: &stderrWasTruncated
+            )
+        }
         if didTimeout {
             let timeoutMessage = String(localized: "cli.localTmux.error.timedOut", defaultValue: "local-tmux command timed out")
             stderrData.append(contentsOf: Data("\n\(timeoutMessage)\n".utf8))
@@ -146,7 +171,9 @@ struct LocalTmuxProcessRunner {
         return LocalTmuxProcessResult(
             status: process.terminationStatus,
             stdout: String(decoding: stdoutData, as: UTF8.self),
-            stderr: String(decoding: stderrData, as: UTF8.self)
+            stderr: String(decoding: stderrData, as: UTF8.self),
+            stdoutWasTruncated: stdoutWasTruncated,
+            stderrWasTruncated: stderrWasTruncated
         )
     }
 
@@ -170,7 +197,11 @@ struct LocalTmuxProcessRunner {
     }
 
     /// Drains all currently available bytes and reports whether EOF was seen.
-    private func drainAvailable(from descriptor: Int32, into data: inout Data) -> Bool {
+    private func drainAvailable(
+        from descriptor: Int32,
+        into data: inout Data,
+        wasTruncated: inout Bool
+    ) -> Bool {
         while true {
             var buffer = [UInt8](repeating: 0, count: 16 * 1024)
             let count = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
@@ -181,6 +212,9 @@ struct LocalTmuxProcessRunner {
                 let remainingCapacity = max(0, maxCapturedOutputBytes - data.count)
                 if remainingCapacity > 0 {
                     data.append(contentsOf: buffer.prefix(min(count, remainingCapacity)))
+                }
+                if count > remainingCapacity {
+                    wasTruncated = true
                 }
                 continue
             }

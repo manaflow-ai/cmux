@@ -10,11 +10,23 @@ extension CMUXCLI {
     ) throws {
         let records = try registry.load()
         let result = try runner.run(arguments: builder.listSessionsArguments())
-        let liveSessions = result.succeeded ? parseLocalTmuxSessions(result.stdout) : []
-        let liveNames = Set(liveSessions.map(\.name))
-        let clients = parseLocalTmuxClients(
-            (try? runner.run(arguments: builder.listClientsArguments()).stdout) ?? ""
+        let liveSessions = try localTmuxSessionLines(
+            result,
+            builder: builder,
+            failureMessage: String(
+                localized: "cli.localTmux.error.listFailed",
+                defaultValue: "local-tmux could not list sessions; liveness is unknown."
+            )
         )
+        let liveNames = Set(liveSessions.map(\.name))
+        let clients: [LocalTmuxClientLine]
+        if liveSessions.isEmpty {
+            clients = []
+        } else {
+            clients = try localTmuxClientLines(
+                runner.run(arguments: builder.listClientsArguments())
+            )
+        }
         let recordsByName = Dictionary(uniqueKeysWithValues: records.map { ($0.name, $0) })
         var clientCountsBySession: [String: Int] = [:]
         for client in clients {
@@ -86,7 +98,7 @@ extension CMUXCLI {
     ) throws {
         let result = try runner.run(arguments: builder.hasSessionArguments(record.name))
         let clients = result.succeeded
-            ? parseLocalTmuxClients((try? runner.run(arguments: builder.listClientsArguments()).stdout) ?? "")
+            ? try localTmuxClientLines(runner.run(arguments: builder.listClientsArguments()))
                 .filter { $0.sessionName == record.name }
             : []
         var payload: [String: Any] = [
@@ -127,18 +139,14 @@ extension CMUXCLI {
     ) throws {
         let records = try registry.load()
         let listed = try runner.run(arguments: builder.listSessionsArguments())
-        let liveNames: Set<String>
-        if listed.succeeded {
-            liveNames = Set(parseLocalTmuxSessions(listed.stdout).map(\.name))
-        } else if localTmuxListingIndicatesStoppedServer(listed, builder: builder) {
-            liveNames = []
-        } else {
-            let message = String(
+        let liveNames = Set(try localTmuxSessionLines(
+            listed,
+            builder: builder,
+            failureMessage: String(
                 localized: "cli.localTmux.error.cleanupListFailed",
                 defaultValue: "local-tmux cleanup could not list sessions; the registry was left unchanged."
             )
-            throw CLIError(message: message)
-        }
+        ).map(\.name))
         let stale = records.filter { !liveNames.contains($0.name) }
         let staleIDs = Set(stale.map(\.id))
         let removed = prune
@@ -189,6 +197,39 @@ extension CMUXCLI {
             && info.st_mode & 0o077 == 0
     }
 
+    private func localTmuxSessionLines(
+        _ result: LocalTmuxProcessResult,
+        builder: LocalTmuxCommandBuilder,
+        failureMessage: String
+    ) throws -> [LocalTmuxSessionLine] {
+        if result.succeeded {
+            guard !result.stdoutWasTruncated else {
+                throw CLIError(message: String(
+                    localized: "cli.localTmux.error.listingIncomplete",
+                    defaultValue: "local-tmux session listing was incomplete; liveness is unknown."
+                ))
+            }
+            return parseLocalTmuxSessions(result.stdout)
+        }
+        if !result.stderrWasTruncated,
+           localTmuxListingIndicatesStoppedServer(result, builder: builder) {
+            return []
+        }
+        throw CLIError(message: failureMessage)
+    }
+
+    private func localTmuxClientLines(
+        _ result: LocalTmuxProcessResult
+    ) throws -> [LocalTmuxClientLine] {
+        guard result.succeeded, !result.stdoutWasTruncated else {
+            throw CLIError(message: String(
+                localized: "cli.localTmux.error.clientListFailed",
+                defaultValue: "local-tmux could not inspect attached clients."
+            ))
+        }
+        return parseLocalTmuxClients(result.stdout)
+    }
+
     func closeLocalTmuxSession(
         record: LocalTmuxSessionRecord,
         registry: LocalTmuxSessionRegistry,
@@ -229,7 +270,7 @@ extension CMUXCLI {
         idFormat: CLIIDFormat
     ) throws {
         let listed = try runner.run(arguments: builder.listClientsArguments())
-        let clients = parseLocalTmuxClients(listed.succeeded ? listed.stdout : "")
+        let clients = try localTmuxClientLines(listed)
             .filter { $0.sessionName == record.name }
         let target: String?
         if invocation.all {

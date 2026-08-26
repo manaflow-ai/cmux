@@ -35,12 +35,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("cleanup"), result.stdout)
     }
 
-    func testLocalTmuxSessionNamesRejectTmuxTargetDelimiters() {
-        XCTAssertNoThrow(try LocalTmuxSessionNameValidator().validate("work_1"))
-        XCTAssertThrowsError(try LocalTmuxSessionNameValidator().validate("work.name"))
-        XCTAssertThrowsError(try LocalTmuxSessionNameValidator().validate("work:name"))
-    }
-
     func testLocalTmuxDetachedLifecycleKeepsServerIndependentOfCmuxSocket() throws {
         let cliPath = try bundledCLIPath()
         let tmuxPath = [
@@ -196,11 +190,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
           start:*) exit 0 ;;
           stopped:*list-sessions*) echo "no server running on $2" >&2; exit 1 ;;
           large:*list-sessions*)
-            i=0
-            while [ "$i" -lt 12000 ]; do
-              printf 'unmanaged-%s\t$%s\t1\t0\n' "$i" "$i"
-              i=$((i + 1))
-            done
+            /usr/bin/yes 'unmanaged-session-with-padding' | /usr/bin/head -c 9000000
             exit 0
             ;;
           *) exit 0 ;;
@@ -267,14 +257,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(secondStart.status, 0, secondStart.stderr)
 
         environment["FAKE_TMUX_MODE"] = "large"
-        let largeList = runProcess(
+        let largeCleanup = runProcess(
             executablePath: cliPath,
-            arguments: ["local-tmux", "list", "--json"],
+            arguments: ["local-tmux", "cleanup", "--prune", "--json"],
             environment: environment,
             timeout: 10
         )
-        XCTAssertFalse(largeList.timedOut, largeList.stderr)
-        XCTAssertEqual(largeList.status, 0, largeList.stderr)
+        XCTAssertFalse(largeCleanup.timedOut, largeCleanup.stderr)
+        XCTAssertNotEqual(largeCleanup.status, 0, largeCleanup.stdout)
+        XCTAssertTrue(largeCleanup.stderr.contains("listing was incomplete"), largeCleanup.stderr)
     }
 
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {

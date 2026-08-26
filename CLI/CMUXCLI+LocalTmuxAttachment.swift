@@ -23,34 +23,36 @@ extension CMUXCLI {
             record: originalRecord,
             client: client
         )
+        let attachCommand = builder.attachCommand(sessionName: originalRecord.name)
         guard workspace.id != nil || (originalRecord.workspaceID == nil && originalRecord.workspaceTitle == nil) else {
             throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
+        }
+        let existingSurface: String? = if !invocation.newClient,
+            invocation.surface == nil,
+            invocation.pane == nil,
+            let workspaceID = workspace.id {
+            try findExistingLocalTmuxSurface(
+                workspaceID: workspaceID,
+                expectedCommand: attachCommand,
+                persistedSurfaceID: originalRecord.surfaceID,
+                client: client
+            )
+        } else {
+            nil
         }
         if !invocation.newClient,
            invocation.surface == nil,
            invocation.pane == nil,
            originalRecord.surfaceID != nil,
-           let workspaceID = workspace.id,
-           try findExistingLocalTmuxSurface(
-               workspaceID: workspaceID,
-               sessionName: originalRecord.name,
-               persistedSurfaceID: originalRecord.surfaceID,
-               client: client
-           ) == nil {
+           existingSurface == nil {
             throw CLIError(message: String(localized: "cli.localTmux.error.surfaceNotFound", defaultValue: "local-tmux surface target was not found"))
         }
-        let attachCommand = builder.attachCommand(sessionName: originalRecord.name)
         var payload: [String: Any]
         if !invocation.newClient,
            invocation.surface == nil,
            invocation.pane == nil,
            let workspaceID = workspace.id,
-           let existingSurface = try findExistingLocalTmuxSurface(
-               workspaceID: workspaceID,
-               sessionName: originalRecord.name,
-               persistedSurfaceID: originalRecord.surfaceID,
-               client: client
-           ) {
+           let existingSurface {
             let isLive = try localTmuxSurfaceHasLiveClient(
                workspaceID: workspaceID,
                surfaceID: existingSurface,
@@ -182,13 +184,11 @@ extension CMUXCLI {
     ) throws -> (id: String?, title: String?, cwd: String?) {
         let windowID = try normalizeWindowHandle(invocation.window, client: client)
         if let rawWorkspace = invocation.workspace {
-            guard let workspaceID = try normalizeWorkspaceHandle(rawWorkspace, client: client, windowHandle: windowID) else {
-                throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
-                    "workspace",
-                    rawWorkspace
-                ))
-            }
+            let workspaceID = try resolveWorkspaceId(
+                rawWorkspace,
+                client: client,
+                windowHandle: windowID
+            )
             let summary = try workspaceSummary(workspaceID: workspaceID, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
             guard summary.id != nil else {
                 throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
@@ -196,8 +196,8 @@ extension CMUXCLI {
             return summary
         }
         if invocation.workspace == nil, invocation.window == nil,
-           let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
-           let workspaceID = try normalizeWorkspaceHandle(caller, client: client) {
+           let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] {
+            let workspaceID = try resolveWorkspaceId(caller, client: client)
             let summary = try workspaceSummary(workspaceID: workspaceID, windowID: nil, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
             guard summary.id != nil else {
                 throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
@@ -206,9 +206,7 @@ extension CMUXCLI {
         }
 
         if let persistedWorkspaceID = record.workspaceID {
-            guard let workspaceID = try normalizeWorkspaceHandle(persistedWorkspaceID, client: client) else {
-                return (nil, record.workspaceTitle, record.cwd)
-            }
+            let workspaceID = try resolveWorkspaceId(persistedWorkspaceID, client: client)
             let summary = try workspaceSummary(
                 workspaceID: workspaceID,
                 windowID: windowID,
@@ -244,19 +242,46 @@ extension CMUXCLI {
         fallbackTitle: String?,
         fallbackCwd: String?
     ) throws -> (id: String?, title: String?, cwd: String?) {
-        let response = try client.sendV2(
-            method: "workspace.list",
-            params: windowID.map { ["window_id": $0] } ?? [:]
-        )
-        if let item = (response["workspaces"] as? [[String: Any]])?.first(where: { ($0["id"] as? String) == workspaceID }) {
-            return (workspaceID, item["title"] as? String ?? fallbackTitle, item["current_directory"] as? String ?? fallbackCwd)
+        let workspaces: [[String: Any]]
+        if let windowID {
+            let response = try client.sendV2(
+                method: "workspace.list",
+                params: ["window_id": windowID]
+            )
+            workspaces = response["workspaces"] as? [[String: Any]] ?? []
+        } else {
+            let windows = try client.sendV2(method: "window.list")["windows"] as? [[String: Any]] ?? []
+            var allWorkspaces: [[String: Any]] = []
+            for window in windows {
+                guard let listedWindowID = window["id"] as? String else { continue }
+                let response = try client.sendV2(
+                    method: "workspace.list",
+                    params: ["window_id": listedWindowID]
+                )
+                allWorkspaces.append(contentsOf: response["workspaces"] as? [[String: Any]] ?? [])
+            }
+            workspaces = allWorkspaces
+        }
+        if let item = workspaces.first(where: {
+            guard let candidateID = $0["id"] as? String else { return false }
+            return localTmuxWorkspaceIDsMatch(candidateID, workspaceID)
+        }) {
+            let resolvedID = item["id"] as? String ?? workspaceID
+            return (resolvedID, item["title"] as? String ?? fallbackTitle, item["current_directory"] as? String ?? fallbackCwd)
         }
         return (nil, fallbackTitle, fallbackCwd)
     }
 
+    private func localTmuxWorkspaceIDsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        if let lhsID = UUID(uuidString: lhs), let rhsID = UUID(uuidString: rhs) {
+            return lhsID == rhsID
+        }
+        return lhs == rhs
+    }
+
     private func findExistingLocalTmuxSurface(
         workspaceID: String,
-        sessionName: String,
+        expectedCommand: String,
         persistedSurfaceID: String?,
         client: SocketClient
     ) throws -> String? {
@@ -267,12 +292,10 @@ extension CMUXCLI {
         } else {
             surfaces
         }
-        let marker = " -t '=\(sessionName)'"
         for surface in candidates {
             let initial = surface["initial_command"] as? String ?? ""
             let start = surface["tmux_start_command"] as? String ?? ""
-            guard (initial.contains(LocalTmuxCommandBuilder.restoreMarker) || start.contains(LocalTmuxCommandBuilder.restoreMarker)),
-                  initial.contains(marker) || start.contains(marker),
+            guard (initial == expectedCommand || start == expectedCommand),
                   let id = surface["id"] as? String else { continue }
             return id
         }

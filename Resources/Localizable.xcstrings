@@ -39385,11 +39385,32 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux cleanup ではセッションセレクターを指定できません" } }
       }
     },
+    "cli.localTmux.error.clientListFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not inspect attached clients." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux は接続中のクライアントを確認できませんでした。" } }
+      }
+    },
     "cli.localTmux.error.clientNotFound": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "local-tmux client not found for session %@: %@" } },
         "ja": { "stringUnit": { "state": "translated", "value": "セッション %@ の local-tmux クライアントが見つかりません: %@" } }
+      }
+    },
+    "cli.localTmux.error.listFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not list sessions; liveness is unknown." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux はセッションを一覧表示できなかったため、生存状態を確認できません。" } }
+      }
+    },
+    "cli.localTmux.error.listingIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session listing was incomplete; liveness is unknown." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のセッション一覧が不完全なため、生存状態を確認できません。" } }
       }
     },
     "cli.localTmux.error.closeFailed": {
