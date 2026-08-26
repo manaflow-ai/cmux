@@ -46,6 +46,23 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
 /// from model equality.
 @MainActor
 struct SidebarGroupHeaderRowActions {
+    /// Current notification availability resolved when a menu is opened.
+    struct NotificationState {
+        let canMarkRead: Bool
+        let canMarkUnread: Bool
+        let hasLatestNotifications: Bool
+        let canMarkAllRead: Bool
+        let canMarkAllUnread: Bool
+
+        static let unavailable = Self(
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: false
+        )
+    }
+
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
@@ -61,4 +78,6 @@ struct SidebarGroupHeaderRowActions {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    /// Resolves current notification availability for retained rows.
+    var notificationState: () -> NotificationState = { .unavailable }
 }

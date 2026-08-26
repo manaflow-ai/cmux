@@ -362,8 +362,28 @@ extension VerticalTabsSidebar {
                 ?? UserDefaultsSettingsClient(defaults: .standard)
                     .value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         }
+        let resolveNotificationState: () -> SidebarGroupHeaderRowActions.NotificationState = {
+            guard let (tabManager, anchorId) = resolveLiveAnchor(),
+                  let notificationStore else {
+                return .unavailable
+            }
+            let memberIds = tabManager.tabs.compactMap { tab in
+                tab.groupId == groupId && tab.id != anchorId ? tab.id : nil
+            }
+            return .init(
+                canMarkRead: notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]),
+                canMarkUnread: notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]),
+                hasLatestNotifications: notificationStore.latestNotification(forTabId: anchorId) != nil,
+                canMarkAllRead: memberIds.contains {
+                    notificationStore.canMarkWorkspaceRead(forTabIds: [$0])
+                },
+                canMarkAllUnread: memberIds.contains {
+                    notificationStore.canMarkWorkspaceUnread(forTabIds: [$0])
+                }
+            )
+        }
 
-        return SidebarGroupHeaderRowActions(
+        var actions = SidebarGroupHeaderRowActions(
             onToggleCollapsed: { [weak tabManager] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -478,6 +498,8 @@ extension VerticalTabsSidebar {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
+        actions.notificationState = resolveNotificationState
+        return actions
     }
 
     /// Applies one shared group-header selection action to the live anchor.
