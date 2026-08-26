@@ -134,7 +134,37 @@ extension FeedCoordinator {
               let sourceWorkspace = sourceManager.tabs.first(where: { $0.id == owner.sourceWorkspaceID }) else {
             return
         }
+        guard sourceWorkspace.todoState.checklist.contains(where: { $0.id == owner.itemID }) else { return }
         _ = sourceWorkspace.setChecklistItemState(id: owner.itemID, state: .completed)
+        _ = sourceWorkspace.clearChecklistItemBinding(id: owner.itemID)
+        clearDispatchedTaskOwners(for: agentWorkspace.id)
+    }
+
+    @MainActor
+    func releaseDispatchedBindings(forTargetWorkspaceID targetWorkspaceID: UUID) {
+        let owners = dispatchedTaskOwners(for: targetWorkspaceID)
+        if !owners.isEmpty, let app = AppDelegate.shared {
+            var resolvedOwnerCount = 0
+            for owner in owners {
+                guard let manager = app.tabManagerFor(tabId: owner.sourceWorkspaceID),
+                      let sourceWorkspace = manager.tabs.first(where: { $0.id == owner.sourceWorkspaceID }) else {
+                    continue
+                }
+                _ = sourceWorkspace.clearChecklistItemBinding(id: owner.itemID)
+                resolvedOwnerCount += 1
+            }
+            if resolvedOwnerCount == owners.count {
+                clearDispatchedTaskOwners(for: targetWorkspaceID)
+                return
+            }
+        }
+        guard let app = AppDelegate.shared else { return }
+        for workspace in app.allWorkspacesForAgentTodoRetirement {
+            for item in workspace.todoState.checklist where item.boundWorkspaceID == targetWorkspaceID {
+                _ = workspace.clearChecklistItemBinding(id: item.id)
+            }
+        }
+        clearDispatchedTaskOwners(for: targetWorkspaceID)
     }
 
     @MainActor

@@ -33265,6 +33265,9 @@ export default CMUXSessionRestore;
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
+        if subcommand == "session-finalize" {
+            event["tool_name"] = "SessionFinalize"
+        }
         if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = toolInput
         }
@@ -33783,6 +33786,7 @@ export default CMUXSessionRestore;
         case "post-tool-use", "push-notification": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
+        case "session-finalize": return "SessionEnd"
         case "notification", "notify": return "Notification"
         default: return ""
         }

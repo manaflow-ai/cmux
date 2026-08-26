@@ -19,22 +19,217 @@ struct WorkstreamTaskToolTodos: Sendable {
     private var provisionalIDsBySubject: [String: [String]] = [:]
     private var provisionalIDsInOrder: [String] = []
     private var nextProvisionalID = 0
-    private var completedCreateRequestIDs: [String] = []
+    private var completedRequestIDs: [String] = []
     private(set) var hasEvictedTodos = false
     private(set) var hasCompleteTaskList = false
 
-    var isComplete: Bool { hasCompleteTaskList && !hasEvictedTodos }
+    private static let maxPendingPreOperations = 64
+    private var pendingPreOperations: [PendingPreOperation] = []
+    private var pendingPostOperations: [PendingPostOperation] = []
 
-    var ownedIds: Set<String> { ownedIdSet }
-    var ownedIDList: [String] { ownedIDsInOrder }
-    var isEmpty: Bool { todos.isEmpty && ownedIdSet.isEmpty }
+    var isComplete: Bool {
+        pendingPreOperations.isEmpty
+            && pendingPostOperations.isEmpty
+            && hasCompleteTaskList
+            && !hasEvictedTodos
+    }
+
+    var ownedIds: Set<String> { projectedState().ownedIdSet }
+    var ownedIDList: [String] { projectedState().ownedIDsInOrder }
+    var isEmpty: Bool {
+        let projected = projectedState()
+        return projected.todos.isEmpty && projected.ownedIdSet.isEmpty
+    }
 
     mutating func invalidateCompleteness() {
         hasCompleteTaskList = false
     }
 
+    private func normalizedInput(_ inputJSON: String?) -> String? {
+        guard let inputJSON, let data = inputJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              let normalized = try? JSONSerialization.data(
+                  withJSONObject: object,
+                  options: [.sortedKeys, .fragmentsAllowed]
+              ) else {
+            return inputJSON?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return String(data: normalized, encoding: .utf8)
+    }
+
+    private func responseIndicatesFailure(_ responseJSON: String?) -> Bool {
+        object(from: responseJSON)?["success"] as? Bool == false
+    }
+
+    private mutating func appendPendingPost(_ operation: PendingPostOperation) {
+        pendingPostOperations.append(operation)
+        if pendingPostOperations.count > Self.maxPendingPreOperations {
+            pendingPostOperations.removeFirst(
+                pendingPostOperations.count - Self.maxPendingPreOperations
+            )
+        }
+    }
+
+    private mutating func rememberCompletedRequest(_ requestID: String?) {
+        guard let requestID, !requestID.isEmpty,
+              !completedRequestIDs.contains(requestID) else { return }
+        completedRequestIDs.append(requestID)
+        if completedRequestIDs.count > Self.maxOwnedIds {
+            completedRequestIDs.removeFirst(completedRequestIDs.count - Self.maxOwnedIds)
+        }
+    }
+
+    private func pendingOperationIndex(
+        tool: WorkstreamTaskTool,
+        inputJSON: String?,
+        requestID: String?
+    ) -> Int? {
+        if let requestID, !requestID.isEmpty,
+           let index = pendingPreOperations.firstIndex(where: {
+                $0.tool == tool && $0.requestID == requestID
+           }) {
+            return index
+        }
+        let normalized = normalizedInput(inputJSON)
+        let normalizedMatches = pendingPreOperations.indices.filter {
+            pendingPreOperations[$0].tool == tool
+                && normalizedInput(pendingPreOperations[$0].inputJSON) == normalized
+        }
+        if normalizedMatches.count == 1, let index = normalizedMatches.first {
+            return index
+        }
+        let input = object(from: inputJSON)
+        if let id = taskID(in: input) {
+            let matches = pendingPreOperations.indices.filter {
+                pendingPreOperations[$0].tool == tool
+                    && taskID(in: object(from: pendingPreOperations[$0].inputJSON)) == id
+            }
+            if matches.count == 1, let index = matches.first { return index }
+        }
+        if let subject = content(in: input) {
+            let matches = pendingPreOperations.indices.filter {
+                pendingPreOperations[$0].tool == tool
+                    && content(in: object(from: pendingPreOperations[$0].inputJSON)) == subject
+            }
+            if matches.count == 1, let index = matches.first { return index }
+            if tool == .taskCreate, let first = matches.first { return first }
+        }
+        return nil
+    }
+
+    private func pendingPostIndex(
+        tool: WorkstreamTaskTool,
+        inputJSON: String?,
+        requestID: String?
+    ) -> Int? {
+        if let requestID, !requestID.isEmpty,
+           let index = pendingPostOperations.firstIndex(where: {
+                $0.tool == tool && $0.requestID == requestID
+           }) {
+            return index
+        }
+        let normalized = normalizedInput(inputJSON)
+        let normalizedMatches = pendingPostOperations.indices.filter {
+            pendingPostOperations[$0].tool == tool
+                && normalizedInput(pendingPostOperations[$0].inputJSON) == normalized
+        }
+        if normalizedMatches.count == 1, let index = normalizedMatches.first {
+            return index
+        }
+        let input = object(from: inputJSON)
+        if let id = taskID(in: input) {
+            let matches = pendingPostOperations.indices.filter {
+                pendingPostOperations[$0].tool == tool
+                    && taskID(in: object(from: pendingPostOperations[$0].inputJSON)) == id
+            }
+            if matches.count == 1, let index = matches.first { return index }
+        }
+        if let subject = content(in: input) {
+            let matches = pendingPostOperations.indices.filter {
+                pendingPostOperations[$0].tool == tool
+                    && content(in: object(from: pendingPostOperations[$0].inputJSON)) == subject
+            }
+            if matches.count == 1, let index = matches.first { return index }
+            if tool == .taskCreate, let first = matches.first { return first }
+        }
+        return nil
+    }
+
+    private func projectedState() -> WorkstreamTaskToolTodos {
+        guard !pendingPreOperations.isEmpty else { return self }
+        var projected = self
+        let operations = pendingPreOperations
+        projected.pendingPreOperations.removeAll(keepingCapacity: true)
+        projected.pendingPostOperations.removeAll(keepingCapacity: true)
+        for operation in operations {
+            if case .failure = operation.completion { continue }
+            let preOutcome = projected.applyPreMutation(
+                tool: operation.tool,
+                inputJSON: operation.inputJSON,
+                requestID: operation.requestID,
+                establishesCompleteness: false,
+                assignedProvisionalID: operation.assignedProvisionalID
+            )
+            if case .success(let responseJSON) = operation.completion,
+               preOutcome.producedList {
+                _ = projected.applyPostMutation(
+                    tool: operation.tool,
+                    inputJSON: operation.inputJSON,
+                    responseJSON: responseJSON,
+                    isError: false
+                )
+            }
+        }
+        return projected
+    }
+
+    private mutating func adoptCommittedState(from candidate: WorkstreamTaskToolTodos) {
+        todos = candidate.todos
+        ownedIDsInOrder = candidate.ownedIDsInOrder
+        ownedIdSet = candidate.ownedIdSet
+        provisionalIDsBySubject = candidate.provisionalIDsBySubject
+        provisionalIDsInOrder = candidate.provisionalIDsInOrder
+        nextProvisionalID = candidate.nextProvisionalID
+        hasEvictedTodos = candidate.hasEvictedTodos
+        hasCompleteTaskList = candidate.hasCompleteTaskList
+    }
+
+    private mutating func reconcileReadyOperations() {
+        while let completion = pendingPreOperations.first?.completion {
+            let operation = pendingPreOperations.removeFirst()
+            switch completion {
+            case .failure:
+                break
+            case .success(let responseJSON):
+                var candidate = self
+                let preOutcome = candidate.applyPreMutation(
+                    tool: operation.tool,
+                    inputJSON: operation.inputJSON,
+                    requestID: operation.requestID,
+                    establishesCompleteness: false,
+                    assignedProvisionalID: operation.assignedProvisionalID
+                )
+                let postOutcome = preOutcome.producedList
+                    ? candidate.applyPostMutation(
+                        tool: operation.tool,
+                        inputJSON: operation.inputJSON,
+                        responseJSON: responseJSON,
+                        isError: false
+                    )
+                    : .ignored
+                if postOutcome.producedList {
+                    adoptCommittedState(from: candidate)
+                } else {
+                    hasCompleteTaskList = false
+                }
+            }
+            rememberCompletedRequest(operation.requestID)
+        }
+    }
+
     /// Seeds the accumulator from persisted agent rows after an app restart.
     mutating func seed(with restored: [WorkstreamTaskTodo]) {
+        pendingPreOperations.removeAll(keepingCapacity: true)
         todos = restored
         hasEvictedTodos = true
         hasCompleteTaskList = false
@@ -58,12 +253,64 @@ struct WorkstreamTaskToolTodos: Sendable {
         requestID: String? = nil,
         establishesCompleteness: Bool = false
     ) -> WorkstreamTaskToolOutcome {
-        if tool == .taskCreate,
-           let requestID,
-           completedCreateRequestIDs.contains(requestID) {
+        if let requestID, completedRequestIDs.contains(requestID) {
             return .ignored
         }
+        if establishesCompleteness {
+            pendingPreOperations.removeAll(keepingCapacity: true)
+            pendingPostOperations.removeAll(keepingCapacity: true)
+            return applyPreMutation(
+                tool: tool,
+                inputJSON: inputJSON,
+                requestID: requestID,
+                establishesCompleteness: true,
+                assignedProvisionalID: nil
+            )
+        }
+        var projected = projectedState()
+        let assignedProvisionalID = projected.preallocatedProvisionalID(tool: tool, inputJSON: inputJSON)
+        let outcome = projected.applyPreMutation(
+            tool: tool,
+            inputJSON: inputJSON,
+            requestID: requestID,
+            establishesCompleteness: false,
+            assignedProvisionalID: assignedProvisionalID
+        )
+        guard outcome.producedList else { return outcome }
         hasCompleteTaskList = false
+        var operation = PendingPreOperation(
+            tool: tool,
+            inputJSON: inputJSON,
+            requestID: requestID,
+            assignedProvisionalID: assignedProvisionalID,
+            completion: nil
+        )
+        if let pendingPostIndex = pendingPostIndex(
+            tool: tool,
+            inputJSON: inputJSON,
+            requestID: requestID
+        ) {
+            let pendingPost = pendingPostOperations.remove(at: pendingPostIndex)
+            operation.completion = pendingPost.isError
+                ? .failure
+                : .success(responseJSON: pendingPost.responseJSON)
+        }
+        pendingPreOperations.append(operation)
+        reconcileReadyOperations()
+        if pendingPreOperations.count > Self.maxPendingPreOperations {
+            pendingPreOperations.removeFirst(pendingPreOperations.count - Self.maxPendingPreOperations)
+            hasCompleteTaskList = false
+        }
+        return .list(projectedState().todos)
+    }
+
+    private mutating func applyPreMutation(
+        tool: WorkstreamTaskTool,
+        inputJSON: String?,
+        requestID: String?,
+        establishesCompleteness: Bool,
+        assignedProvisionalID: String?
+    ) -> WorkstreamTaskToolOutcome {
         let input = object(from: inputJSON)
         switch tool {
         case .todoWrite:
@@ -72,7 +319,15 @@ struct WorkstreamTaskToolTodos: Sendable {
             return .list(todos)
         case .taskCreate:
             guard let content = content(in: input) else { return .ignored }
-            let id = taskID(in: input) ?? provisionalID(for: content)
+            let id: String
+            if let explicitID = taskID(in: input) {
+                id = explicitID
+            } else if let assignedProvisionalID {
+                registerProvisionalID(assignedProvisionalID, for: content)
+                id = assignedProvisionalID
+            } else {
+                id = provisionalID(for: content)
+            }
             claim(id)
             upsert(WorkstreamTaskTodo(id: id, content: content, state: state(in: input) ?? .pending))
             trim()
@@ -89,7 +344,7 @@ struct WorkstreamTaskToolTodos: Sendable {
         }
     }
 
-    /// Applies a completed task-tool event and ignores failed tool calls.
+    /// Applies a completed task-tool event and reconciles its pending pre-tool operation.
     mutating func applyPost(
         tool: WorkstreamTaskTool,
         inputJSON: String?,
@@ -97,9 +352,95 @@ struct WorkstreamTaskToolTodos: Sendable {
         isError: Bool,
         requestID: String? = nil
     ) -> WorkstreamTaskToolOutcome {
-        if tool == .taskCreate, let requestID {
-            rememberCompletedCreateRequest(requestID)
+        let completion: PendingCompletion = isError || responseIndicatesFailure(responseJSON)
+            ? .failure
+            : .success(responseJSON: responseJSON)
+
+        // Claude can emit a response-less PostToolUse frame for a task create
+        // on older wrappers. Keep the provisional row in the projected state
+        // until an authoritative id arrives instead of treating the missing
+        // response as a successful create.
+        if tool == .taskCreate, responseJSON == nil, !isError {
+            hasCompleteTaskList = false
+            return .list(projectedState().todos)
         }
+
+        if tool == .todoWrite || tool == .taskList,
+           case .success(let authoritativeResponse) = completion {
+            pendingPreOperations.removeAll(keepingCapacity: true)
+            pendingPostOperations.removeAll(keepingCapacity: true)
+            let outcome = applyPostMutation(
+                tool: tool,
+                inputJSON: inputJSON,
+                responseJSON: authoritativeResponse,
+                isError: false
+            )
+            guard outcome.producedList else {
+                hasCompleteTaskList = false
+                return .ignored
+            }
+            completedRequestIDs.removeAll(keepingCapacity: true)
+            return .list(todos)
+        }
+
+        if let pendingIndex = pendingOperationIndex(
+            tool: tool,
+            inputJSON: inputJSON,
+            requestID: requestID
+        ) {
+            pendingPreOperations[pendingIndex].completion = completion
+            reconcileReadyOperations()
+            return .list(projectedState().todos)
+        }
+        if pendingPostIndex(
+            tool: tool,
+            inputJSON: inputJSON,
+            requestID: requestID
+        ) != nil {
+            return .list(projectedState().todos)
+        }
+
+        switch completion {
+        case .failure:
+            appendPendingPost(PendingPostOperation(
+                tool: tool,
+                inputJSON: inputJSON,
+                responseJSON: responseJSON,
+                isError: true,
+                requestID: requestID
+            ))
+            hasCompleteTaskList = false
+            return .list(projectedState().todos)
+        case .success(let responseJSON):
+            let outcome = applyPostMutation(
+                tool: tool,
+                inputJSON: inputJSON,
+                responseJSON: responseJSON,
+                isError: false
+            )
+            guard outcome.producedList else {
+                appendPendingPost(PendingPostOperation(
+                    tool: tool,
+                    inputJSON: inputJSON,
+                    responseJSON: responseJSON,
+                    isError: false,
+                    requestID: requestID
+                ))
+                hasCompleteTaskList = false
+                return .list(projectedState().todos)
+            }
+            rememberCompletedRequest(requestID)
+            hasCompleteTaskList = false
+            return .list(projectedState().todos)
+        }
+    }
+
+    private mutating func applyPostMutation(
+        tool: WorkstreamTaskTool,
+        inputJSON: String?,
+        responseJSON: String?,
+        isError: Bool
+    ) -> WorkstreamTaskToolOutcome {
         let input = object(from: inputJSON)
         let response = object(from: responseJSON)
         let result = (response?["task"] as? [String: Any]) ?? response
@@ -121,7 +462,10 @@ struct WorkstreamTaskToolTodos: Sendable {
             replace(with: parsed, establishesCompleteness: true)
             return .list(todos)
         case .taskCreate:
-            guard let authoritativeID = taskID(in: result),
+            let inputID = taskID(in: input)
+            let resultID = taskID(in: result)
+            guard inputID == nil || resultID == nil || inputID == resultID,
+                  let authoritativeID = resultID,
                   let subject = content(in: result) ?? content(in: input) else { return .ignored }
             let provisional = popProvisionalID(for: subject)
             if let provisional, provisional != authoritativeID {
@@ -136,7 +480,10 @@ struct WorkstreamTaskToolTodos: Sendable {
             trim()
             return .list(todos)
         case .taskUpdate:
-            guard let id = taskID(in: input) ?? taskID(in: result) else { return .ignored }
+            let inputID = taskID(in: input)
+            let resultID = taskID(in: result)
+            guard inputID == nil || resultID == nil || inputID == resultID,
+                  let id = inputID ?? resultID else { return .ignored }
             return applyUpdate(id: id, input: input, response: result)
         case .taskGet:
             let rawStatus = result.flatMap { $0["status"] as? String }
@@ -265,19 +612,34 @@ struct WorkstreamTaskToolTodos: Sendable {
         }
     }
 
-    private mutating func rememberCompletedCreateRequest(_ requestID: String) {
-        guard !completedCreateRequestIDs.contains(requestID) else { return }
-        completedCreateRequestIDs.append(requestID)
-        if completedCreateRequestIDs.count > Self.maxOwnedIds {
-            completedCreateRequestIDs.removeFirst(completedCreateRequestIDs.count - Self.maxOwnedIds)
+    private func preallocatedProvisionalID(
+        tool: WorkstreamTaskTool,
+        inputJSON: String?
+    ) -> String? {
+        guard tool == .taskCreate,
+              let input = object(from: inputJSON),
+              taskID(in: input) == nil,
+              content(in: input) != nil else { return nil }
+        return "pending-" + String(nextProvisionalID + 1)
+    }
+
+    private mutating func registerProvisionalID(_ id: String, for subject: String) {
+        if !provisionalIDsBySubject[subject, default: []].contains(id) {
+            provisionalIDsBySubject[subject, default: []].append(id)
+        }
+        if !provisionalIDsInOrder.contains(id) {
+            provisionalIDsInOrder.append(id)
+        }
+        if id.hasPrefix("pending-"),
+           let suffix = Int(id.dropFirst("pending-".count)) {
+            nextProvisionalID = max(nextProvisionalID, suffix)
         }
     }
 
     private mutating func provisionalID(for subject: String) -> String {
         nextProvisionalID += 1
         let id = "pending-" + String(nextProvisionalID)
-        provisionalIDsBySubject[subject, default: []].append(id)
-        provisionalIDsInOrder.append(id)
+        registerProvisionalID(id, for: subject)
         return id
     }
 

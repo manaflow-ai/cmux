@@ -36,6 +36,7 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor private let maxTrackedTodoWorkstreams = 128
     @MainActor private var todoRecoveryEpochByWorkstream: [String: UInt64] = [:]
     @MainActor private var todoRecoveryRecency: [String] = []
+    @MainActor private var activeWorkstreamIDsByWorkspace: [UUID: [String: String]] = [:]
     @MainActor private var dispatchedTaskOwnersByTargetWorkspace: [UUID: [DispatchedTaskOwner]] = [:]
     @MainActor private var dispatchedTaskOwnerRecency: [UUID] = []
     @MainActor private var dispatchTargetRecoveryScans: Set<UUID> = []
@@ -159,6 +160,9 @@ final class FeedCoordinator: @unchecked Sendable {
         if let item = store.items.last {
             applyAgentTodos(from: item, event: event)
         }
+        for targetWorkspaceID in updateActiveWorkstreamSessions(for: event) {
+            releaseDispatchedBindings(forTargetWorkspaceID: targetWorkspaceID)
+        }
         if event.hookEventName == .sessionEnd {
             forgetTodoWorkspace(for: event.sessionId)
         }
@@ -166,6 +170,71 @@ final class FeedCoordinator: @unchecked Sendable {
             armPidWatcher(ppid: ppid)
         }
         return store.items.last?.id
+    }
+
+    @MainActor
+    private func updateActiveWorkstreamSessions(for event: WorkstreamEvent) -> [UUID] {
+        let isFinalization = event.toolName == "SessionFinalize"
+        let isTurnBoundarySessionEnd =
+            event.hookEventName == .sessionEnd
+                && Self.sessionEndTurnBoundarySources.contains(event.source)
+                && !isFinalization
+        guard !isTurnBoundarySessionEnd else { return [] }
+        let explicitWorkspaceID = event.workspaceId.flatMap { UUID(uuidString: $0) }
+        let surfaceKey = event.surfaceId.map { "surface:\($0)" }
+            ?? "session:\(event.sessionId)"
+        switch event.hookEventName {
+        case .sessionStart:
+            pruneActiveWorkstreamSessions()
+            guard let workspaceID = explicitWorkspaceID else { return [] }
+            activeWorkstreamIDsByWorkspace[workspaceID, default: [:]][surfaceKey] = event.sessionId
+            return []
+        case .sessionEnd:
+            let workspaceID = explicitWorkspaceID
+                ?? activeWorkstreamIDsByWorkspace.first(where: { $0.value.values.contains(event.sessionId) })?.key
+            guard let workspaceID else { return [] }
+            if var sessions = activeWorkstreamIDsByWorkspace[workspaceID] {
+                if let mappedSessionID = sessions[surfaceKey], mappedSessionID == event.sessionId {
+                    sessions.removeValue(forKey: surfaceKey)
+                } else {
+                    let matchingKeys = sessions.compactMap { key, value in
+                        value == event.sessionId ? key : nil
+                    }
+                    guard !matchingKeys.isEmpty else { return [] }
+                    for key in matchingKeys { sessions.removeValue(forKey: key) }
+                }
+                if sessions.isEmpty {
+                    activeWorkstreamIDsByWorkspace.removeValue(forKey: workspaceID)
+                } else {
+                    activeWorkstreamIDsByWorkspace[workspaceID] = sessions
+                    return []
+                }
+            } else {
+                // An explicit workspace id without a tracked active session is
+                // not enough evidence to release persisted bindings; stale
+                // hooks must fail closed rather than unbind unrelated work.
+                return []
+            }
+            pruneActiveWorkstreamSessions()
+            return [workspaceID]
+        default:
+            return []
+        }
+    }
+
+    private static let sessionEndTurnBoundarySources: Set<String> = [
+        "grok",
+        "antigravity",
+        "hermes-agent",
+    ]
+
+    @MainActor
+    private func pruneActiveWorkstreamSessions() {
+        guard let app = AppDelegate.shared else { return }
+        let liveWorkspaceIDs = Set(app.allWorkspacesForAgentTodoRetirement.map(\.id))
+        activeWorkstreamIDsByWorkspace = activeWorkstreamIDsByWorkspace.filter {
+            liveWorkspaceIDs.contains($0.key)
+        }
     }
 
     @MainActor
@@ -206,6 +275,13 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func dispatchedTaskOwners(for targetWorkspaceID: UUID) -> [DispatchedTaskOwner] {
         dispatchedTaskOwnersByTargetWorkspace[targetWorkspaceID] ?? []
+    }
+
+    @MainActor
+    func clearDispatchedTaskOwners(for targetWorkspaceID: UUID) {
+        dispatchedTaskOwnersByTargetWorkspace.removeValue(forKey: targetWorkspaceID)
+        dispatchTargetRecoveryScans.remove(targetWorkspaceID)
+        dispatchedTaskOwnerRecency.removeAll { $0 == targetWorkspaceID }
     }
 
     @MainActor
