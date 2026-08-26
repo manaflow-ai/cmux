@@ -391,6 +391,10 @@ extension CmxIrohHostRuntime {
     func handleConnectivityNetworkChange(revision: UInt64) async {
         guard lifecycleRevision == revision,
               lifecyclePhase.ownsNetworkOperation else { return }
+        // Capture retry ownership before the LAN callback suspends. The retry
+        // may finish while that callback is running, but it still owns this
+        // network event because it re-reads the endpoint before publishing.
+        let retryScheduledBeforeLANRefresh = registrationRetryScheduled
         await handleLANRefresh()
         guard lifecycleRevision == revision,
               lifecyclePhase.ownsNetworkOperation else { return }
@@ -401,7 +405,8 @@ extension CmxIrohHostRuntime {
         // A cached activation already owns a forced registration retry. The
         // retry re-reads the endpoint, so starting another round here would
         // race that owner and arm duplicate renewal deadlines.
-        guard !registrationRetryScheduled else { return }
+        guard !retryScheduledBeforeLANRefresh,
+              !registrationRetryScheduled else { return }
         scheduleRegistrationRefresh(revision: revision)
     }
 
