@@ -424,7 +424,7 @@ final class CloudTreeMenuItem: NSMenuItem {
         fatalError("init(coder:) has not been implemented")
     }
 
-    @objc private func perform(_ sender: Any?) {
+    @objc @MainActor private func perform(_ sender: Any?) {
         performAction()
     }
 }
