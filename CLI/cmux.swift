@@ -838,7 +838,7 @@ final class ClaudeHookSessionStore {
     /// Whether another Cursor approval remains pending on the same surface.
     /// Used to keep a late completion from clearing a newer session's wait.
     func hasPendingCursorShellApproval(
-        workspaceId: String,
+        workspaceId _: String,
         surfaceId: String,
         excludingSessionId: String?,
         deadline: Date? = nil
@@ -859,11 +859,15 @@ final class ClaudeHookSessionStore {
             if indexedMatch { return true }
             let totalCount = state.pendingCursorApprovalSessionCountsBySurface[key]
                 ?? indexed.count
+            let hiddenCount = max(0, totalCount - indexed.count)
             // When the capped id list overflowed, the exact count is the
             // bounded summary that preserves sibling detection. A count above
             // one proves that another session remains, even if the excluded
             // session is one of the omitted ids.
-            if totalCount > indexed.count, totalCount > 1 {
+            if state.pendingCursorApprovalSurfaceOverflow[key] == true, hiddenCount > 0 {
+                return true
+            }
+            if hiddenCount > 0, totalCount > 1 {
                 return true
             }
             return false
@@ -904,7 +908,11 @@ final class ClaudeHookSessionStore {
         if countDelta != 0 {
             let currentCount = state.pendingCursorApprovalSessionCountsBySurface[key]
                 ?? max(0, sessions.count - (countDelta > 0 ? 1 : 0))
-            state.pendingCursorApprovalSessionCountsBySurface[key] = max(0, currentCount + countDelta)
+            let nextCount = max(0, currentCount + countDelta)
+            state.pendingCursorApprovalSessionCountsBySurface[key] = nextCount
+            if nextCount > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
+                state.pendingCursorApprovalSurfaceOverflow[key] = true
+            }
         } else if state.pendingCursorApprovalSessionCountsBySurface[key] == nil {
             state.pendingCursorApprovalSessionCountsBySurface[key] = sessions.count
         }
@@ -926,9 +934,13 @@ final class ClaudeHookSessionStore {
         if nextCount == 0 {
             state.pendingCursorApprovalSessionsBySurface.removeValue(forKey: key)
             state.pendingCursorApprovalSessionCountsBySurface.removeValue(forKey: key)
+            state.pendingCursorApprovalSurfaceOverflow.removeValue(forKey: key)
         } else {
             state.pendingCursorApprovalSessionsBySurface[key] = sessions
             state.pendingCursorApprovalSessionCountsBySurface[key] = nextCount
+            if nextCount > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
+                state.pendingCursorApprovalSurfaceOverflow[key] = true
+            }
         }
         state.pendingCursorApprovalIndexInitialized = true
     }
@@ -2429,9 +2441,14 @@ final class ClaudeHookSessionStore {
         }
         let hasUninitializedCursorPendingCounts = !state.pendingCursorApprovalSessionsBySurface.isEmpty
             && state.pendingCursorApprovalSessionCountsBySurface.isEmpty
+        let hasUninitializedCursorPendingOverflow = state.pendingCursorApprovalSessionCountsBySurface.contains {
+            $0.value > Self.maxPendingCursorApprovalIndexEntriesPerSurface
+                && state.pendingCursorApprovalSurfaceOverflow[$0.key] != true
+        }
         if !state.pendingCursorApprovalIndexInitialized
             || hasLegacyCursorPendingIndex
-            || hasUninitializedCursorPendingCounts {
+            || hasUninitializedCursorPendingCounts
+            || hasUninitializedCursorPendingOverflow {
             reconcileCursorPendingIndex(&state)
             state.pendingCursorApprovalIndexInitialized = true
         }
@@ -2565,6 +2582,11 @@ final class ClaudeHookSessionStore {
         }
         state.pendingCursorApprovalSessionsBySurface = index
         state.pendingCursorApprovalSessionCountsBySurface = counts
+        state.pendingCursorApprovalSurfaceOverflow = counts.reduce(into: [:]) { result, entry in
+            if entry.value > Self.maxPendingCursorApprovalIndexEntriesPerSurface {
+                result[entry.key] = true
+            }
+        }
     }
 
     private func pruneCursorPendingIndex(_ state: inout ClaudeHookSessionStoreFile) {
@@ -2593,7 +2615,15 @@ final class ClaudeHookSessionStore {
         }
         state.pendingCursorApprovalSessionsBySurface = next
         state.pendingCursorApprovalSessionCountsBySurface = nextCounts.filter { key, count in
-            count > 0 && (next[key] != nil || count > Self.maxPendingCursorApprovalIndexEntriesPerSurface)
+            count > 0 && (
+                next[key] != nil
+                    || count > Self.maxPendingCursorApprovalIndexEntriesPerSurface
+                    || state.pendingCursorApprovalSurfaceOverflow[key] == true
+            )
+        }
+        let retainedKeys = Set(state.pendingCursorApprovalSessionCountsBySurface.keys)
+        state.pendingCursorApprovalSurfaceOverflow = state.pendingCursorApprovalSurfaceOverflow.filter {
+            retainedKeys.contains($0.key)
         }
     }
 

@@ -1475,6 +1475,13 @@ final class TerminalNotificationStore: ObservableObject {
         var idsToClear: [String] = []
         updated.removeAll { existing in
             guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
+            if let correlationKey = notification.correlationKey {
+                // Correlated producers (Cursor approvals and other
+                // identity-scoped events) replace only their own prior entry.
+                // A refresh must not erase a newer unrelated question, error,
+                // or approval that arrived on the same surface.
+                guard existing.correlationKey == correlationKey else { return false }
+            }
             idsToClear.append(existing.id.uuidString)
             return true
         }

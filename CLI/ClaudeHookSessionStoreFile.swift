@@ -20,6 +20,10 @@ struct ClaudeHookSessionStoreFile: Codable {
     /// list is capped, so this count preserves sibling detection when the cap
     /// is exceeded.
     var pendingCursorApprovalSessionCountsBySurface: [String: Int] = [:]
+    /// Surfaces whose capped ID list has overflowed. The flag remains set until
+    /// the count reaches zero so an omitted session cannot be mistaken for the
+    /// current completion after the retained IDs drain.
+    var pendingCursorApprovalSurfaceOverflow: [String: Bool] = [:]
     var pendingCursorApprovalIndexInitialized: Bool = false
 
     enum CodingKeys: String, CodingKey {
@@ -31,6 +35,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case agentHookFailureReportTimestamps
         case pendingCursorApprovalSessionsBySurface
         case pendingCursorApprovalSessionCountsBySurface
+        case pendingCursorApprovalSurfaceOverflow
         case pendingCursorApprovalIndexInitialized
     }
 
@@ -64,6 +69,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: Int].self,
             forKey: .pendingCursorApprovalSessionCountsBySurface
         ) ?? [:]
+        pendingCursorApprovalSurfaceOverflow = try container.decodeIfPresent(
+            [String: Bool].self,
+            forKey: .pendingCursorApprovalSurfaceOverflow
+        ) ?? [:]
         pendingCursorApprovalIndexInitialized = try container.decodeIfPresent(
             Bool.self,
             forKey: .pendingCursorApprovalIndexInitialized
@@ -96,6 +105,12 @@ struct ClaudeHookSessionStoreFile: Codable {
             try container.encode(
                 pendingCursorApprovalSessionCountsBySurface,
                 forKey: .pendingCursorApprovalSessionCountsBySurface
+            )
+        }
+        if !pendingCursorApprovalSurfaceOverflow.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSurfaceOverflow,
+                forKey: .pendingCursorApprovalSurfaceOverflow
             )
         }
         if pendingCursorApprovalIndexInitialized {
