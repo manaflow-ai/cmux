@@ -41,7 +41,14 @@ type MessageCatalog = {
   emails?: { newsletter?: NewsletterCopy };
 };
 
-export const DEFAULT_NEWSLETTER_LOCALE: Locale = "en";
+export const NEWSLETTER_LOCALES = ["en", "ja"] as const;
+export type NewsletterLocale = (typeof NEWSLETTER_LOCALES)[number];
+export const DEFAULT_NEWSLETTER_LOCALE: NewsletterLocale = "en";
+
+export function resolveNewsletterLocale(locale: Locale): NewsletterLocale {
+  if (locale === "en" || locale === "ja") return locale;
+  return DEFAULT_NEWSLETTER_LOCALE;
+}
 export const DEFAULT_NEWSLETTER_COPY = (enMessages as {
   emails: { newsletter: NewsletterCopy };
 }).emails.newsletter;
@@ -49,7 +56,7 @@ export const DEFAULT_NEWSLETTER_COPY = (enMessages as {
 export async function loadNewsletterCopy(
   locale: Locale = DEFAULT_NEWSLETTER_LOCALE,
 ): Promise<NewsletterCopy> {
-  const catalog = (await loadMessages(locale)) as MessageCatalog;
+  const catalog = (await loadMessages(resolveNewsletterLocale(locale))) as MessageCatalog;
   const copy = catalog.emails?.newsletter;
   if (!copy) {
     throw new Error("Newsletter copy is missing from the selected locale");

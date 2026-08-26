@@ -12,6 +12,7 @@ import { ResendClient } from "@/services/newsletter/resend-client";
 import {
   recordSpanError,
   setSpanAttributes,
+  withSpan,
   withApiRouteSpan,
 } from "@/services/telemetry";
 
@@ -161,8 +162,8 @@ export async function POST(request: Request) {
             skipped: "privacy_disclosure",
           });
         }
-        const upsert = await scheduleNewsletterUpsert(() =>
-          upsertFounderBestEffort(span, config, {
+        const upsert = await scheduleNewsletterUpsert((upsertSpan) =>
+          upsertFounderBestEffort(upsertSpan, config, {
             email: asyncEmail,
             customerName: asyncSession?.customer_details?.name,
           }),
@@ -252,8 +253,8 @@ export async function POST(request: Request) {
         paymentSettled &&
         config.newsletterPrivacyDisclosureConfirmed
       ) {
-        await scheduleNewsletterUpsert(() =>
-          upsertFounderBestEffort(span, config, {
+        await scheduleNewsletterUpsert((upsertSpan) =>
+          upsertFounderBestEffort(upsertSpan, config, {
             email: customerEmail,
             customerName: session?.customer_details?.name,
           }),
@@ -323,15 +324,22 @@ async function upsertFounderBestEffort(
 // fall back to awaiting the work so failures remain observable and tests stay
 // deterministic.
 async function scheduleNewsletterUpsert(
-  work: () => Promise<"completed" | "failed">,
+  work: (
+    span: Parameters<typeof setSpanAttributes>[0],
+  ) => Promise<"completed" | "failed">,
 ): Promise<"scheduled" | "completed" | "failed"> {
+  const run = () =>
+    withSpan(
+      "cmux-api",
+      "cmux.newsletter.founder_upsert",
+      { "cmux.newsletter.best_effort": true },
+      (span) => work(span),
+    );
   try {
-    after(async () => {
-      await work();
-    });
+    after(run);
     return "scheduled";
   } catch {
-    return work();
+    return run();
   }
 }
 

@@ -81,4 +81,10 @@ describe("product-update template", () => {
     expect(html).not.toContain("Austin from cmux here.");
     expect(subject).toContain("cmux アップデート");
   });
+
+  test("uses the effective English locale for an untranslated catalog", async () => {
+    const { html } = await renderTemplate("product-update", { locale: "ar" });
+    expect(html).toMatch(/<html[^>]*lang="en"/);
+    expect(html).toMatch(/<html[^>]*dir="ltr"/);
+  });
 });

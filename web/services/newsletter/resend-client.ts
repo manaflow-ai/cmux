@@ -133,6 +133,17 @@ type RequestOptions = {
   redactedLabel?: string;
 };
 
+// Resend rate limits are account-wide, while webhook handlers construct short-
+// lived clients. Keep one process-wide write lane so those clients cannot
+// each believe they are the first writer during a purchase burst.
+const accountWriteLane: {
+  queue: Promise<void>;
+  lastWriteAt: number;
+} = {
+  queue: Promise.resolve(),
+  lastWriteAt: 0,
+};
+
 export class ResendClient {
   private readonly apiKey: string;
   private readonly fetchImpl: FetchLike;
@@ -140,8 +151,6 @@ export class ResendClient {
   private readonly requestTimeoutMs: number;
   private readonly maxRetryAfterMs: number;
   private readonly cancelSignal: AbortSignal | undefined;
-  private lastWriteAt = 0;
-  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(options: {
     apiKey: string;
@@ -287,18 +296,18 @@ export class ResendClient {
     // all observe the same lastWriteAt and wake together, defeating the rate
     // limit this throttle is meant to enforce.
     let release!: () => void;
-    const previous = this.writeQueue;
-    this.writeQueue = new Promise<void>((resolve) => {
+    const previous = accountWriteLane.queue;
+    accountWriteLane.queue = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previous;
     try {
       const now = Date.now();
-      const waitMs = this.lastWriteAt + this.writeSpacingMs - now;
+      const waitMs = accountWriteLane.lastWriteAt + this.writeSpacingMs - now;
       if (waitMs > 0) {
         await sleep(waitMs, this.cancelSignal);
       }
-      this.lastWriteAt = Date.now();
+      accountWriteLane.lastWriteAt = Date.now();
       return await this.request<T>(method, path, options);
     } finally {
       release();

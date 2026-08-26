@@ -20,6 +20,7 @@ import ProductUpdateEmail, {
 import {
   DEFAULT_NEWSLETTER_LOCALE,
   loadNewsletterCopy,
+  resolveNewsletterLocale,
 } from "./newsletter-copy";
 
 export type RenderedEmail = {
@@ -35,7 +36,9 @@ export async function renderTemplate(
     locale?: Locale;
   } = {},
 ): Promise<RenderedEmail> {
-  const locale = overrides.locale ?? DEFAULT_NEWSLETTER_LOCALE;
+  const locale = resolveNewsletterLocale(
+    overrides.locale ?? DEFAULT_NEWSLETTER_LOCALE,
+  );
   const copy = await loadNewsletterCopy(locale);
   switch (template) {
     case "product-update": {
