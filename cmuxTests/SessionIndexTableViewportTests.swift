@@ -271,6 +271,10 @@ struct SessionIndexTableViewportTests {
         let anchorRect = try #require(targetCell.popoverAnchorRect(for: targetIdentity))
         #expect(anchorRect.height > 0)
         #expect(anchorRect.height < targetCell.bounds.height)
+        // The SwiftUI header is at the top of its flipped hosting view; the
+        // AppKit popover must receive the converted rectangle near the cell's
+        // top edge rather than the vertically mirrored bottom edge.
+        #expect(anchorRect.midY > targetCell.bounds.midY)
         #expect(presenter.isPopoverShown)
 
         table.scrollRowToVisible(openRows.count - 1)
@@ -296,6 +300,83 @@ struct SessionIndexTableViewportTests {
         await flushStagedTableMutations()
 
         #expect(!presenter.isPopoverShown)
+    }
+
+    @MainActor
+    @Test
+    func transcriptPopoverStoresTheClickedSessionRowAnchor() async throws {
+        let presenter = SessionIndexTablePopoverPresenter()
+        let controller = SessionIndexTableController(popoverPresenter: presenter)
+        let container = controller.makeContainerView()
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 220)
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            presenter.dismiss()
+            window.orderOut(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
+
+        let entries = (0..<3).map(Self.makeEntry)
+        let section = IndexSection(
+            key: .directory("/tmp/vault-transcript-anchor"),
+            title: "vault-transcript-anchor",
+            icon: .folder,
+            entries: entries
+        )
+        let selectedIdentity = SessionIndexTablePopoverIdentity.transcript(
+            section: section.key,
+            entry: entries[2].id
+        )
+        let row = Self.makeSectionRow(
+            section: section,
+            popoverIdentity: selectedIdentity
+        )
+        let gapActions = SectionGapActions(
+            currentDraggedKey: { nil },
+            moveSection: { _, _ in },
+            clearDraggedKey: {}
+        )
+        let rows: [SessionIndexTableRow] = [
+            .gap(beforeKey: section.key, isValidDrop: true, actions: gapActions),
+            row,
+            .gap(beforeKey: nil, isValidDrop: true, actions: gapActions),
+        ]
+        let environment = SessionIndexTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+
+        controller.apply(rows: rows, environment: environment)
+        await flushStagedTableMutations()
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+
+        let table = container.tableView
+        let cell = try #require(table.view(
+            atColumn: 0,
+            row: 1,
+            makeIfNecessary: false
+        ) as? SessionIndexTableCellView)
+        let firstRect = try #require(cell.popoverAnchorRect(for: .transcript(
+            section: section.key,
+            entry: entries[0].id
+        )))
+        let selectedRect = try #require(cell.popoverAnchorRect(for: selectedIdentity))
+
+        // The cell is unflipped, so a lower visual row has a smaller AppKit
+        // y-coordinate even though SwiftUI's top-left coordinate increases.
+        #expect(selectedRect.midY < firstRect.midY)
+        #expect(selectedRect.maxY <= cell.bounds.maxY + 0.5)
+        #expect(selectedRect.minY >= cell.bounds.minY - 0.5)
+        #expect(presenter.isPopoverShown)
     }
 
     @MainActor
