@@ -366,19 +366,25 @@ struct AgentHibernationTerminationFailureTests {
             workingDirectory: "/tmp",
             launchCommand: nil
         )
-        func makeEntry(containsUnrelatedProcess: Bool) -> RestorableAgentSessionIndex.Entry {
+        func makeEntry(
+            processLiveness: RestorableAgentProcessLiveness = .exited,
+            processIDs: Set<Int> = [],
+            terminationProcessIDs: Set<Int> = [],
+            terminationProcessIdentities: [Int: AgentPIDProcessIdentity] = [:],
+            containsUnrelatedProcess: Bool
+        ) -> RestorableAgentSessionIndex.Entry {
             RestorableAgentSessionIndex.Entry(
                 snapshot: snapshot,
                 lifecycle: .idle,
                 updatedAt: 0,
-                processLiveness: .exited,
-                processIDs: [],
-                processIdentities: [:],
-                agentProcessIDs: [],
-                agentProcessIdentities: [:],
-                hibernationPanelProcessIDs: [],
-                terminationProcessIDs: [],
-                terminationProcessIdentities: [:],
+                processLiveness: processLiveness,
+                processIDs: processIDs,
+                processIdentities: terminationProcessIdentities,
+                agentProcessIDs: processIDs,
+                agentProcessIdentities: terminationProcessIdentities,
+                hibernationPanelProcessIDs: processIDs,
+                terminationProcessIDs: terminationProcessIDs,
+                terminationProcessIdentities: terminationProcessIdentities,
                 containsUnrelatedProcess: containsUnrelatedProcess
             )
         }
@@ -386,6 +392,26 @@ struct AgentHibernationTerminationFailureTests {
         #expect(
             AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
                 makeEntry(containsUnrelatedProcess: false)
+            )
+        )
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(
+                    processLiveness: .unknown,
+                    containsUnrelatedProcess: false
+                )
+            ) == false
+        )
+        let identity = AgentPIDProcessIdentity(pid: 101, startSeconds: 1, startMicroseconds: 0)
+        #expect(
+            AgentHibernationController.memoryPressureTeardownAllowsProcessEntry(
+                makeEntry(
+                    processLiveness: .running,
+                    processIDs: [101],
+                    terminationProcessIDs: [101],
+                    terminationProcessIdentities: [101: identity],
+                    containsUnrelatedProcess: false
+                )
             )
         )
         #expect(
