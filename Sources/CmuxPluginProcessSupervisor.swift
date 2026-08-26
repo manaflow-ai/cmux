@@ -245,14 +245,26 @@ final class CmuxPluginProcessSupervisor {
         let pinnedInterpreter = executionSnapshot.interpreterFileDescriptor.map {
             FileHandle(fileDescriptor: $0, closeOnDealloc: false)
         }
-        process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
+        guard let launcherURL = Bundle.main.executableURL else {
+            await snapshotter.remove(executionSnapshot)
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
+        process.executableURL = launcherURL
         process.currentDirectoryURL = executionSnapshot.directoryURL
         // The shell blocks on stdin until the parent has registered its PID.
         // It then duplicates the already-open entrypoint descriptor to fd 3
         // and execs that descriptor. This preserves the PID gate while making
         // pathname replacement after validation unable to change the bytes
         // that receive the plugin token.
-        process.arguments = Self.launchArguments(for: executionSnapshot.entrypointExecution)
+        process.arguments = ["--cmux-plugin-launcher"]
+            + Self.launchArguments(for: executionSnapshot.entrypointExecution)
         var environment = Self.inheritedPluginEnvironment(
             from: ProcessInfo.processInfo.environment
         )
@@ -290,9 +302,6 @@ final class CmuxPluginProcessSupervisor {
 
         do {
             try process.run()
-            guard setpgid(process.processIdentifier, process.processIdentifier) == 0 else {
-                throw CmuxPluginExecutionSnapshotError.entrypointDescriptorFailed
-            }
         } catch {
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
@@ -565,11 +574,19 @@ final class CmuxPluginProcessSupervisor {
     ) {
         guard processGroupID > 1 else { return }
         if let expectedStart = identity?.startMicroseconds {
-            guard CmuxPluginRuntime.processStartMicroseconds(processGroupID)
-                    == expectedStart else {
-                // A new process has reused the root PID/PGID, or the identity
-                // can no longer be verified. Never signal it.
-                return
+            if let currentStart = CmuxPluginRuntime.processStartMicroseconds(processGroupID) {
+                guard currentStart == expectedStart else {
+                    // A new process has reused the root PID/PGID. Never signal it.
+                    return
+                }
+            } else {
+                // A private group can outlive its leader. A reused PGID must
+                // have a live leader with that PID, whose start time the two
+                // Darwin lookup paths above would expose. With no leader,
+                // signal only if the original group still exists.
+                guard Darwin.kill(-processGroupID, 0) == 0 || errno == EPERM else {
+                    return
+                }
             }
         }
         guard process.isRunning || identity != nil else { return }

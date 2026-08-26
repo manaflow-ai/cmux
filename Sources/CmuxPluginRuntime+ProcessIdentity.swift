@@ -216,9 +216,19 @@ extension CmuxPluginRuntime {
     }
 
     static func processStartMicroseconds(_ processID: Int32) -> Int64? {
-        guard let info = processBSDInfo(processID) else { return nil }
-        return Int64(info.pbi_start_tvsec) * 1_000_000
-            + Int64(info.pbi_start_tvusec)
+        if let info = processBSDInfo(processID) {
+            return Int64(info.pbi_start_tvsec) * 1_000_000
+                + Int64(info.pbi_start_tvusec)
+        }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, processID]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0,
+              size == MemoryLayout<kinfo_proc>.size else {
+            return nil
+        }
+        return Int64(info.kp_proc.p_starttime.tv_sec) * 1_000_000
+            + Int64(info.kp_proc.p_starttime.tv_usec)
     }
 
     private static func processGroupID(_ processID: Int32) -> pid_t? {

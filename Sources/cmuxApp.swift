@@ -29,6 +29,11 @@ import CmuxTerminal
 @main
 enum CmuxMain {
     static func main() {
+        if let status = CmuxPluginProcessLauncherMode(
+            arguments: CommandLine.arguments
+        ).runIfRequested() {
+            Darwin.exit(status)
+        }
         AppHostProcessReceipt.writeIfRequired()
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
