@@ -89,6 +89,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case userPromptSubmit = "UserPromptSubmit"
         case preToolUse = "PreToolUse"
         case postToolUse = "PostToolUse"
+        /// A tool execution failed, timed out, or was denied.
+        case postToolUseFailure = "PostToolUseFailure"
         /// Codex compaction is about to start.
         case preCompact = "PreCompact"
         /// Codex compaction completed.

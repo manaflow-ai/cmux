@@ -32,6 +32,12 @@ final class AppCompositionRoot {
     let analytics: MobileAnalyticsComposition
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    /// App-lifetime keyboard frame record, injected into the view tree via
+    /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
+    /// mid-conversation recover keyboard transitions they were not installed
+    /// for. Constructed here (not lazily in a view) so its record spans every
+    /// host view lifetime.
+    let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.

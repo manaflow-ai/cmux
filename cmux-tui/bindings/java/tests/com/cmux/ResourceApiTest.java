@@ -77,6 +77,17 @@ public final class ResourceApiTest {
         overflowBlockedCancelHonorsTotalDeadline();
         structuredErrorsAreNotRetried();
         transportFailureReportsUncertainMutation();
+        explicitSocketFailureDoesNotUseLegacyFallback();
+    }
+
+    private static void explicitSocketFailureDoesNotUseLegacyFallback() {
+        expect(
+            TransportError.class,
+            () -> Client.builder()
+                .socket(java.nio.file.Path.of("/tmp/cmux-java-no-such.sock"))
+                .timeout(Duration.ofMillis(50))
+                .build()
+        );
     }
 
     private static void journalRegexDefaultsAreErgonomic() {
