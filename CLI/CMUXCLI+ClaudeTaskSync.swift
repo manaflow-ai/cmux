@@ -109,7 +109,7 @@ extension CMUXCLI {
             )
             let taskIdentity = claudeTaskIdentity(from: parsedInput.rawObject)
             let isTeamDeleteHook = isClaudeTeamDeleteHook(parsedInput)
-            var coalescingTaskListID = deletedTeamTaskDirectoryName
+            let coalescingTaskListID = deletedTeamTaskDirectoryName
                 ?? configuredTaskDirectoryName
             let taskSyncLockScope = taskStoreIdentity.rawValue
             let taskSyncScanIdentity = Data(
@@ -283,18 +283,14 @@ extension CMUXCLI {
                         }
                         if matchingRecord == nil,
                            destinationRecord?.taskStoreIdentity != nil,
-                           let currentTeamBinding,
-                           !currentTeamBinding.matches(
-                               sessionID: sessionID,
-                               agentID: agentID
-                           ) {
+                           currentTeamBinding != nil {
                             telemetry.breadcrumb("claude-hook.task-sync.team-delete-reused")
                             return
                         }
                         if let matchingRecord,
                            matchingRecord.binding.taskStoreIdentity != nil,
                            let currentTeamBinding,
-                           try teamTaskResolver.taskListBindingWasReused(
+                           teamTaskResolver.taskListBindingWasReused(
                                matchingRecord.binding,
                                capturedCurrentBinding: currentTeamBinding
                            ) {
@@ -572,6 +568,19 @@ extension CMUXCLI {
                         telemetry: telemetry,
                         deadlineUptime: hookDeadlineUptime
                     ) else { return }
+                    guard try sessionStore.bindClaudeTaskDirectory(
+                        sessionId: sessionID,
+                        directoryName: snapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity,
+                        workspaceId: resolvedTarget.workspaceId,
+                        surfaceId: resolvedTarget.surfaceId,
+                        pid: taskHookPID,
+                        expectedStartedAt: currentRecord?.startedAt,
+                        source: .configuredList
+                    ) else {
+                        telemetry.breadcrumb("claude-hook.task-sync.session-ended")
+                        return
+                    }
                     guard sendClaudeTaskFeedSnapshot(
                         snapshot.todos,
                         client: client,
@@ -691,6 +700,19 @@ extension CMUXCLI {
                         workspaceIDs: transition.workspaceIDs,
                         retiredRecords: transition.retiredRecords
                     )
+                    guard try sessionStore.bindClaudeTaskDirectory(
+                        sessionId: sessionID,
+                        directoryName: snapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity,
+                        workspaceId: resolvedTarget.workspaceId,
+                        surfaceId: resolvedTarget.surfaceId,
+                        pid: taskHookPID,
+                        expectedStartedAt: currentRecord?.startedAt,
+                        source: .automaticTeam
+                    ) else {
+                        telemetry.breadcrumb("claude-hook.task-sync.session-ended")
+                        return
+                    }
                     guard taskSyncIsLatest() else {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
@@ -811,13 +833,33 @@ extension CMUXCLI {
                     return
                 }
 
+                let taskBindingSource = currentRecord?.claudeTaskBindingSource
+                let taskBindingBelongsToCurrentGeneration = currentRecord.map { record in
+                    if let bindingStartedAt = record.claudeTaskBindingStartedAt {
+                        return bindingStartedAt == record.startedAt
+                    }
+                    // Stores written before generation fencing have no marker;
+                    // preserve their proven compatibility behavior until the
+                    // next authoritative SessionStart invalidates them.
+                    return record.claudeTaskBindingSource == nil
+                } ?? false
+                let taskBindingWasInvalidated = taskBindingSource == .invalidated
+                let automaticTeamProofRejected = taskBindingSource == .automaticTeam
+                    && automaticTeamResolution == nil
+                let configuredListProofRejected = taskBindingSource == .configuredList
+                    && configuredTaskListID == nil
+                let canUseBoundTaskDirectory = !taskBindingWasInvalidated
+                    && !automaticTeamProofRejected
+                    && !configuredListProofRejected
+                    && taskBindingBelongsToCurrentGeneration
+                var usedCompatibilityScan = false
                 var sessionSnapshot = try loader.loadDirectSessionTaskList(
                     sessionID: sessionID,
                     taskIdentity: taskIdentity
                 )
                 if sessionSnapshot == nil {
-                    let boundDirectoryName = currentRecord?.claudeTaskStoreID
-                        == taskStoreIdentity.rawValue
+                    let boundDirectoryName = canUseBoundTaskDirectory
+                        && currentRecord?.claudeTaskStoreID == taskStoreIdentity.rawValue
                         ? currentRecord?.claudeTaskDirectoryName
                         : nil
                     if let boundDirectoryName {
@@ -825,7 +867,10 @@ extension CMUXCLI {
                             directoryName: boundDirectoryName,
                             taskIdentity: taskIdentity
                         )
-                    } else if let taskIdentity {
+                    } else if let taskIdentity,
+                              !taskBindingWasInvalidated,
+                              !automaticTeamProofRejected,
+                              !configuredListProofRejected {
                         // Older Claude team metadata may not link the current
                         // hook session to its task list. The issue contract's
                         // compatibility proof is the exact id+subject emitted
@@ -835,6 +880,7 @@ extension CMUXCLI {
                             sessionID: sessionID,
                             taskIdentity: taskIdentity
                         )
+                        usedCompatibilityScan = sessionSnapshot != nil
                     }
                 }
                 guard let sessionSnapshot,
@@ -884,7 +930,10 @@ extension CMUXCLI {
                     workspaceId: resolvedTarget.workspaceId,
                     surfaceId: resolvedTarget.surfaceId,
                     pid: taskHookPID,
-                    expectedStartedAt: currentRecord?.startedAt
+                    expectedStartedAt: currentRecord?.startedAt,
+                    source: usedCompatibilityScan
+                        ? .compatibilityScan
+                        : (taskBindingSource ?? .directSession)
                 ) else {
                     telemetry.breadcrumb("claude-hook.task-sync.session-ended")
                     if (try? sessionStore.isClaudeSessionEnded(sessionID)) == true {
@@ -1300,12 +1349,13 @@ extension CMUXCLI {
         ignoreRetrySchedule: Bool = false,
         deadlineUptime: TimeInterval
     ) throws -> Bool {
-        guard ignoreRetrySchedule
-                || (try sessionStore.isLegacyClaudeTaskOwnerCleanupEligible(
-                    directoryName: taskDirectoryName
-                )) else {
-            telemetry.breadcrumb("claude-hook.task-sync.legacy-owner-cleanup-backoff")
-            return false
+        if !ignoreRetrySchedule {
+            guard try sessionStore.isLegacyClaudeTaskOwnerCleanupEligible(
+                directoryName: taskDirectoryName
+            ) else {
+                telemetry.breadcrumb("claude-hook.task-sync.legacy-owner-cleanup-backoff")
+                return false
+            }
         }
         let recordedWorkspaceIDs = try sessionStore.legacyClaudeTaskOwnerWorkspaceIDs(
             directoryName: taskDirectoryName,

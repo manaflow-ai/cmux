@@ -82,6 +82,15 @@ enum AgentHookRuntimeStatus: String, Codable {
     case error
 }
 
+/// Proven source of a Claude task-directory binding.
+enum ClaudeTaskBindingSource: String, Codable {
+    case directSession
+    case compatibilityScan
+    case configuredList
+    case automaticTeam
+    case invalidated
+}
+
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -199,6 +208,10 @@ struct ClaudeHookSessionRecord: Codable {
     var claudeTaskStoreID: String?
     /// Whether the pre-profile checklist owner for this binding was cleared.
     var claudeTaskLegacyOwnerCleared: Bool?
+    /// Session generation that proved the task-directory binding.
+    var claudeTaskBindingStartedAt: TimeInterval?
+    /// The authoritative path that proved the task-directory binding.
+    var claudeTaskBindingSource: ClaudeTaskBindingSource?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -546,7 +559,8 @@ final class ClaudeHookSessionStore {
         workspaceId: String,
         surfaceId: String,
         pid: Int? = nil,
-        expectedStartedAt: TimeInterval? = nil
+        expectedStartedAt: TimeInterval? = nil,
+        source: ClaudeTaskBindingSource = .directSession
     ) throws -> Bool {
         let normalizedSessionId = normalizeSessionId(sessionId)
         let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -603,12 +617,16 @@ final class ClaudeHookSessionStore {
                 || record.claudeTaskStoreID != taskStoreIdentity.rawValue
             let destinationChanged = record.workspaceId != normalizedWorkspaceId
                 || record.surfaceId != normalizedSurfaceId
-            guard bindingChanged || destinationChanged else { return true }
+            let generationProofChanged = record.claudeTaskBindingStartedAt != record.startedAt
+                || record.claudeTaskBindingSource != source
+            guard bindingChanged || destinationChanged || generationProofChanged else { return true }
             if bindingChanged {
                 record.claudeTaskDirectoryName = normalizedDirectoryName
                 record.claudeTaskStoreID = taskStoreIdentity.rawValue
                 record.claudeTaskLegacyOwnerCleared = nil
             }
+            record.claudeTaskBindingStartedAt = record.startedAt
+            record.claudeTaskBindingSource = source
             record.workspaceId = normalizedWorkspaceId
             record.surfaceId = normalizedSurfaceId
             record.updatedAt = now
@@ -989,6 +1007,8 @@ final class ClaudeHookSessionStore {
                 record.claudeTaskDirectoryName = nil
                 record.claudeTaskStoreID = nil
                 record.claudeTaskLegacyOwnerCleared = nil
+                record.claudeTaskBindingStartedAt = nil
+                record.claudeTaskBindingSource = nil
                 record.updatedAt = now
                 state.sessions[sessionID] = record
             }
@@ -999,6 +1019,8 @@ final class ClaudeHookSessionStore {
                 record.claudeTaskDirectoryName = nil
                 record.claudeTaskStoreID = nil
                 record.claudeTaskLegacyOwnerCleared = nil
+                record.claudeTaskBindingStartedAt = nil
+                record.claudeTaskBindingSource = nil
                 // Preserve the pending record's immutable cleanup age anchors.
                 state.pendingSupersededSessionCleanup[sessionID] = record
             }
@@ -1536,6 +1558,8 @@ final class ClaudeHookSessionStore {
             guard record.claudeTaskLegacyOwnerCleared == true else { return false }
             record.claudeTaskStoreID = taskStoreIdentity.rawValue
             record.claudeTaskLegacyOwnerCleared = nil
+            record.claudeTaskBindingStartedAt = record.startedAt
+            record.claudeTaskBindingSource = .compatibilityScan
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
             return true
@@ -2636,6 +2660,22 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             record.startedAt = now
+            // A new generation must not inherit the prior task owner. The
+            // destination/team proofs remain durable cleanup records; the
+            // invalidated phase prevents compatibility scans from guessing a
+            // neighboring list until a new hook proves ownership.
+            let hadTaskBinding = existing?.claudeTaskDirectoryName != nil
+                || existing?.claudeTaskStoreID != nil
+                || existing?.claudeTaskLegacyOwnerCleared != nil
+            if hadTaskBinding {
+                record.claudeTaskDirectoryName = nil
+                record.claudeTaskStoreID = nil
+                record.claudeTaskLegacyOwnerCleared = nil
+                record.claudeTaskBindingSource = .invalidated
+            } else {
+                record.claudeTaskBindingSource = nil
+            }
+            record.claudeTaskBindingStartedAt = nil
             update(
                 &record,
                 workspaceId: normalizedWorkspaceId,
