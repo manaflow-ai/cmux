@@ -940,6 +940,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		918100000000000000000081 /* CodexTranscriptFailureReadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */; };
 		918100000000000000000021 /* CodexTranscriptMonitorStopReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000020 /* CodexTranscriptMonitorStopReplay.swift */; };
 		918100000000000000000071 /* CodexTranscriptSubagentSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */; };
+		C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
 		7520C0DF0000000000000001 /* CodexTurnCompletionOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000002 /* CodexTurnCompletionOwnershipTests.swift */; };
 		7520C0DF0000000000000003 /* CodexTurnLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000004 /* CodexTurnLedger.swift */; };
 		7520C0DF0000000000000005 /* CodexTurnLedgerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */; };
@@ -10997,6 +10998,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			buildActionMask = 2147483647;
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
+				C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */,
 				918100000000000000000101 /* AgentHookFailureStage.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
