@@ -33240,7 +33240,7 @@ export default CMUXSessionRestore;
         } else {
             Self.subcommandActions[subcommand] ?? .noop
         }
-        var hookResponse = cursorShellNeedsApproval
+        let hookResponse = cursorShellNeedsApproval
             ? AgentHookNotificationPolicy.cursorNativeApprovalResponse
             : "{}"
 #if DEBUG
@@ -35835,7 +35835,7 @@ export default CMUXSessionRestore;
             event["tool_input"] = source == "cursor"
                 ? sanitizedCursorFeedToolInput(toolInput)
                 : toolInput
-        } else if let cursorShellCommand {
+        } else if cursorShellCommand != nil {
             event["tool_input"] = [
                 "command": "<redacted>"
             ]
