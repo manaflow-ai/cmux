@@ -314,15 +314,14 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Forward the sign-out wipe down the rail TAG-BLIND, like
+    /// `removeExactScope`. Enumerating this store's own compatibility-filtered
+    /// view would strand rows a since-revoked allowlist grant persisted: they
+    /// are invisible to this build until re-granted, and a sign-out that
+    /// reports success while another account's pairings survive on disk is a
+    /// broken wipe.
     func removeAll() async throws {
-        for mac in try await loadAll(stackUserID: nil, teamID: nil) {
-            try await inner.remove(
-                macDeviceID: mac.macDeviceID,
-                instanceTag: mac.instanceTag,
-                stackUserID: mac.stackUserID,
-                teamID: mac.teamID
-            )
-        }
+        try await inner.removeAll()
     }
 
     func authorizeUserTailscaleRoutes(

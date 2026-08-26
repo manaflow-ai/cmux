@@ -49575,6 +49575,91 @@
         }
       }
     },
+    "cli.mobile.compatibleTags.applied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted Mac dev tags for paired phones: %@ (pushed to connected device(s))."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの iPhone に許可した Mac 開発タグ: %@（接続中のデバイスへ送信済み）。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.appliedNoDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted Mac dev tags for paired phones: %@ (applies when a phone next connects)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの iPhone に許可した Mac 開発タグ: %@（次回接続時に適用されます）。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No additional Mac dev tags are granted to this Mac's paired phones."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のペアリング済み iPhone に追加で許可された Mac 開発タグはありません。"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(none)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（なし）"
+          }
+        }
+      }
+    },
+    "cli.mobile.compatibleTags.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux mobile compatible-tags [list|set <tags...>|add <tags...>|remove <tags...>|clear]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux mobile compatible-tags [list|set <タグ...>|add <タグ...>|remove <タグ...>|clear]"
+          }
+        }
+      }
+    },
     "cli.mobile.setFont.applied": {
       "extractionState": "manual",
       "localizations": {

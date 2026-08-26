@@ -1551,6 +1551,10 @@ class TerminalController {
             }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
+        case "mobile.compatible_tags.get":
+            return v2Result(id: request.id, v2MobileCompatibleTagsGet())
+        case "mobile.compatible_tags.set":
+            return v2Result(id: request.id, v2MobileCompatibleTagsSet(params: request.params))
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
@@ -2773,6 +2777,8 @@ class TerminalController {
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
+            "mobile.compatible_tags.get",
+            "mobile.compatible_tags.set",
             "mobile.task.attachment.upload",
             "mobile.task.models.list",
             "mobile.workspace.list",
@@ -15008,6 +15014,47 @@ class TerminalController {
         return .ok([
             "ok": true,
             "font_size": fontSize,
+            "delivered": hasSubscribers,
+        ])
+    }
+
+    /// Returns the sibling Mac dev tags this Mac grants to its paired
+    /// development phones (`cmux mobile compatible-tags list`).
+    nonisolated func v2MobileCompatibleTagsGet() -> V2CallResult {
+        .ok(["tags": MobileCompatibleMacTags.tags()])
+    }
+
+    /// Replaces the sibling-tag grant set and pushes the new set to every
+    /// subscribed phone over `mobile.compatible_tags.changed`, so a connected
+    /// phone re-runs discovery (grant) or prunes (revoke) without a rebuild.
+    /// A phone that is offline right now adopts the set from authenticated
+    /// host status on its next connect.
+    ///
+    /// Params: `{ "tags": [String] }` — the FULL grant set (the CLI implements
+    /// add/remove as read-modify-write), so application is idempotent.
+    nonisolated func v2MobileCompatibleTagsSet(params: [String: Any]) -> V2CallResult {
+        guard let rawTags = params["tags"] as? [String] else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid tags array",
+                data: nil
+            )
+        }
+        let rejected = MobileCompatibleMacTags.rejectedTags(from: rawTags)
+        guard rejected.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: "Release-lane tags cannot be granted to a development phone",
+                data: ["rejected": rejected]
+            )
+        }
+        let stored = MobileCompatibleMacTags.set(rawTags)
+        let topic = "mobile.compatible_tags.changed"
+        let hasSubscribers = MobileHostService.hasEventSubscribers(topic: topic)
+        MobileHostService.emitEvent(topic: topic, payload: ["tags": stored])
+        return .ok([
+            "ok": true,
+            "tags": stored,
             "delivered": hasSubscribers,
         ])
     }
