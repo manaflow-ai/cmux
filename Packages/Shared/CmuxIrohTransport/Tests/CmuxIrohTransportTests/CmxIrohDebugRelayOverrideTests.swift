@@ -68,6 +68,78 @@ import Testing
         #expect(managed.allowedRelayURLs == fixture.managedRelays)
     }
 
+    /// A host without a verifiable cached policy is configured with the
+    /// relay-less `.unavailableManagedSelection` placeholder. The debug
+    /// override must still win at bind time, or the endpoint binds with zero
+    /// relays and can never dial the forced test relay. The override is a
+    /// custom profile and custom relays are exempt from the
+    /// withhold-until-registered ordering, so it stays installed at bind.
+    @Test func overrideWinsOverUnavailableManagedSelectionAtBind() async throws {
+        let fixture = try HostRuntimeFixture()
+        let override = try #require(
+            CmxIrohDebugRelayOverride.profile(rawValue: "https://relay-test.example.com/")
+        )
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(
+                endpointRelayProfile: .unavailableManagedSelection
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start(debugRelayOverride: override)
+
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(boundConfigurations.first?.relayProfile == override)
+        // Installed at bind: no post-registration relay swap replaces it.
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    /// Without the override, a host configured with
+    /// `.unavailableManagedSelection` still binds with zero relays,
+    /// preserving the withhold-managed-relays-until-registered ordering
+    /// (manaflow-ai/cmux#10867): no managed relay may be dialable before
+    /// broker admission.
+    @Test func withoutOverrideUnavailableManagedSelectionBindsEmpty() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(
+                endpointRelayProfile: .unavailableManagedSelection
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start(debugRelayOverride: nil)
+
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(boundConfigurations.first?.relayProfile.activeRelays.isEmpty == true)
+        #expect(boundConfigurations.first?.relayProfile.allowedRelayURLs.isEmpty == true)
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
     @Test func clientResolutionPrefersOverride() throws {
         let fixture = try ClientRuntimeTestFixture()
         let override = try #require(
