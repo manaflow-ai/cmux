@@ -75,13 +75,39 @@ enum ControlSidebarPanelOwner {
         panelId: UUID?,
         lifecycle: AgentHibernationLifecycleState
     ) {
+        let didResumeFromAnotherLifecycle: Bool
         switch self {
         case .workspace(let workspace):
-            workspace.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            guard let targetPanelId = panelId ?? workspace.focusedPanelId,
+                  workspace.panels[targetPanelId] != nil else {
+                return
+            }
+            let previousLifecycle = workspace.agentLifecycleStatesByPanelId[targetPanelId]?[key]
+            workspace.setAgentLifecycle(key: key, panelId: targetPanelId, lifecycle: lifecycle)
+            didResumeFromAnotherLifecycle = lifecycle == .running &&
+                previousLifecycle != .running
         case .dock(let dock):
-            guard let panelId else { return }
+            guard let panelId, dock.panels[panelId] != nil else { return }
+            let previousLifecycle = dock.agentRuntimeByPanelId[panelId]?.agentLifecycleStates[key]
             dock.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            didResumeFromAnotherLifecycle = lifecycle == .running &&
+                previousLifecycle != .running
         }
+        guard didResumeFromAnotherLifecycle,
+              !AgentHibernationLifecycleStatusKeys.isManualKey(key) else {
+            return
+        }
+        // A lifecycle transition is activity even when the provider did not
+        // send terminal input. Retire only the live sidebar previews; the
+        // notification feed remains the historical record.
+        let notificationStore: TerminalNotificationStore?
+        switch self {
+        case .workspace:
+            notificationStore = AppDelegate.shared?.notificationStore
+        case .dock(let dock):
+            notificationStore = dock.resolvedNotificationStore()
+        }
+        notificationStore?.clearSidebarNotificationPreviews(forTabId: id)
     }
 
     @discardableResult

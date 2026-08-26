@@ -1046,6 +1046,14 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.latestByTabId[tabId]
     }
 
+    /// Whether the current sidebar preview is a read notification that can be
+    /// retired by a subsequent activity boundary. An unread latest entry is
+    /// deliberately left alone so an unrelated outstanding alert remains
+    /// visible while another surface is active.
+    func hasSidebarNotificationPreview(forTabId tabId: UUID) -> Bool {
+        indexes.latestByTabId[tabId]?.isRead == true
+    }
+
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
         notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }
@@ -1053,6 +1061,20 @@ final class TerminalNotificationStore: ObservableObject {
     func clearLatestNotification(forTabId tabId: UUID) {
         guard let latestNotification = indexes.latestByTabId[tabId] else { return }
         remove(id: latestNotification.id)
+    }
+
+    /// Retires read notification previews for a workspace after new
+    /// terminal/agent activity. Unread entries remain available to represent
+    /// an outstanding alert, while ``notificationFeedHistory`` remains the
+    /// durable chronological record for the entries that are retired.
+    @discardableResult
+    func clearSidebarNotificationPreviews(forTabId tabId: UUID) -> Bool {
+        let ids = notifications
+            .filter { $0.tabId == tabId && $0.isRead }
+            .map(\.id)
+        guard !ids.isEmpty else { return false }
+        ids.forEach(remove)
+        return true
     }
 
     func focusedReadIndicatorSurfaceId(forTabId tabId: UUID) -> UUID? {
