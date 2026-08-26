@@ -487,6 +487,26 @@ final class CmuxSettingsFileStore {
                 logInvalid("app.forkConversationDefaultDestination", sourcePath: sourcePath)
             }
         }
+        if let raw = jsonString(section["artifactPaneOrientation"]) {
+            let orientation: ArtifactPaneOrientation?
+            switch raw.lowercased() {
+            case "horizontal", "left", "right":
+                orientation = .horizontal
+            case "vertical", "up", "down":
+                orientation = .vertical
+            default:
+                orientation = nil
+            }
+            if let orientation {
+                snapshot.managedUserDefaults[
+                    AppCatalogSection().artifactPaneOrientation.userDefaultsKey
+                ] = .string(orientation.rawValue)
+            } else {
+                logInvalid("app.artifactPaneOrientation", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("artifactPaneOrientation") {
+            logInvalid("app.artifactPaneOrientation", sourcePath: sourcePath)
+        }
         applyBooleanSettings(AppSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(AppSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
         if let value = jsonBool(section["minimalMode"]) {

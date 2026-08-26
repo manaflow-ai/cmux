@@ -130,7 +130,8 @@ public protocol ControlProjectContext: AnyObject {
     ///   - routing: The routing selectors.
     ///   - surfaceID: The explicit source `surface_id`, if any.
     ///   - filePath: The resolved readable file path.
-    ///   - directionRaw: The raw direction token (default `"right"`).
+    ///   - directionRaw: The raw direction token, if the caller supplied one.
+    ///     A missing value uses the app's persisted artifact-pane orientation.
     ///   - fontSize: The parsed `font_size`, if numeric (the app clamps it).
     ///   - fontSizeInvalid: Whether `font_size` was present but non-numeric.
     ///   - requestedFocus: The requested `focus` flag (the app applies the
@@ -140,7 +141,7 @@ public protocol ControlProjectContext: AnyObject {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         filePath: String,
-        directionRaw: String,
+        directionRaw: String?,
         fontSize: Double?,
         fontSizeInvalid: Bool,
         requestedFocus: Bool

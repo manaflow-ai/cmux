@@ -471,6 +471,13 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "artifactPaneOrientation": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"],
+          "default": "horizontal",
+          "descriptionKey": "schemaDescriptions.app.artifactPaneOrientation",
+          "description": "Default split orientation for newly opened artifact and Markdown viewer panes. Horizontal opens to the right; vertical opens down. Explicit directions override this preference."
+        },
         "globalFontMagnification": {
           "type": "integer",
           "minimum": 50,

@@ -1787,6 +1787,7 @@
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
+          "artifactPaneOrientation": "新しく開くアーティファクトと Markdown ビューアーペインの既定の分割方向です。horizontal は右に、vertical は下に開きます。明示した方向がこの設定より優先されます。",
           "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
         },
         "terminal": {

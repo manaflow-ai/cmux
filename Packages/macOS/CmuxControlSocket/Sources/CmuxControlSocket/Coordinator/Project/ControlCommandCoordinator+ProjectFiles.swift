@@ -23,7 +23,7 @@ extension ControlCommandCoordinator {
             return .err(code: "internal_error", message: "Failed to resolve file path", data: nil)
         }
 
-        let directionRaw = string(params, "direction") ?? "right"
+        let directionRaw = string(params, "direction")
         let fontSizeInvalid = params["font_size"] != nil && double(params, "font_size") == nil
         let resolution = projectContext?.controlMarkdownOpen(
             routing: routing,
@@ -48,7 +48,7 @@ extension ControlCommandCoordinator {
         case .invalidDirection:
             return .err(
                 code: "invalid_params",
-                message: "Invalid direction '\(directionRaw)' (left|right|up|down)",
+                message: "Invalid direction '\(directionRaw ?? "configured default")' (left|right|up|down)",
                 data: nil
             )
         case .invalidFontSize:

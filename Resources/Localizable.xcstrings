@@ -154093,6 +154093,74 @@
         }
       }
     },
+    "settings.app.artifactPaneOrientation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact Pane Split"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトペインの分割"
+          }
+        }
+      }
+    },
+    "settings.app.artifactPaneOrientation.horizontal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        }
+      }
+    },
+    "settings.app.artifactPaneOrientation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose whether newly opened artifacts split to the right or down. Explicit directions still override this preference."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しく開くアーティファクトを右または下のどちらに分割するかを選びます。明示した方向がこの設定より優先されます。"
+          }
+        }
+      }
+    },
+    "settings.app.artifactPaneOrientation.vertical": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下"
+          }
+        }
+      }
+    },
     "settings.app.canvasPaneGap": {
       "extractionState": "manual",
       "localizations": {
@@ -190765,6 +190833,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 載入 指示器 左 右 位置"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.artifact-pane-orientation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.artifactPaneOrientation artifact pane markdown viewer split right down horizontal vertical orientation layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.artifactPaneOrientation アーティファクト ペイン Markdown ビューア 分割 右 下 水平 垂直 向き レイアウト artifact pane split orientation"
           }
         }
       }

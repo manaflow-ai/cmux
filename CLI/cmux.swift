@@ -6526,9 +6526,12 @@ struct CMUXCLI {
 
         let absolutePath = resolvePath(rawPath)
 
-        // Build params
-        let direction = directionOpt ?? "right"
-        var params: [String: Any] = ["path": absolutePath, "direction": direction]
+        // Leave direction unset when the caller did not provide one so the
+        // app can apply its persisted artifact-pane orientation preference.
+        var params: [String: Any] = ["path": absolutePath]
+        if let directionOpt {
+            params["direction"] = directionOpt
+        }
         if let fontSize {
             params["font_size"] = fontSize
         }
@@ -18540,7 +18543,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Source surface to split from (default: focused surface)
               --window <id|ref|index>      Target window
-              --direction <left|right|up|down>  Split direction (default: right)
+              --direction <left|right|up|down>  Split direction (default: configured artifact-pane orientation)
               --focus <true|false>         Focus the markdown panel (default: false)
 
             Examples:

@@ -18,6 +18,7 @@ import UserNotifications
 import struct CmuxSettings.AccountCatalogSection
 import struct CmuxSettings.AppCatalogSection
 import struct CmuxSettings.FileRouteSettingsStore
+import enum CmuxSettings.ArtifactPaneOrientation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3601,6 +3602,46 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
         XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+    }
+
+    func testCmdClickMarkdownRoutingUsesPersistedArtifactPaneOrientation() throws {
+        for (orientation, expectedTreeOrientation) in [
+            (ArtifactPaneOrientation.horizontal, "horizontal"),
+            (ArtifactPaneOrientation.vertical, "vertical"),
+        ] {
+            let suiteName = "cmux.artifact-pane-orientation.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            defaults.set(orientation.rawValue, forKey: AppCatalogSection().artifactPaneOrientation.userDefaultsKey)
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+
+            let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+            let artifactURL = try temporaryTextFile(contents: "# artifact", encoding: .utf8, pathExtension: "md")
+            defer {
+                try? FileManager.default.removeItem(at: sourceURL)
+                try? FileManager.default.removeItem(at: artifactURL)
+            }
+
+            let workspace = Workspace()
+            defer { workspace.teardownAllPanels() }
+            let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+            let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+                inPane: sourcePane,
+                filePath: sourceURL.path,
+                focus: true
+            ))
+            XCTAssertTrue(CommandClickFileOpenRouter.openInCmux(
+                workspace: workspace,
+                sourcePanelId: sourcePanel.id,
+                filePath: artifactURL.path,
+                defaults: defaults
+            ))
+
+            guard case .split(let root) = workspace.bonsplitController.treeSnapshot() else {
+                XCTFail("Expected an artifact split")
+                continue
+            }
+            XCTAssertEqual(root.orientation, expectedTreeOrientation)
+        }
     }
 
     private func temporaryTextFile(

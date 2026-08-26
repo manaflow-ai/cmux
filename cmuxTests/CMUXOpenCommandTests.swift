@@ -483,7 +483,8 @@ final class CMUXOpenCommandTests: XCTestCase {
 
             let params = payload["params"] as? [String: Any] ?? [:]
             guard method == "markdown.open",
-                  params["path"] as? String == fileURL.path else {
+                  params["path"] as? String == fileURL.path,
+                  params["direction"] == nil else {
                 return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
             }
             return Self.v2Response(
