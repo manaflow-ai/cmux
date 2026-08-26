@@ -290,6 +290,7 @@ terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
 terminal <selector> state read
 terminal <selector> history read|clear
+terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
@@ -310,6 +311,18 @@ sidebar plugin list|install|use|update|remove
 provider authority install
 
 ```
+
+`terminal <selector> output read` returns a bounded plain-text window of the
+terminal's journaled output stream: `{text, start_offset, next_offset,
+complete}`. Offsets are `terminal.output` stream byte offsets; pass a previous
+`next_offset` as `--after` to resume exactly, and omit it to read from the
+earliest still-retained byte. `complete` is false when `--max-bytes` (default
+262144, maximum 4194304) truncated the window. The command works on live
+terminals and on exited ones under both exit policies; after exit, reads
+before the durable exit snapshot's coverage answer with the snapshot's screen
+projection (`start_offset` 0), so the read never needs unbounded record
+retention. Escape sequences never appear in `text`, though a window that
+starts mid-stream may carry escape-state artifacts at its leading edge.
 
 Workspace creation starts with one terminal unless `--empty` is present.
 `terminal <selector> project` requires destination `--workspace`, `--screen`,

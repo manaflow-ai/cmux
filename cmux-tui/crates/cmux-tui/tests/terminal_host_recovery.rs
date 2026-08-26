@@ -669,6 +669,224 @@ fn keep_on_exit_terminal_close_cleans_up_the_live_tab_and_surface() {
     assert_eq!(closed_read["ok"], false, "terminal close left the kept screen live: {closed_read}");
 }
 
+fn output_read(
+    socket: &Path,
+    id: &str,
+    terminal: &str,
+    after: Option<&str>,
+    max_bytes: Option<u64>,
+) -> serde_json::Value {
+    let mut params = serde_json::json!({
+        "machine":"current",
+        "session":"current",
+        "terminal":terminal,
+    });
+    if let Some(after) = after {
+        params["after"] = serde_json::json!(after);
+    }
+    if let Some(max_bytes) = max_bytes {
+        params["max_bytes"] = serde_json::json!(max_bytes);
+    }
+    resource_request(socket, id, "terminal.output_read", params, None)
+}
+
+#[test]
+fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
+    let harness = RecoveryHarness::start("output-read");
+    let created = resource_request(
+        &harness.socket,
+        "output-read-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Output read",
+            "initial_content":"empty",
+        }),
+        Some("output-read-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+
+    // The command prints colored output, waits for one input line so the
+    // live window is observable, then prints more colored output and exits
+    // under the default close policy.
+    let script = "printf 'live \\033[32mgreen marker\\033[0m line\\n'; \
+                  read line; \
+                  printf 'post \\033[31mred marker\\033[0m line\\n'; exit 7";
+    let run = resource_request(
+        &harness.socket,
+        "output-read-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",script],
+        }),
+        Some("output-read-run"),
+    );
+    let terminal = run["value"]["terminal_id"].as_str().unwrap().to_string();
+    resource_request(
+        &harness.socket,
+        "output-read-wait-live",
+        "terminal.wait",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "pattern":"green marker",
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+
+    // Output reaches the journal asynchronously; poll the read until the
+    // window carries the first line.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    let live = loop {
+        let live = output_read(&harness.socket, "output-read-live", &terminal, None, None);
+        if live["text"].as_str().unwrap().contains("green marker") {
+            break live;
+        }
+        assert!(Instant::now() < deadline, "live window never observed the output: {live}");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let live_text = live["text"].as_str().unwrap();
+    assert!(!live_text.contains('\u{1b}'), "live text carries escapes: {live}");
+    assert_eq!(live["start_offset"], "0", "live window must start at the stream head: {live}");
+    assert_eq!(live["complete"], true, "un-truncated live window must be complete: {live}");
+    let live_next = live["next_offset"].as_str().unwrap().parse::<u64>().unwrap();
+    assert!(live_next > 0);
+
+    resource_request(
+        &harness.socket,
+        "output-read-release",
+        "terminal.input.write",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "text":"go\n",
+        }),
+        Some("output-read-release"),
+    );
+    let waited = resource_request(
+        &harness.socket,
+        "output-read-wait-exit",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":7}));
+
+    // Close policy detached every view, but the read keeps answering
+    // through the durable receipt: the exit snapshot plus retained records.
+    let screen_read = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"output-read-screen-after-exit",
+            "operation":"terminal.screen.read",
+            "params":{"machine":"current","session":"current","terminal":terminal},
+        }),
+    );
+    assert_eq!(screen_read["ok"], false, "close policy must detach the screen: {screen_read}");
+    let after_exit = output_read(&harness.socket, "output-read-after-exit", &terminal, None, None);
+    let text = after_exit["text"].as_str().unwrap();
+    assert!(
+        text.contains("green marker") && text.contains("red marker"),
+        "post-exit read lost output: {after_exit}"
+    );
+    assert!(!text.contains('\u{1b}'), "post-exit text carries escapes: {after_exit}");
+    assert_eq!(after_exit["complete"], true);
+    let stream_end = after_exit["next_offset"].as_str().unwrap().parse::<u64>().unwrap();
+    assert!(stream_end > live_next, "the exit tail extended the stream: {after_exit}");
+
+    // A cursor inside the snapshot's coverage answers with the snapshot's
+    // screen projection: everything after the cursor is present, and the
+    // reported start offset exposes the projection to the caller.
+    let resumed = output_read(
+        &harness.socket,
+        "output-read-resume",
+        &terminal,
+        Some(&live_next.to_string()),
+        None,
+    );
+    assert!(
+        resumed["text"].as_str().unwrap().contains("red marker"),
+        "resume lost the tail: {resumed}"
+    );
+    assert!(!resumed["text"].as_str().unwrap().contains('\u{1b}'));
+    assert_eq!(
+        resumed["start_offset"], "0",
+        "a cursor under snapshot coverage answers with the snapshot projection: {resumed}"
+    );
+    assert_eq!(resumed["next_offset"], stream_end.to_string());
+    assert_eq!(resumed["complete"], true);
+
+    // Resuming at the stream end is exact: empty and complete.
+    let drained = output_read(
+        &harness.socket,
+        "output-read-drained",
+        &terminal,
+        Some(&stream_end.to_string()),
+        None,
+    );
+    assert_eq!(drained["text"], "");
+    assert_eq!(drained["start_offset"], stream_end.to_string());
+    assert_eq!(drained["next_offset"], stream_end.to_string());
+    assert_eq!(drained["complete"], true);
+
+    // Keep policy: the exited terminal retains its views, and the same read
+    // serves its output without escapes.
+    let kept_run = resource_request(
+        &harness.socket,
+        "output-read-kept-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c","printf 'kept \\033[35mmagenta marker\\033[0m line\\n'; exit 3"],
+            "on_exit":"keep",
+        }),
+        Some("output-read-kept-run"),
+    );
+    let kept_terminal = kept_run["value"]["terminal_id"].as_str().unwrap().to_string();
+    let kept_tab = kept_run["value"]["tab_id"].as_str().unwrap().to_string();
+    let kept_wait = resource_request(
+        &harness.socket,
+        "output-read-kept-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":kept_terminal,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(kept_wait["outcome"], serde_json::json!({"kind":"exit","code":3}));
+    resource_request(
+        &harness.socket,
+        "output-read-kept-tab",
+        "tab.get",
+        serde_json::json!({"machine":"current","session":"current","tab":kept_tab}),
+        None,
+    );
+    let kept_read = output_read(&harness.socket, "output-read-kept", &kept_terminal, None, None);
+    let kept_text = kept_read["text"].as_str().unwrap();
+    assert!(kept_text.contains("magenta marker"), "kept read lost output: {kept_read}");
+    assert!(!kept_text.contains('\u{1b}'), "kept text carries escapes: {kept_read}");
+    assert_eq!(kept_read["complete"], true);
+}
+
 #[test]
 fn hosted_exit_detaches_existing_and_later_render_streams() {
     let harness = RecoveryHarness::start("hosted-exit-detaches-render");

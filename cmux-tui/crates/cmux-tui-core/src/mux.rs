@@ -4607,6 +4607,123 @@ impl Mux {
         }))
     }
 
+    /// Bounded plain-text projection of one terminal's journaled output
+    /// stream. It works while the process runs and after it exits; callers
+    /// resolve exited terminals through the same durable receipt as
+    /// `terminal.wait_exit`.
+    ///
+    /// Offsets are `terminal.output` stream byte offsets of the terminal's
+    /// most recent journal generation. A cursor before the exit snapshot's
+    /// coverage answers with the snapshot's screen projection (start_offset
+    /// 0, next_offset at the coverage end); at or past it, the window is the
+    /// retained records after the cursor, rendered through a fresh terminal,
+    /// never splitting one record and never exceeding `max_bytes` beyond the
+    /// window's first record.
+    pub(crate) fn terminal_output_read(
+        &self,
+        terminal_id: &TerminalPublicId,
+        after: Option<u64>,
+        max_bytes: u64,
+    ) -> anyhow::Result<Value> {
+        // Fence asynchronous output ingress so the read observes everything
+        // the terminal emitted before this request.
+        self.flush_terminal_journal()?;
+        let requested = after.unwrap_or(0);
+        let surface = self
+            .terminal_resource_surface(terminal_id)
+            .filter(|surface| surface.kind() == SurfaceKind::Pty);
+        let (stream, snapshot, spec_geometry) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let stream = registry.terminal_stream_latest(terminal_id.as_str())?;
+            let snapshot = registry.terminal_exit_snapshot(terminal_id.as_str())?;
+            let spec_geometry = registry
+                .terminal_host_id(terminal_id)?
+                .map(|host_id| registry.terminal_record(&host_id))
+                .transpose()?
+                .flatten()
+                .and_then(|terminal| {
+                    Some((
+                        u16::try_from(terminal.launch_spec["cols"].as_u64()?).ok()?,
+                        u16::try_from(terminal.launch_spec["rows"].as_u64()?).ok()?,
+                    ))
+                });
+            (stream, snapshot, spec_geometry)
+        };
+        let generation = stream
+            .as_ref()
+            .map(|(generation, _)| generation.clone())
+            .or_else(|| snapshot.as_ref().map(|snapshot| snapshot.generation.clone()));
+        let Some(generation) = generation else {
+            // Nothing was ever journaled: an empty, complete stream.
+            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+        };
+        // Offsets are per journal generation. Reads serve the most recent
+        // stream; the snapshot participates only when it belongs to it.
+        let snapshot = snapshot.filter(|snapshot| snapshot.generation == generation);
+        let stream_end = stream.map(|(_, next_offset)| next_offset).unwrap_or(0);
+        if let Some(snapshot) = &snapshot
+            && requested < snapshot.covered_through
+        {
+            // The requested bytes are covered by the exit snapshot; earlier
+            // records may already be pruned, and rendering the bounded
+            // snapshot keeps the read O(snapshot) instead of O(history).
+            let text = render_terminal_output_plain(
+                std::iter::once(snapshot.replay_bytes.as_slice()),
+                snapshot.cols,
+                snapshot.rows,
+            )?;
+            let complete = snapshot.covered_through >= stream_end;
+            return Ok(terminal_output_read_result(text, 0, snapshot.covered_through, complete));
+        }
+        let window = self.workspace_registry.lock().unwrap().terminal_output_records_after(
+            terminal_id.as_str(),
+            &generation,
+            requested,
+            max_bytes,
+        )?;
+        let Some((first, last)) = window.chunks.first().zip(window.chunks.last()) else {
+            // Everything journaled so far is at or before the cursor.
+            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+        };
+        let (cols, rows) = surface
+            .as_ref()
+            .map(|surface| surface.size())
+            .or_else(|| snapshot.as_ref().map(|snapshot| (snapshot.cols, snapshot.rows)))
+            .or(spec_geometry)
+            .unwrap_or((80, 24));
+        let start_offset = first.stream_offset_start;
+        let next_offset = last.stream_offset_end;
+        let text = render_terminal_output_plain(
+            window.chunks.iter().map(|chunk| chunk.bytes.as_ref()),
+            cols,
+            rows,
+        )?;
+        Ok(terminal_output_read_result(text, start_offset, next_offset, !window.truncated))
+    }
+
+    /// Best-effort capture of a terminal's final screen as one bounded,
+    /// compressed vt-replay blob. `None` whenever the runtime surface is
+    /// unavailable (dead-host reconciliation, daemon restart) or any capture
+    /// step fails; exit persistence never depends on it.
+    fn capture_terminal_exit_replay(
+        &self,
+        terminal_id: &str,
+        generation: &str,
+    ) -> Option<(TerminalPublicId, String, crate::workspace_registry::JournalContentBlob)> {
+        let public_terminal_id =
+            self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id).ok()??;
+        let surface = self.terminal_resource_surface(&public_terminal_id)?;
+        if surface.kind() != SurfaceKind::Pty {
+            return None;
+        }
+        // Fence asynchronous output ingress so the journaled stream offset
+        // recorded as the snapshot's coverage matches the captured VT state.
+        self.flush_terminal_journal().ok()?;
+        let blob =
+            crate::journal_checkpoint::terminal_replay_blob(&surface, &public_terminal_id).ok()?;
+        Some((public_terminal_id, generation.to_string(), blob))
+    }
+
     pub(crate) fn subscribe_terminal_exit(
         &self,
         terminal_id: &TerminalPublicId,
@@ -12940,6 +13057,15 @@ impl Mux {
         incarnation: Option<&str>,
         exit: &TerminalExit,
     ) -> anyhow::Result<bool> {
+        // Best-effort exit snapshot: capture the terminal's final state as
+        // one bounded, compressed vt-replay blob while the runtime VT is
+        // still alive, so terminal.output_read stays answerable after its
+        // output records become prunable. Capture and store live AROUND the
+        // first-writer-wins latch below and never affect its outcome: any
+        // failure leaves the exit commit untouched and readers fall back to
+        // the retained terminal.output records.
+        let exit_replay = incarnation
+            .and_then(|generation| self.capture_terminal_exit_replay(terminal_id, generation));
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -13023,6 +13149,21 @@ impl Mux {
         drop(state);
         drop(registry);
         if !replayed {
+            if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
+                // Best-effort: a snapshot store failure must not disturb the
+                // exit latch that already committed above.
+                if let Err(error) = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .put_terminal_exit_snapshot(snapshot_terminal_id.as_str(), &generation, &blob)
+                {
+                    eprintln!(
+                        "cmux-tui: could not store the exit snapshot for terminal \
+                         {snapshot_terminal_id}: {error:#}"
+                    );
+                }
+            }
             if let Some(public_terminal_id) = public_terminal_id.as_ref() {
                 self.terminal_exit_waiters.notify(public_terminal_id);
             }
@@ -14897,6 +15038,43 @@ fn public_topology_result_target(operation: &str) -> Option<(&'static str, &'sta
         "tab.rename" | "tab.move" | "tab.focus" => Some(("tab", "tab")),
         _ => None,
     }
+}
+
+/// Render raw terminal output bytes to plain text by replaying them through
+/// a fresh terminal emulator sized to the recorded geometry, then formatting
+/// the full page list without escapes ([`ghostty_vt::Terminal::plain_text`]).
+/// The scrollback budget is the window's own byte count, so no row of the
+/// bounded window is evicted before formatting.
+fn render_terminal_output_plain<'a>(
+    chunks: impl Iterator<Item = &'a [u8]> + Clone,
+    cols: u16,
+    rows: u16,
+) -> anyhow::Result<String> {
+    let scrollback: usize = chunks.clone().map(<[u8]>::len).sum();
+    let mut terminal = ghostty_vt::Terminal::new(
+        cols.max(1),
+        rows.max(1),
+        scrollback,
+        ghostty_vt::Callbacks::default(),
+    )?;
+    for chunk in chunks {
+        terminal.vt_write(chunk);
+    }
+    Ok(terminal.plain_text()?)
+}
+
+fn terminal_output_read_result(
+    text: String,
+    start_offset: u64,
+    next_offset: u64,
+    complete: bool,
+) -> Value {
+    serde_json::json!({
+        "text": text,
+        "start_offset": start_offset.to_string(),
+        "next_offset": next_offset.to_string(),
+        "complete": complete,
+    })
 }
 
 fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
@@ -25274,6 +25452,87 @@ mod tests {
         });
         assert_eq!(mux.active_surface(), Some(neighbor.id));
         mux.close_surface(neighbor.id).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_read_serves_live_records_and_exit_snapshot_after_close_detach() {
+        const TERMINAL: &str = "0000000000004000800000000000004e";
+        const INCARNATION: &str = "1000000000004000800000000000004e";
+        let root = std::env::temp_dir()
+            .join(format!("cmux-mux-output-read-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent("output-read", SurfaceOptions::default(), &root).unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let colored: &[u8] = b"output read \x1b[31mred marker\x1b[0m\r\nsecond line\r\n";
+        surface.apply_stream_output_for_test(colored).unwrap();
+        {
+            let event = crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                terminal_id: Arc::new(terminal.clone()),
+                generation: INCARNATION.into(),
+                occurred_at_ms: 1,
+                bytes: colored.to_vec(),
+            };
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress_events(&[&event])
+                .unwrap();
+        }
+        let total = u64::try_from(colored.len()).unwrap();
+
+        // Live: the record window renders plain text with a resumable cursor.
+        let live = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+        let text = live["text"].as_str().unwrap();
+        assert!(text.contains("red marker") && text.contains("second line"), "{live}");
+        assert!(!text.contains('\u{1b}'), "escape bytes leaked into plain text: {live}");
+        assert_eq!(live["start_offset"], "0");
+        assert_eq!(live["next_offset"], total.to_string());
+        assert_eq!(live["complete"], true);
+
+        // The exit latch (close policy) captures the snapshot around the
+        // commit and the detach removes the runtime surface.
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 1_234,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+        mux.surface_exited(surface_id);
+        assert!(mux.terminal_resource_surface(&terminal).is_none());
+        let snapshot = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_exit_snapshot(terminal.as_str())
+            .unwrap()
+            .expect("the exit latch stored a snapshot");
+        assert_eq!(snapshot.generation, INCARNATION);
+        assert_eq!(snapshot.covered_through, total);
+
+        // Post-exit, surface gone: the snapshot projection answers, stays
+        // escape-free, and hands back the exact resume cursor.
+        let after_exit = mux.terminal_output_read(&terminal, None, 1 << 20).unwrap();
+        let text = after_exit["text"].as_str().unwrap();
+        assert!(text.contains("red marker") && text.contains("second line"), "{after_exit}");
+        assert!(!text.contains('\u{1b}'), "escape bytes leaked after exit: {after_exit}");
+        assert_eq!(after_exit["start_offset"], "0");
+        assert_eq!(after_exit["next_offset"], total.to_string());
+        assert_eq!(after_exit["complete"], true);
+
+        // Resuming at the snapshot edge is exact: empty and complete.
+        let resumed = mux.terminal_output_read(&terminal, Some(total), 1 << 20).unwrap();
+        assert_eq!(resumed["text"], "");
+        assert_eq!(resumed["start_offset"], total.to_string());
+        assert_eq!(resumed["next_offset"], total.to_string());
+        assert_eq!(resumed["complete"], true);
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]

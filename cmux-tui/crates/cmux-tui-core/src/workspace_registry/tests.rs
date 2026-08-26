@@ -5085,6 +5085,197 @@ fn terminal_output_survives_immutable_segment_round_trip() {
     fs::remove_dir_all(root).unwrap();
 }
 
+fn append_terminal_output_for_test(
+    registry: &mut WorkspaceRegistry,
+    terminal_id: &TerminalPublicId,
+    generation: &str,
+    records: &[&[u8]],
+) {
+    let terminal_id = Arc::new(terminal_id.clone());
+    let generation: Arc<str> = generation.into();
+    let events = records
+        .iter()
+        .enumerate()
+        .map(|(index, bytes)| crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+            terminal_id: terminal_id.clone(),
+            generation: generation.clone(),
+            occurred_at_ms: u64::try_from(index).unwrap() + 1,
+            bytes: bytes.to_vec(),
+        })
+        .collect::<Vec<_>>();
+    registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
+}
+
+fn vt_replay_blob_for_test(
+    terminal_id: &TerminalPublicId,
+    cols: u16,
+    rows: u16,
+    replay: &[u8],
+) -> JournalContentBlob {
+    use base64::Engine as _;
+    use std::io::Write as _;
+    let value = json!({
+        "format":"cmux.vt-replay.v1",
+        "cols":cols,
+        "rows":rows,
+        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(replay),
+    });
+    let uncompressed = serde_json::to_vec(&value).unwrap();
+    let digest = Sha256::digest(&uncompressed);
+    let digest_hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let mut encoder =
+        flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+    encoder.write_all(&uncompressed).unwrap();
+    let compressed = encoder.finish().unwrap();
+    JournalContentBlob::verified(
+        JournalContentRef {
+            content_id: format!("jcontent_{digest_hex}"),
+            terminal_id: terminal_id.as_str().into(),
+            format: "cmux.vt-replay.v1".into(),
+            codec: "gzip".into(),
+            sha256: digest_hex,
+            uncompressed_bytes: u64::try_from(uncompressed.len()).unwrap(),
+            cols,
+            rows,
+        },
+        compressed,
+    )
+    .unwrap()
+}
+
+#[test]
+fn terminal_output_window_resumes_exactly_and_honors_record_boundaries() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-output-window").unwrap();
+    commit_terminal_topology(&mut registry, "terminal-output-window-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let first: &[u8] = b"first \x1b[31mred\x1b[0m\r\n";
+    let second: &[u8] = b"second plain\r\n";
+    let third: &[u8] = b"third \x1b[1mbold\x1b[0m\r\n";
+    append_terminal_output_for_test(
+        &mut registry,
+        &terminal_id,
+        INCARNATION_ONE,
+        &[first, second, third],
+    );
+    let total = u64::try_from(first.len() + second.len() + third.len()).unwrap();
+    assert_eq!(
+        registry.terminal_stream_latest(terminal_id.as_str()).unwrap(),
+        Some((INCARNATION_ONE.to_string(), total))
+    );
+
+    // The full window is contiguous and record-aligned.
+    let window = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, 0, 1 << 20)
+        .unwrap();
+    assert!(!window.truncated);
+    let offsets = window
+        .chunks
+        .iter()
+        .map(|chunk| (chunk.stream_offset_start, chunk.stream_offset_end))
+        .collect::<Vec<_>>();
+    let first_end = u64::try_from(first.len()).unwrap();
+    let second_end = first_end + u64::try_from(second.len()).unwrap();
+    assert_eq!(offsets, vec![(0, first_end), (first_end, second_end), (second_end, total)]);
+    assert_eq!(window.chunks[0].bytes.as_ref(), first);
+
+    // A cursor at a record boundary resumes exactly after it.
+    let resumed = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, first_end, 1 << 20)
+        .unwrap();
+    assert_eq!(resumed.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
+
+    // A mid-record cursor never splits the record: the window starts at the
+    // boundary of the record containing the cursor.
+    let mid = registry
+        .terminal_output_records_after(
+            terminal_id.as_str(),
+            INCARNATION_ONE,
+            first_end + 1,
+            1 << 20,
+        )
+        .unwrap();
+    assert_eq!(mid.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
+
+    // The byte budget truncates at record boundaries and reports truncation.
+    let budgeted = registry
+        .terminal_output_records_after(
+            terminal_id.as_str(),
+            INCARNATION_ONE,
+            0,
+            u64::try_from(first.len()).unwrap(),
+        )
+        .unwrap();
+    assert!(budgeted.truncated);
+    assert_eq!(budgeted.chunks.len(), 1);
+    assert_eq!(budgeted.chunks[0].stream_offset_end, first_end);
+
+    // Even a budget below one record returns the first record whole.
+    let tiny = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, 0, 1)
+        .unwrap();
+    assert!(tiny.truncated);
+    assert_eq!(tiny.chunks.len(), 1);
+    assert_eq!(tiny.chunks[0].bytes.as_ref(), first);
+
+    // A cursor at the stream head returns an empty, non-truncated window,
+    // and a foreign generation owns no records.
+    let drained = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, total, 1 << 20)
+        .unwrap();
+    assert!(drained.chunks.is_empty() && !drained.truncated);
+    let foreign = registry
+        .terminal_output_records_after(
+            terminal_id.as_str(),
+            "20000000000040008000000000000001",
+            0,
+            1 << 20,
+        )
+        .unwrap();
+    assert!(foreign.chunks.is_empty() && !foreign.truncated);
+}
+
+#[test]
+fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-exit-snapshot").unwrap();
+    commit_terminal_topology(&mut registry, "terminal-exit-snapshot-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let output: &[u8] = b"snapshot \x1b[32mready\x1b[0m\r\n";
+    append_terminal_output_for_test(&mut registry, &terminal_id, INCARNATION_ONE, &[output]);
+    let replay: &[u8] = b"snapshot \x1b[32mready\x1b[0m\r\n";
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, replay);
+
+    assert!(
+        registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+    );
+    // The exit latch is first-writer-wins; a replayed store is a no-op.
+    assert!(
+        !registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+    );
+
+    let snapshot = registry
+        .terminal_exit_snapshot(terminal_id.as_str())
+        .unwrap()
+        .expect("stored snapshot decodes");
+    assert_eq!(snapshot.generation, INCARNATION_ONE);
+    assert_eq!(snapshot.covered_through, u64::try_from(output.len()).unwrap());
+    assert_eq!((snapshot.cols, snapshot.rows), (100, 30));
+    assert_eq!(snapshot.replay_bytes.as_slice(), replay);
+
+    // A generation that journaled nothing has nothing to cover: no row.
+    let other = terminal_resource(TERMINAL_TWO);
+    let other_blob = vt_replay_blob_for_test(&other, 80, 24, b"idle");
+    assert!(
+        !registry
+            .put_terminal_exit_snapshot(
+                other.as_str(),
+                "30000000000040008000000000000002",
+                &other_blob
+            )
+            .unwrap()
+    );
+    assert!(registry.terminal_exit_snapshot(other.as_str()).unwrap().is_none());
+}
+
 fn receipt_test_producer() -> JournalProducerManifest {
     JournalProducerManifest {
         producer_id: "receipt_test".into(),

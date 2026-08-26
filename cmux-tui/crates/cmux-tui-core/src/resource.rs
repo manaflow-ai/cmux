@@ -296,6 +296,8 @@ pub enum ResourceOperation {
     TerminalHistoryRead,
     #[serde(rename = "terminal.history.clear")]
     TerminalHistoryClear,
+    #[serde(rename = "terminal.output_read")]
+    TerminalOutputRead,
     #[serde(rename = "terminal.wait")]
     TerminalWait,
     #[serde(rename = "terminal.wait_exit")]
@@ -466,6 +468,7 @@ impl ResourceOperation {
                 | Self::TerminalScreenRead
                 | Self::TerminalStateRead
                 | Self::TerminalHistoryRead
+                | Self::TerminalOutputRead
                 | Self::TerminalWait
                 | Self::TerminalWaitExit
                 | Self::TerminalCopy
