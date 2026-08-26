@@ -34737,27 +34737,26 @@ export default CMUXSessionRestore;
                 }
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            let codexStopDecision: CodexTurnLedgerDecision? = {
+            // Admit ownership before touching the legacy prompt-depth store.
+            // A nested reviewer must not be able to create or mutate a generic
+            // session record merely because it inherited the foreground PID.
+            let codexStopOwnership: CodexTurnLedgerDecision? = {
                 guard def.name == "codex",
                       !sessionId.isEmpty,
                       let codexLifecycle else {
                     return nil
                 }
-                return codexLifecycle.stop(
+                return codexLifecycle.observe(
                     sessionID: sessionId,
                     turnID: input.turnId,
                     workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
                     surfaceID: resolvedDirectSurfaceArg ?? mapped?.surfaceId
                 )
             }()
+            var codexStopDecision = codexStopOwnership
             if def.name == "codex", !sessionId.isEmpty {
                 guard codexStopDecision?.ownership == .foreground else {
                     telemetry.breadcrumb("codex-hook.stop.nested-or-unknown")
-                    print("{}")
-                    return
-                }
-                if codexStopDecision?.settlement == .duplicate {
-                    telemetry.breadcrumb("codex-hook.stop.duplicate-settled")
                     print("{}")
                     return
                 }
@@ -34895,13 +34894,32 @@ export default CMUXSessionRestore;
             } else {
                 nestedPromptStop = false
             }
+            // The prompt-depth record is a compatibility ownership signal for
+            // legacy same-session nested turns. Do not settle the Codex ledger
+            // for that nested callback; otherwise the later parent Stop would
+            // be mistaken for a duplicate and could never notify.
+            if def.name == "codex",
+               !nestedPromptStop,
+               let codexLifecycle {
+                codexStopDecision = codexLifecycle.stop(
+                    sessionID: sessionId,
+                    turnID: input.turnId,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )
+            }
+            if def.name == "codex", codexStopDecision?.settlement == .duplicate {
+                telemetry.breadcrumb("codex-hook.stop.duplicate-settled")
+                print("{}")
+                return
+            }
             // Codex ownership was admitted before any store mutation. Other
             // integrations retain their existing ancestry-based suppression.
             let isNestedAgentSession: Bool
             let suppressVisibleMutations: Bool
             if def.name == "codex" {
-                isNestedAgentSession = false
-                suppressVisibleMutations = staleIdleStopHasNewerRunningSession
+                isNestedAgentSession = nestedPromptStop
+                suppressVisibleMutations = nestedPromptStop || staleIdleStopHasNewerRunningSession
             } else {
                 isNestedAgentSession = nestedAgentSessionDetected(
                     currentAgentPID: pid,

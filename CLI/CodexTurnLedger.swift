@@ -379,10 +379,10 @@ final class CodexTurnLedger {
             if existing != nil,
                invocation.token == nil,
                owner.owner.token == nil {
-                // Legacy hooks have no token, but Codex's session id is still
-                // authoritative for its own callbacks. A nested process with
-                // a new session id is handled by the occupied-surface branch
-                // below and remains fail-closed.
+                if invocation.hasExplicitObservedPID,
+                   owner.owner.pid != invocation.observedPID {
+                    return .nested
+                }
                 return .foreground
             }
             if let token = invocation.token,
@@ -420,8 +420,7 @@ final class CodexTurnLedger {
         }
         // Legacy direct launches may omit SessionStart; preserve them unless
         // a tokenized child contradicts the claimed owner PID.
-        if invocation.token != nil,
-           invocation.ownerPID != nil,
+        if invocation.ownerPID != nil,
            invocation.observedPID != invocation.ownerPID {
             if case .sessionStart = event {
                 return .foreground

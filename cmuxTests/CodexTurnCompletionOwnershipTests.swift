@@ -256,7 +256,7 @@ struct CodexTurnCompletionOwnershipTests {
         let arguments = command.first == "feed"
             ? ["hooks"] + command
             : ["hooks", "codex"] + command
-        harness.support.runProcess(
+        return harness.support.runProcess(
             executablePath: harness.context.cliPath,
             arguments: arguments,
             environment: environment,
