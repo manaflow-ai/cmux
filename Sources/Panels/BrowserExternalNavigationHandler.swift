@@ -10,14 +10,7 @@ import WebKit
 /// consistent without reaching through a static settings namespace.
 @MainActor
 struct BrowserExternalNavigationHandler {
-    enum OpenResult: Equatable {
-        /// No configured rule selected this URL.
-        case notConfigured
-        /// A configured URL was accepted by the system opener.
-        case opened
-        /// A configured URL could not be handed to the system opener.
-        case failed
-    }
+    typealias OpenResult = BrowserExternalNavigationOpenResult
 
     private let defaults: UserDefaults
     private let openURL: @MainActor @Sendable (URL) -> Bool

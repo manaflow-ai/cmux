@@ -21,7 +21,7 @@ extension DefaultsKey {
     func decodedValue(in defaults: UserDefaults) -> Value? {
         let rawValue = defaults.object(forKey: userDefaultsKey)
         if userDefaultsKey == BrowserExternalURLPolicy.userDefaultsKey,
-           let normalized = BrowserExternalURLPolicy.legacyArrayStringValue(from: rawValue),
+           let normalized = BrowserExternalURLPatternMatcher().legacyArrayStringValue(from: rawValue),
            let value = normalized as? Value {
             return value
         }
