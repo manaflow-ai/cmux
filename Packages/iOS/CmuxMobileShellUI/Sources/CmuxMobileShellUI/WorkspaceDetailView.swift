@@ -641,24 +641,20 @@ struct WorkspaceDetailView: View {
         return connectionStatus
     }
 
-    /// Input viability is narrower than the displayed status: the terminal
-    /// stays fully interactive while a reconnect is in flight so the user can
-    /// finish typing a thought — keystrokes ride the send buffer, and a send
-    /// that races the dead window fails visibly through the send-status pill
-    /// instead of dismissing a working keyboard mid-word. Block only when the
-    /// connection is unavailable (reconnect attempts stopped) or foreground
-    /// recovery actually failed. Internal so the +Surfaces chrome-return
-    /// refocus can share the same policy.
+    /// Input follows the effective (recovery-aware) status, not the raw row
+    /// status: the redial path downgrades the retained row to unavailable in
+    /// the same turn it marks the recovery as reconnecting, and gating on the
+    /// raw value would resign a working keyboard right as the spinner starts.
+    /// The terminal stays fully interactive while a reconnect is in flight so
+    /// the user can finish typing a thought — keystrokes ride the send
+    /// buffer, and a send that races the dead window fails visibly through
+    /// the send-status pill instead of the keyboard dropping mid-word. Block
+    /// only once the connection is unavailable (attempts stopped or
+    /// foreground recovery failed, which `effectiveConnectionStatus` folds
+    /// in). Internal so the +Surfaces chrome-return refocus can share the
+    /// same policy.
     var terminalInputIsBlocked: Bool {
-        if connectionStatus == .unavailable {
-            return true
-        }
-        if store.selectedWorkspaceID == workspace.id,
-           store.selectedWorkspaceUsesForegroundConnection,
-           store.connectionRecoveryFailed {
-            return true
-        }
-        return false
+        effectiveConnectionStatus == .unavailable
     }
 
     #if os(iOS)
