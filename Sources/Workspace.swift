@@ -5154,7 +5154,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// The workspace handoff waits for each one's first rendered frame before
     /// the retiring workspace's content is hidden (#1291).
     func renderedVisibleTerminalSurfaceIds() -> Set<UUID> {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        let visiblePanelIds = expectedVisiblePanelIdsForLayout()
         var ids: Set<UUID> = []
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
@@ -5172,7 +5172,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// frame with neither workspace's terminals (#1291). False for a freshly
     /// mounted workspace whose portals have not revealed yet.
     func visibleTerminalsReadyForImmediateHandoff() -> Bool {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        let visiblePanelIds = expectedVisiblePanelIdsForLayout()
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
@@ -11678,6 +11678,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard portalRenderingEnabled else { return [] }
+        return expectedVisiblePanelIdsForLayout()
+    }
+
+    /// The panel ids the current layout model would show, independent of
+    /// whether this workspace's portals are rendering yet. The workspace
+    /// handoff consults this for a workspace that is about to mount (#1291),
+    /// when `portalRenderingEnabled` is still false.
+    private func expectedVisiblePanelIdsForLayout() -> Set<UUID> {
         // Canvas mode renders one panel per canvas pane — its selected tab.
         // Background tabs are unmounted, so reporting them as rendered makes
         // the terminal window portal float them at stale frames (chromeless
