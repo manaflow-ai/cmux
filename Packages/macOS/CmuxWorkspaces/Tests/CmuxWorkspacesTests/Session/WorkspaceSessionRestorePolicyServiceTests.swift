@@ -380,4 +380,12 @@ struct WorkspaceSessionRestorePolicyServiceTests {
 
         #expect(service.localTmuxStartCommand(command) == nil)
     }
+
+    @Test("local tmux restore accepts canonical custom executable and state paths")
+    func localTmuxRestoreAcceptsCustomPaths() {
+        let service = makeService()
+        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/custom/bin/session-owner' -S '/var/tmp/cmux-state/server.sock' attach-session -t '$42'"
+
+        #expect(service.localTmuxStartCommand(command) == command)
+    }
 }
