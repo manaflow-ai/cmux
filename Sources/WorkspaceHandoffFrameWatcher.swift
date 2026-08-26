@@ -99,6 +99,20 @@ final class WorkspaceHandoffFrameWatcher {
     }
 
     func cancel() {
+#if DEBUG
+        if onReady != nil {
+            for target in targets {
+                let view = target.hostedView
+                let layer = view.surfaceView.layer
+                cmuxDebugLog(
+                    "ws.handoff.frameWatch.state surface=\(target.surface.id.uuidString.prefix(5)) " +
+                    "hidden=\(view.isHidden ? 1 : 0) inWindow=\(view.window != nil ? 1 : 0) " +
+                    "layer=\(layer.map { String(describing: type(of: $0)) } ?? "nil") " +
+                    "contents=\(layer?.contents != nil ? 1 : 0)"
+                )
+            }
+        }
+#endif
         recheckScheduler.cancel()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
