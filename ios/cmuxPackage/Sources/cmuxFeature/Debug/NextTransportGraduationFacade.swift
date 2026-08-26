@@ -29,6 +29,19 @@ func nextTransportElapsedMs(since start: ContinuousClock.Instant) -> Int64 {
 /// the app fails and reconnects rather than silently degrading to legacy.
 struct NextTransportUnavailableError: Error {}
 
+/// Decides whether a dial client's reported session state means this Mac's
+/// persisted bootstrap (ticket + grant) is no longer trustworthy. A real
+/// admission denial means the credentials themselves are bad (the Mac
+/// re-minted its signer, the grant expired or was revoked): the bootstrap
+/// must be dropped so the legacy channel can re-credential. Extracted pure
+/// so the regression suite can pin the decision table.
+enum NextTransportDenialPolicy {
+    /// Whether one dial-client display state proves a credential denial.
+    static func shouldInvalidateBootstrap(stateDescription: String) -> Bool {
+        stateDescription.contains("denied")
+    }
+}
+
 /// Graduation lane routing, phone side. Routing is a sticky PER-MAC
 /// decision made only by probe verdicts: a next-transport Mac carries all
 /// traffic over the bridge and FAILS HARD while reconnecting; legacy
@@ -155,7 +168,7 @@ final class NextTransportGraduationFacade {
                 """)
             return nil
         }
-        if client.state.contains("denied") {
+        if NextTransportDenialPolicy.shouldInvalidateBootstrap(stateDescription: client.state) {
             graduationLog.notice(
                 "credentials for \(macID, privacy: .public) denied; re-credentialing over legacy")
             invalidateBootstrap(macID: macID, cause: "admission denied (state=\(client.state))")
