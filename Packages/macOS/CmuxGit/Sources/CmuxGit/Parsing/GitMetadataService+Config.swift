@@ -20,6 +20,7 @@ extension GitMetadataService {
         static let maximumByteCount = 4 * 1024 * 1024
         static let maximumIncludeDepth = 32
         static let maximumDiscoveredRemoteURLCount = 4_096
+        static let maximumDiscoveredRemoteURLAssociationCount = 8_192
         static let maximumHasConfigConditionCount = 1_024
         static let maximumHasConfigMatchOperationCount = 65_536
 
@@ -32,6 +33,9 @@ extension GitMetadataService {
         var configStatuses: [String: GitFileStatus?] = [:]
         var worktreeConfigEnabled = false
         var discoveredRemoteURLs: Set<String> = []
+        var discoveredRemoteURLsByRemoteName: [String: Set<String>] = [:]
+        var discoveredRemoteURLReferenceCount: [String: Int] = [:]
+        var discoveredRemoteURLAssociationCount = 0
         var effectiveRemoteLineIndexByName: [String: Int] = [:]
         var hasConfigConditionCount = 0
         var hasConfigMatchOperationCount = 0
@@ -150,13 +154,46 @@ extension GitMetadataService {
                 || commonConfigPaths.contains(standardized.resolvingSymlinksInPath().path)
         }
 
-        mutating func recordDiscoveredRemoteURL(_ remoteURL: String) {
-            guard !discoveredRemoteURLs.contains(remoteURL) else { return }
-            guard discoveredRemoteURLs.count < Self.maximumDiscoveredRemoteURLCount else {
+        mutating func recordDiscoveredRemoteURL(
+            remoteName: String,
+            remoteURL: String
+        ) {
+            guard !remoteURL.isEmpty else {
+                clearDiscoveredRemoteURLs(remoteName: remoteName)
+                return
+            }
+            guard discoveredRemoteURLsByRemoteName[remoteName]?.contains(remoteURL) != true else {
+                return
+            }
+            guard discoveredRemoteURLAssociationCount
+                    < Self.maximumDiscoveredRemoteURLAssociationCount,
+                  discoveredRemoteURLs.contains(remoteURL)
+                    || discoveredRemoteURLs.count < Self.maximumDiscoveredRemoteURLCount else {
                 exceeded = true
                 return
             }
+            discoveredRemoteURLsByRemoteName[remoteName, default: []].insert(remoteURL)
+            discoveredRemoteURLAssociationCount += 1
+            discoveredRemoteURLReferenceCount[remoteURL, default: 0] += 1
             discoveredRemoteURLs.insert(remoteURL)
+        }
+
+        mutating func clearDiscoveredRemoteURLs(remoteName: String) {
+            guard let remoteURLs = discoveredRemoteURLsByRemoteName.removeValue(
+                forKey: remoteName
+            ) else {
+                return
+            }
+            discoveredRemoteURLAssociationCount -= remoteURLs.count
+            for remoteURL in remoteURLs {
+                let referenceCount = (discoveredRemoteURLReferenceCount[remoteURL] ?? 1) - 1
+                if referenceCount > 0 {
+                    discoveredRemoteURLReferenceCount[remoteURL] = referenceCount
+                } else {
+                    discoveredRemoteURLReferenceCount.removeValue(forKey: remoteURL)
+                    discoveredRemoteURLs.remove(remoteURL)
+                }
+            }
         }
 
         mutating func hasConfigMatches(pattern: String) -> Bool {
@@ -173,11 +210,19 @@ extension GitMetadataService {
                 return false
             }
             hasConfigMatchOperationCount += operationCount
-            return GitMetadataService.gitConfigGlobMatchesAny(
-                discoveredRemoteURLs,
-                pattern: pattern,
-                caseInsensitive: false
-            )
+            let regexPattern = GitMetadataService.gitConfigGlobRegexPattern(pattern)
+            guard let regex = try? NSRegularExpression(pattern: regexPattern) else {
+                return discoveredRemoteURLs.contains {
+                    fnmatch(pattern, $0, 0) == 0
+                }
+            }
+            return discoveredRemoteURLs.contains { remoteURL in
+                let range = NSRange(
+                    remoteURL.startIndex..<remoteURL.endIndex,
+                    in: remoteURL
+                )
+                return regex.firstMatch(in: remoteURL, range: range) != nil
+            }
         }
 
         /// Collects raw remote URLs for Git's deferred hasconfig condition.
@@ -245,13 +290,14 @@ extension GitMetadataService {
                         worktreeConfigEnabled = enabled
                     }
                 }
-                if currentRemoteName != nil,
+                if let currentRemoteName,
                    parts.count == 2,
                    parts[0].lowercased() == "url" {
                     let remoteURL = GitMetadataService.gitConfigUnquotedValue(parts[1])
-                    if !remoteURL.isEmpty {
-                        recordDiscoveredRemoteURL(remoteURL)
-                    }
+                    recordDiscoveredRemoteURL(
+                        remoteName: currentRemoteName,
+                        remoteURL: remoteURL
+                    )
                     continue
                 }
 
@@ -678,7 +724,9 @@ extension GitMetadataService {
                     currentSectionAllowsIncludePath = true
                     currentSectionIsHasConfig = false
                 } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
-                    if let pattern = gitConfigHasConfigPattern(from: condition) {
+                    let hasConfigPrefix = "hasconfig:remote.*.url:"
+                    if condition.lowercased().hasPrefix(hasConfigPrefix) {
+                        let pattern = String(condition.dropFirst(hasConfigPrefix.count))
                         currentSectionIsHasConfig = true
                         currentSectionAllowsIncludePath = budget.hasConfigMatches(
                             pattern: pattern
@@ -708,8 +756,17 @@ extension GitMetadataService {
                 budget.recordWorktreeConfigSetting(parts.count == 2 ? parts[1] : "true")
             }
 
-            if !isHasConfigGated,
-               let currentRemoteName,
+            if isHasConfigGated,
+               currentRemoteName != nil,
+               parts.count == 2,
+               parts[0].lowercased() == "url" {
+                // Git rejects remote URLs in files reached through hasconfig
+                // to prevent those files from satisfying their own condition.
+                budget.exceeded = true
+                return
+            }
+
+            if let currentRemoteName,
                parts.count == 2,
                parts[0].lowercased() == "url" {
                 let remoteURL = gitConfigUnquotedValue(parts[1])
@@ -1006,12 +1063,23 @@ extension GitMetadataService {
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
-        if let pattern = gitConfigHasConfigPattern(from: condition) {
-            return gitConfigGlobMatchesAny(
-                discoveredRemoteURLs,
-                pattern: pattern,
-                caseInsensitive: false
-            )
+        let hasConfigPrefix = "hasconfig:remote.*.url:"
+        if lowercasedCondition.hasPrefix(hasConfigPrefix) {
+            let pattern = String(condition.dropFirst(hasConfigPrefix.count))
+            guard !pattern.isEmpty else { return false }
+            let regexPattern = gitConfigGlobRegexPattern(pattern)
+            guard let regex = try? NSRegularExpression(pattern: regexPattern) else {
+                return discoveredRemoteURLs.contains {
+                    fnmatch(pattern, $0, 0) == 0
+                }
+            }
+            return discoveredRemoteURLs.contains { remoteURL in
+                let range = NSRange(
+                    remoteURL.startIndex..<remoteURL.endIndex,
+                    in: remoteURL
+                )
+                return regex.firstMatch(in: remoteURL, range: range) != nil
+            }
         }
         if lowercasedCondition.hasPrefix("gitdir/i:") {
             let pattern = String(condition.dropFirst("gitdir/i:".count))
@@ -1064,15 +1132,6 @@ extension GitMetadataService {
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false
-    }
-
-    private nonisolated static func gitConfigHasConfigPattern(
-        from condition: String
-    ) -> String? {
-        let prefix = "hasconfig:remote.*.url:"
-        guard condition.lowercased().hasPrefix(prefix) else { return nil }
-        let pattern = String(condition.dropFirst(prefix.count))
-        return pattern.isEmpty ? nil : pattern
     }
 
     /// Whether a `gitdir`/`gitdir/i` glob pattern matches any of the repository's
@@ -1200,31 +1259,6 @@ extension GitMetadataService {
         }
         let range = NSRange(candidateValue.startIndex..<candidateValue.endIndex, in: candidateValue)
         return regex.firstMatch(in: candidateValue, range: range) != nil
-    }
-
-    private nonisolated static func gitConfigGlobMatchesAny(
-        _ values: Set<String>,
-        pattern: String,
-        caseInsensitive: Bool
-    ) -> Bool {
-        guard !values.isEmpty else { return false }
-        let candidatePattern = caseInsensitive ? pattern.lowercased() : pattern
-        guard let regex = try? NSRegularExpression(
-            pattern: gitConfigGlobRegexPattern(candidatePattern)
-        ) else {
-            return values.contains { value in
-                let candidateValue = caseInsensitive ? value.lowercased() : value
-                return fnmatch(candidatePattern, candidateValue, 0) == 0
-            }
-        }
-        return values.contains { value in
-            let candidateValue = caseInsensitive ? value.lowercased() : value
-            let range = NSRange(
-                candidateValue.startIndex..<candidateValue.endIndex,
-                in: candidateValue
-            )
-            return regex.firstMatch(in: candidateValue, range: range) != nil
-        }
     }
 
     /// Translates a git-style glob (`*`, `**`, `?`, `[…]`) into an anchored
