@@ -113,7 +113,7 @@ extension VerticalTabsSidebar {
             },
             onFocusAnchor: { [weak tabManager, groupId = group.id, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                focusWorkspaceGroupAnchor(
+                Self.focusWorkspaceGroupAnchor(
                     groupId: groupId,
                     modifiers: modifiers,
                     tabManager: tabManager,
@@ -413,7 +413,7 @@ extension VerticalTabsSidebar {
             },
             onFocusAnchor: { [weak tabManager, groupId = snapshot.groupId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
-                focusWorkspaceGroupAnchor(
+                Self.focusWorkspaceGroupAnchor(
                     groupId: groupId,
                     modifiers: modifiers,
                     tabManager: tabManager,
@@ -533,7 +533,7 @@ extension VerticalTabsSidebar {
 
     /// Applies one shared group-header selection action to the live anchor.
     @MainActor
-    private func focusWorkspaceGroupAnchor(
+    static func focusWorkspaceGroupAnchor(
         groupId: UUID,
         modifiers: NSEvent.ModifierFlags,
         tabManager: TabManager,
