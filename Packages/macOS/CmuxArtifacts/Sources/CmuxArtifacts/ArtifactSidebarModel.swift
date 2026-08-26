@@ -270,6 +270,9 @@ public final class ArtifactSidebarModel {
     private func prepareForBinding(to workspace: ArtifactSidebarWorkspace) -> UInt64 {
         bindingRevision &+= 1
         tasks.cancelAll()
+        watcherReloadInFlight = false
+        watcherReloadPending = false
+        watcherEventGeneration = 0
         self.workspace = workspace
         projectRoot = nil
         nodes = []
