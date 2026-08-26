@@ -9378,7 +9378,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+            newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        }
     }
 
     @discardableResult
@@ -9396,7 +9398,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return withNewTabZoomPolicy(inPane: targetPane) {
+                newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            }
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
@@ -11827,6 +11831,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 return false
             }
         case .split(let paneId, let orientation, let insertFirst):
+            guard !isRemoteTmuxMirror else { return false }
             let panel = splitPaneWithNewTerminal(
                 targetPane: paneId,
                 orientation: orientation,
