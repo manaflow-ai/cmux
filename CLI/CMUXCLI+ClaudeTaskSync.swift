@@ -92,7 +92,10 @@ extension CMUXCLI {
             )
             let configuredTaskDirectoryName = configuredTaskListID.flatMap {
                 loader.canonicalDirectoryName(forTaskListID: $0)
-            }
+            } ?? claudeTaskCompletedTeamDirectoryName(
+                from: parsedInput,
+                loader: loader
+            )
             let deletedTeamTaskDirectoryName = claudeTeamDeleteTaskDirectoryName(
                 from: parsedInput,
                 loader: loader
@@ -624,6 +627,16 @@ extension CMUXCLI {
                         automaticTeamResolution.binding,
                         workspaceId: resolvedTarget.workspaceId
                     )
+                    guard clearSupersededPersonalClaudeTaskChecklistOwnerIfNeeded(
+                        currentRecord: currentRecord,
+                        taskDirectoryName: snapshot.directoryName,
+                        taskStoreIdentity: taskStoreIdentity,
+                        currentWorkspaceID: resolvedTarget.workspaceId,
+                        recordedWorkspaceIDs: transition.workspaceIDs,
+                        client: client,
+                        telemetry: telemetry,
+                        deadlineUptime: hookDeadlineUptime
+                    ) else { return }
                     for retiredRecord in transition.retiredRecords {
                         let retiredWorkspaceIDs = retiredRecord.workspaceIDs.isEmpty
                             ? [resolvedTarget.workspaceId]
@@ -1698,6 +1711,28 @@ extension CMUXCLI {
         guard let teamName = nonEmptyClaudeHookIdentifier(
             input?["team_name"] as? String
         ) else { return nil }
+        return loader.canonicalDirectoryName(forTaskListID: teamName)
+    }
+
+    /// Returns the team task directory named by Claude's synchronous
+    /// ``TaskCompleted`` payload, including teammate events that omit
+    /// `agent_id` and `CLAUDE_CODE_TASK_LIST_ID`.
+    private func claudeTaskCompletedTeamDirectoryName(
+        from parsedInput: ClaudeHookParsedInput,
+        loader: ClaudeTaskSnapshotLoader
+    ) -> String? {
+        let eventName = reportedHookEventName(from: parsedInput)?.lowercased()
+        guard eventName == "taskcompleted" else { return nil }
+        let object = parsedInput.rawObject ?? parsedInput.object
+        let input = object?["tool_input"] as? [String: Any]
+        let teamName = nonEmptyClaudeHookIdentifier(
+            (object?["team_name"] as? String)
+                ?? (object?["teamName"] as? String)
+                ?? (input?["team_name"] as? String)
+                ?? (input?["teamName"] as? String)
+                ?? ((object?["task"] as? [String: Any])?["team_name"] as? String)
+        )
+        guard let teamName else { return nil }
         return loader.canonicalDirectoryName(forTaskListID: teamName)
     }
 
