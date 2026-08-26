@@ -5282,7 +5282,8 @@ final class Workspace: Identifiable, ObservableObject {
             // authentication or loaded from persisted remote state. A fresh
             // authenticated report must replace stale same-session policy.
             binding
-        } else if let restoredAgent =
+        } else if binding.isAgentHookBinding,
+                  let restoredAgent =
             restoredAgentSnapshotsByPanelId[panelId],
            let selection = restoredAgent.restoreWorkingDirectorySelection,
            Self.restorableAgentForSessionRestore(

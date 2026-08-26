@@ -353,7 +353,8 @@ extension TerminalController {
                     : nil
             )
         }
-        guard target.restorableAgent?.restoreWorkingDirectorySelection == nil else {
+        guard binding?.isAgentHookBinding != true ||
+                target.restorableAgent?.restoreWorkingDirectorySelection == nil else {
             return nil
         }
         guard let binding else { return nil }
