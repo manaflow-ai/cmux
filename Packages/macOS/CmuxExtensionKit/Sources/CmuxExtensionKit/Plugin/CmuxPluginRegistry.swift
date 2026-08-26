@@ -86,12 +86,28 @@ public actor CmuxPluginRegistry {
     /// Reloads manifests and recomputes all effective grants.
     @discardableResult
     public func reload() async -> CmuxPluginRegistrySnapshot {
+        let loadedReport = await loader.load()
+        return await reload(loadedReport: loadedReport)
+    }
+
+    /// Reloads only the plugin directories named by a path-aware file event.
+    @discardableResult
+    public func reload(affectedPluginIDs: Set<String>) async -> CmuxPluginRegistrySnapshot {
+        guard !affectedPluginIDs.isEmpty else { return await reload() }
+        let partialReport = await loader.load(only: affectedPluginIDs)
+        let mergedReport = mergedReport(
+            replacing: affectedPluginIDs,
+            with: partialReport
+        )
+        return await reload(loadedReport: mergedReport)
+    }
+
+    private func reload(loadedReport: CmuxPluginLoadReport) async -> CmuxPluginRegistrySnapshot {
         reloadGeneration &+= 1
         let generation = reloadGeneration
         let previousTokens = tokensByID
         let previousTokenFingerprints = tokenFingerprintsByID
         let previousPermissions = permissionsByID
-        let loadedReport = await loader.load()
         let loadedPermissionStoreFailure = await permissionStore.storageLoadFailure()
         var nextPermissions: [String: CmuxPluginPermissions] = [:]
         var nextApprovals: [String: Bool] = [:]
@@ -149,6 +165,25 @@ public actor CmuxPluginRegistry {
         permissionsByID = nextPermissions
         approvalByID = nextApprovals
         return snapshot()
+    }
+
+    private func mergedReport(
+        replacing pluginIDs: Set<String>,
+        with partialReport: CmuxPluginLoadReport
+    ) -> CmuxPluginLoadReport {
+        let retainedPlugins = report.plugins.filter {
+            !pluginIDs.contains($0.plugin.manifest.id)
+                && !pluginIDs.contains($0.plugin.directoryURL.lastPathComponent)
+        }
+        let retainedFailures = report.failures.filter {
+            !pluginIDs.contains($0.directoryURL.lastPathComponent)
+        }
+        return CmuxPluginLoadReport(
+            plugins: (retainedPlugins + partialReport.plugins)
+                .sorted { $0.manifest.id < $1.manifest.id },
+            failures: (retainedFailures + partialReport.failures)
+                .sorted { $0.directoryURL.path < $1.directoryURL.path }
+        )
     }
 
     /// Returns the current registry snapshot without rescanning.

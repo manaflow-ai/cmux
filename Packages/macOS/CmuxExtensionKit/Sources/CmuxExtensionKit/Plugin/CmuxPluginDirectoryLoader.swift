@@ -133,6 +133,16 @@ public actor CmuxPluginDirectoryLoader {
 
     /// Scans the directory and returns both valid plugins and load failures.
     public func load() -> CmuxPluginLoadReport {
+        load(filter: nil)
+    }
+
+    /// Scans only the named plugin directories while preserving the same
+    /// validation and fingerprinting contract as ``load()``.
+    public func load(only pluginIDs: Set<String>) -> CmuxPluginLoadReport {
+        load(filter: pluginIDs)
+    }
+
+    private func load(filter pluginIDs: Set<String>?) -> CmuxPluginLoadReport {
         let resolvedRoot = directoryURL.resolvingSymlinksInPath().standardizedFileURL
         // A missing plugin directory is the normal first-launch state and is
         // not presented as a load error. Any existing-but-unreadable root is
@@ -193,6 +203,9 @@ public actor CmuxPluginDirectoryLoader {
         for directory in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             guard let resourceValues = try? directory.resourceValues(forKeys: [.isDirectoryKey]),
                   resourceValues.isDirectory == true else {
+                continue
+            }
+            if let pluginIDs, !pluginIDs.contains(directory.lastPathComponent) {
                 continue
             }
             let manifestURL = directory.appendingPathComponent("manifest.json", isDirectory: false)

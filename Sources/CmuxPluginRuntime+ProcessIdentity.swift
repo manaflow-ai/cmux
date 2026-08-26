@@ -10,7 +10,8 @@ extension CmuxPluginRuntime {
         _ processID: pid_t,
         for pluginID: String,
         generation: UUID = UUID(),
-        processGroupID: pid_t? = nil
+        processGroupID: pid_t? = nil,
+        containmentMarkerURL: URL
     ) -> CmuxPluginProcessIdentity? {
         guard let startMicroseconds = Self.processStartMicroseconds(processID) else {
             return nil
@@ -18,12 +19,14 @@ extension CmuxPluginRuntime {
         let identity = CmuxPluginProcessIdentity(
             generation: generation,
             startMicroseconds: startMicroseconds,
-            processGroupID: processGroupID ?? processID
+            processGroupID: processGroupID ?? processID,
+            containmentMarkerURL: containmentMarkerURL
         )
         lock.lock()
         processAuthorizations[processID] = .active(pluginID: pluginID)
         processAuthorizationIdentities[processID] = identity
         revokedPluginProcessGroups.removeValue(forKey: identity.processGroupID)
+        revokedPluginContainmentMarkers.removeValue(forKey: containmentMarkerURL.path)
         lock.unlock()
         return identity
     }
@@ -51,6 +54,15 @@ extension CmuxPluginRuntime {
             }
             revokedPluginProcessGroups[storedIdentity.processGroupID] =
                 storedIdentity.startMicroseconds
+            if revokedPluginContainmentMarkers.count >= 512 {
+                revokedPluginContainmentMarkers.removeValue(
+                    forKey: revokedPluginContainmentMarkers.keys.first!
+                )
+            }
+            revokedPluginContainmentMarkers[storedIdentity.containmentMarkerURL.path] = (
+                storedIdentity.processGroupID,
+                storedIdentity.startMicroseconds
+            )
         }
         let detached = detachSubscriptionsLocked(pluginID: pluginID)
         lock.unlock()
@@ -60,20 +72,48 @@ extension CmuxPluginRuntime {
         }
     }
 
-    /// Removes a process-lineage marker after its root has exited.
-    func processDidExit(_ processID: pid_t, generation: UUID) {
+    /// Retires a root identity after exit, retaining a deny marker if an
+    /// inherited descendant still holds the containment lease.
+    func processDidExit(
+        _ processID: pid_t,
+        generation: UUID,
+        containmentMarkerURL: URL? = nil
+    ) {
         lock.lock()
-        guard processAuthorizationIdentities[processID]?.generation == generation else {
+        guard let storedIdentity = processAuthorizationIdentities[processID],
+              storedIdentity.generation == generation else {
             lock.unlock()
             return
         }
-        let authorization = processAuthorizations.removeValue(forKey: processID)
-        processAuthorizationIdentities.removeValue(forKey: processID)
+        let authorization = processAuthorizations[processID]
         let pluginID: String?
         if case .active(let activePluginID)? = authorization {
             pluginID = activePluginID
         } else {
             pluginID = nil
+        }
+        lock.unlock()
+
+        let markerURL = containmentMarkerURL ?? storedIdentity.containmentMarkerURL
+        let markerIsHeld = CmuxPluginProcessContainment.anyProcessHoldsMarker(at: markerURL)
+
+        lock.lock()
+        guard processAuthorizationIdentities[processID] == storedIdentity else {
+            lock.unlock()
+            return
+        }
+        processAuthorizations.removeValue(forKey: processID)
+        processAuthorizationIdentities.removeValue(forKey: processID)
+        if let markerURL {
+            if markerIsHeld {
+                revokedPluginContainmentMarkers[markerURL.path] = (
+                    storedIdentity.processGroupID,
+                    storedIdentity.startMicroseconds
+                )
+            } else {
+                revokedPluginContainmentMarkers.removeValue(forKey: markerURL.path)
+                revokedPluginProcessGroups.removeValue(forKey: storedIdentity.processGroupID)
+            }
         }
         let detached = detachSubscriptionsLocked(pluginID: pluginID)
         lock.unlock()
@@ -88,90 +128,94 @@ extension CmuxPluginRuntime {
         guard let processID else { return nil }
         lock.lock()
         let authorizationSnapshot = processAuthorizations
+        let identitySnapshot = processAuthorizationIdentities
+        let revokedMarkerSnapshot = revokedPluginContainmentMarkers
         let hasRevokedGroups = !revokedPluginProcessGroups.isEmpty
         lock.unlock()
-        guard !authorizationSnapshot.isEmpty || hasRevokedGroups else { return nil }
-        guard let resolved = processAuthorizationResolver.resolve(
+        guard !authorizationSnapshot.isEmpty
+                || hasRevokedGroups
+                || !revokedMarkerSnapshot.isEmpty else {
+            return nil
+        }
+        if let resolved = processAuthorizationResolver.resolve(
             processID: processID,
             authorizations: authorizationSnapshot
-        ) else {
-            lock.lock()
-            let knownGroup = Self.processGroupID(processID).map { groupID in
-                if let revokedStart = revokedPluginProcessGroups[groupID] {
-                    let currentStart = Self.processStartMicroseconds(groupID)
-                    if currentStart != nil,
-                       revokedStart >= 0,
-                       currentStart != revokedStart {
-                        revokedPluginProcessGroups.removeValue(forKey: groupID)
-                        return false
-                    }
-                    if Darwin.kill(-groupID, 0) == 0 || errno == EPERM {
-                        return true
-                    }
-                    revokedPluginProcessGroups.removeValue(forKey: groupID)
-                }
-                return processAuthorizationIdentities.values.contains { identity in
-                    identity.processGroupID == groupID
-                }
-            } ?? false
-            lock.unlock()
-            return knownGroup ? .revoked : nil
-        }
-        lock.lock()
-        defer { lock.unlock() }
-        guard processAuthorizations[resolved.rootProcessID] == resolved.authorization else {
-            return .revoked
-        }
-        guard processIdentityIsCurrentLocked(rootProcessID: resolved.rootProcessID) else {
-            // The peer reached a supervised root, but its process instance no
-            // longer matches. Treat it as revoked rather than an ordinary cmux
-            // client so it cannot fall through to unrestricted socket commands.
-            return .revoked
-        }
-        return resolved.authorization
-    }
-
-    /// Positively classifies a peer as an ordinary cmux descendant or a
-    /// supervised plugin. A broken ancestry walk fails closed instead of
-    /// treating an unresolved plugin as a standard socket client.
-    func socketPeerPolicy(
-        forProcess processID: pid_t?,
-        isEventStreamRequest: Bool,
-        peerHasSameUID: Bool = true
-    ) -> CmuxPluginSocketPeerPolicy {
-        let hasTrackedPluginLineage: Bool = {
+        ) {
             lock.lock()
             defer { lock.unlock() }
-            return !processAuthorizations.isEmpty || !revokedPluginProcessGroups.isEmpty
-        }()
-        guard let processID else {
-            // A missing PID can be a short-lived external client in permissive
-            // modes. Once a plugin lineage exists, however, a same-UID peer
-            // that cannot be identified must not fall through to raw commands.
-            return hasTrackedPluginLineage && peerHasSameUID ? .denied : .standard
+            guard processAuthorizations[resolved.rootProcessID] == resolved.authorization else {
+                return .revoked
+            }
+            guard processIdentityIsCurrentLocked(rootProcessID: resolved.rootProcessID) else {
+                return .revoked
+            }
+            return resolved.authorization
         }
+
+        // A double-forked plugin child may no longer be reachable through its
+        // parent chain, but it still holds the private launch marker. Resolve
+        // that deterministic cmux-owned signal before treating the peer as an
+        // ordinary external client.
+        for (rootProcessID, identity) in identitySnapshot {
+            guard CmuxPluginProcessContainment.processHoldsMarker(
+                processID,
+                at: identity.containmentMarkerURL
+            ) else { continue }
+            lock.lock()
+            let authorization = processAuthorizations[rootProcessID]
+            let isCurrent = processAuthorizationIdentities[rootProcessID] == identity
+                && processIdentityIsCurrentLocked(rootProcessID: rootProcessID)
+            lock.unlock()
+            if isCurrent, let authorization {
+                return authorization
+            }
+        }
+
+        for markerPath in revokedMarkerSnapshot.keys {
+            if CmuxPluginProcessContainment.processHoldsMarker(
+                processID,
+                at: URL(fileURLWithPath: markerPath)
+            ) {
+                return .revoked
+            }
+        }
+
+        lock.lock()
+        let knownGroup = Self.processGroupID(processID).map { groupID in
+            if let revokedStart = revokedPluginProcessGroups[groupID] {
+                let currentStart = Self.processStartMicroseconds(groupID)
+                if currentStart != nil, currentStart != revokedStart {
+                    revokedPluginProcessGroups.removeValue(forKey: groupID)
+                    return false
+                }
+                if Darwin.kill(-groupID, 0) == 0 || errno == EPERM {
+                    return true
+                }
+                revokedPluginProcessGroups.removeValue(forKey: groupID)
+            }
+            return processAuthorizationIdentities.values.contains { identity in
+                identity.processGroupID == groupID
+            }
+        } ?? false
+        lock.unlock()
+        return knownGroup ? .revoked : nil
+    }
+
+    /// Classifies a peer using the supervised process resolver and marker.
+    /// Unknown peers remain subject to the socket server's existing mode
+    /// authorization; only a positively identified plugin is restricted.
+    func socketPeerPolicy(
+        forProcess processID: pid_t?,
+        isEventStreamRequest: Bool
+    ) -> CmuxPluginSocketPeerPolicy {
+        guard let processID else { return .standard }
         if let authorization = processAuthorization(forProcess: processID) {
             return Self.socketPeerPolicy(
                 processAuthorization: authorization,
                 isEventStreamRequest: isEventStreamRequest
             )
         }
-        guard hasTrackedPluginLineage else { return .standard }
-        guard peerHasSameUID else { return .standard }
-        var current = processID
-        var visited = Set<pid_t>()
-        let hostProcessID = getpid()
-        for _ in 0..<128 {
-            if current == hostProcessID { return .standard }
-            guard visited.insert(current).inserted,
-                  let parent = Self.parentProcessID(current),
-                  parent > 0,
-                  parent != current else {
-                return .denied
-            }
-            current = parent
-        }
-        return .denied
+        return .standard
     }
 
     /// Checks a resolved root while ``lock`` is held. Socket stream

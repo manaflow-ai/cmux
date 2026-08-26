@@ -5,6 +5,7 @@ extension CmuxPluginRuntime {
     /// Requests a coalesced manifest rescan after filesystem or settings changes.
     func reload() {
         lock.lock()
+        pluginReloadRequiresFullScan = true
         let continuation = pluginReloadContinuation
         lock.unlock()
         if let continuation {
@@ -18,16 +19,60 @@ extension CmuxPluginRuntime {
         }
     }
 
+    /// Requests a coalesced reload for only the plugin directories named by a
+    /// path-aware filesystem event.
+    func reload(affectedPluginIDs: Set<String>) {
+        guard !affectedPluginIDs.isEmpty else { return reload() }
+        lock.lock()
+        if !pluginReloadRequiresFullScan {
+            pendingPluginReloadIDs.formUnion(affectedPluginIDs)
+        }
+        let continuation = pluginReloadContinuation
+        lock.unlock()
+        if let continuation {
+            continuation.yield(())
+        } else {
+            _ = enqueueRegistryUpdate { registry in
+                await registry.reload(affectedPluginIDs: affectedPluginIDs)
+            }
+        }
+    }
+
     /// Performs one serialized reload for the bounded request stream.
     func performPluginReload() async {
+        lock.lock()
+        let requiresFullScan = pluginReloadRequiresFullScan
+        let affectedPluginIDs = pendingPluginReloadIDs
+        pluginReloadRequiresFullScan = false
+        pendingPluginReloadIDs.removeAll()
+        lock.unlock()
         let task = enqueueRegistryUpdate { registry in
-            await registry.reload()
+            if requiresFullScan || affectedPluginIDs.isEmpty {
+                return await registry.reload()
+            }
+            return await registry.reload(affectedPluginIDs: affectedPluginIDs)
         }
         await task.value
         // A bounded cooldown folds a sustained filesystem storm into the
         // stream's single pending signal instead of hashing the full plugin
         // tree continuously.
         try? await ContinuousClock().sleep(for: .seconds(2))
+    }
+
+    private func pluginIDs(for paths: [String]) -> Set<String>? {
+        let root = CmuxPluginDirectoryLoader.defaultDirectoryURL.standardizedFileURL.path
+        var pluginIDs: Set<String> = []
+        for path in paths {
+            let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard standardizedPath.hasPrefix(root + "/") else { return nil }
+            let relative = standardizedPath.dropFirst(root.count + 1)
+            guard let firstComponent = relative.split(separator: "/").first else {
+                return nil
+            }
+            if firstComponent.hasPrefix(".") { continue }
+            pluginIDs.insert(String(firstComponent))
+        }
+        return pluginIDs
     }
 
     /// Approves all declarations for a plugin after an explicit Settings action.

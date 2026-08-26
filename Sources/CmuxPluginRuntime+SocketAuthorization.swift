@@ -12,24 +12,12 @@ extension CmuxPluginRuntime {
         guard let peerProcessID else {
             return .denied(Self.pluginIdentityMismatchMessage)
         }
-        lock.lock()
-        let processAuthorizationSnapshot = processAuthorizations
-        lock.unlock()
-        guard let resolvedProcess = processAuthorizationResolver.resolve(
-            processID: peerProcessID,
-            authorizations: processAuthorizationSnapshot
-        ), resolvedProcess.authorization == .active(pluginID: pluginID) else {
+        guard case .active(let authorizedPluginID) = processAuthorization(forProcess: peerProcessID),
+              authorizedPluginID == pluginID else {
             return .denied(Self.pluginIdentityMismatchMessage)
         }
         lock.lock()
         defer { lock.unlock() }
-        guard processAuthorizations[resolvedProcess.rootProcessID]
-                == resolvedProcess.authorization else {
-            return .denied(Self.pluginIdentityMismatchMessage)
-        }
-        guard processIdentityIsCurrentLocked(rootProcessID: resolvedProcess.rootProcessID) else {
-            return .denied(Self.pluginIdentityMismatchMessage)
-        }
         guard let descriptor = snapshot.plugins.first(where: {
             $0.plugin.manifest.id == pluginID
         }) else {
@@ -92,20 +80,12 @@ extension CmuxPluginRuntime {
         peerProcessID: pid_t?
     ) -> Bool {
         guard let peerProcessID else { return false }
-        lock.lock()
-        let processAuthorizationSnapshot = processAuthorizations
-        lock.unlock()
-        guard let resolvedProcess = processAuthorizationResolver.resolve(
-            processID: peerProcessID,
-            authorizations: processAuthorizationSnapshot
-        ), resolvedProcess.authorization == .active(pluginID: pluginID) else {
+        guard case .active(let authorizedPluginID) = processAuthorization(forProcess: peerProcessID),
+              authorizedPluginID == pluginID else {
             return false
         }
         lock.lock()
-        guard processAuthorizations[resolvedProcess.rootProcessID]
-                == resolvedProcess.authorization,
-              processIdentityIsCurrentLocked(rootProcessID: resolvedProcess.rootProcessID),
-              let expectedToken = sessionTokens[pluginID],
+        guard let expectedToken = sessionTokens[pluginID],
               Self.constantTimeEquals(expectedToken, token),
               snapshot.plugins.contains(where: {
                   $0.plugin.manifest.id == pluginID && $0.isEnabled

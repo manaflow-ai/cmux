@@ -73,7 +73,58 @@ struct CmuxPluginProcessContainment: Sendable {
         try? FileManager.default.removeItem(at: markerURL)
     }
 
+    /// Removes the marker only after no descendant still holds its lease.
+    @discardableResult
+    func cleanupIfUnheld() -> Bool {
+        guard !Self.anyProcessHoldsMarker(at: markerURL) else { return false }
+        cleanup()
+        return true
+    }
+
+    /// Returns whether `processID` still holds the private marker.
+    static func processHoldsMarker(_ processID: pid_t, at markerURL: URL) -> Bool {
+        markerHolderProcessIDs(at: markerURL).contains(processID)
+    }
+
+    /// Returns whether any live process still holds the private marker.
+    static func anyProcessHoldsMarker(at markerURL: URL) -> Bool {
+        !markerHolderProcessIDs(at: markerURL).isEmpty
+    }
+
+    /// Reclaims markers left by a crash while preserving live process leases.
+    static func reapStaleMarkers(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL? = nil
+    ) {
+        let directory = temporaryDirectory ?? fileManager.temporaryDirectory
+        let entries = (try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for marker in entries.prefix(Self.maximumObservedProcesses) {
+            guard marker.lastPathComponent.hasPrefix(Self.markerPrefix),
+                  marker.pathExtension == "marker",
+                  !Self.anyProcessHoldsMarker(at: marker) else {
+                continue
+            }
+            try? fileManager.removeItem(at: marker)
+        }
+    }
+
     private func observedMarkerProcesses() -> [pid_t: Int64] {
+        let processIDs = Self.markerHolderProcessIDs(at: markerURL)
+        return processIDs.reduce(into: [pid_t: Int64]()) { observed, processID in
+            guard processID > 1,
+                  processID != getpid(),
+                  let startMicroseconds = Self.processStartMicroseconds(processID) else {
+                return
+            }
+            observed[processID] = startMicroseconds
+        }
+    }
+
+    private static func markerHolderProcessIDs(at markerURL: URL) -> [pid_t] {
         let requiredBytes = proc_listpidspath(
             UInt32(PROC_ALL_PIDS),
             0,
@@ -82,7 +133,7 @@ struct CmuxPluginProcessContainment: Sendable {
             nil,
             0
         )
-        guard requiredBytes > 0 else { return [:] }
+        guard requiredBytes > 0 else { return [] }
         let elementSize = MemoryLayout<pid_t>.stride
         let capacity = min(
             max(elementSize, Int(requiredBytes) + elementSize * 8),
@@ -99,18 +150,11 @@ struct CmuxPluginProcessContainment: Sendable {
                 Int32(rawBuffer.count)
             )
         }
-        guard returnedBytes > 0 else { return [:] }
+        guard returnedBytes > 0 else { return [] }
         let count = min(Int(returnedBytes) / elementSize, buffer.count / elementSize)
         return buffer.withUnsafeBytes { rawBuffer in
             let pids = rawBuffer.bindMemory(to: pid_t.self)
-            return pids.prefix(count).reduce(into: [pid_t: Int64]()) { observed, processID in
-                guard processID > 1,
-                      processID != getpid(),
-                      let startMicroseconds = Self.processStartMicroseconds(processID) else {
-                    return
-                }
-                observed[processID] = startMicroseconds
-            }
+            return Array(pids.prefix(count))
         }
     }
 

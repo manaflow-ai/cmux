@@ -8,4 +8,5 @@ struct CmuxPluginProcessIdentity: Equatable, Sendable {
     let generation: UUID
     let startMicroseconds: Int64
     let processGroupID: pid_t
+    let containmentMarkerURL: URL
 }

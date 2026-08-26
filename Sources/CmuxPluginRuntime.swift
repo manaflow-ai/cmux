@@ -43,6 +43,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     var processAuthorizations: [pid_t: CmuxPluginProcessAuthorization] = [:]
     var processAuthorizationIdentities: [pid_t: CmuxPluginProcessIdentity] = [:]
     var revokedPluginProcessGroups: [pid_t: Int64] = [:]
+    var revokedPluginContainmentMarkers: [String: (processGroupID: pid_t, startMicroseconds: Int64)] = [:]
     var subscriptionsByPluginID: [String: [UUID: CmuxEventSubscription]] = [:]
     var actionSubscriptionIDsByPluginID: [String: Set<UUID>] = [:]
     private var pluginErrors: [String: String] = [:]
@@ -58,6 +59,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     private var pluginPermissionWatcher: FileWatcher?
     private var pluginPermissionWatchTask: Task<Void, Never>?
     var pluginReloadContinuation: AsyncStream<Void>.Continuation?
+    var pendingPluginReloadIDs: Set<String> = []
+    var pluginReloadRequiresFullScan = false
     private var pluginReloadTask: Task<Void, Never>?
     private var socketListenerObserver: NSObjectProtocol?
     private var shortcutSettingsObserver: NSObjectProtocol?
@@ -196,9 +199,19 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         pluginReloadTask = reloadTask
         if let watcher {
             pluginDirectoryWatchTask = Task { @MainActor [weak self, watcher] in
-                for await _ in watcher.events {
+                for await change in watcher.pathEvents {
                     guard let self, !Task.isCancelled else { return }
-                    self.reload()
+                    if change.requiresFullRescan {
+                        self.reload()
+                    } else {
+                        guard let pluginIDs = self.pluginIDs(for: change.paths) else {
+                            self.reload()
+                            continue
+                        }
+                        if !pluginIDs.isEmpty {
+                            self.reload(affectedPluginIDs: pluginIDs)
+                        }
+                    }
                 }
             }
         }
@@ -453,6 +466,8 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         pluginPermissionWatchTask = nil
         pluginReloadContinuation?.finish()
         pluginReloadContinuation = nil
+        pendingPluginReloadIDs.removeAll()
+        pluginReloadRequiresFullScan = false
         pluginReloadTask?.cancel()
         pluginReloadTask = nil
         let pluginDirectoryWatcher = self.pluginDirectoryWatcher

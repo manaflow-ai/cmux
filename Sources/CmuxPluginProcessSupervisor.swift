@@ -53,6 +53,7 @@ final class CmuxPluginProcessSupervisor {
     private var restartFingerprints: [String: String] = [:]
 
     init(snapshotter: CmuxPluginExecutionSnapshotter? = nil) {
+        CmuxPluginProcessContainment.reapStaleMarkers()
         self.snapshotter = snapshotter ?? CmuxPluginExecutionSnapshotter()
     }
 
@@ -197,6 +198,7 @@ final class CmuxPluginProcessSupervisor {
         restartTasks.removeAll()
         restartAttempts.removeAll()
         restartFingerprints.removeAll()
+        CmuxPluginProcessContainment.reapStaleMarkers()
     }
 
     private func launch(
@@ -372,7 +374,7 @@ final class CmuxPluginProcessSupervisor {
                 processGroupID: process.processIdentifier,
                 containment: containment
             )
-            containment.cleanup()
+            containment.cleanupIfUnheld()
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -389,7 +391,8 @@ final class CmuxPluginProcessSupervisor {
             processID,
             for: pluginID,
             generation: processGeneration,
-            processGroupID: processID
+            processGroupID: processID,
+            containmentMarkerURL: containment.markerURL
         ) else {
             terminateProcess(
                 process,
@@ -400,7 +403,7 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
-            containment.cleanup()
+            containment.cleanupIfUnheld()
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -440,7 +443,7 @@ final class CmuxPluginProcessSupervisor {
                 identity: authorizationIdentity,
                 containment: containment
             )
-            containment.cleanup()
+            containment.cleanupIfUnheld()
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -468,7 +471,7 @@ final class CmuxPluginProcessSupervisor {
                 identity: authorizationIdentity,
                 containment: containment
             )
-            containment.cleanup()
+            containment.cleanupIfUnheld()
             pluginProcessLogger.error(
                 "Plugin \(pluginID, privacy: .public) launch gate failed: \(String(describing: error), privacy: .private)"
             )
@@ -561,8 +564,12 @@ final class CmuxPluginProcessSupervisor {
         guard let running = processes[pluginID],
               running.processID == processID,
               running.authorizationIdentity.generation == processGeneration else {
-            containment.cleanup()
-            runtime.processDidExit(processID, generation: processGeneration)
+            runtime.processDidExit(
+                processID,
+                generation: processGeneration,
+                containmentMarkerURL: containment.markerURL
+            )
+            containment.cleanupIfUnheld()
             return
         }
         processes.removeValue(forKey: pluginID)
@@ -576,8 +583,12 @@ final class CmuxPluginProcessSupervisor {
             identity: running.authorizationIdentity,
             containment: running.containment
         )
-        running.containment.cleanup()
-        runtime.processDidExit(processID, generation: processGeneration)
+        runtime.processDidExit(
+            processID,
+            generation: processGeneration,
+            containmentMarkerURL: running.containment.markerURL
+        )
+        running.containment.cleanupIfUnheld()
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
         Task { await snapshotter.remove(running.snapshot) }
@@ -629,7 +640,12 @@ final class CmuxPluginProcessSupervisor {
             containment: running.containment
         )
         if !running.process.isRunning {
-            running.containment.cleanup()
+            runtime.processDidExit(
+                running.processID,
+                generation: running.authorizationIdentity.generation,
+                containmentMarkerURL: running.containment.markerURL
+            )
+            running.containment.cleanupIfUnheld()
         }
         pluginProcessLogger.debug("Stopped plugin \(pluginID, privacy: .public)")
     }
