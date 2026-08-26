@@ -12,6 +12,63 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
+    func processScopeFingerprintTracksUnscopedTTYAndGroupMembers() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 0x123
+        let processGroupID = 500
+        let makeProcess: (Int, Int, UUID?, UUID?) -> CmuxTopProcessInfo = {
+            pid, parentPID, cmuxWorkspaceID, cmuxSurfaceID in
+            CmuxTopProcessInfo(
+                pid: pid,
+                parentPID: parentPID,
+                name: "test-\(pid)",
+                path: "/usr/bin/test-\(pid)",
+                ttyDevice: ttyDevice,
+                cmuxWorkspaceID: cmuxWorkspaceID,
+                cmuxSurfaceID: cmuxSurfaceID,
+                cmuxAttributionReason: cmuxWorkspaceID == nil ? nil : "cmux-test",
+                processGroupID: processGroupID,
+                terminalProcessGroupID: processGroupID,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let baseProcesses = [
+            makeProcess(500, 1, nil, nil),
+            makeProcess(501, 500, workspaceId, panelId),
+            makeProcess(502, 501, workspaceId, panelId),
+        ]
+        let base = CmuxTopProcessSnapshot(
+            processes: baseProcesses,
+            sampledAt: Date(timeIntervalSince1970: 42),
+            includesProcessDetails: true
+        )
+        let withUnscopedSibling = CmuxTopProcessSnapshot(
+            processes: baseProcesses + [makeProcess(503, 500, nil, nil)],
+            sampledAt: Date(timeIntervalSince1970: 43),
+            includesProcessDetails: true
+        )
+
+        let baseScope = base.agentHibernationProcessScope(
+            panelProcessIDs: [501, 502],
+            agentProcessIDs: [501]
+        )
+        let changedScope = withUnscopedSibling.agentHibernationProcessScope(
+            panelProcessIDs: [501, 502],
+            agentProcessIDs: [501]
+        )
+        #expect(baseScope.containsUnrelatedProcess == false)
+        #expect(changedScope.containsUnrelatedProcess)
+        #expect(
+            SharedLiveAgentIndexLoader.processScopeFingerprint(from: base) !=
+                SharedLiveAgentIndexLoader.processScopeFingerprint(from: withUnscopedSibling)
+        )
+    }
+
+    @Test
     func loaderPreservesCompleteHibernationScopeForWrappedAgentProcess() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
