@@ -82,6 +82,16 @@ struct WorkspaceDetailView: View {
     // disappearance (overflow into More) cannot release a reservation and
     // make the collapse sticky.
     @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
+    /// Ratchets on when the trailing cluster's content leaves the bar while
+    /// the screen's own content is still on a window: the system folded it
+    /// into the More menu, so the estimate reserves undershot this device's
+    /// chrome. Never cleared for this view's lifetime; the extra recovery
+    /// reserve un-collapses the bar.
+    @State private var trailingToolbarCollapseDetected = false
+    /// Live window-attachment flags shared with the UIKit probes; reference
+    /// identity keeps event-time reads current where SwiftUI captures of
+    /// value state would be stale.
+    @State private var barPresence = WorkspaceBarPresence()
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -172,6 +182,11 @@ struct WorkspaceDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // The browser and chat surfaces scroll; without this the system
+            // minimizes the whole bar into a floating "…" pill, unlike the
+            // terminal surface, which has no system scroll view.
+            .mobilePinnedNavigationBar()
+            .trackBarPresence(barPresence)
             .toolbar { workspaceDetailToolbar }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
@@ -365,7 +380,22 @@ struct WorkspaceDetailView: View {
     private var trailingClusterToolbarContent: some View {
         terminalPickerToolbarButton
             .frame(width: 44, height: 44)
-            .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
+            // Only the always-structural cluster wires collapse detection: a
+            // conditional item's structural removal also detaches its probe
+            // and would be indistinguishable from a More-menu collapse.
+            .measureTrailingToolbarItem(
+                "trailing-cluster",
+                into: $trailingToolbarItemWidths,
+                onLeaveBar: {
+                    // A deeper push or a pop detaches the whole screen, this
+                    // content view included, before the bar items animate
+                    // out; only a cluster detach while the content is still
+                    // on a window is the More-menu collapse.
+                    if barPresence.detailContentAttached {
+                        trailingToolbarCollapseDetected = true
+                    }
+                }
+            )
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
@@ -386,6 +416,7 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
+            hadTrailingCollapse: trailingToolbarCollapseDetected,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
@@ -414,12 +445,6 @@ struct WorkspaceDetailView: View {
             },
             label: {
                 switch value.labelToken {
-                case .browser(let title):
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(value.terminalTheme.terminalChromeForegroundColor)
                 case .standard(let title, let subtitle):
                     WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
                 }
@@ -430,11 +455,17 @@ struct WorkspaceDetailView: View {
 
     private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
         if let browser = activeBrowser {
-            return .browser(title: browser.title ?? workspace.name)
+            // Browser-style surfaces keep the workspace as the pill's title,
+            // like the terminal; the surface's own title (the page or tab)
+            // rides the subtitle line.
+            return .standard(title: workspace.name, subtitle: browser.title)
         } else if let browser = activeBrowserStream {
-            return .browser(title: browser.title ?? workspace.name)
+            return .standard(title: workspace.name, subtitle: browser.title)
         } else if let simulator = activeSimulatorStream {
-            return .browser(title: simulator.selectedDeviceName ?? simulator.title)
+            return .standard(
+                title: workspace.name,
+                subtitle: simulator.selectedDeviceName ?? simulator.title
+            )
         } else {
             return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -518,10 +549,12 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         // The whole bottom dock is owned by `GhosttySurfaceView` in one
         // coordinate system, so composer growth pushes only the terminal up.
+        .terminalKeyboardGeometryProbe("detail-inside")
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
         )
+        .terminalKeyboardGeometryProbe("detail-outside")
         .background {
             // Fill under translucent chrome with the terminal's own color.
             store.activeTerminalTheme.terminalBackgroundColor

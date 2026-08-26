@@ -4,12 +4,23 @@ import SwiftUI
 private struct TaskComposerPresentationModifier<PresentedContent: View>: ViewModifier {
     @Binding private var isPresented: Bool
     private let onDismiss: () -> Void
-    private let presentedContent: () -> PresentedContent
+    private let presentedContent: (
+        TaskComposerLaunch,
+        _ switchDraft: @escaping (TaskComposerLaunchIntent) -> Void
+    ) -> PresentedContent
+
+    /// The current editing session inside one presentation. Draft switches
+    /// replace it, which recreates the sheet through `.id(launch.token)` so
+    /// the selected draft passes the init's full restore validation.
+    @State private var launch = TaskComposerLaunch()
 
     init(
         isPresented: Binding<Bool>,
         onDismiss: @escaping () -> Void,
-        @ViewBuilder presentedContent: @escaping () -> PresentedContent
+        @ViewBuilder presentedContent: @escaping (
+            TaskComposerLaunch,
+            _ switchDraft: @escaping (TaskComposerLaunchIntent) -> Void
+        ) -> PresentedContent
     ) {
         _isPresented = isPresented
         self.onDismiss = onDismiss
@@ -22,8 +33,21 @@ private struct TaskComposerPresentationModifier<PresentedContent: View>: ViewMod
         // the draft, focus, and staged attachments.
         content.fullScreenCover(
             isPresented: $isPresented,
-            onDismiss: onDismiss,
-            content: presentedContent
+            onDismiss: {
+                // The next presentation starts a fresh session (drafts load
+                // only from the drafts list), and it must get a brand-new
+                // view identity: reusing the token would let @State (draft
+                // identity, persist flags, dirty baseline) leak from the
+                // closed session.
+                launch = TaskComposerLaunch(token: launch.token + 1)
+                onDismiss()
+            },
+            content: {
+                presentedContent(launch) { intent in
+                    launch = launch.switching(to: intent)
+                }
+                .id(launch.token)
+            }
         )
     }
 }
@@ -32,7 +56,10 @@ extension View {
     func taskComposerPresentation<PresentedContent: View>(
         isPresented: Binding<Bool>,
         onDismiss: @escaping () -> Void = {},
-        @ViewBuilder content: @escaping () -> PresentedContent
+        @ViewBuilder content: @escaping (
+            TaskComposerLaunch,
+            _ switchDraft: @escaping (TaskComposerLaunchIntent) -> Void
+        ) -> PresentedContent
     ) -> some View {
         modifier(TaskComposerPresentationModifier(
             isPresented: isPresented,

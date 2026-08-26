@@ -2,7 +2,7 @@ public import CMUXMobileCore
 internal import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
-internal import Foundation
+public import Foundation
 
 /// A user-actionable failure returned by task-composer directory search.
 public enum MobileTaskDirectorySearchFailure: Error, Equatable, Sendable,
@@ -151,11 +151,21 @@ extension MobileShellComposite {
         }
     }
 
+    /// Every saved, unsent composer draft, newest first. Empty while signed
+    /// out or before the template store is configured.
+    public func taskComposerSavedDrafts() -> [MobileTaskComposerSavedDraft] {
+        guard isSignedIn, let taskTemplateStore else { return [] }
+        return taskTemplateStore.composerDrafts()
+    }
+
     /// Persists an unsent composer draft only for the signed-in session that
     /// created the sheet. A stale disappearing sheet must not restore the
-    /// previous account's draft after sign-out has cleared it.
+    /// previous account's draft after sign-out has cleared it. A draft that
+    /// keeps nothing the user prepared deletes its saved entry instead, so
+    /// emptied sessions cannot pile up in the drafts list.
     /// - Parameters:
     ///   - draft: Draft snapshot to persist.
+    ///   - draftID: Stable identity of the composer session's draft entry.
     ///   - capturedGeneration: ``currentSessionGeneration`` captured when the
     ///     composer sheet was created.
     /// - Returns: `true` when the draft belongs to the active session and was
@@ -163,6 +173,7 @@ extension MobileShellComposite {
     @discardableResult
     public func persistTaskComposerDraft(
         _ draft: MobileTaskComposerDraft,
+        draftID: UUID,
         ifSessionGeneration capturedGeneration: Int
     ) -> Bool {
         guard isSignedIn, capturedGeneration == currentSessionGeneration else {
@@ -173,19 +184,31 @@ extension MobileShellComposite {
             recordAppEvent(.draftPersistenceFailed, failure: .localStateUnavailable)
             return false
         }
-        taskTemplateStore.setComposerDraft(draft)
-        recordAppEvent(.draftSaved)
+        if draft.isEffectivelyEmpty {
+            taskTemplateStore.deleteComposerDrafts(ids: [draftID])
+            recordAppEvent(.draftDeleted)
+        } else {
+            taskTemplateStore.saveComposerDraft(MobileTaskComposerSavedDraft(
+                id: draftID,
+                updatedAt: Date(),
+                content: draft
+            ))
+            recordAppEvent(.draftSaved)
+        }
         return true
     }
 
-    /// Clears the composer draft only for the signed-in session that created
+    /// Deletes composer drafts only for the signed-in session that created
     /// the sheet. A stale cancel or async success must not erase a newer
-    /// account's draft.
-    /// - Parameter capturedGeneration: ``currentSessionGeneration`` captured
-    ///   when the composer sheet was created.
-    /// - Returns: `true` when the active session's draft store was cleared.
+    /// account's drafts.
+    /// - Parameters:
+    ///   - ids: Identities of the drafts to delete.
+    ///   - capturedGeneration: ``currentSessionGeneration`` captured when the
+    ///     composer sheet was created.
+    /// - Returns: `true` when the active session's drafts were deleted.
     @discardableResult
-    public func clearTaskComposerDraft(
+    public func deleteTaskComposerDrafts(
+        ids: Set<UUID>,
         ifSessionGeneration capturedGeneration: Int
     ) -> Bool {
         guard isSignedIn, capturedGeneration == currentSessionGeneration else {
@@ -196,16 +219,17 @@ extension MobileShellComposite {
             recordAppEvent(.draftPersistenceFailed, failure: .localStateUnavailable)
             return false
         }
-        taskTemplateStore.setComposerDraft(nil)
+        taskTemplateStore.deleteComposerDrafts(ids: ids)
         recordAppEvent(.draftDeleted)
         return true
     }
 
-    /// Persists successful task-composer defaults and clears the submitted
+    /// Persists successful task-composer defaults and deletes the submitted
     /// draft as one generation-checked main-actor transaction. A completion
     /// from a signed-out session must not repopulate the next account's store.
     /// - Parameters:
     ///   - snapshot: Immutable values used by the successful submission.
+    ///   - draftID: Identity of the submitted composer session's draft entry.
     ///   - capturedGeneration: ``currentSessionGeneration`` captured when the
     ///     composer sheet was created.
     /// - Returns: `true` when the success belonged to the active session and
@@ -213,6 +237,7 @@ extension MobileShellComposite {
     @discardableResult
     public func completeTaskComposerSubmission(
         _ snapshot: MobileTaskSubmissionSnapshot,
+        draftID: UUID,
         ifSessionGeneration capturedGeneration: Int
     ) -> Bool {
         guard isSignedIn, capturedGeneration == currentSessionGeneration else {
@@ -240,7 +265,7 @@ extension MobileShellComposite {
                 at: Date()
             )
         }
-        taskTemplateStore.setComposerDraft(nil)
+        taskTemplateStore.deleteComposerDrafts(ids: [draftID])
         recordAppEvent(.draftDeleted)
         return true
     }

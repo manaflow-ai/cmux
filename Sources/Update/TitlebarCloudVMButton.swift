@@ -361,13 +361,13 @@ struct TitlebarCloudVMButton: View {
 
     @MainActor
     static func showCloudVMMenu(anchorView: NSView, event: NSEvent) {
-        guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { return }
+        guard CloudMachinesFeature.isEnabled else { return }
         NSMenu.popUpContextMenu(makeCloudVMMenu(), with: event, for: anchorView)
     }
 
     @MainActor
     static func showCloudVMMenu(anchorView: NSView) {
-        guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { return }
+        guard CloudMachinesFeature.isEnabled else { return }
         let menu = makeCloudVMMenu()
         menu.popUp(
             positioning: nil,
