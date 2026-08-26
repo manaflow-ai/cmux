@@ -57,7 +57,7 @@ extension TerminalSurface {
 
     /// TEMP DIAGNOSTIC: renderer events seen by this surface's trampoline.
     public var debugRendererEventCount: Int {
-        surfaceCallbackContext?.takeUnretainedValue().debugRendererEventCount.withLock { $0 } ?? -1
+        surfaceCallbackContext?.takeUnretainedValue().debugRendererEventCountValue ?? -1
     }
 
     /// Cancels an armed first-frame notice (handoff finished another way).

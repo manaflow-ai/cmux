@@ -88,10 +88,14 @@ public final class GhosttySurfaceCallbackContext {
     private let rendererFrameNoticeArmed = AtomicBooleanGate(false)
 
     /// TEMP DIAGNOSTIC: counts every renderer event that reaches the trampoline.
-    public let debugRendererEventCount = OSAllocatedUnfairLock(initialState: 0)
+    private let debugRendererEventCounter = OSAllocatedUnfairLock(initialState: 0)
 
     public func debugCountRendererEvent() {
-        debugRendererEventCount.withLock { $0 += 1 }
+        debugRendererEventCounter.withLock { $0 += 1 }
+    }
+
+    public var debugRendererEventCountValue: Int {
+        debugRendererEventCounter.withLock { $0 }
     }
 
     /// Synchronously bridges libghostty callback acceptance to runtime teardown.
