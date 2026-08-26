@@ -44,15 +44,10 @@ extension MobileShellComposite {
     }
 
     /// Whether the app currently holds a live serving path to a Mac: an
-    /// established control session, or a terminal lane still delivering
-    /// output. The recovery flags describe only the CONTROL session, so on
-    /// their own they can flip the list chrome to "Not Connected" while
-    /// terminal lanes keep streaming (observed for hours on hardware). The
-    /// chrome consults this signal to render at worst "Reconnecting…" while
-    /// anything is demonstrably serving.
+    /// established control session. The chrome consults this signal to render
+    /// at worst "Reconnecting…" while anything is demonstrably serving.
     public var workspaceListHasLiveTransportPath: Bool {
         connectionState == .connected
-            || !terminalLaneOutputReadySurfaceIDs.isEmpty
     }
 
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast

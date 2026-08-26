@@ -5,7 +5,6 @@ import Foundation
 @MainActor
 extension MobileShellComposite {
     /// Removes one user-controlled route from one exact Mac/build pairing.
-    /// Iroh is the permanent identity route and cannot be removed.
     @discardableResult
     public func removeRoute(
         _ route: CmxAttachRoute,
@@ -13,8 +12,7 @@ extension MobileShellComposite {
         instanceTag: String?,
         deleteComputerIfLastRoute: Bool = false
     ) async -> Bool {
-        guard route.kind != .iroh,
-              let scope = await currentScopeSnapshot(),
+        guard let scope = await currentScopeSnapshot(),
               let pairedMacStore,
               let mac = pairedMacsForIdentityMatching.first(where: {
                   $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag

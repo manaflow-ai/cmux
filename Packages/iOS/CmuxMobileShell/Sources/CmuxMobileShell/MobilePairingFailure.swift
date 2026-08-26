@@ -27,8 +27,7 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// Tailscale could not prove that the selected route is currently bound to
     /// the exact endpoint this device authorized locally.
     case tailscaleUnavailable
-    /// Could not route to a selected legacy host address. Iroh routes carry no
-    /// host here because their EndpointID is resolved by the transport layer.
+    /// Could not route to a selected host address.
     case hostUnreachable(host: String?, port: Int?)
     /// The address was reachable but nothing accepted the connection: cmux is not
     /// running on the Mac, or mobile pairing is off (it is off by default in
@@ -81,15 +80,11 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
-    /// A saved legacy route is still valid, but the Mac must publish an Iroh
-    /// route before this iOS version can reconnect securely. This is version
-    /// skew, not an account failure, so the saved pairing stays intact.
-    case macUpdateRequired
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
     /// The pairing code carried no route kind this device build can dial (for
-    /// example an iroh-only ticket on a build without the iroh transport).
+    /// example a ticket that only carries routes of a retired transport).
     case noSupportedRoute
     /// Two cancellation-ignoring route cleanups are still alive. Retrying in
     /// this process cannot start another transport without exceeding the cap.
@@ -132,8 +127,7 @@ extension MobilePairingFailureCategory: DiagnosticFailureProviding {
             .identityMismatch
         case .invalidCode, .unrecognizedVersion:
             .protocolViolation
-        case .loopbackRejected, .unsupportedRoute, .noSupportedRoute,
-             .macUpdateRequired:
+        case .loopbackRejected, .unsupportedRoute, .noSupportedRoute:
             .unsupportedRoute
         case .routeCleanupBlocked:
             .endpointUnavailable
@@ -169,7 +163,6 @@ extension MobilePairingFailureCategory {
         case .invalidCode: return "invalid_code"
         case .unrecognizedVersion: return "unrecognized_version"
         case .loopbackRejected: return "loopback_rejected"
-        case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .routeCleanupBlocked: return "route_cleanup_blocked"
@@ -324,11 +317,6 @@ extension MobilePairingFailureCategory {
                 Then scan a fresh code.
                 """
             )
-        case .macUpdateRequired:
-            return L10n.string(
-                "mobile.pairing.macUpdateRequired",
-                defaultValue: "Update cmux on this Mac to connect securely."
-            )
         case .unsupportedRoute:
             return L10n.string(
                 "mobile.pairing.secureRouteRequired",
@@ -378,7 +366,7 @@ extension MobilePairingFailureCategory {
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
                 "mobile.pairing.guidance.reachability",
-                defaultValue: "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
+                defaultValue: "Connect both devices to the same Tailscale network, wake the Mac, and open cmux. cmux reconnects automatically."
             )
         case .listenerNotRunning, .connectionDropped:
             return L10n.string(
@@ -422,11 +410,6 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
                 defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
-            )
-        case .macUpdateRequired:
-            return L10n.string(
-                "mobile.pairing.guidance.macUpdateRequired",
-                defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
             )
         case .routeCleanupBlocked:
             return L10n.string(

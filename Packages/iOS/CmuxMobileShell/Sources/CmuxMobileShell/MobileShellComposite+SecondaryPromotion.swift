@@ -264,7 +264,7 @@ extension MobileShellComposite {
     /// Any still-draining retired owner on the given physical device. Fresh
     /// dials block on this device-wide check because a replaced pairing (a
     /// retagged build) reuses the SAME physical peer session: dialing before
-    /// the old transport drain completes cannot acquire the Iroh session.
+    /// the old transport drain completes cannot acquire the peer session.
     func secondaryMacDrainReservation(
         onDeviceOf ownerKey: MacPairingKey
     ) -> SecondaryMacSubscription? {

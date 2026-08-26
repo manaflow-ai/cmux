@@ -108,7 +108,7 @@ extension MobileShellComposite {
             case .manual, .networkChange, .foreground, .connectionMethodChanged:
                 clearTransientAutomaticReconnectBackoff(accountID: accountID)
             case .presencePush:
-                guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
+                guard !automaticReconnectIsBlocked(accountID: accountID) else {
                     return
                 }
             case .liveness, .eventStreamEnded, .subscriptionStartFailed,
@@ -355,12 +355,13 @@ extension MobileShellComposite {
                 }
                 self.applyConnectionRecoveryOwnerState()
 
-                // Recovery uses authenticated local Iroh state first. A stuck
-                // account-backup fetch must not block a known EndpointID from
-                // dialing; normal launch reconnect still refreshes first. The
-                // shared reconnect entry owns the hard deadline after claiming
-                // its generation synchronously, so every lifecycle caller gets
-                // the same wedge protection without a second race here.
+                // Recovery uses authenticated local pairing state first. A
+                // stuck account-backup fetch must not block a stored grant
+                // route from dialing; normal launch reconnect still refreshes
+                // first. The shared reconnect entry owns the hard deadline
+                // after claiming its generation synchronously, so every
+                // lifecycle caller gets the same wedge protection without a
+                // second race here.
                 let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
                     refreshBackupBeforeDial: false
@@ -585,11 +586,10 @@ extension MobileShellComposite {
 
     /// Reconnects an already-paired Mac through its full route set.
     ///
-    /// This path is used only when the set contains an authenticated Iroh peer
-    /// route or an exact locally grandfathered Tailscale route. Iroh pins the
-    /// pairing and removes raw fallbacks; the Tailscale exception is bound to
-    /// the previously paired device, address, and port. The synthetic ticket
-    /// names the already-paired device and never creates a new pairing.
+    /// This path is used only when the set contains an exact locally granted
+    /// Tailscale route, bound to the previously paired device, address, and
+    /// port. The synthetic ticket names the already-paired device and never
+    /// creates a new pairing.
     func connectStoredMacRoutes(
         name: String,
         routes: [CmxAttachRoute],
@@ -622,9 +622,8 @@ extension MobileShellComposite {
         }
     }
 
-    /// Connects an existing pairing through its strongest supported transport.
-    /// A supported Iroh identity pins the attempt to Iroh. Raw Tailscale/custom
-    /// host routes remain available only for legacy pairings without Iroh.
+    /// Connects an existing pairing through its strongest supported transport:
+    /// its grant-authorized Tailscale routes, or the dev loopback lane.
     @discardableResult
     func connectStoredMac(
         name: String,
@@ -666,7 +665,7 @@ extension MobileShellComposite {
         )
     }
 
-    /// Reconnects a stored Mac through its Iroh-pinned route set while also
+    /// Reconnects a stored Mac through its authorized route set while also
     /// enforcing the authenticated app-instance authority captured by storage.
     @discardableResult
     func connectStoredMac(
@@ -732,52 +731,20 @@ extension MobileShellComposite {
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
-        // The caller's freshly loaded row is authoritative for the method:
-        // during startup restore the published `pairedMacs` list backing the
-        // by-ID resolver is not loaded yet and would silently fall back to
-        // the app default, dialing the wrong lane.
-        let resolvedMethod = knownPairing.map { connectionMethod(for: $0) }
-            ?? connectionMethod(
-                forMacDeviceID: pairedMacDeviceID,
-                instanceTag: instanceTagExpectation.expectedTag
-            )
-        // Direct and Tailscale Only ride the Iroh lane below: identity-checked
-        // and encrypted, with transport admission as the single auth
-        // authority. The method's addresses (user-enabled Direct entries, or
-        // the pairing's numeric Tailscale addresses) are the COMPLETE per-dial
-        // path allowlist (no relay, no advertised or discovered paths), so
-        // resolve them from the caller's fresh row first for the same
-        // startup-restore reason as the method above, and fail closed when
-        // nothing is dialable. Raw host/port dialing cannot carry the account
-        // credential (plaintext TCP), so it stays reserved for legacy
-        // pairings without an Iroh identity (nil candidates below).
-        let methodPinnedCandidates = irohMethodPinnedDialCandidates(
-            forMacDeviceID: pairedMacDeviceID,
-            instanceTag: instanceTagExpectation.expectedTag,
-            knownPairing: knownPairing
-        ) ?? (resolvedMethod == .direct ? [] : nil)
-        if let methodPinnedCandidates, methodPinnedCandidates.isEmpty {
-            return .failed(.unsupportedRoute)
-        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        var pinnedRoutes = Self.storedReconnectRoutes(
+        // Only grant-authorized Tailscale routes (plus the dev loopback lane)
+        // are dialable. Raw host/port dialing cannot carry the account
+        // credential (plaintext TCP), so an ungranted route fails closed.
+        let pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: resolvedMethod == .tailscale
-                && methodPinnedCandidates == nil
-                ? Self.TailscaleRouteRequirement(
-                    macDeviceID: pairedMacDeviceID,
-                    grantRoutes: legacyTailscaleRoutes
-                )
-                : nil
+            tailscaleRequirement: Self.TailscaleRouteRequirement(
+                macDeviceID: pairedMacDeviceID,
+                grantRoutes: legacyTailscaleRoutes
+            )
         )
-        if methodPinnedCandidates != nil {
-            // A pinned method never rides the dev loopback or any host/port
-            // lane: the allowlist constrains the Iroh dial exclusively.
-            pinnedRoutes = pinnedRoutes.filter { $0.kind == .iroh }
-        }
-        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+        guard !pinnedRoutes.isEmpty else { return .failed(.unsupportedRoute) }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
@@ -788,7 +755,7 @@ extension MobileShellComposite {
                 persistedRoutes: legacyTailscaleRoutes
             ) != nil
         }
-        if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
+        if hasAuthorizedLegacyTailscaleRoute {
             do {
                 let ticket = try Self.storedMacTicket(
                     name: name,
@@ -798,7 +765,6 @@ extension MobileShellComposite {
                 let noThrowFailure = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
-                    directOnlyDialCandidates: methodPinnedCandidates,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent
@@ -857,7 +823,7 @@ extension MobileShellComposite {
         return connected ? .connected : outcome
     }
 
-    func automaticIrohReconnectIsBlocked(accountID: String) -> Bool {
+    func automaticReconnectIsBlocked(accountID: String) -> Bool {
         automaticReconnectBackoffOwner.isBlocked(
             accountID: accountID,
             now: runtime?.now() ?? Date()
@@ -999,10 +965,23 @@ extension MobileShellComposite {
     ) async {
         let scope = await currentScopeSnapshot()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        // Registry routes are dialable only when the stored pairing for this
+        // exact device and build carries a matching device-local grant.
+        let storedPairing = pairedMacs.first {
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: device.deviceId,
+                instanceTag: instance.tag
+            )
+        }
+        let grantRoutes = storedPairing?.legacyTailscaleRoutes ?? []
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscaleRequirement: Self.TailscaleRouteRequirement(
+                macDeviceID: device.deviceId,
+                grantRoutes: grantRoutes
+            )
         )
         guard !candidateRoutes.isEmpty else {
             mobileShellLog.error(
@@ -1030,6 +1009,7 @@ extension MobileShellComposite {
             routes: candidateRoutes,
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
+            legacyTailscaleRoutes: grantRoutes,
             recordsPairingAttempt: true
         )).didConnect
         guard connectedRoute else {
@@ -1041,31 +1021,6 @@ extension MobileShellComposite {
         if let scope, await !isScopeCurrent(scope) { return }
         await loadPairedMacs()
         await loadRegistryDevices()
-    }
-
-    /// Connect a live account-discovered Iroh Mac while requiring its broker
-    /// advertised app-instance tag.
-    @discardableResult
-    func connectAccountDiscoveredIrohMac(
-        _ mac: MobileDiscoveredIrohMac,
-        accountID: String,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async -> Bool {
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        guard candidateRoutes.contains(where: { $0.kind == .iroh }) else { return false }
-        return (await connectStoredMacOutcome(
-            name: mac.displayName ?? mac.deviceID,
-            routes: candidateRoutes,
-            pairedMacDeviceID: mac.deviceID,
-            instanceTagExpectation: .require(mac.instanceTag),
-            automaticReconnectAccountID: accountID,
-            ifStillCurrent: ifStillCurrent
-        )).didConnect
     }
 
     /// Re-fetch the authoritative workspace list from the connected Mac and apply

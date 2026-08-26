@@ -535,27 +535,6 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )
     }
 
-    /// Persist customizations for one exact tagged pairing.
-    /// Device-local per-Computer Direct addresses: forwarded verbatim and
-    /// deliberately NOT mirrored into the account backup.
-    public func setDirectAddresses(
-        macDeviceID: String,
-        instanceTag: String?,
-        rawJSON: String?,
-        stackUserID: String?,
-        teamID: String?
-    ) async throws {
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let team = await resolvedTeam(teamID)
-        try await inner.setDirectAddresses(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            rawJSON: rawJSON,
-            stackUserID: stackUserID,
-            teamID: team
-        )
-    }
-
     /// Device-local per-Computer connection method: forwarded verbatim and
     /// deliberately NOT mirrored into the account backup.
     public func setConnectionMethod(

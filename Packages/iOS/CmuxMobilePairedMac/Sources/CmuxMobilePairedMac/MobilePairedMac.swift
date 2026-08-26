@@ -34,10 +34,9 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// `nil` means an older host has not established instance-level authority;
     /// route refresh then requires one unambiguous route-advertising instance.
     public var instanceTag: String?
-    /// Exact raw Tailscale routes this iPhone had already trusted before the
-    /// Iroh migration. This local-only compatibility capability is never
-    /// created for new or cloud-restored pairings and is revoked once the Mac
-    /// publishes an authenticated Iroh identity.
+    /// Exact raw Tailscale routes this iPhone had already trusted under the
+    /// pre-QR pairing flow. This local-only compatibility capability is never
+    /// created for new or cloud-restored pairings.
     public var legacyTailscaleRoutes: [CmxAttachRoute]? = nil
     /// When this pairing was first recorded.
     public var createdAt: Date
@@ -63,15 +62,12 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// User's custom icon override, synced per user. `nil` = the automatic icon.
     /// An SF Symbol name (ASCII, e.g. `"desktopcomputer"`) or an emoji.
     public var customIcon: String?
-    /// THIS iPhone's connection-method choice for this Mac app instance
-    /// ("iroh" or "tailscale"). Device-local like the legacy grants: excluded
-    /// from ``CodingKeys`` so it never rides account backup to another device.
-    /// `nil` = fall back to the app's default method.
+    /// THIS iPhone's persisted connection-method choice for this Mac app
+    /// instance. Tailscale is the only method; retired values from older
+    /// builds ("iroh", "automatic", "direct") read as Tailscale. Device-local
+    /// like the legacy grants: excluded from ``CodingKeys`` so it never rides
+    /// account backup to another device. `nil` = the app default.
     public var connectionMethodRawValue: String? = nil
-    /// THIS iPhone's Direct-method dial candidates for this Mac app instance,
-    /// stored as JSON. Device-local and excluded from ``CodingKeys`` like the
-    /// connection method.
-    public var directAddressesRawJSON: String? = nil
 
     /// Stable identity of this saved app instance.
     ///
@@ -132,8 +128,7 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         customIcon: String? = nil,
         instanceTag: String? = nil,
         legacyTailscaleRoutes: [CmxAttachRoute]? = nil,
-        connectionMethodRawValue: String? = nil,
-        directAddressesRawJSON: String? = nil
+        connectionMethodRawValue: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -149,47 +144,5 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.instanceTag = instanceTag
         self.legacyTailscaleRoutes = legacyTailscaleRoutes
         self.connectionMethodRawValue = connectionMethodRawValue
-        self.directAddressesRawJSON = directAddressesRawJSON
-    }
-}
-
-/// One user-configured Direct dial candidate for a Computer, device-local.
-public struct MobilePairedMacDirectAddress: Codable, Equatable, Sendable, Identifiable {
-    public var id: String { port.map { "\(address):\($0)" } ?? address }
-    /// Host or IP literal the user says this Computer is reachable at.
-    public var address: String
-    /// Optional port override. `nil` = the Mac's advertised listener port.
-    public var port: Int?
-    /// Whether this candidate participates in Direct dialing.
-    public var enabled: Bool
-    /// Optional human-readable label ("Home LAN", "Office WireGuard").
-    public var label: String?
-
-    public init(address: String, port: Int? = nil, enabled: Bool = true, label: String? = nil) {
-        self.address = address
-        self.port = port
-        self.enabled = enabled
-        self.label = label
-    }
-}
-
-extension MobilePairedMac {
-    /// Decoded Direct dial candidates (empty when none configured).
-    public var directAddresses: [MobilePairedMacDirectAddress] {
-        guard let directAddressesRawJSON,
-              let data = directAddressesRawJSON.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode(
-                  [MobilePairedMacDirectAddress].self, from: data
-              ) else { return [] }
-        return decoded
-    }
-
-    /// Encodes Direct dial candidates for the store's device-local column.
-    public static func encodeDirectAddresses(
-        _ addresses: [MobilePairedMacDirectAddress]
-    ) -> String? {
-        guard !addresses.isEmpty,
-              let data = try? JSONEncoder().encode(addresses) else { return nil }
-        return String(data: data, encoding: .utf8)
     }
 }

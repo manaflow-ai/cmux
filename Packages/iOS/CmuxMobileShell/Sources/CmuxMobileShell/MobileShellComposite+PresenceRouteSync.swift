@@ -9,18 +9,8 @@ private let presenceRouteSyncLog = Logger(
 )
 
 struct MobilePresenceReconnectEvidence: Equatable, Sendable {
-    struct Hint: Equatable, Sendable {
-        let kind: String
-        let value: String
-        let source: String
-        let privacyScope: String
-        let networkProfileSource: String?
-        let networkProfileID: String?
-    }
-
     enum Endpoint: Equatable, Sendable {
         case hostPort(host: String, port: Int)
-        case peer(identity: String, hints: [Hint])
         case url(String)
     }
 
@@ -46,20 +36,6 @@ struct MobilePresenceReconnectEvidence: Equatable, Sendable {
             let endpoint: Endpoint = switch route.endpoint {
             case let .hostPort(host, port):
                 .hostPort(host: host, port: port)
-            case let .peer(identity, hints):
-                .peer(
-                    identity: identity.endpointID,
-                    hints: hints.map { hint in
-                        Hint(
-                            kind: hint.kind.rawValue,
-                            value: hint.value,
-                            source: hint.source.rawValue,
-                            privacyScope: hint.privacyScope.rawValue,
-                            networkProfileSource: hint.networkProfile?.source.rawValue,
-                            networkProfileID: hint.networkProfile?.profileID
-                        )
-                    }
-                )
             case let .url(url):
                 .url(url)
             }
@@ -149,23 +125,6 @@ extension MobileShellComposite {
         _ hostInstances: [PresenceInstance],
         scope: MobileShellScopeSnapshot
     ) async {
-        // A route push is broker-grade evidence that the Mac's endpoint state
-        // changed (relaunch, re-registration). Drop any reusable transport
-        // discovery snapshot for those Macs before recovery dials, so the
-        // next dial rebuilds its plan from a fresh broker fetch instead of
-        // redialing corpse route state (docs/transport-plane.md, D5).
-        if let personalIrohDiscovery {
-            var invalidatedDeviceIDs = Set<String>()
-            for instance in hostInstances where instance.routes?.isEmpty == false {
-                let deviceID = cmxCanonicalDeviceID(instance.deviceId)
-                guard invalidatedDeviceIDs.insert(deviceID).inserted else {
-                    continue
-                }
-                await personalIrohDiscovery.invalidateDiscovery(
-                    forMacDeviceID: instance.deviceId
-                )
-            }
-        }
         await performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
             guard let self, await self.isScopeCurrent(scope) else { return }
             // Presence can arrive after another path paired or restored a Mac
@@ -219,7 +178,7 @@ extension MobileShellComposite {
         let evidenceChanged = lastPresenceReconnectEvidence?.scope != scope
             || lastPresenceReconnectEvidence?.instances != reconnectEvidence
         lastPresenceReconnectEvidence = (scope, reconnectEvidence)
-        var shouldRecover = personalIrohDiscovery != nil
+        var shouldRecover = false
         if let activeMac = pairedMacs.first(where: { $0.isActive }) {
             let activeIDs = pairedMacAliasIDs(
                 for: activeMac.macDeviceID,

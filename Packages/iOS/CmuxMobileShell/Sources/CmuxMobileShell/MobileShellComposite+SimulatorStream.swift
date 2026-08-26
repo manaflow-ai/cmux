@@ -20,12 +20,55 @@ extension MobileShellComposite {
         }.value
     }
 
-    /// Stops a still-running v1 image stream for a panel the v2 pane is
-    /// taking over (capabilities can arrive after a v1 stream already
-    /// started on an older snapshot). Idempotent.
-    public func stopLegacySimulatorStream(panelID: String, workspaceID: String) async {
-        guard startedMobileSimulatorPanelIDs.contains(panelID) else { return }
-        await stopMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
+    /// Whether the connected Mac can list and switch a panel's simulator.
+    public var supportsSimulatorDeviceSwitching: Bool {
+        supportedHostCapabilities.contains(
+            MobileSimulatorStreamCapability.current.devicesIdentifier)
+    }
+
+    /// Whether the connected Mac can restart a crash-fused simulator worker.
+    public var supportsSimulatorRecover: Bool {
+        supportedHostCapabilities.contains(
+            MobileSimulatorStreamCapability.current.recoverIdentifier)
+    }
+
+    /// Asks the Mac to recover the panel's simulator session (the pane's
+    /// Reconnect). Fire-and-forget: the stream's status flow shows progress.
+    public func recoverSimulator(panelID: String, workspaceID: String) async -> Bool {
+        guard supportsSimulatorRecover, let client = remoteClient else { return false }
+        do {
+            _ = try await client.recoverMobileSimulator(
+                panelID: panelID, workspaceID: workspaceID)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Installed simulators the panel can stream; empty on any failure so
+    /// the picker simply hides against older or unreachable hosts.
+    public func listSimulatorDevices(
+        panelID: String, workspaceID: String
+    ) async -> [MobileSimulatorDeviceDescriptor] {
+        guard supportsSimulatorDeviceSwitching, let client = remoteClient else { return [] }
+        return (try? await client.listMobileSimulatorDevices(
+            panelID: panelID, workspaceID: workspaceID)) ?? []
+    }
+
+    /// Asks the Mac to switch the panel's simulator. Fire-and-forget: the
+    /// stream's own status/config flow shows the transition, and a cold boot
+    /// outlives any reasonable RPC deadline.
+    public func selectSimulatorDevice(
+        panelID: String, workspaceID: String, udid: String
+    ) async -> Bool {
+        guard supportsSimulatorDeviceSwitching, let client = remoteClient else { return false }
+        do {
+            _ = try await client.selectMobileSimulatorDevice(
+                panelID: panelID, workspaceID: workspaceID, udid: udid)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Resolves an aggregate workspace row identity before stopping its
@@ -50,12 +93,6 @@ extension MobileShellComposite {
     }
 
     private func performMobileSimulatorStreamStart(panelID: String, workspaceID: String) async {
-        // Simulator streaming v2 runs the panel over its own dedicated lane,
-        // owned entirely by the pane view; starting the v1 image-event stream
-        // alongside it would double-stream and contend for input ownership.
-        // Guarded here, the single choke point, so stall recovery and
-        // reconnect restarts cannot resurrect v1 either.
-        guard !supportsSimulatorStreamV2 else { return }
         recordSimulatorStream(
             panelID: panelID,
             state: .startRequested,
