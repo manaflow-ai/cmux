@@ -76,7 +76,30 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         groups: [MobileWorkspaceGroupPreview]
     ) -> [MobileWorkspaceListItem] {
         guard !workspaces.isEmpty || !groups.isEmpty else { return [] }
-        let groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // A move prediction updates workspace membership before the host's
+        // group snapshot arrives. If that snapshot still marks the destination
+        // group empty, promote its first predicted member here so the list keeps
+        // one coherent header/anchor projection during the pending window.
+        var firstMemberIDByGroupID: [MobileWorkspaceGroupPreview.ID: MobileWorkspacePreview.ID] = [:]
+        for workspace in workspaces {
+            guard let groupID = workspace.groupID,
+                  firstMemberIDByGroupID[groupID] == nil else { continue }
+            firstMemberIDByGroupID[groupID] = workspace.id
+        }
+        let effectiveGroups = groups.map { group -> MobileWorkspaceGroupPreview in
+            guard group.isEmpty,
+                  let firstMemberID = firstMemberIDByGroupID[group.id] else {
+                return group
+            }
+            var promoted = group
+            promoted.anchorWorkspaceID = firstMemberID
+            promoted.isEmpty = false
+            return promoted
+        }
+        let groupsByID = Dictionary(
+            effectiveGroups.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         // Aggregate unread state per group up front (membership can be
         // non-contiguous, so this cannot be folded into the emit loop).
@@ -93,7 +116,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         }
 
         var items: [MobileWorkspaceListItem] = []
-        items.reserveCapacity(workspaces.count + groups.count)
+        items.reserveCapacity(workspaces.count + effectiveGroups.count)
         var lastEmittedGroupID: MobileWorkspaceGroupPreview.ID?
         var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
         var emittedFooters: Set<MobileWorkspaceGroupPreview.ID> = []
@@ -158,7 +181,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 workspace.groupID.flatMap { groupsByID[$0] == nil ? nil : $0 }
             }
         )
-        let emptyGroups = groups.filter { $0.isEmpty && !groupsWithMembers.contains($0.id) }
+        let emptyGroups = effectiveGroups.filter { $0.isEmpty && !groupsWithMembers.contains($0.id) }
         let emptyGroupIDs = Set(emptyGroups.map(\.id))
         guard !emptyGroups.isEmpty else { return items }
         var emptyBeforeGroup: [MobileWorkspaceGroupPreview.ID: [MobileWorkspaceGroupPreview]] = [:]
@@ -168,10 +191,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         var nextLiveUnpinnedGroup: MobileWorkspaceGroupPreview?
         var nextLiveSameTierByIndex: [MobileWorkspaceGroupPreview?] = Array(
             repeating: nil,
-            count: groups.count
+            count: effectiveGroups.count
         )
-        for index in groups.indices.reversed() {
-            let group = groups[index]
+        for index in effectiveGroups.indices.reversed() {
+            let group = effectiveGroups[index]
             nextLiveSameTierByIndex[index] = group.isPinned
                 ? nextLivePinnedGroup
                 : nextLiveUnpinnedGroup
@@ -182,7 +205,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 nextLiveUnpinnedGroup = group
             }
         }
-        for (index, group) in groups.enumerated() where emptyGroupIDs.contains(group.id) {
+        for (index, group) in effectiveGroups.enumerated() where emptyGroupIDs.contains(group.id) {
             let nextLiveSameTierGroup = nextLiveSameTierByIndex[index]
             if let nextLiveSameTierGroup {
                 emptyBeforeGroup[nextLiveSameTierGroup.id, default: []].append(group)

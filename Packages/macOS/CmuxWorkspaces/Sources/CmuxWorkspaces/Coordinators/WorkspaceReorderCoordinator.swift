@@ -130,7 +130,11 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         // resolved to "stay put."
         if model.tabs.count <= 1 {
             if isDragOperation, explicitGroupId != nil {
+                let previousGroupId = model.tabs.first(where: { $0.id == tabId })?.groupId
                 applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
+                if model.tabs.first(where: { $0.id == tabId })?.groupId != previousGroupId {
+                    host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
+                }
             }
             return true
         }

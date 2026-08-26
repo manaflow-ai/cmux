@@ -85,6 +85,20 @@ extension WorkspacesModel {
         promotingWorkspaceId promotedWorkspaceId: UUID? = nil
     ) -> [UUID] {
         let baseIds = sidebarTopLevelWorkspaceIds(promotingWorkspaceId: promotedWorkspaceId)
+        return sidebarTopLevelWorkspaceIdsIncludingEmptyGroups(
+            preservingTopLevelIds: baseIds
+        )
+    }
+
+    /// Adds durable empty-group headers to a caller-provided live top-level
+    /// order while preserving their stored position within each pin tier.
+    ///
+    /// Reorder and creation paths use this overload after they have computed a
+    /// new live-row order. Keeping the insertion rule here ensures those paths
+    /// cannot accidentally treat a header-only group as an omitted tail item.
+    func sidebarTopLevelWorkspaceIdsIncludingEmptyGroups(
+        preservingTopLevelIds baseIds: [UUID]
+    ) -> [UUID] {
         let emptyGroups = workspaceGroups.filter(\.isEmpty)
         guard !emptyGroups.isEmpty else { return baseIds }
 

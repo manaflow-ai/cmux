@@ -25,12 +25,20 @@ extension WorkspacesModel {
     /// emitting each workspace group as one contiguous run at its first
     /// encountered member.
     func normalizeWorkspaceGroupRunsPreservingOrder(_ desiredIds: [UUID]) {
+        // Build membership once so anchor repair and run construction stay
+        // linear even when a window contains many groups and workspaces.
+        var groupedByGroupId: [UUID: [Tab]] = [:]
+        for tab in tabs {
+            guard let groupId = tab.groupId else { continue }
+            groupedByGroupId[groupId, default: []].append(tab)
+        }
+
         // Repair the anchor phase at the same boundary that repairs group
         // membership. This covers restore/import paths that assign `groupId`
         // directly instead of going through `assignGroup`.
         for index in workspaceGroups.indices {
             let groupId = workspaceGroups[index].id
-            let members = tabs.filter { $0.groupId == groupId }
+            let members = groupedByGroupId[groupId] ?? []
             if let liveAnchor = workspaceGroups[index].liveAnchorWorkspaceId,
                members.contains(where: { $0.id == liveAnchor }) {
                 continue
@@ -51,13 +59,7 @@ extension WorkspacesModel {
             tab.groupId = nil
         }
 
-        var groupedByGroupId: [UUID: [Tab]] = [:]
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        for tab in tabs {
-            if let groupId = tab.groupId {
-                groupedByGroupId[groupId, default: []].append(tab)
-            }
-        }
 
         var emittedWorkspaceIds = Set<UUID>()
         var emittedGroupIds = Set<UUID>()
@@ -104,7 +106,18 @@ extension WorkspacesModel {
         for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
-        let topLevelIds = preferredTopLevelIds ?? sidebarTopLevelWorkspaceIds()
+        let topLevelIds: [UUID]
+        if let preferredTopLevelIds {
+            // Callers usually compute this order from live tabs only. Reinsert
+            // durable header-only groups before normalizing so an omitted
+            // placeholder cannot be appended to the tail by the group-order
+            // reconciliation below.
+            topLevelIds = sidebarTopLevelWorkspaceIdsIncludingEmptyGroups(
+                preservingTopLevelIds: preferredTopLevelIds
+            )
+        } else {
+            topLevelIds = sidebarTopLevelWorkspaceIds()
+        }
         let pinnedTopLevelIds = preferredTopLevelIds == nil
             ? sidebarTopLevelPinnedWorkspaceIds()
             : sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
@@ -114,7 +127,9 @@ extension WorkspacesModel {
         // depend on `Workspace.groupId` even when the array contents are
         // unchanged.
         normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
-        syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: preferredTopLevelIds)
+        syncWorkspaceGroupsOrderToAnchorOrder(
+            preferredTopLevelIds: preferredTopLevelIds == nil ? nil : topLevelIds
+        )
     }
 
     /// Ensure the group containing the newly-selected workspace is expanded, so the
