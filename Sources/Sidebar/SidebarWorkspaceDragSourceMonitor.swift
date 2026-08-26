@@ -18,6 +18,15 @@ final class SidebarWorkspaceDragSourceMonitor {
     private var onBeginDrag: BeginDrag?
     private let dragThresholdSquared: CGFloat = 16
 
+    deinit {
+        // `deinit` is nonisolated under Swift 6; remove the AppKit monitor
+        // directly so releasing a monitor during view reconstruction cannot
+        // leave a process-wide callback behind.
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+    }
+
     func start(
         resolveCandidate: @escaping @MainActor (CGPoint) -> SidebarWorkspaceDragCandidate?,
         onBeginDrag: @escaping BeginDrag

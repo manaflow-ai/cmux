@@ -435,6 +435,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
             name: NSPasteboard.Name("portal-drag-session-\(UUID().uuidString)")
         )
         pasteboard.clearContents()
+        defer { pasteboard.clearContents() }
         let sidebarRegistry = SidebarWorkspaceDragRegistry(
             dragPasteboardProvider: { pasteboard }
         )

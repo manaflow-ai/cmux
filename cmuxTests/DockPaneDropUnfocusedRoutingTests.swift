@@ -581,20 +581,12 @@ struct DockPaneDropUnfocusedRoutingTests {
         registry: TabDragTransferRegistry,
         pasteboard: NSPasteboard
     ) throws -> TabDragTransferRegistration {
-        let registration = try #require(
-            registry.register(
-                TabDragTransfer(
-                    tab: Tab(
-                        id: TabID(uuid: tabId),
-                        title: "Terminal",
-                        kind: "terminal"
-                    ),
-                    sourcePaneId: PaneID(id: sourcePaneId)
-                )
-            )
+        try registerPaneDrag(
+            tabId: tabId,
+            sourcePaneId: sourcePaneId,
+            registry: registry,
+            pasteboards: [pasteboard]
         )
-        #expect(registration.write(to: pasteboard))
-        return registration
     }
 
     @MainActor
