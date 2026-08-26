@@ -9351,6 +9351,102 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// iOS 27's keyboard seat trusts only `keyboardWillChangeFrame`
+    /// payloads: the layout guide lies at the screen bottom there (#9958)
+    /// and frames outside the will transaction misreport (#10518), so the
+    /// dock seats from the will constant, rebases interrupted legs from
+    /// live presentation frames (#10006), and never reseats from did frames
+    /// or steady-state re-derivations. The DEBUG force runs that exact path
+    /// on any simulator OS. Regression: the guide-locked rewrite routed
+    /// iOS 27 to a seat that consumed the full notification stream, so a
+    /// misreported frame hopped a perfectly settled composer bar after
+    /// every keyboard toggle.
+    @MainActor
+    func testIOS27WillOnlySeatKeepsDockSettledAcrossKeyboardToggles() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        // Red until the force exists: an app that ignores the env falls back
+        // to its default seat and never reports the will-only contract.
+        let dock = waitForDock(in: app, describe: "will-only iOS 27 keyboard seat is active") {
+            $0["keyboardDockSource"] == "notification" && $0["keyboardSeatWillOnly"] == "1"
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            dock,
+            surface: surface,
+            keyboard: keyboard,
+            context: "iOS 27 will-only seat"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "iOS 27 will-only seat"
+        )
+
+        // A settled dock must stay put: no did-frame reseat or steady-state
+        // re-derivation may move the composer bar once the keyboard stops.
+        // Poll over a bounded window and require EVERY sample at the settled
+        // edge, so a transient hop between two single samples cannot pass.
+        guard let settledTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
+            XCTFail("Missing dock edge metric on the will-only seat. dock=\(dock)")
+            return
+        }
+        for sample in 1...5 {
+            try await Task.sleep(for: .milliseconds(300))
+            let laterDock = surfaceDock(in: app)
+            guard let laterTop = laterDock["keyboardDockTargetTop"].flatMap(Double.init) else {
+                XCTFail("Missing dock edge metric on stability sample \(sample). dock=\(laterDock)")
+                return
+            }
+            XCTAssertEqual(
+                laterTop,
+                settledTop,
+                accuracy: 1,
+                "A settled will-only dock moved without a will notification (sample \(sample)). dock=\(laterDock)"
+            )
+        }
+
+        // Rapid reversals ride the interrupted-leg rebase: the dock and the
+        // terminal presentation stay one unit through every cycle.
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+        for cycle in 1...6 {
+            hideKeyboardButton.tap()
+            surface.tap()
+            guard let cycleKeyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let cycleDock = surfaceDock(in: app)
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                cycleDock,
+                surface: surface,
+                keyboard: cycleKeyboard,
+                context: "will-only reversal \(cycle)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                cycleDock,
+                context: "will-only reversal \(cycle)"
+            )
+        }
+    }
+
     /// The legacy (notification+transform) keyboard dock path is the shipping
     /// default on every OS. Launch with no overrides and prove the default
     /// path selects legacy and the visible dock follows the real
