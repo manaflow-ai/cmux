@@ -12266,11 +12266,15 @@ class TerminalController {
         var shouldCapture = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
+            let currentSessionId = AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId
             shouldCapture = SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
                 eventType: .leftMouseDragged,
                 pasteboardTypes: pb.types,
                 hasLiveWorkspaceDrag: hasSidebarDragState
-                    && AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
+                    && SidebarTabDragPayload.hasLiveSession(
+                        in: pb,
+                        currentSessionId: currentSessionId
+                    )
             )
         }
         return shouldCapture ? "true" : "false"

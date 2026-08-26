@@ -16802,7 +16802,6 @@ enum BonsplitTabDragPayload {
 
         let tab: TabInfo
         let sourcePaneId: UUID
-        let sourceProcessId: Int32
 
         init(_ transfer: TabDragTransfer) {
             self.tab = TabInfo(
@@ -16810,7 +16809,6 @@ enum BonsplitTabDragPayload {
                 kind: transfer.tab.kind
             )
             self.sourcePaneId = transfer.sourcePaneId.id
-            self.sourceProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
         }
     }
 
