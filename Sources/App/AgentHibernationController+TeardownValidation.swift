@@ -53,7 +53,7 @@ extension AgentHibernationController {
             record.isStillOwnedByOriginalWorkspace &&
             (
                 request.trigger == .systemMemoryPressure ||
-                    currentProcessEntry?.processSafetyAllowsScheduledHibernation ?? true
+                    currentProcessEntry?.processSafetyAllowsScheduledHibernation == true
             ) &&
             (
                 request.trigger != .systemMemoryPressure ||

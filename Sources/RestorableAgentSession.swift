@@ -1157,6 +1157,10 @@ struct RestorableAgentSessionIndex: Sendable {
             } else {
                 revalidatedLiveness
             }
+            let presentMismatchedProcess = processLiveness == .exited &&
+                recordedAgentProcessIDs.contains { processID in
+                    processSnapshot.process(pid: processID) != nil
+                }
             let confirmedAgentProcessIDs = Set(matchesByProcessID.compactMap { processID, match in
                 match == .matches ? processID : nil
             })
@@ -1192,7 +1196,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 terminationProcessIdentities: entry.terminationProcessIdentities.filter {
                     currentPanelProcessIDs.contains($0.key)
                 },
-                containsUnrelatedProcess: processLiveness == .running && entry.containsUnrelatedProcess
+                containsUnrelatedProcess: (processLiveness == .running && entry.containsUnrelatedProcess) ||
+                    presentMismatchedProcess
             )
         }
 
@@ -1402,6 +1407,15 @@ struct RestorableAgentSessionIndex: Sendable {
                 } else {
                     liveProcessIdentities = [:]
                 }
+                let presentMismatchedProcess: Bool = {
+                    guard processObservation.liveness == .exited,
+                          let processID = effectiveRecord.pid,
+                          processID > 0,
+                          processID <= Int(Int32.max) else {
+                        return false
+                    }
+                    return processPresenceProvider(processID) != .absent
+                }()
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
@@ -1417,7 +1431,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     // A saved hook PID proves liveness but cannot prove the
                     // surrounding pane is exclusive. Critical-pressure
                     // termination requires a fresh process-tree detection.
-                    containsUnrelatedProcess: liveProcessID != nil
+                    containsUnrelatedProcess: liveProcessID != nil || presentMismatchedProcess
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
