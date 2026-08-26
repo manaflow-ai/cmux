@@ -1825,6 +1825,15 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
     var selectedPanelId: UUID? = nil
 }
 
+/// A cloud machine bound to a workspace through the cmux-tui remote daemon, persisted so a
+/// restored `vm:<id>` workspace stays that machine's workspace (`workspace(forCloudVMID:)`,
+/// the sidebar cloud button's Base reuse, `vm.terminal_open` targeting). Only the binding is
+/// persisted: the pane's link is a process and is not replayed on restore.
+struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
+    var vmID: String
+    var isBase: Bool
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
     /// Restore reuses this identity when it is present and non-colliding; legacy,
@@ -1860,6 +1869,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    /// cmux-tui cloud machine binding; absent in manifests written before the Cloud tree and for
+    /// workspaces that are not cloud machines.
+    var cloudVM: SessionCloudVMBindingSnapshot? = nil
     /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default
