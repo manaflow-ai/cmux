@@ -41,6 +41,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Where Claude Code agent-team `tmux new-window` teammates are created.
+    public let teamsSpawnPlacement = DefaultsKey<TeamsSpawnPlacement>(
+        id: "app.teamsSpawnPlacement",
+        defaultValue: .workspace,
+        userDefaultsKey: "teamsSpawnPlacement"
+    )
+
     public let workspaceInheritWorkingDirectory = DefaultsKey<Bool>(
         id: "app.workspaceInheritWorkingDirectory",
         defaultValue: true,

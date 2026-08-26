@@ -198,6 +198,32 @@ extension TerminalSurface {
             )
         }
 
+        // Claude Teams invokes the cmux tmux shim from a child surface. PATH is
+        // managed by cmux and cannot be overridden through startup_environment,
+        // so prepend the validated shim directory here before the shell starts.
+        if let claudeTeamsTmuxShim = Self.claudeTeamsTmuxShimPath(
+            from: additionalEnvironment,
+            isExecutableFile: runtimeFilesystem.isExecutableFile
+        ) {
+            let currentPath = env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            setManagedEnvironmentValue(
+                "CMUX_CLAUDE_TEAMS_TMUX_SHIM",
+                claudeTeamsTmuxShim
+            )
+            setManagedEnvironmentValue(
+                "PATH",
+                Self.pathByPrependingUniqueDirectory(
+                    URL(fileURLWithPath: claudeTeamsTmuxShim, isDirectory: false)
+                        .deletingLastPathComponent()
+                        .path,
+                    to: currentPath
+                )
+            )
+        }
+
         var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,

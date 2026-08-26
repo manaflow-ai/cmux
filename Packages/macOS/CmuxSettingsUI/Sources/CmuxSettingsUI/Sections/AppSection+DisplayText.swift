@@ -53,6 +53,21 @@ extension AppSection {
         }
     }
 
+    func teamsSpawnPlacementSubtitle(_ placement: TeamsSpawnPlacement) -> String {
+        switch placement {
+        case .workspace:
+            return String(
+                localized: "settings.app.teamsSpawnPlacement.workspace.subtitle",
+                defaultValue: "Claude Teams teammates open in sibling workspaces, matching the default tmux window mapping."
+            )
+        case .surface:
+            return String(
+                localized: "settings.app.teamsSpawnPlacement.surface.subtitle",
+                defaultValue: "Claude Teams teammates open as surfaces in the caller's workspace and pane."
+            )
+        }
+    }
+
     func fileDropSubtitle(_ behavior: FileDropDefaultBehavior) -> String {
         switch behavior {
         case .text:

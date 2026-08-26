@@ -107,6 +107,11 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
 
+    @Test func claudeTeamsSpawnPlacementDefaultsToWorkspace() {
+        #expect(SettingCatalog().app.teamsSpawnPlacement.defaultValue == .workspace)
+        #expect(TeamsSpawnPlacement(rawValue: "surface") == .surface)
+    }
+
     @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
         #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
     }

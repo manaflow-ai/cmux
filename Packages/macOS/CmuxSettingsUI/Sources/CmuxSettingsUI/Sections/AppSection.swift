@@ -6,6 +6,7 @@ import SwiftUI
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
 /// New Workspace Placement, Inherit Working Directory, Minimal Mode,
+/// Claude Teams Spawn Placement,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
@@ -27,6 +28,7 @@ public struct AppSection: View {
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
+    @State private var teamsSpawnPlacement: DefaultsValueModel<TeamsSpawnPlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
@@ -81,6 +83,7 @@ public struct AppSection: View {
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
+        _teamsSpawnPlacement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.teamsSpawnPlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
         _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
@@ -140,7 +143,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, teamsSpawnPlacement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -212,6 +215,22 @@ public struct AppSection: View {
                     Text(String(localized: "workspace.placement.top", defaultValue: "Top")).tag(WorkspacePlacement.top)
                     Text(String(localized: "workspace.placement.afterCurrent", defaultValue: "After current")).tag(WorkspacePlacement.afterCurrent)
                     Text(String(localized: "workspace.placement.end", defaultValue: "End")).tag(WorkspacePlacement.end)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Claude Teams Spawn Placement
+            SettingsCardRow(
+                configurationReview: .json("app.teamsSpawnPlacement"),
+                String(localized: "settings.app.teamsSpawnPlacement", defaultValue: "Claude Teams Spawn Placement"),
+                subtitle: teamsSpawnPlacementSubtitle(teamsSpawnPlacement.current),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { teamsSpawnPlacement.current }, set: { teamsSpawnPlacement.set($0) })) {
+                    Text(String(localized: "settings.app.teamsSpawnPlacement.workspace", defaultValue: "Workspace")).tag(TeamsSpawnPlacement.workspace)
+                    Text(String(localized: "settings.app.teamsSpawnPlacement.surface", defaultValue: "Surface")).tag(TeamsSpawnPlacement.surface)
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)

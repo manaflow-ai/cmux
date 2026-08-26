@@ -162,7 +162,7 @@ extension CMUXCLI {
             ),
             observedPermissionMode: record.permissionMode
         )
-        guard let invocation = AgentRestorePlanner(
+        guard let plannedInvocation = AgentRestorePlanner(
             executableFileResolver: AgentRestoreExecutableFileResolver()
         ).invocation(
             for: request,
@@ -185,6 +185,11 @@ extension CMUXCLI {
                 )
             )
         }
+        let invocation = claudeTeamsRestoreInvocationIfNeeded(
+            plannedInvocation,
+            record: record,
+            processEnvironment: processEnvironment
+        )
 
         for preflight in invocation.preflightInvocations {
             try runRestorePreflight(

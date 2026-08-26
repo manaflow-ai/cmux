@@ -1,7 +1,69 @@
 import CMUXAgentLaunch
+import CmuxSettings
 import Foundation
 
 extension CMUXCLI {
+    /// Reads the persistent Claude Teams teammate destination. The setting is
+    /// deliberately kept separate from the tmux command resolver so the
+    /// compatibility entrypoint used by OMO/OMX/OMC keeps its workspace
+    /// behavior unless it is running inside a Claude Teams launch.
+    func configuredClaudeTeamsSpawnPlacement(
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TeamsSpawnPlacement {
+        // The bundled CLI is a standalone executable, so UserDefaults.standard
+        // does not necessarily use the app's bundle domain. Terminal surfaces
+        // carry the app/tag identifier explicitly; use it when available so a
+        // setting changed in the GUI is visible to the forwarded CLI too.
+        let key = SettingCatalog().app.teamsSpawnPlacement
+        let candidates: [UserDefaults] = [
+            processEnvironment["CMUX_BUNDLE_ID"].flatMap(UserDefaults.init(suiteName:)),
+            .standard
+        ].compactMap { $0 }
+        return candidates.lazy
+            .compactMap { UserDefaultsSettingsClient(defaults: $0).valueIfPresent(for: key) }
+            .first ?? key.defaultValue
+    }
+
+    /// Resolves the teammate destination for one tmux-compat invocation.
+    /// Claude's launcher supplies an explicit snapshot, while restored shells
+    /// can fall back to the persisted setting when Claude's agent-team marker
+    /// is still present. Other providers share this entrypoint but must retain
+    /// their existing workspace mapping.
+    func claudeTeamsSpawnPlacement(
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TeamsSpawnPlacement {
+        let isClaudeTeamsContext = processEnvironment["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "1"
+            || normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_TEAMS_CMUX_BIN"]) != nil
+            || normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_TEAMS_TMUX_SHIM"]) != nil
+        guard isClaudeTeamsContext else { return .workspace }
+        if let raw = processEnvironment["CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT"] {
+            return TeamsSpawnPlacement(
+                rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            ) ?? .workspace
+        }
+        return configuredClaudeTeamsSpawnPlacement(processEnvironment: processEnvironment)
+    }
+
+    /// A tmux-shaped pane token for a surface tab. Claude Code passes the
+    /// token returned by `new-window -P -F '#{pane_id}'` back to later tmux
+    /// commands, so the token must be stable across CLI processes without
+    /// pretending that tabs are distinct physical cmux panes.
+    func tmuxSurfaceAliasToken(surfaceId: String) -> String {
+        "%cmux-surface-\(surfaceId)"
+    }
+
+    func tmuxSurfaceAliasSurfaceId(_ raw: String?) -> String? {
+        guard let raw = normalizedTmuxTarget(raw) else { return nil }
+        let token = tmuxTrimIdSigil(raw)
+        let prefix = "cmux-surface-"
+        guard token.lowercased().hasPrefix(prefix),
+              token.count > prefix.count else {
+            return nil
+        }
+        let surfaceId = String(token.dropFirst(prefix.count))
+        return UUID(uuidString: surfaceId) == nil ? nil : surfaceId
+    }
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
@@ -160,9 +222,9 @@ extension CMUXCLI {
         var environment = transport.decodedEnvironment(
             from: processEnvironment[ClaudeTeamsRespawnEnvironmentTransport.environmentKey]
         )
-        if processEnvironment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" {
-            environment["CLAUDE_CODE_SANDBOXED"] = "1"
-        }
+        environment.merge(
+            claudeTeamsRespawnControlEnvironment(processEnvironment: processEnvironment)
+        ) { _, incoming in incoming }
         return environment.keys.sorted().compactMap { key in
             environment[key].map { (key: key, value: $0) }
         }

@@ -1787,7 +1787,8 @@
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
-          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
+          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。",
+          "teamsSpawnPlacement": "tmux new-window で作成する Claude Code のエージェントチームメイトの配置先です。workspace は兄弟ワークスペースを作成し、surface は呼び出し元のワークスペースとペインにタブとして作成します。"
         },
         "terminal": {
           "adaptiveDefaultTheme": "true（既定）の場合、Ghostty 設定にディレクティブが一つもないときに限り、cmux の管理するライト／ダークパレットを適用します。false の場合、未設定の Ghostty では固定された組み込みパレットを使用します。Ghostty のディレクティブが一つでもあれば管理パレットは適用せず、theme = light:X,dark:Y は引き続き外観に追従します。",

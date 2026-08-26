@@ -55681,6 +55681,23 @@
         }
       }
     },
+    "cli.tmuxCompat.error.surfaceCreateMissingId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface.create did not return surface_id for Claude Teams teammate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams のチームメイト用 surface.create が surface_id を返しませんでした"
+          }
+        }
+      }
+    },
     "cli.tmuxCompat.respawnPane.requiresForce": {
       "extractionState": "manual",
       "localizations": {
@@ -156408,6 +156425,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "新工作區位置"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams Spawn Placement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams の起動先"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.surface.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams teammates open as surfaces in the caller's workspace and pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams のチームメイトを呼び出し元のワークスペースとペインのサーフェスとして開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "settings.app.teamsSpawnPlacement.workspace.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams teammates open in sibling workspaces, matching the default tmux window mapping."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Teams のチームメイトを、tmux の既定のウィンドウ対応と同じく兄弟ワークスペースで開きます。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.teams-spawn-placement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams agent team teammate tmux new-window workspace surface tab pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.teamsSpawnPlacement Claude Teams エージェント チーム メイト tmux new-window ワークスペース サーフェス タブ ペイン"
           }
         }
       }

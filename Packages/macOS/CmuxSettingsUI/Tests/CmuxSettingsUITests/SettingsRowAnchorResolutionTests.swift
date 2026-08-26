@@ -48,6 +48,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.menuBarOnly",
         "app.minimalMode",
         "app.newWorkspacePlacement",
+        "app.teamsSpawnPlacement",
         "app.openMarkdownInCmuxViewer",
         "app.openSupportedFilesInCmux",
         "app.preferredEditor",

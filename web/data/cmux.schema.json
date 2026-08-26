@@ -424,6 +424,13 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "teamsSpawnPlacement": {
+          "type": "string",
+          "enum": ["workspace", "surface"],
+          "default": "workspace",
+          "descriptionKey": "schemaDescriptions.app.teamsSpawnPlacement",
+          "description": "Where Claude Code agent-team teammates created through tmux new-window are placed: workspace creates a sibling workspace, while surface creates a tab in the caller's workspace and pane."
+        },
         "forkConversationDefaultDestination": {
           "type": "string",
           "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],

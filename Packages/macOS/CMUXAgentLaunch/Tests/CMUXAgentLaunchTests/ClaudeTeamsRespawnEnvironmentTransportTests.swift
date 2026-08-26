@@ -11,6 +11,7 @@ struct ClaudeTeamsRespawnEnvironmentTransportTests {
         let encoded = try #require(transport.encodedValue(from: [
             "PATH": "/opt/homebrew/bin:/Users/test/.local/share/mise/shims:/usr/bin:/bin",
             "CLAUDE_CONFIG_DIR": "/Users/test/Library/Application Support/Claude",
+            "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
             "ANTHROPIC_MODEL": "claude-sonnet",
             "ANTHROPIC_API_KEY": "sk-ant-must-not-cross-respawn-transport",
             "CMUX_SURFACE_ID": "surface-must-not-cross-respawn-transport",
@@ -19,6 +20,7 @@ struct ClaudeTeamsRespawnEnvironmentTransportTests {
         #expect(transport.decodedEnvironment(from: encoded) == [
             "PATH": "/opt/homebrew/bin:/Users/test/.local/share/mise/shims:/usr/bin:/bin",
             "CLAUDE_CONFIG_DIR": "/Users/test/Library/Application Support/Claude",
+            "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
             "ANTHROPIC_MODEL": "claude-sonnet",
         ])
     }
