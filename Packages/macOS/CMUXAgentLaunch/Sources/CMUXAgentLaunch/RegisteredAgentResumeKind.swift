@@ -18,6 +18,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
     case grok
     /// Kimi Code.
     case kimi
+    /// Mistral Vibe CLI.
+    case vibe
 
     /// The canonical Vault `resumeCommand` template for this built-in agent.
     public var commandTemplate: String {
@@ -30,7 +32,7 @@ public enum RegisteredAgentResumeKind: String, Sendable {
             "{{executable}} --conversation {{sessionId}}"
         case .grok:
             "{{executable}} -r {{sessionId}}"
-        case .kimi:
+        case .kimi, .vibe:
             "{{executable}} --resume {{sessionId}}"
         }
     }
