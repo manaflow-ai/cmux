@@ -28,11 +28,16 @@ public protocol CmxIrohEndpoint: Sendable {
         alpn: Data
     ) async throws -> any CmxIrohConnection
 
-    /// Accepts the next connection that negotiated a configured ALPN.
+    /// Accepts the next incoming connection attempt without completing its
+    /// server-side handshake.
     ///
-    /// - Returns: The accepted connection, or `nil` after endpoint close.
-    /// - Throws: A transport error for a failed handshake.
-    func accept() async throws -> (any CmxIrohConnection)?
+    /// The returned attempt performs the handshake in
+    /// ``CmxIrohIncomingConnection/establish()``, so a peer that stops making
+    /// handshake progress never blocks the accept queue behind it.
+    ///
+    /// - Returns: The incoming attempt, or `nil` after endpoint close.
+    /// - Throws: A transport error when the accept queue fails.
+    func accept() async throws -> (any CmxIrohIncomingConnection)?
 
     /// Replaces the complete managed or custom relay profile without changing EndpointID.
     ///

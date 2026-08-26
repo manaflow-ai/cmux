@@ -798,9 +798,11 @@ actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         try Task.checkCancellation()
-        if !connections.isEmpty { return connections.removeFirst() }
+        if !connections.isEmpty {
+            return CmxIrohEstablishedIncomingConnection(connections.removeFirst())
+        }
         guard !closed else { return nil }
         let id = UUID()
         let connection = await withTaskCancellationHandler {
@@ -809,7 +811,7 @@ actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
             Task { await self.cancelAccept(id) }
         }
         try Task.checkCancellation()
-        return connection
+        return connection.map { CmxIrohEstablishedIncomingConnection($0) }
     }
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }

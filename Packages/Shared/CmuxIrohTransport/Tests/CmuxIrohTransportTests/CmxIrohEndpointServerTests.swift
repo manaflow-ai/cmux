@@ -496,7 +496,7 @@ actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         try Task.checkCancellation()
         if !acceptEvents.isEmpty {
             return try Self.resolve(acceptEvents.removeFirst())
@@ -545,9 +545,10 @@ actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
 
     nonisolated private static func resolve(
         _ event: AcceptEvent
-    ) throws -> (any CmxIrohConnection)? {
+    ) throws -> (any CmxIrohIncomingConnection)? {
         switch event {
-        case let .connection(connection): connection
+        case let .connection(connection):
+            CmxIrohEstablishedIncomingConnection(connection)
         case .failure: throw TestIrohTransportError.unsupported
         case .closed: nil
         }

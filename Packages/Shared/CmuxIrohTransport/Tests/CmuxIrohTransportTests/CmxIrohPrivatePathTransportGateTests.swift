@@ -424,7 +424,8 @@ struct CmxIrohPrivatePathTransportGateTests {
         endpoint: any CmxIrohEndpoint,
         authorizer: CmxIrohAdmissionController
     ) async throws -> CmxIrohServerSession {
-        let connection = try #require(try await endpoint.accept())
+        let incoming = try #require(try await endpoint.accept())
+        let connection = try await incoming.establish()
         let session = try CmxIrohServerSession(
             connection: connection,
             authorizer: authorizer

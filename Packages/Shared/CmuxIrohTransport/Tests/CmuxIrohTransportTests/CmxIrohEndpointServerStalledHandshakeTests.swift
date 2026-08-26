@@ -107,7 +107,7 @@ private actor StalledHandshakeIrohEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         let event: AcceptEvent
         if !acceptEvents.isEmpty {
             event = acceptEvents.removeFirst()
@@ -119,11 +119,14 @@ private actor StalledHandshakeIrohEndpoint: CmxIrohEndpoint {
         case .stalledHandshake:
             // The dialing peer sent its Initial packet and then died. The
             // server-side handshake never completes until release.
-            await withCheckedContinuation { stallWaiters.append($0) }
-            return nil
+            return StalledIncomingConnection(endpoint: self)
         case let .connection(connection):
-            return connection
+            return CmxIrohEstablishedIncomingConnection(connection)
         }
+    }
+
+    func awaitStallRelease() async {
+        await withCheckedContinuation { stallWaiters.append($0) }
     }
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
@@ -156,4 +159,17 @@ private actor StalledHandshakeIrohEndpoint: CmxIrohEndpoint {
             acceptEvents.append(event)
         }
     }
+}
+
+/// An incoming attempt whose server-side handshake makes no progress until the
+/// endpoint releases it, then fails like an aborted handshake.
+private struct StalledIncomingConnection: CmxIrohIncomingConnection {
+    let endpoint: StalledHandshakeIrohEndpoint
+
+    func establish() async throws -> any CmxIrohConnection {
+        await endpoint.awaitStallRelease()
+        throw TestIrohTransportError.unsupported
+    }
+
+    func abandon() async {}
 }

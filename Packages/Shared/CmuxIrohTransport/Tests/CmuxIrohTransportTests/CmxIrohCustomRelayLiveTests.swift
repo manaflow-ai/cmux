@@ -420,7 +420,8 @@ struct CmxIrohCustomRelayLiveTests {
                     to: secondAddress,
                     alpn: alpn
                 )
-                let incomingConnection = try #require(await acceptedConnection)
+                let incomingAttempt = try #require(await acceptedConnection)
+                let incomingConnection = try await incomingAttempt.establish()
                 return ConnectionPair(
                     outgoing: outgoingConnection,
                     incoming: incomingConnection

@@ -1484,7 +1484,7 @@ private actor TestSubstitutedAddressEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? { nil }
+    func accept() async throws -> (any CmxIrohIncomingConnection)? { nil }
 
     func replaceRelayProfile(_: CmxIrohEndpointRelayProfile) {}
 

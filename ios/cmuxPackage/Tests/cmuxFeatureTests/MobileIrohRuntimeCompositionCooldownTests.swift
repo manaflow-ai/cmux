@@ -958,7 +958,7 @@ private actor MobileIrohCooldownEndpoint: CmxIrohEndpoint {
         throw MobileIrohCooldownTestError.unavailable
     }
 
-    func accept() -> (any CmxIrohConnection)? { nil }
+    func accept() -> (any CmxIrohIncomingConnection)? { nil }
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
         AsyncStream { $0.finish() }
