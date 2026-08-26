@@ -23,6 +23,8 @@ public final class ArtifactSidebarModel {
     private let captureService: any ArtifactCapturing
     private let searchDebounce: Duration
     private let searchClock: any Clock<Duration>
+    private let watcherDebounce: Duration
+    private let watcherClock: any Clock<Duration>
     private var workspace: ArtifactSidebarWorkspace?
     private var nodes: [ArtifactNode] = []
     private var expandedPaths: Set<String> = []
@@ -41,16 +43,22 @@ public final class ArtifactSidebarModel {
     ///   - captureService: Shared validated manual-capture service.
     ///   - searchDebounce: Cancellable delay used to coalesce typing into searches.
     ///   - searchClock: Clock that owns the cancellable debounce deadline.
+    ///   - watcherDebounce: Cancellable quiet period used to coalesce filesystem bursts.
+    ///   - watcherClock: Clock that owns the watcher quiet-period deadline.
     public init(
         store: any ArtifactStoring,
         captureService: any ArtifactCapturing,
         searchDebounce: Duration = .milliseconds(150),
-        searchClock: any Clock<Duration> = ContinuousClock()
+        searchClock: any Clock<Duration> = ContinuousClock(),
+        watcherDebounce: Duration = .milliseconds(100),
+        watcherClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.store = store
         self.captureService = captureService
         self.searchDebounce = searchDebounce
         self.searchClock = searchClock
+        self.watcherDebounce = watcherDebounce
+        self.watcherClock = watcherClock
     }
 
     /// Binds the model to a selected local workspace and loads its initial tree.
@@ -214,6 +222,12 @@ public final class ArtifactSidebarModel {
                     self.watcherReloadInFlight = true
                     repeat {
                         self.watcherReloadPending = false
+                        do {
+                            try await self.watcherClock.sleep(for: self.watcherDebounce)
+                        } catch {
+                            break
+                        }
+                        guard !Task.isCancelled else { break }
                         await self.reload(projectRoot: projectRoot, revision: revision)
                     } while self.watcherReloadPending && !Task.isCancelled
                     self.watcherReloadInFlight = false

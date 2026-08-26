@@ -90,22 +90,26 @@ struct ArtifactSidebarFileAccess {
             maximumBytes: Int64
         ) -> URL? {
             defer { _ = Darwin.close(descriptor) }
+            guard let reservation = reserveTemporaryPreview(maximumBytes: maximumBytes) else {
+                return nil
+            }
+            defer { _ = Darwin.close(reservation.descriptor) }
             guard let data = readPreviewData(
                 descriptor: descriptor,
                 maximumBytes: maximumBytes
             ) else {
+                discardTemporaryPreview(reservation)
                 return nil
             }
-            guard let reservation = reserveTemporaryPreview(
+            guard let temporaryURL = promoteTemporaryPreview(
+                reservation: reservation,
                 byteCount: Int64(data.count),
                 pathExtension: pathExtension
             ) else {
+                discardTemporaryPreview(reservation)
                 return nil
             }
-            let temporaryURL = reservation.url
-            let outputDescriptor = reservation.descriptor
-            defer { _ = Darwin.close(outputDescriptor) }
-            guard writePreviewData(data, descriptor: outputDescriptor) else {
+            guard writePreviewData(data, descriptor: reservation.descriptor) else {
                 _ = unlink(temporaryURL.path)
                 return nil
             }
@@ -206,14 +210,111 @@ struct ArtifactSidebarFileAccess {
         /// The lock is deliberately filesystem-backed so separate detached
         /// tasks and app/CLI processes cannot both pass the same quota check.
         private static func reserveTemporaryPreview(
-            byteCount: Int64,
-            pathExtension: String
+            maximumBytes: Int64
         ) -> (url: URL, descriptor: Int32)? {
-            guard byteCount >= 0,
-                  byteCount <= ArtifactSidebarFileAccess.maximumPreviewByteCount,
+            guard maximumBytes >= 0,
+                  maximumBytes <= ArtifactSidebarFileAccess.maximumPreviewByteCount,
                   let directory = privatePreviewDirectory() else {
                 return nil
             }
+            return withPreviewDirectoryLock(in: directory) {
+                reclaimStalePreviewFiles(in: directory)
+                guard let enumerator = FileManager.default.enumerator(
+                    at: directory,
+                    includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                    options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+                ) else {
+                    return nil
+                }
+                let directoryPath = directory.standardizedFileURL.path
+                var activeCount = 0
+                var activeBytes: Int64 = 0
+                for case let entry as URL in enumerator {
+                    guard entry.deletingLastPathComponent().standardizedFileURL.path == directoryPath,
+                          entry.lastPathComponent.hasPrefix("cmux-artifact-") else {
+                        continue
+                    }
+                    var entryStatus = stat()
+                    guard lstat(entry.path, &entryStatus) == 0,
+                          (entryStatus.st_mode & S_IFMT) == S_IFREG,
+                          entryStatus.st_size >= 0 else {
+                        continue
+                    }
+                    let size = Int64(entryStatus.st_size)
+                    activeCount = min(
+                        ArtifactSidebarFileAccess.maximumPreviewFileCount,
+                        activeCount + 1
+                    )
+                    if size >= ArtifactSidebarFileAccess.maximumPreviewByteCount
+                        || activeBytes > ArtifactSidebarFileAccess.maximumPreviewByteCount - size {
+                        activeBytes = ArtifactSidebarFileAccess.maximumPreviewByteCount
+                    } else {
+                        activeBytes += size
+                    }
+                }
+                guard activeCount < ArtifactSidebarFileAccess.maximumPreviewFileCount,
+                      maximumBytes <= ArtifactSidebarFileAccess.maximumPreviewByteCount - activeBytes else {
+                    return nil
+                }
+                let reservationURL = directory.appendingPathComponent(
+                    "cmux-artifact-reservation-\(UUID().uuidString)",
+                    isDirectory: false
+                )
+                let reservationDescriptor = Darwin.open(
+                    reservationURL.path,
+                    O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                    S_IRUSR | S_IWUSR
+                )
+                guard reservationDescriptor >= 0 else { return nil }
+                guard ftruncate(reservationDescriptor, off_t(maximumBytes)) == 0 else {
+                    _ = Darwin.close(reservationDescriptor)
+                    _ = unlink(reservationURL.path)
+                    return nil
+                }
+                return (reservationURL, reservationDescriptor)
+            }
+        }
+
+        private static func promoteTemporaryPreview(
+            reservation: (url: URL, descriptor: Int32),
+            byteCount: Int64,
+            pathExtension: String
+        ) -> URL? {
+            guard byteCount >= 0,
+                  byteCount <= ArtifactSidebarFileAccess.maximumPreviewByteCount else {
+                return nil
+            }
+            let directory = reservation.url.deletingLastPathComponent()
+            return withPreviewDirectoryLock(in: directory) {
+                guard ftruncate(reservation.descriptor, off_t(byteCount)) == 0 else {
+                    return nil
+                }
+                let temporaryURL = directory
+                    .appendingPathComponent("cmux-artifact-\(UUID().uuidString)")
+                    .appendingPathExtension(pathExtension)
+                guard rename(reservation.url.path, temporaryURL.path) == 0 else {
+                    return nil
+                }
+                return temporaryURL
+            }
+        }
+
+        private static func discardTemporaryPreview(
+            _ reservation: (url: URL, descriptor: Int32)
+        ) {
+            let directory = reservation.url.deletingLastPathComponent()
+            _ = withPreviewDirectoryLock(in: directory) { () -> Void? in
+                _ = unlink(reservation.url.path)
+                return ()
+            }
+        }
+
+        /// Uses BSD `flock` because detached tasks and separate cmux processes
+        /// share this filesystem quota; the critical section never suspends.
+        private static func withPreviewDirectoryLock<T>(
+            in directory: URL,
+            _ body: () -> T?
+        ) -> T? {
             let lockURL = directory.appendingPathComponent(
                 ArtifactSidebarFileAccess.previewLockName,
                 isDirectory: false
@@ -229,60 +330,7 @@ struct ArtifactSidebarFileAccess {
                 guard errno == EINTR else { return nil }
             }
             defer { _ = flock(lockDescriptor, LOCK_UN) }
-
-            reclaimStalePreviewFiles(in: directory)
-            guard let enumerator = FileManager.default.enumerator(
-                at: directory,
-                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
-                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
-            ) else {
-                return nil
-            }
-            let directoryPath = directory.standardizedFileURL.path
-            var activeCount = 0
-            var activeBytes: Int64 = 0
-            for case let entry as URL in enumerator {
-                guard entry.deletingLastPathComponent().standardizedFileURL.path == directoryPath,
-                      entry.lastPathComponent.hasPrefix("cmux-artifact-") else {
-                    continue
-                }
-                var entryStatus = stat()
-                guard lstat(entry.path, &entryStatus) == 0,
-                      (entryStatus.st_mode & S_IFMT) == S_IFREG,
-                      entryStatus.st_size >= 0 else {
-                    continue
-                }
-                let size = Int64(entryStatus.st_size)
-                activeCount = min(
-                    ArtifactSidebarFileAccess.maximumPreviewFileCount,
-                    activeCount + 1
-                )
-                if size >= ArtifactSidebarFileAccess.maximumPreviewByteCount
-                    || activeBytes > ArtifactSidebarFileAccess.maximumPreviewByteCount - size {
-                    activeBytes = ArtifactSidebarFileAccess.maximumPreviewByteCount
-                } else {
-                    activeBytes += size
-                }
-            }
-            guard activeCount < ArtifactSidebarFileAccess.maximumPreviewFileCount,
-                  byteCount <= ArtifactSidebarFileAccess.maximumPreviewByteCount - activeBytes else {
-                return nil
-            }
-            let temporaryURL = directory
-                .appendingPathComponent("cmux-artifact-\(UUID().uuidString)")
-                .appendingPathExtension(pathExtension)
-            let outputDescriptor = Darwin.open(
-                temporaryURL.path,
-                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
-                S_IRUSR | S_IWUSR
-            )
-            guard outputDescriptor >= 0 else { return nil }
-            guard ftruncate(outputDescriptor, off_t(byteCount)) == 0 else {
-                _ = Darwin.close(outputDescriptor)
-                _ = unlink(temporaryURL.path)
-                return nil
-            }
-            return (temporaryURL, outputDescriptor)
+            return body()
         }
 
         private static func reclaimStalePreviewFiles(in directory: URL) {

@@ -21,16 +21,22 @@ struct ChatArtifactViewerPager: View {
     @State private var zoomedPath: String?
     @State private var isSavingToArtifacts = false
     @State private var artifactSaveTask: Task<Void, Never>?
+    private let artifactSaveClock: any Clock<Duration>
+    private let artifactSaveTimeout: Duration
 
     init(
         initialPath: String,
         scope: ChatArtifactViewerScope,
         swipeOrder: ChatArtifactGallerySwipeOrder,
+        artifactSaveClock: any Clock<Duration> = ContinuousClock(),
+        artifactSaveTimeout: Duration = .seconds(30),
         onDone: @escaping () -> Void
     ) {
         self.initialPath = initialPath
         self.scope = scope
         self.swipeOrder = swipeOrder
+        self.artifactSaveClock = artifactSaveClock
+        self.artifactSaveTimeout = artifactSaveTimeout
         self.onDone = onDone
         _model = State(initialValue: ChatArtifactViewerPagerModel(
             initialPath: initialPath,
@@ -266,6 +272,9 @@ struct ChatArtifactViewerPager: View {
     private func saveToArtifacts(path: String) {
         guard !isSavingToArtifacts else { return }
         isSavingToArtifacts = true
+        let loader = loader
+        let clock = artifactSaveClock
+        let timeout = artifactSaveTimeout
         artifactSaveTask = Task {
             defer {
                 if !Task.isCancelled {
@@ -274,7 +283,12 @@ struct ChatArtifactViewerPager: View {
                 }
             }
             do {
-                let result = try await loader.save(path: path)
+                let result = try await Self.saveArtifact(
+                    path: path,
+                    loader: loader,
+                    clock: clock,
+                    timeout: timeout
+                )
                 try Task.checkCancellation()
                 toasts.present(.success(
                     String(
@@ -303,6 +317,28 @@ struct ChatArtifactViewerPager: View {
         }
     }
 
+    private static func saveArtifact(
+        path: String,
+        loader: ChatArtifactLoader,
+        clock: any Clock<Duration>,
+        timeout: Duration
+    ) async throws -> ChatArtifactSaveResult {
+        try await withThrowingTaskGroup(of: ChatArtifactSaveResult.self) { group in
+            group.addTask {
+                try await loader.save(path: path)
+            }
+            group.addTask {
+                try await clock.sleep(for: timeout)
+                throw ChatArtifactSaveTimeout.expired
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw ChatArtifactSaveTimeout.expired
+            }
+            return result
+        }
+    }
+
     private func cancelOwnedTasks() {
         artifactSaveTask?.cancel()
         artifactSaveTask = nil
@@ -317,4 +353,8 @@ struct ChatArtifactViewerPager: View {
     }
 
     #endif
+}
+
+private enum ChatArtifactSaveTimeout: Error {
+    case expired
 }

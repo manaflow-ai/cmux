@@ -95,6 +95,32 @@ struct ArtifactSidebarModelTests {
         #expect(await waitUntil { model.rows.map(\.relativePath) == ["appeared.md"] })
     }
 
+    @Test("Watcher coalesces a burst into one bounded reload")
+    func coalescesWatcherBurst() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let store = SidebarArtifactStore(root: root, nodes: [])
+        let model = ArtifactSidebarModel(
+            store: store,
+            captureService: SidebarCaptureSpy(),
+            watcherDebounce: .milliseconds(50)
+        )
+        await model.bind(workspace: workspace(root: root))
+        #expect(await store.waitUntilWatching())
+        let baseline = await store.snapshotCount
+
+        for index in 0..<20 {
+            let node = ArtifactTestSupport.artifactNode(
+                root: root,
+                relativePath: "burst-\(index).md",
+                kind: .markdown
+            )
+            await store.replaceNodes([node], notify: true)
+        }
+
+        #expect(await store.settledSnapshotCount() == baseline + 1)
+    }
+
     @Test("Same-path file changes update the immutable thumbnail revision")
     func fileChangesUpdateThumbnailRevision() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()
