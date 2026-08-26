@@ -45,7 +45,7 @@ final class WindowRootBackdropView: NSView {
         nil
     }
 
-    /// Installs the root below the resolver's content reference.
+    /// Installs the root immediately below the resolver's content reference.
     func install(in target: WindowContentOverlayInstallationTarget) {
         let needsReinstallation =
             superview !== target.container || installedReferenceView !== target.reference
@@ -67,7 +67,10 @@ final class WindowRootBackdropView: NSView {
             didChangeInstallation = true
         } else if let rootIndex = target.container.subviews.firstIndex(of: self),
                   let referenceIndex = target.container.subviews.firstIndex(of: target.reference),
-                  rootIndex > referenceIndex {
+                  rootIndex != referenceIndex - 1 {
+            // Fallback glass is inserted below the reference after the root may
+            // already be installed. Reassert adjacency so the shared backdrop
+            // remains above that fallback layer and directly below content.
             target.container.addSubview(self, positioned: .below, relativeTo: target.reference)
             didChangeInstallation = true
         }

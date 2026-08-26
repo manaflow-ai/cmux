@@ -103,6 +103,32 @@ import Testing
         #expect(transparentRoot.compositingFilter == nil)
     }
 
+    @Test func rootBackdropReassertsAdjacencyAfterFallbackGlassInsertion() throws {
+        let dependencies = FakeBackdropDependencies()
+        let controller = WindowBackdropController(dependencies: dependencies)
+        let window = makeWindow()
+        _ = controller.apply(plan: makeOpaqueRootPlan(color: .systemRed), to: window)
+
+        let contentView = try #require(window.contentView)
+        let themeFrame = try #require(contentView.superview)
+        let rootBackdrop = try #require(
+            themeFrame.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        let fallbackGlass = NSVisualEffectView(frame: themeFrame.bounds)
+        themeFrame.addSubview(fallbackGlass, positioned: .below, relativeTo: contentView)
+
+        let initialRootIndex = try #require(themeFrame.subviews.firstIndex { $0 === rootBackdrop })
+        let initialContentIndex = try #require(themeFrame.subviews.firstIndex { $0 === contentView })
+        #expect(initialRootIndex < initialContentIndex - 1)
+
+        controller.updateRootBackdropExclusions([], in: window)
+
+        let repairedRootIndex = try #require(themeFrame.subviews.firstIndex { $0 === rootBackdrop })
+        let repairedContentIndex = try #require(themeFrame.subviews.firstIndex { $0 === contentView })
+        #expect(repairedRootIndex == repairedContentIndex - 1)
+        #expect(themeFrame.subviews[repairedRootIndex + 1] === contentView)
+    }
+
     @Test func windowGlassPlanMovesSameRootBelowGlassForegroundContent() throws {
         let dependencies = FakeBackdropDependencies()
         dependencies.glass.applyResult = true
