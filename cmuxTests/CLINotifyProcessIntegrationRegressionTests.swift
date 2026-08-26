@@ -1882,6 +1882,99 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, transcriptLineCount)
     }
 
+    func testClaudeAutoNameUnresolvedTargetSettlesBaselineWithoutRepeatedSummarization() throws {
+        let context = try makeClaudeHookContext(name: "claude-unresolved-title-baseline")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-unresolved-title-baseline-session"
+        let transcriptURL = context.root.appendingPathComponent("conversation.jsonl")
+        let transcript = (0..<12).map { index in
+            #"{"type":"user","message":{"content":"Investigate authentication \#(index)"}}"#
+        }.joined(separator: "\n")
+        try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let transcriptLineCount = try autoNamingGrowthMetric(transcriptURL)
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 1,
+            lastTitle: nil,
+            lastNamedAt: nil,
+            lastAttemptAt: nil,
+            inFlightAt: nil
+        )
+
+        let summarizerMarker = context.root.appendingPathComponent("summarizer-invocations")
+        let summarizerURL = context.root.appendingPathComponent("fake-claude")
+        try "#!/bin/sh\n/bin/echo x >> \"\(summarizerMarker.path)\"\n/bin/echo 'New panel topic'\n"
+            .write(to: summarizerURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: summarizerURL.path
+        )
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "workspace.set_auto_title":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["probe"] as? Bool == true {
+                    return self.v2Response(id: id, ok: true, result: [
+                        "enabled": true,
+                        "workspace_user_owned": false,
+                    ])
+                }
+                return self.v2Response(id: id, ok: true, result: [
+                    "workspace_applied": false,
+                    "workspace_apply_skipped": true,
+                    "panel_applied": NSNull(),
+                    "panel_apply_skipped": true,
+                    "terminal_skip": false,
+                    "target_unresolved": true,
+                ])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        func runPass() -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", "auto-name"],
+                standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+                extraEnvironment: ["CMUX_CUSTOM_CLAUDE_PATH": summarizerURL.path]
+            )
+        }
+
+        let first = runPass()
+        XCTAssertFalse(first.timedOut, first.stderr)
+        XCTAssertEqual(first.status, 0, first.stderr)
+        try updateClaudeHookSession(sessionId, context: context) { record in
+            record["autoNameLastAttemptAt"] = Date().timeIntervalSince1970
+                - AutoNamingEngine().config.minInterval - 1
+        }
+        let second = runPass()
+        XCTAssertFalse(second.timedOut, second.stderr)
+        XCTAssertEqual(second.status, 0, second.stderr)
+
+        let invocations = try String(contentsOf: summarizerMarker, encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(invocations.count, 1)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, transcriptLineCount)
+        XCTAssertNil(record["autoNameLastTitle"])
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
@@ -2405,6 +2498,48 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
             try store.releaseAutoNamingSpawn(sessionId: sessionId, token: replacementToken)
         }
+    }
+
+    func testManualWorkspacePersistsOnlyAutoNameMessageProgress() throws {
+        let context = try makeClaudeHookContext(name: "opencode-manual-message-progress")
+        defer { context.cleanup() }
+
+        let sessionId = "opencode-manual-message-progress-session"
+        let sensitivePrompt = "private customer credential rotation details"
+        let stateURL = context.root.appendingPathComponent("opencode-hook-sessions.json")
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path
+        ])
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
+        let probeHandled = expectation(description: "manual workspace auto-name probe")
+        _ = startManualWorkspaceAutoNamingProbeServer(
+            context: context,
+            expectedProbeCount: 1,
+            expectation: probeHandled
+        )
+        let result = runAgentHook(
+            context: context,
+            agent: "opencode",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"\#(sensitivePrompt)"}"#
+        )
+        wait(for: [probeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let stateData = try Data(contentsOf: stateURL)
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: stateData) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        let record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertNil(record["autoNameRecentMessages"])
+        XCTAssertGreaterThan(record["autoNameMessageSequence"] as? Int ?? 0, 0)
+        XCTAssertFalse(String(decoding: stateData, as: UTF8.self).contains(sensitivePrompt))
     }
 
     func testCodexStopKeepsDetachedAutoNameForManualWorkspaceWithReplayableTitle() throws {
