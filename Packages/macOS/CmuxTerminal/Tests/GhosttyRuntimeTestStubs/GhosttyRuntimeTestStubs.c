@@ -194,6 +194,10 @@ void cmux_test_ghostty_renderer_realized_reset(void) {
     cmux_test_renderer_release_was_occluded = false;
 }
 
+bool cmux_test_ghostty_renderer_occlusion_visible(void) {
+    return cmux_test_renderer_occlusion_visible;
+}
+
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name) {
     cmux_test_needs_confirm_quit = needs_confirm;
     cmux_test_foreground_pid = foreground_pid;
