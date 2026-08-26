@@ -5576,16 +5576,16 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
-        guard RemoteLoopbackProxyAlias.isLoopbackHost(host) else { return nil }
-
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = RemoteLoopbackProxyAlias.browserAliasHost(
-            forLoopbackHost: host,
-            aliasHost: RemoteLoopbackProxyAlias.aliasHost
+        // Pages served by the app's own web endpoint (e.g. the Cloud VM
+        // desktop wrapper minted by vm.open_port against
+        // AuthEnvironment.vmAPIBaseURL) are HOST-served: aliasing them would
+        // make the workspace proxy dial the dev web port from the remote
+        // daemon, where nothing listens (issue #10817). Every other loopback
+        // origin keeps proxying into the workspace.
+        RemoteLoopbackProxyAlias.browserLoopbackAliasURL(
+            for: url,
+            exemptWebOrigin: AuthEnvironment.vmAPIBaseURL
         )
-        return components?.url
     }
 
     /// Navigate with smart URL/search detection
