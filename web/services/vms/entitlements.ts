@@ -126,7 +126,7 @@ export function maxMemoryMbForPlan(
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
   if (normalized === "free") {
     // The free machine is the product demo: one full-size computer, not a
-    // cut-down teaser. The paywall is the 5-day access window and the
+    // cut-down teaser. The paywall is the 7-day access window and the
     // machine count, never the machine's usefulness.
     return positiveInteger(env.CMUX_VM_FREE_MAX_MEMORY_MB ?? "24576", "CMUX_VM_FREE_MAX_MEMORY_MB");
   }
@@ -167,7 +167,7 @@ export function vmFreeAccessWindowDays(
   env: Record<string, string | undefined> = process.env,
 ): number {
   const raw = env.CMUX_VM_FREE_ACCESS_WINDOW_DAYS;
-  if (raw === undefined || !raw.trim()) return 5;
+  if (raw === undefined || !raw.trim()) return 7;
   const parsed = Number.parseInt(raw.trim(), 10);
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error(`CMUX_VM_FREE_ACCESS_WINDOW_DAYS must be a non-negative integer, got: ${raw}`);

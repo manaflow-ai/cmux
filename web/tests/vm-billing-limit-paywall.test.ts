@@ -93,15 +93,15 @@ describe("free access window", () => {
   const days = (n: number) => n * 24 * 60 * 60 * 1000;
   const now = 1_800_000_000_000;
 
-  test("defaults to 5 days and stays env-overridable", () => {
-    expect(vmFreeAccessWindowDays({})).toBe(5);
+  test("defaults to 7 days and stays env-overridable", () => {
+    expect(vmFreeAccessWindowDays({})).toBe(7);
     expect(vmFreeAccessWindowDays({ CMUX_VM_FREE_ACCESS_WINDOW_DAYS: "14" })).toBe(14);
   });
 
   test("a free machine expires after the window and not before", () => {
-    expect(isVmFreeAccessExpired("free", now - days(6), {}, now)).toBe(true);
-    expect(isVmFreeAccessExpired("free", new Date(now - days(6)), {}, now)).toBe(true);
-    expect(isVmFreeAccessExpired("free", now - days(4), {}, now)).toBe(false);
+    expect(isVmFreeAccessExpired("free", now - days(8), {}, now)).toBe(true);
+    expect(isVmFreeAccessExpired("free", new Date(now - days(8)), {}, now)).toBe(true);
+    expect(isVmFreeAccessExpired("free", now - days(6), {}, now)).toBe(false);
   });
 
   test("a paid plan never expires, even for machines created on free", () => {
