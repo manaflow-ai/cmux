@@ -60,7 +60,9 @@ final class SharedLiveAgentIndex {
         source: DispatchSourceProcess
     )
 
-    private func cancelSidebarProcessExitWatcher(_ watcher: SidebarProcessExitWatcher) {
+    nonisolated private static func cancelSidebarProcessExitWatcher(
+        _ watcher: SidebarProcessExitWatcher
+    ) {
         // Dispatch sources retain their event handler. Clear it before cancel
         // so the handler's source capture cannot form a teardown cycle.
         watcher.source.setEventHandler {}
@@ -287,7 +289,7 @@ final class SharedLiveAgentIndex {
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
         for watcher in sidebarProcessExitWatchers.values {
-            cancelSidebarProcessExitWatcher(watcher)
+            Self.cancelSidebarProcessExitWatcher(watcher)
         }
         sidebarExplicitRefreshRetryTimer?.cancel()
         for record in forkExecutableWatchRecords.values {
@@ -719,7 +721,7 @@ final class SharedLiveAgentIndex {
         }
         if let existing = sidebarProcessExitWatchers[pid] {
             guard existing.identity != identity else { return }
-            cancelSidebarProcessExitWatcher(existing)
+            Self.cancelSidebarProcessExitWatcher(existing)
             sidebarProcessExitWatchers.removeValue(forKey: pid)
         }
         let source = DispatchSource.makeProcessSource(
@@ -755,7 +757,7 @@ final class SharedLiveAgentIndex {
               sidebarProcessPanelIDsByPID[pid]?.isEmpty != false else { return }
         sidebarProcessWorkspaceIDsByPID.removeValue(forKey: pid)
         if let watcher = sidebarProcessExitWatchers.removeValue(forKey: pid) {
-            cancelSidebarProcessExitWatcher(watcher)
+            Self.cancelSidebarProcessExitWatcher(watcher)
         }
     }
 
@@ -767,7 +769,7 @@ final class SharedLiveAgentIndex {
             sidebarProcessPanelIDsByPID.removeValue(forKey: pid)
             sidebarProcessWorkspaceIDsByPID.removeValue(forKey: pid)
             if let watcher = sidebarProcessExitWatchers.removeValue(forKey: pid) {
-                cancelSidebarProcessExitWatcher(watcher)
+                Self.cancelSidebarProcessExitWatcher(watcher)
             }
         } else {
             sidebarProcessPanelIDsByPID[pid] = panelIDs
@@ -791,7 +793,7 @@ final class SharedLiveAgentIndex {
     /// disabled, keeping the disabled path free of kernel sources and scans.
     func disarmSidebarProcessExitWatchers() {
         for watcher in sidebarProcessExitWatchers.values {
-            cancelSidebarProcessExitWatcher(watcher)
+            Self.cancelSidebarProcessExitWatcher(watcher)
         }
         sidebarProcessExitWatchers.removeAll()
         sidebarProcessPanelIDsByPID.removeAll()
@@ -815,7 +817,7 @@ final class SharedLiveAgentIndex {
             let panelIDs = sidebarProcessPanelIDsByPID[processID] ?? []
             let workspaceIDs = sidebarProcessWorkspaceIDsByPID[processID] ?? [:]
             if let watcher = sidebarProcessExitWatchers.removeValue(forKey: processID) {
-                cancelSidebarProcessExitWatcher(watcher)
+                Self.cancelSidebarProcessExitWatcher(watcher)
             }
             armSidebarProcessExitWatcher(pid: processID)
             refreshCachedProcessLivenessForSidebar(
@@ -826,7 +828,7 @@ final class SharedLiveAgentIndex {
             return
         }
         if let watcher = sidebarProcessExitWatchers.removeValue(forKey: processID) {
-            cancelSidebarProcessExitWatcher(watcher)
+            Self.cancelSidebarProcessExitWatcher(watcher)
         }
         let panelIDs = sidebarProcessPanelIDsByPID.removeValue(forKey: processID) ?? []
         let workspaceIDs = sidebarProcessWorkspaceIDsByPID.removeValue(forKey: processID) ?? [:]
