@@ -901,13 +901,7 @@ struct RestorableAgentSessionIndexTests {
         ]
         let detectedLatestSessionId = "pi-detected-newest"
         var hookSessions: [String: [String: Any]] = [:]
-        for (index, hookRecord) in hookRecords.enumerated() {
-            let sessionFile = projectSessions.appendingPathComponent("\(hookRecord.sessionId).jsonl", isDirectory: false)
-            try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
-            try fm.setAttributes(
-                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
-                ofItemAtPath: sessionFile.path
-            )
+        for hookRecord in hookRecords {
             hookSessions[hookRecord.sessionId] = driftedAgentHookRecord(
                 launcher: "pi",
                 sessionId: hookRecord.sessionId,
