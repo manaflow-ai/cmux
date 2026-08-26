@@ -4,5 +4,6 @@
 # Remove a line once the underlying test is determinized.
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainTests.swift	sleep-then-assert	temporary outage debt owned by #8931; remove when determinized
 Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/OnboardingMacDiscoveryKeepAliveTests.swift	sleep-then-assert	temporary outage debt owned by #9163; remove when determinized
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift	sleep-then-assert	pre-existing main debt from #10782; remove when determinized
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered
