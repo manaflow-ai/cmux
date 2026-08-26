@@ -28,7 +28,8 @@ use cmux_remote::identity::{
 };
 use cmux_remote::provider::{
     IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
-    RelayCredentialSource, SshProviderConfig, SupportedClientAuthModes, sanitized_route,
+    RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
+    sanitized_route,
 };
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
@@ -51,20 +52,6 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 
-const REMOTE_COMMANDS: &[&str] = &[
-    "connect",
-    "ssh",
-    "forward",
-    "rpc",
-    "enroll",
-    "known-daemons",
-    "remote-probe",
-    "remote-link",
-    "remote-sidecar",
-    "remote-stop",
-    "install-self",
-];
-
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
@@ -73,14 +60,14 @@ const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
-    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+    crate::cli::is_remote_invocation(args)
 }
 
 pub fn run(args: &[String], usage: &str) -> i32 {
     match run_inner(args, usage) {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("cmux-tui: {error:#}");
+            crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
             1
         }
     }
@@ -103,6 +90,7 @@ fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
+        Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
 }
@@ -189,6 +177,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => client.install_self_help,
+        Some("remote") => client.remote_lifecycle_help,
         _ => client.command_help,
     }
 }
@@ -1094,6 +1083,10 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_ssh(args: &[String]) -> anyhow::Result<()> {
+    connect_with_flags(direct_ssh_flags(args)?)
+}
+
+fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     let destination = args
         .first()
         .filter(|argument| !argument.starts_with('-'))
@@ -1108,7 +1101,81 @@ fn run_ssh(args: &[String]) -> anyhow::Result<()> {
         flags.lanes = LanePolicy::Single;
     }
 
-    connect_with_flags(flags)
+    Ok(flags)
+}
+
+/// Programmatic equivalent of `cmux-tui ssh`, used by the native machine
+/// rail so both entrypoints share compatibility checks, daemon startup, and
+/// reconnect behavior.
+pub(crate) struct ManagedSshOptions {
+    pub destination: String,
+    pub session: String,
+    pub remote_binary: String,
+    pub ssh_args: Vec<String>,
+}
+
+pub(crate) struct ManagedSshConnection {
+    pub session: Session,
+    pub lease: ManagedSshLease,
+}
+
+/// Keeps the local bridge and its reconnecting SSH client alive for as long
+/// as the selected machine session owns it.
+pub(crate) struct ManagedSshLease {
+    runtime: Option<crate::remote_runtime::ClientRuntimeHandle>,
+}
+
+impl Drop for ManagedSshLease {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            let _ = runtime.shutdown();
+        }
+    }
+}
+
+pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyhow::Result<()> {
+    ssh_url(&options.destination)?;
+    SshProvider::new(SshProviderConfig {
+        ssh_binary: "ssh".into(),
+        remote_binary: options.remote_binary.clone(),
+        remote_session: options.session.clone(),
+        remote_state_dir: None,
+        extra_args: options.ssh_args.clone(),
+        maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+    })?;
+    Ok(())
+}
+
+pub(crate) fn connect_managed_ssh(
+    options: ManagedSshOptions,
+) -> anyhow::Result<ManagedSshConnection> {
+    let mut arguments = vec![
+        options.destination,
+        "--session".into(),
+        options.session,
+        "--remote-binary".into(),
+        options.remote_binary,
+    ];
+    for argument in options.ssh_args {
+        arguments.push("--ssh-arg".into());
+        arguments.push(argument);
+    }
+
+    let connected = start_connected(direct_ssh_flags(&arguments)?)?;
+    let local_socket = connected.runtime.info().local_socket.clone();
+    match RemoteSession::connect(&local_socket) {
+        Ok(remote) => Ok(ManagedSshConnection {
+            session: Session::Remote(remote),
+            lease: ManagedSshLease { runtime: Some(connected.runtime) },
+        }),
+        Err(connect_error) => {
+            let cleanup_error = connected.runtime.shutdown().err();
+            match cleanup_error {
+                Some(cleanup_error) => Err(connect_error.context(cleanup_error)),
+                None => Err(connect_error),
+            }
+        }
+    }
 }
 
 fn ssh_url(destination: &str) -> anyhow::Result<String> {
@@ -2030,12 +2097,15 @@ fn ensure_daemon(
         return Ok(());
     }
 
-    let executable = std::env::current_exe()?;
+    // Spawn the daemon from this client's own running build (open inode on
+    // Linux) so an in-place binary upgrade cannot leave a long-lived client
+    // exec'ing a "(deleted)" path, and daemon/client builds never skew.
+    let executable = cmux_tui_core::platform::self_exe_for_spawn()?;
     let log_path = session_state.join("daemon.log");
     let mux_socket = mux_socket_override
         .map(Path::to_path_buf)
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
-        .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(session));
+        .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
     if UnixStream::connect(&mux_socket).is_err() {
         let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
         let mut mux_owner = Command::new(&executable);
@@ -3469,6 +3539,42 @@ mod tests {
             AdminRequest::Shutdown,
             "legacy runtime metadata must retain its compatible shutdown request"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_refuses_embedded_server_with_canonical_owner_command() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "embedded-owner";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        fs::write(
+            state_dir.join("runtime.json"),
+            serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir,
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "embedded-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("embedded-lifecycle".into()),
+                replaceable_sidecar: false,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        )
+        .expect_err("remote stop terminated an embedded server");
+
+        assert!(error.to_string().contains("cmux server stop"), "{error:#}");
+        assert!(error.to_string().contains("SSH"), "{error:#}");
     }
 
     #[cfg(unix)]

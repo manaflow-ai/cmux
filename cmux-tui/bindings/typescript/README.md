@@ -114,7 +114,7 @@ invoking the credential-rejection callback.
 The `cmux-sdk` and `cmux-sdk/browser` dependency graphs import no Node modules.
 The `cmux-sdk/node` entry adds Unix-socket discovery and transport.
 
-The generated protocol-v11 API and numeric mux identities are available only
+The generated protocol-v12 API and numeric mux identities are available only
 from `cmux-sdk/raw`:
 
 ```ts

@@ -466,7 +466,7 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
                 .all(|pair| pair[0].is_some_and(|left| pair[1].is_some_and(|right| left < right)));
 
         Ok(json!({
-            "identified": identity.protocol == 11,
+            "identified": identity.protocol == 12,
             "workspace_created": workspace > 0,
             "terminal_created": terminal_created,
             "marker_sent": true,

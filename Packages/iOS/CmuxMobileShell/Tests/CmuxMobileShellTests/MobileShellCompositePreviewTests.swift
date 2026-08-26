@@ -37,6 +37,27 @@ import Testing
         #expect(!store.isReconnectingStoredMac)
     }
 
+    @Test func macSurfaceSelectionIsExplicitAndIndependentFromTerminalSelection() {
+        let store = MobileShellComposite.preview()
+        let terminal = MobileTerminalPreview(id: "terminal", name: "Shell")
+        let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
+        let first = MobileWorkspacePreview(
+            id: "first", name: "First", terminals: [terminal], surfaces: [surface]
+        )
+        let second = MobileWorkspacePreview(
+            id: "second", name: "Second", terminals: [MobileTerminalPreview(id: "other", name: "Other")]
+        )
+        store.replaceForegroundWorkspaceState([first, second])
+        store.selectedWorkspaceID = first.id
+        #expect(store.selectedMacSurfaceID == nil)
+        let terminalSelection = store.selectedTerminalID
+        store.selectMacSurface(surface.id)
+        #expect(store.selectedMacSurfaceID == surface.id)
+        #expect(store.selectedTerminalID == terminalSelection)
+        store.selectedWorkspaceID = second.id
+        #expect(store.selectedMacSurfaceID == nil)
+    }
+
     @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
         let store = MobileShellComposite.preview()
         let workspace = MobileWorkspacePreview(
@@ -390,7 +411,7 @@ import Testing
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
-    @Test func teamChangeRestartsDisconnectedStoredMacReconnectInNewScope() async throws {
+    @Test func teamChangeDoesNotStartACompetingStoredMacReconnect() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -418,7 +439,10 @@ import Testing
         _ = await staleReconnect.value
         for _ in 0..<10 { await Task.yield() }
 
-        #expect(await pairedStore.didStartLoad(teamID: "team-b"))
+        // Account-scope invalidation must not own a transport dial. The app
+        // root's startup coordinator is the single owner that decides whether
+        // an injected attach or saved-Mac restore runs next.
+        #expect(!(await pairedStore.didStartLoad(teamID: "team-b")))
     }
 
     @Test func repeatedTeamChangeCancelsOwnedReconnectTask() async throws {
@@ -714,6 +738,75 @@ import Testing
         #expect(store.workspaceID(matchingRemoteWorkspaceID: "shared", macDeviceID: "missing") == nil)
     }
 
+    @Test func deeplinkWorkspaceResolutionSeparatesSiblingBuilds() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        var stable = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-a",
+            name: "Stable",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "stable")]
+        )
+        stable.macInstanceTag = "stable"
+        var nightly = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-a",
+            name: "Nightly",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "nightly")]
+        )
+        nightly.macInstanceTag = "nightly"
+        store.setWorkspaceStatesForTesting([
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"):
+                MacWorkspaceState(
+                    macDeviceID: "mac-a", instanceTag: "stable",
+                    workspaces: [stable], status: .connected
+                ),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"):
+                MacWorkspaceState(
+                    macDeviceID: "mac-a", instanceTag: "nightly",
+                    workspaces: [nightly], status: .connected
+                ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        let stableID = try #require(store.workspaceID(
+            matchingRemoteWorkspaceID: "shared",
+            macDeviceID: "mac-a",
+            instanceTag: "stable"
+        ))
+        let nightlyID = try #require(store.workspaceID(
+            containingSurfaceID: "terminal-shared",
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        ))
+
+        #expect(stableID != nightlyID)
+        #expect(store.workspaces.first { $0.id == stableID }?.macInstanceTag == "stable")
+        #expect(store.workspaces.first { $0.id == nightlyID }?.macInstanceTag == "nightly")
+        #expect(store.workspaceID(
+            matchingRemoteWorkspaceID: "shared",
+            macDeviceID: "mac-a"
+        ) == nil)
+        #expect(store.workspaceID(
+            containingSurfaceID: "terminal-shared",
+            macDeviceID: "mac-a"
+        ) == nil)
+    }
+
+    @Test func ownerlessDeeplinkCannotBorrowTheOnlyTaggedBuild() {
+        var nightly = MobileWorkspacePreview(
+            id: "nightly-row",
+            macDeviceID: "mac-a",
+            name: "Nightly",
+            terminals: [MobileTerminalPreview(id: "terminal", name: "nightly")]
+        )
+        nightly.macInstanceTag = "nightly"
+        nightly.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [nightly])
+
+        #expect(store.workspaceID(matchingRemoteWorkspaceID: "workspace") == nil)
+        #expect(store.workspaceID(containingSurfaceID: "terminal") == nil)
+    }
+
     @Test func foregroundNotificationSuppressionRequiresExplicitSelection() {
         let store = MobileShellComposite.preview()
         store.signIn()
@@ -737,6 +830,88 @@ import Testing
 
         store.selectedWorkspaceID = "row-a"
         #expect(store.selectedWorkspaceMatches(remoteWorkspaceID: "row-a", macDeviceID: "mac-a"))
+    }
+
+    @Test func macScopedSelectionDoesNotMatchAnUnownedWorkspace() {
+        let workspace = MobileWorkspacePreview(
+            id: "unowned-row",
+            name: "Unowned",
+            terminals: [MobileTerminalPreview(id: "terminal", name: "unowned")]
+        )
+        let store = MobileShellComposite(workspaces: [workspace])
+        store.selectedWorkspaceID = "unowned-row"
+
+        #expect(!store.selectedWorkspaceMatches(
+            remoteWorkspaceID: "unowned-row",
+            macDeviceID: "mac-a"
+        ))
+    }
+
+    @Test func legacyComputerPriorityMigratesToBuildScopedPairings() async throws {
+        let suiteName = "computer-priority-migration-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            Data(#"{"mode":"computerPriority","computerPriority":["mac-a"]}"#.utf8),
+            forKey: MobileWorkspaceSortStore.defaultsKey
+        )
+        let sortStore = MobileWorkspaceSortStore(defaults: defaults)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    MobilePairedMac(
+                        macDeviceID: "mac-a", displayName: "Mac A", routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 4), isActive: false,
+                        stackUserID: "user-1", teamID: "team-a"
+                    ),
+                    MobilePairedMac(
+                        macDeviceID: "mac-a", displayName: "Mac A", routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 2), isActive: false,
+                        stackUserID: "user-1", teamID: "team-a", instanceTag: "stable"
+                    ),
+                    MobilePairedMac(
+                        macDeviceID: "mac-a", displayName: "Mac A", routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 3), isActive: false,
+                        stackUserID: "user-1", teamID: "team-a", instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            workspaceSortStore: sortStore
+        )
+
+        await store.loadPairedMacs()
+
+        #expect(store.workspaceComputerPriority == [
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: nil),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"),
+            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
+        ])
+        #expect(MobileWorkspaceSortStore(defaults: defaults).computerPriority == store.workspaceComputerPriority)
+    }
+
+    @Test func foregroundWorkspaceChangesRetainAnonymousRows() {
+        let anonymous = MobileWorkspacePreview(
+            id: "anonymous", name: "Anonymous", terminals: []
+        )
+        var owned = MobileWorkspacePreview(
+            id: "owned", macDeviceID: "mac-a", name: "Owned", terminals: []
+        )
+        owned.macInstanceTag = "stable"
+        let store = MobileShellComposite(workspaces: [anonymous, owned])
+        store.foregroundMacDeviceID = "mac-a"
+        store.activeMacInstanceTag = "stable"
+
+        #expect(Set(store.foregroundWorkspaceChangesIDs) == ["anonymous", "owned"])
     }
 
     @Test func secondaryUnavailableDowngradeKeepsRowsVisibleButInactive() {

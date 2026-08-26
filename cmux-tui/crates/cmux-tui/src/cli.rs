@@ -5,9 +5,11 @@
 //! accidentally fall back to the private command protocol.
 
 mod command;
+mod lifecycle;
 mod raw;
 mod wire;
 
+use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -15,6 +17,7 @@ use command::{CommandPlan, ParsedCommand};
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
+    "server",
     "session",
     "client",
     "workspace",
@@ -31,6 +34,29 @@ const PUBLIC_SCOPES: &[&str] = &[
     "provider",
     "raw",
 ];
+
+const REMOTE_COMMANDS: &[&str] = &[
+    "remote",
+    "connect",
+    "ssh",
+    "forward",
+    "rpc",
+    "enroll",
+    "known-daemons",
+    "remote-probe",
+    "remote-link",
+    "remote-sidecar",
+    "remote-stop",
+    "install-self",
+];
+
+/// Returns whether argv selects the remote command family.
+///
+/// Keeping this classifier next to the public CLI grammar prevents startup
+/// routing and the Unix remote implementation from maintaining separate lists.
+pub(super) fn is_remote_invocation(args: &[String]) -> bool {
+    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum OutputMode {
@@ -52,6 +78,12 @@ pub(super) struct GlobalArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct UsageError(pub String);
 
+#[derive(Debug)]
+struct ParseFailure {
+    error: UsageError,
+    output: OutputMode,
+}
+
 impl UsageError {
     pub(super) fn new(message: impl Into<String>) -> Self {
         Self(message.into())
@@ -66,19 +98,8 @@ impl std::fmt::Display for UsageError {
 
 impl std::error::Error for UsageError {}
 
-pub fn is_cli_invocation(args: &[String]) -> bool {
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--socket" | "--session" | "--machine" => index += 2,
-            "--json" | "--jsonl" | "--quiet" => index += 1,
-            "-h" | "--help" | "help" => return true,
-            value if PUBLIC_SCOPES.contains(&value) => return true,
-            value if value.starts_with('-') => index += 1,
-            _ => return false,
-        }
-    }
-    false
+pub fn is_public_scope(value: &str) -> bool {
+    PUBLIC_SCOPES.contains(&value)
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
@@ -94,24 +115,63 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             0
         }
         Ok(ParsedCommand::Command { global, plan }) => match plan {
+            CommandPlan::Server(server) => lifecycle::run(global, server),
+            CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
             CommandPlan::Protocol(request) => wire::run(global, request),
+            CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
             CommandPlan::ProviderAuthority(authority) => {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
         },
-        Err(error) => {
-            eprintln!("cmux: {error}");
-            2
+        Err(failure) => {
+            let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
+                format!("cmux: {}", failure.error)
+            } else {
+                failure.error.to_string()
+            };
+            wire::print_local_error(
+                &serde_json::json!({
+                    "code":"usage.invalid",
+                    "message":message,
+                    "details":{},
+                    "retryable":false,
+                }),
+                failure.output,
+                2,
+            )
         }
     }
 }
 
-fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
-    let (global, command_args) = parse_globals(args)?;
+fn parse(args: &[String]) -> Result<ParsedCommand, ParseFailure> {
+    let (global, command_args) =
+        parse_globals(args).map_err(|(error, output)| ParseFailure { error, output })?;
+    let output = global.output;
+    parse_command(global, command_args).map_err(|error| ParseFailure { error, output })
+}
+
+fn parse_command(
+    global: GlobalArgs,
+    command_args: Vec<String>,
+) -> Result<ParsedCommand, UsageError> {
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
+    }
+    // Public resource parsing owns option values and forwarded payloads. The
+    // pre-scan is only for startup grammar that reached this parser through a
+    // help or routing flag, including the rewritten `server start` path.
+    if !is_public_scope(&command_args[0])
+        && command_args[0] != "help"
+        && super::has_inline_relay_ticket_argument(&command_args)
+    {
+        return Err(UsageError::new(
+            crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
+        ));
+    }
+    if command_args[0] == "daemon" {
+        return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
     }
     if command_args[0] == "help" {
         return match command_args.get(1) {
@@ -120,7 +180,7 @@ fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
             Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
-            Some(scope) => Err(UsageError::new(format!("unknown resource scope {scope:?}"))),
+            Some(scope) => Err(unknown_scope(scope)),
         };
     }
     if command_args
@@ -128,15 +188,73 @@ fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
         .take_while(|value| value.as_str() != "--")
         .any(|value| matches!(value.as_str(), "-h" | "--help"))
     {
-        let scope =
-            command_args.iter().find(|value| PUBLIC_SCOPES.contains(&value.as_str())).cloned();
-        return Ok(ParsedCommand::Help(scope));
+        let words = command_args
+            .iter()
+            .take_while(|value| value.as_str() != "--")
+            .filter(|value| !value.starts_with('-'))
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let topic = match words.as_slice() {
+            ["server", action, ..]
+                if matches!(*action, "start" | "status" | "stop" | "reload-config") =>
+            {
+                Some(format!("server {action}"))
+            }
+            [scope, ..] if PUBLIC_SCOPES.contains(scope) => Some((*scope).to_string()),
+            _ => None,
+        };
+        return Ok(ParsedCommand::Help(topic));
+    }
+    if command_args.first().map(String::as_str) == Some("server")
+        && command_args.get(1).map(String::as_str) == Some("start")
+        && global.output != OutputMode::Human
+    {
+        return Err(UsageError::new(
+            crate::localization::catalog().local_server.start_rejects_output_mode,
+        ));
     }
     let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
 }
 
-fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), UsageError> {
+fn unknown_scope(scope: &str) -> UsageError {
+    UsageError::new(
+        crate::localization::catalog()
+            .local_server
+            .unknown_scope(scope, suggestion(scope, PUBLIC_SCOPES)),
+    )
+}
+
+pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a str> {
+    candidates
+        .iter()
+        .copied()
+        .map(|candidate| (edit_distance(value, candidate), candidate))
+        .min_by_key(|(distance, _)| *distance)
+        .filter(|(distance, candidate)| {
+            *distance <= 2 || (*distance == 3 && candidate.len().max(value.len()) >= 8)
+        })
+        .map(|(_, candidate)| candidate)
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (row, left) in left.chars().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right) in right.iter().enumerate() {
+            current.push(
+                (current[column] + 1)
+                    .min(previous[column + 1] + 1)
+                    .min(previous[column] + usize::from(left != *right)),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
+}
+
+fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
     let mut global = GlobalArgs::default();
     let mut command = Vec::new();
     let mut index = 0;
@@ -154,29 +272,51 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), UsageErro
             index += 1;
             continue;
         }
+        // Match clap's standard long-option form, where an option value can
+        // follow an equals sign (for example, `--socket=/tmp/cmux.sock`).
+        // This keeps one-token invocations convenient without changing the
+        // existing separated-value grammar.
+        if let Some((flag, inline_value)) = value.split_once('=')
+            && matches!(flag, "--socket" | "--session" | "--machine")
+        {
+            if inline_value.is_empty() {
+                return Err((UsageError::new(format!("{flag} needs a value")), global.output));
+            }
+            match flag {
+                "--socket" => global.socket = Some(PathBuf::from(inline_value)),
+                "--session" => global.session = Some(inline_value.to_owned()),
+                "--machine" => global.machine = Some(inline_value.to_owned()),
+                _ => unreachable!(),
+            }
+            index += 1;
+            continue;
+        }
         match value.as_str() {
             "--socket" => {
-                global.socket = Some(PathBuf::from(global_value(args, index, value)?));
+                global.socket = Some(PathBuf::from(
+                    global_value(args, index, value).map_err(|error| (error, global.output))?,
+                ));
                 index += 2;
             }
             "--session" => {
-                global.session = Some(global_value(args, index, value)?);
+                global.session =
+                    Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
             "--machine" => {
-                global.machine = Some(global_value(args, index, value)?);
+                global.machine =
+                    Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
-            "--json" => {
-                set_output_mode(&mut global, OutputMode::Json, value)?;
-                index += 1;
-            }
-            "--jsonl" => {
-                set_output_mode(&mut global, OutputMode::JsonLines, value)?;
-                index += 1;
-            }
-            "--quiet" => {
-                set_output_mode(&mut global, OutputMode::Quiet, value)?;
+            "--json" | "--jsonl" | "--quiet" => {
+                let output = match value.as_str() {
+                    "--json" => OutputMode::Json,
+                    "--jsonl" => OutputMode::JsonLines,
+                    "--quiet" => OutputMode::Quiet,
+                    _ => unreachable!(),
+                };
+                set_output_mode(&mut global, output, value)
+                    .map_err(|error| (error, global.output))?;
                 index += 1;
             }
             _ => {
@@ -205,42 +345,62 @@ fn set_output_mode(
 }
 
 fn print_scope_help(scope: Option<&str>) {
-    let text = scope.map_or(ROOT_HELP, scope_help);
+    let text = scope
+        .map(scope_help)
+        .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
     let mut stdout = io::stdout().lock();
     let _ = stdout.write_all(text.as_bytes());
     let _ = stdout.flush();
 }
 
-fn scope_help(scope: &str) -> &'static str {
+fn scope_help(scope: &str) -> Cow<'static, str> {
+    scope_help_for(scope, crate::localization::catalog())
+}
+
+fn scope_help_for(
+    scope: &str,
+    catalog: &'static crate::localization::Catalog,
+) -> Cow<'static, str> {
     match scope {
-        "machine" => MACHINE_HELP,
-        "session" => SESSION_HELP,
-        "client" => CLIENT_HELP,
-        "workspace" => WORKSPACE_HELP,
-        "screen" => SCREEN_HELP,
-        "pane" => PANE_HELP,
-        "tab" => TAB_HELP,
-        "terminal" => TERMINAL_HELP,
-        "browser" => BROWSER_HELP,
-        "notification" => NOTIFICATION_HELP,
-        "agent" => AGENT_HELP,
-        "sidebar" => SIDEBAR_HELP,
-        "pairing" => PAIRING_HELP,
-        "projection" => PROJECTION_HELP,
-        "provider" => PROVIDER_HELP,
-        "raw" => RAW_HELP,
-        _ => ROOT_HELP,
+        "server" => Cow::Borrowed(catalog.local_server.help),
+        "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server status" => Cow::Borrowed(catalog.local_server.status_help),
+        "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
+        "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
+        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
+        "client" => Cow::Borrowed(CLIENT_HELP),
+        "workspace" => Cow::Borrowed(WORKSPACE_HELP),
+        "screen" => Cow::Borrowed(SCREEN_HELP),
+        "pane" => Cow::Borrowed(PANE_HELP),
+        "tab" => Cow::Borrowed(TAB_HELP),
+        "terminal" => Cow::Borrowed(TERMINAL_HELP),
+        "browser" => Cow::Borrowed(BROWSER_HELP),
+        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
+        "agent" => Cow::Borrowed(AGENT_HELP),
+        "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
+        "pairing" => Cow::Borrowed(PAIRING_HELP),
+        "projection" => Cow::Borrowed(PROJECTION_HELP),
+        "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "raw" => Cow::Borrowed(RAW_HELP),
+        _ => Cow::Owned(root_help(&catalog.local_server)),
     }
 }
 
-const ROOT_HELP: &str = "\
+const ROOT_HELP_PROCESS_PREFIX: &str = "\
 cmux - terminal multiplexer and resource client
 
 USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
+";
+
+const ROOT_HELP_PROCESS_SUFFIX: &str = "\
   cmux machine-agent [OPTIONS]
+";
+
+const ROOT_HELP_GLOBALS: &str = "\
   cmux [GLOBAL OPTIONS] <scope> <action>
 
 GLOBAL OPTIONS
@@ -259,6 +419,9 @@ PROCESS HELP
   cmux machine-agent --help
 
 RESOURCE SCOPES
+";
+
+const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   machine       Inspect the local machine and session route
   session       Inspect and control a session
   client        Inspect connected clients
@@ -279,6 +442,13 @@ RESOURCE SCOPES
 Run `cmux <scope> --help` for scope-specific paths.
 ";
 
+fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
+    format!(
+        "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
+        messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
+    )
+}
+
 const MACHINE_HELP: &str = "\
 USAGE
   cmux machine list
@@ -287,17 +457,46 @@ USAGE
   cmux machine <selector> session <selector> open
 ";
 
-const SESSION_HELP: &str = "\
+const SESSION_HELP_PREFIX: &str = "\
 USAGE
   cmux session list
   cmux session <selector> open|show|snapshot|ping|shutdown
+";
+
+const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
+  cmux session <selector> journal subscribe [--from tail|beginning] [FILTERS]
+    [--cursor-session <session-id> --sequence <decimal>]
+    [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
+    [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
+    [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+  cmux session <selector> journal read [--from beginning] [FILTERS]
+  cmux session <selector> journal producer list
+  cmux session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal append --event-json <json> --idempotency-key <key>
+  cmux session <selector> journal hook list
+  cmux session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal checkpoint create --idempotency-key <key>
+  cmux session <selector> journal checkpoint list
+  cmux session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+  cmux session <selector> journal segment list
+  cmux session <selector> journal segment seal --through <sequence> --idempotency-key <key>
   cmux session <selector> config reload
   cmux session <selector> window title set --title <value>
   cmux session <selector> window title clear
   cmux session <selector> terminal defaults set [OPTIONS]
 ";
+
+fn session_help(
+    messages: &crate::localization::SessionResetMessages,
+    local_server: &crate::localization::LocalServerMessages,
+) -> String {
+    format!(
+        "{SESSION_HELP_PREFIX}{}\n{}\n{SESSION_HELP_SUFFIX}",
+        local_server.session_stop_help, messages.help,
+    )
+}
 
 const CLIENT_HELP: &str = "\
 USAGE
@@ -312,7 +511,7 @@ USAGE
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list
-  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
   cmux workspace <selector> run [--correlation-key <value>] -- <argv...>
   cmux workspace <selector> run [--correlation-key <value>] shell <script>
@@ -337,7 +536,8 @@ USAGE
   cmux pane list
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|rename|focus|close
-  cmux pane <selector> split [--right|--down] [--correlation-key <value>]
+  cmux pane <selector> split [--right|--down] [--ratio <value>]
+    [--viewport-width <fraction>] [--correlation-key <value>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
   cmux pane <selector> swap --other-workspace <selector>
@@ -395,6 +595,8 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent hook install|uninstall|status [provider...]
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
 ";
 
 const SIDEBAR_HELP: &str = "\
@@ -448,7 +650,8 @@ mod tests {
     fn global_modes_are_mutually_exclusive() {
         let error =
             parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
-        assert!(error.0.contains("another output mode"));
+        assert!(error.0.0.contains("another output mode"));
+        assert_eq!(error.1, OutputMode::Json);
     }
 
     #[test]
@@ -472,13 +675,82 @@ mod tests {
     }
 
     #[test]
+    fn global_value_options_accept_inline_equals_values() {
+        let (global, command) = parse_globals(&strings(&[
+            "--socket=/tmp/review.sock",
+            "--session=review-session",
+            "--machine=builder",
+            "workspace",
+            "list",
+        ]))
+        .unwrap();
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.machine.as_deref(), Some("builder"));
+        assert_eq!(command, strings(&["workspace", "list"]));
+    }
+
+    #[test]
+    fn global_value_options_reject_empty_inline_values() {
+        let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--socket needs a value"));
+    }
+
+    #[test]
+    fn server_lifecycle_routing_flags_follow_action() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
+        else {
+            panic!("server status must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert!(global.socket.is_none());
+        assert!(matches!(plan.action, lifecycle::ServerAction::Status));
+
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stop", "--socket", "/tmp/review.sock", "--force"]))
+                .unwrap()
+        else {
+            panic!("server stop must produce a server plan");
+        };
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert!(global.session.is_none());
+        assert!(matches!(plan.action, lifecycle::ServerAction::Stop { force: true }));
+
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&[
+                "server",
+                "reload-config",
+                "--session",
+                "review-session",
+                "--socket",
+                "/tmp/review.sock",
+            ]))
+            .unwrap()
+        else {
+            panic!("server reload-config must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert!(matches!(plan.action, lifecycle::ServerAction::ReloadConfig));
+    }
+
+    #[test]
     fn every_scope_has_dedicated_help() {
+        let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
         for scope in PUBLIC_SCOPES {
-            let help = scope_help(scope);
+            let help = scope_help_for(scope, english_catalog);
             assert!(help.contains("USAGE"));
             assert!(help.contains(scope));
         }
-        assert!(SESSION_HELP.contains("creation <correlation-key> resolve"));
+        let japanese_catalog = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let english = session_help(&english_catalog.session_reset, &english_catalog.local_server);
+        let japanese =
+            session_help(&japanese_catalog.session_reset, &japanese_catalog.local_server);
+        assert!(english.contains("creation <correlation-key> resolve"));
+        assert!(english.contains("session <name> reset-state"));
+        assert!(japanese.contains("session <name> reset-state"));
+        assert!(japanese.contains("保存状態のリセット"));
         assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
         assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
         assert!(TERMINAL_HELP.contains("move|project|attach|close"));
@@ -486,9 +758,10 @@ mod tests {
 
     #[test]
     fn startup_help_is_explicitly_discoverable() {
-        assert!(ROOT_HELP.contains("cmux help start"));
-        assert!(ROOT_HELP.starts_with("cmux - "));
-        assert!(!ROOT_HELP.contains("cmux-tui"));
+        let help = root_help(&crate::localization::catalog_for_locale("en_US.UTF-8").local_server);
+        assert!(help.contains("cmux help start"));
+        assert!(help.starts_with("cmux - "));
+        assert!(!help.contains("cmux-tui"));
         assert!(matches!(
             parse(&strings(&["help", "start"])).unwrap(),
             ParsedCommand::Help(Some(scope)) if scope == "start"

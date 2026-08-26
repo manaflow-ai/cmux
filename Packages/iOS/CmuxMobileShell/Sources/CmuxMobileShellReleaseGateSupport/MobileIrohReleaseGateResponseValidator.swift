@@ -10,6 +10,38 @@ internal import CmuxMobileShell
 /// chat descriptors, notification identifiers, session identifiers, and
 /// artifact metadata never enter the report.
 enum MobileIrohReleaseGateResponseValidator {
+    enum RPCMethodInventoryFailure: Equatable {
+        case malformed
+        case schemaMismatch
+        case duplicateMethods
+        case missingMethods
+    }
+
+    static func rpcMethodInventory(_ data: Data, required: Set<String>) -> Bool {
+        rpcMethodInventoryFailure(data, required: required) == nil
+    }
+
+    static func rpcMethodInventoryFailure(
+        _ data: Data,
+        required: Set<String>
+    ) -> RPCMethodInventoryFailure? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawMethods = object["methods"] as? [String] else {
+            return .malformed
+        }
+        guard object["schema_version"] as? Int == 1 else {
+            return .schemaMismatch
+        }
+        let methods = Set(rawMethods)
+        guard methods.count == rawMethods.count else {
+            return .duplicateMethods
+        }
+        guard required.isSubset(of: methods) else {
+            return .missingMethods
+        }
+        return nil
+    }
+
     static func independentEventSubscription(
         _ data: Data,
         expectedStreamID: String,

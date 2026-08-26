@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -37,13 +38,27 @@ extension CMUXCLI {
         return .resolved(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
     }
 
+    /// Resolves a generic hook's process identity with live evidence first.
     func resolveAgentHookProcessBinding(
         pid: Int?,
         resolution: AgentProcessBindingResolution,
         client: SocketClient
     ) -> AgentHookProcessBindingResult {
         guard resolution == .controllingTTY else {
-            return corroboratedAgentHookProcessBinding(pid: pid, client: client)
+            switch liveAgentHookProcessBinding(pid: pid, client: client) {
+            case .resolved(let binding):
+                return AgentHookProcessBindingResult(binding: binding, source: .liveProcess, rejectsAmbientClaim: false)
+            case .unsupported:
+                return corroboratedAgentHookProcessBinding(pid: pid, client: client)
+            case .failed:
+                return AgentHookProcessBindingResult(
+                    binding: nil,
+                    source: nil,
+                    rejectsAmbientClaim: true
+                )
+            case .notAttempted:
+                return corroboratedAgentHookProcessBinding(pid: pid, client: client)
+            }
         }
 
         switch liveAgentControllingTTYBinding(pid: pid, client: client) {
@@ -60,6 +75,88 @@ extension CMUXCLI {
                 rejectsAmbientClaim: false
             )
         }
+    }
+
+    /// Resolves the hook process through the same live PID probe used by
+    /// Claude hooks. A sanitized agent hook has no ambient CMUX identity; the
+    /// CLI process itself still carries the live controlling TTY, so it is a
+    /// safe second candidate when an agent's parent is hidden behind a runner.
+    private func liveAgentHookProcessBinding(
+        pid: Int?,
+        client: SocketClient
+    ) -> AgentHookProcessBindingProbe {
+        guard !client.isRelayBacked else { return .notAttempted }
+
+        var candidates: [Int] = []
+        if let pid, pid > 0 {
+            candidates.append(pid)
+        }
+        let hookPID = Int(getpid())
+        if hookPID > 0, !candidates.contains(hookPID) {
+            candidates.append(hookPID)
+        }
+        guard !candidates.isEmpty else { return .notAttempted }
+
+        var sawUnsupported = false
+        var sawFailure = false
+        for candidate in candidates {
+            switch liveAgentPidDeliveryTarget(pid: candidate, client: client) {
+            case .resolved(let target):
+                return .resolved(
+                    CallerTerminalBinding(
+                        workspaceId: target.workspaceId,
+                        surfaceId: target.surfaceId
+                    )
+                )
+            case .unsupported:
+                sawUnsupported = true
+            case .failed:
+                sawFailure = true
+            case .notAttempted:
+                continue
+            }
+        }
+        if sawFailure {
+            return .failed
+        }
+        if sawUnsupported {
+            return .unsupported
+        }
+        return .notAttempted
+    }
+
+    /// Re-homes a persisted or ambient surface through the shared live owner
+    /// map. This keeps moved-pane recovery identical for Claude and generic
+    /// hooks without trusting a stale workspace claim.
+    func liveAgentHookSurfaceBinding(
+        mappedSurfaceId: String?,
+        directSurfaceId: String?,
+        claimedWorkspaceId: String?,
+        client: SocketClient
+    ) -> CallerTerminalBinding? {
+        var candidates: [String] = []
+        if let mappedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSurfaceId) {
+            candidates.append(mappedSurfaceId)
+        }
+        if let directSurfaceId = nonEmptyClaudeHookIdentifier(directSurfaceId),
+           !candidates.contains(directSurfaceId) {
+            candidates.append(directSurfaceId)
+        }
+        let claimedWorkspace = nonEmptyClaudeHookIdentifier(claimedWorkspaceId)
+        for surfaceId in candidates {
+            guard case .resolved(let target) = liveAgentSurfaceDeliveryTarget(
+                surfaceId: surfaceId,
+                claimedWorkspaceId: claimedWorkspace,
+                client: client
+            ) else {
+                continue
+            }
+            return CallerTerminalBinding(
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId
+            )
+        }
+        return nil
     }
 
     private func corroboratedAgentHookProcessBinding(

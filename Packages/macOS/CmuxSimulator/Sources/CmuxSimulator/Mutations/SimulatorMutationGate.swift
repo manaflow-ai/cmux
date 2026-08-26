@@ -24,7 +24,7 @@ package struct SimulatorMutationGate: Sendable {
     }
 
     /// Runs an operation while holding every requested key in deterministic order.
-    package func withLocks<Result>(
+    package func withLocks<Result: Sendable>(
         _ keys: [SimulatorMutationKey],
         isolation: isolated (any Actor)? = #isolation,
         operation: () async throws -> Result

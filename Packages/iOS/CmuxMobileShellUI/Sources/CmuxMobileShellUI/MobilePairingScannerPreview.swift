@@ -26,7 +26,7 @@ struct MobilePairingScannerPreview: View {
                 .frame(maxWidth: 280, maxHeight: 280)
                 .aspectRatio(1, contentMode: .fit)
 
-                Text(MobilePairingScannerGuidanceCopy.text)
+                Text(MobilePairingScannerSheet.guidanceText)
                 .font(.headline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)

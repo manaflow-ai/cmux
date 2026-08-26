@@ -5,6 +5,16 @@ import Testing
 @testable import CmuxFoundation
 
 struct SSHPTYAttachRetryScriptBuilderTests {
+    @Test func defaultReconnectPolicyIsFinite() {
+        let script = SSHPTYAttachRetryScriptBuilder()
+            .lines(command: "cmux_test_attach", reauthenticates: false)
+            .joined(separator: "\n")
+
+        #expect(script.contains("cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\""))
+        #expect(!script.contains("cmux_ssh_attach_reconnect_limit='∞'"))
+        #expect(!script.contains("cmux_ssh_attach_reconnect_unbounded=1"))
+    }
+
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-retry-\(UUID().uuidString)")
@@ -20,7 +30,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
             "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 7; }",
             "cmux_ssh_attach_foreground_auth() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 254; fi",
             "  return 0",
@@ -53,7 +63,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
             "cmux_test_attach() {",
             """
-            count=$(test -f "$CMUX_TEST_LOG" && grep -c '^attach$' "$CMUX_TEST_LOG" 2>/dev/null || printf 0)
+            count=$(grep -c '^attach$' "$CMUX_TEST_LOG" 2>/dev/null) || count=0
             printf '%s\\n' attach >> "$CMUX_TEST_LOG"
             if [ "$count" -eq 0 ]; then return 255; fi
             return 253
@@ -74,7 +84,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nsleep:2\nattach\n")
     }
 
-    @Test func unclassifiedReauthenticationFailsClosedAfterEstablishedSession() throws {
+    @Test func establishedSessionStopsAfterTheFiniteReconnectBudget() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-unclassified-reauth-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: logURL) }
@@ -86,13 +96,58 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         let script = ([
             "cmux_ssh_attach_auth_pid=",
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
-            "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
-            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+            "sleep() { :; }",
+            "cmux_test_attach() {",
+            "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || true)",
+            "  count=${count:-0}",
+            "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
+            "  if [ \"$count\" -eq 0 ]; then return 255; fi",
+            "  return 7",
+            "}",
             "cmux_ssh_attach_foreground_auth() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 0; fi",
-            "  return 252",
+            "  if [ \"$count\" -eq 1 ]; then return 252; fi",
+            "  if [ \"$count\" -le 21 ]; then return 254; fi",
+            "  return 0",
+            "}",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "2",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "2",
+            ]
+        )
+
+        #expect(result.status == 254)
+        let events = try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n")
+        #expect(events.filter { $0 == "auth" }.count == 21)
+        #expect(events.filter { $0 == "attach" }.count == 1)
+    }
+
+    @Test func permanentReauthenticationStillFailsClosedAfterEstablishedSession() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-permanent-reauth-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        )
+        let script = ([
+            "cmux_ssh_attach_auth_pid=",
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+            "cmux_ssh_attach_foreground_auth() {",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
+            "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
+            "  if [ \"$count\" -eq 0 ]; then return 0; fi",
+            "  return 255",
             "}",
         ] + retryLines).joined(separator: "\n")
 
@@ -106,10 +161,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         )
 
         #expect(result.status == 255)
-        #expect(
-            try String(contentsOf: logURL, encoding: .utf8)
-                == "auth\nattach\nsleep:2\nauth\n"
-        )
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "auth\nattach\nauth\n")
     }
 
     @Test(arguments: [
@@ -217,17 +269,34 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         }
     }
 
-    @Test func reconnectBackoffPreservesQueuedTerminalInput() throws {
+    @Test func reconnectBackoffDiscardsQueuedTerminalInput() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-queued-input-\(UUID().uuidString)")
+        let backoffMarkerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-backoff-ready-\(UUID().uuidString)")
         let transcriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-queued-input-transcript-\(UUID().uuidString)")
+        let fakeCLIURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-input-flush-\(UUID().uuidString)")
         try Data().write(to: transcriptURL)
+        try """
+        #!/bin/sh
+        if [ "${1:-}" = "__ssh-pty-flush-input" ]; then
+          exec /usr/bin/python3 -c 'import sys, termios; termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)'
+        fi
+        exit 0
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: fakeCLIURL.path
+        )
         let transcriptHandle = try FileHandle(forWritingTo: transcriptURL)
         defer {
             try? transcriptHandle.close()
             try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: backoffMarkerURL)
             try? FileManager.default.removeItem(at: transcriptURL)
+            try? FileManager.default.removeItem(at: fakeCLIURL)
         }
 
         let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
@@ -236,12 +305,16 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         )
         let script = ([
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_ssh_attach_cli=\"$CMUX_TEST_FAKE_CLI\"",
+            "sleep() { printf 'ready\\n' > \"$CMUX_TEST_BACKOFF_MARKER\"; /bin/sleep \"$1\"; }",
             "cmux_test_attach() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 255; fi",
-            "  IFS= read -r cmux_test_input || return 42",
-            "  printf 'input:%s\\n' \"$cmux_test_input\" >> \"$CMUX_TEST_LOG\"",
+            "  if IFS= read -r -t 1 cmux_test_input; then",
+            "    printf 'input:%s\\n' \"$cmux_test_input\" >> \"$CMUX_TEST_LOG\"",
+            "  fi",
+            "  printf '%s\\n' complete >> \"$CMUX_TEST_LOG\"",
             "  return 0",
             "}",
         ] + retryLines).joined(separator: "\n")
@@ -256,6 +329,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         ]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_LOG": logURL.path,
+            "CMUX_TEST_BACKOFF_MARKER": backoffMarkerURL.path,
+            "CMUX_TEST_FAKE_CLI": fakeCLIURL.path,
             "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
             "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
         ]) { _, override in override }
@@ -265,8 +340,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
 
         try process.run()
         let enteredBackoff = waitForFile(
-            at: transcriptURL,
-            containing: "remote PTY bridge closed; reattaching",
+            at: backoffMarkerURL,
+            containing: "ready",
             while: process,
             timeout: 3
         )
@@ -274,13 +349,15 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         if enteredBackoff {
             try standardInput.fileHandleForWriting.write(contentsOf: Data("queued-input\n".utf8))
         }
-        let queuedInputReachedAttach = waitForFile(
+        let secondAttachFinished = waitForFile(
             at: logURL,
-            containing: "input:queued-input",
+            containing: "complete\n",
             while: process,
             timeout: 3
         )
-        #expect(queuedInputReachedAttach)
+        #expect(secondAttachFinished)
+        // The attach fixture has its own bounded reader, so it exits whether
+        // the queued line was delivered or discarded.
         try? standardInput.fileHandleForWriting.close()
         if process.isRunning {
             process.terminate()
@@ -288,9 +365,77 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         process.waitUntilExit()
 
         let logContents = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<missing>"
-        if queuedInputReachedAttach {
-            #expect(logContents == "attach\nattach\ninput:queued-input\n")
+        let transcript = (try? String(contentsOf: transcriptURL, encoding: .utf8)) ?? "<missing>"
+        if secondAttachFinished {
+            #expect(logContents == "attach\nattach\ncomplete\n", Comment(rawValue: logContents))
+            #expect(
+                transcript.contains("Input typed while disconnected is discarded."),
+                Comment(rawValue: transcript)
+            )
         }
+    }
+
+    @Test(arguments: ["bad", "21", "999999999999999999999999999999"])
+    func malformedOrOversizedReconnectLimitsRemainFinite(_ configuredLimit: String) throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-limit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": configuredLimit,
+            ]
+        )
+        let attempts = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .count
+
+        #expect(result.status == 255)
+        // One initial attach plus at most the 20 reconnects is the hard
+        // contract, regardless of user-provided limit text.
+        #expect(attempts == 21)
+    }
+
+    @Test
+    func retryableAttachIsCappedAtTwentyReconnects() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-budget-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "20",
+            ]
+        )
+
+        #expect(result.status == 255)
+        let attempts = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+        #expect(attempts == Array(repeating: Substring("attach"), count: 21))
     }
 
     private func waitForFile(

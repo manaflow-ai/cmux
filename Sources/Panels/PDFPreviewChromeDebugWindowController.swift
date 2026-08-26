@@ -216,9 +216,10 @@ private struct PDFPreviewChromeDebugView: View {
 
     private func copyConfig() {
         let payload = "\(FilePreviewPDFChromeStyleVariant.defaultsKey)=\(currentVariant.rawValue)"
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            payload,
+            to: .general
+        )
     }
 }
 

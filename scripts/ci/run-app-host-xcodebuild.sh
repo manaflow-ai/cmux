@@ -120,10 +120,74 @@ validate_app_host_config_paths() {
     return 1
   fi
 
-  local expected_config_path
-  expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  local matches scan_status line reported_path reported_directory reported_basename
-  local resolved_reported_directory resolved_reported_path found_expected_config
+  canonicalize_existing_app_host_config_path() {
+    local path="$1"
+    case "$path" in
+      /*) ;;
+      *) return 1 ;;
+    esac
+    # A path that spells traversal is not accepted merely because it resolves
+    # back inside the isolated root. Published /tmp aliases are allowed, but
+    # the diagnostic itself must not contain dot segments.
+    case "/$path/" in
+      */../*|*/./*) return 1 ;;
+    esac
+    local parent name resolved_parent
+    parent="${path%/*}"
+    name="${path##*/}"
+    [ -n "$parent" ] || parent=/
+    [ -n "$name" ] || return 1
+    [ "$name" != "." ] && [ "$name" != ".." ] || return 1
+    [ -e "$path" ] || return 1
+    [ -L "$path" ] && return 1
+    resolved_parent="$(cd "$parent" 2>/dev/null && pwd -P)" || return 1
+    printf '%s/%s\n' "${resolved_parent%/}" "$name"
+  }
+
+  extract_app_host_config_path() {
+    local line="$1"
+    local path="${line#*path=}"
+    path="${path%$'\r'}"
+
+    # Ghostty may append structured diagnostics (for example, err=...) to a
+    # configuration-access line. Preserve spaces in the actual path and only
+    # strip a suffix when the resulting filesystem entry is real.
+    if [ -e "$path" ] && [ ! -L "$path" ]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+    if [[ "$path" =~ ^(.*)[[:space:]]err=[[:alnum:]_.:-]+([[:space:]].*)?$ ]]; then
+      local path_without_diagnostic="${BASH_REMATCH[1]}"
+      if [ -e "$path_without_diagnostic" ] \
+        && [ ! -L "$path_without_diagnostic" ]; then
+        printf '%s\n' "$path_without_diagnostic"
+        return 0
+      fi
+    fi
+    printf '%s\n' "$path"
+  }
+
+  # macOS resolves the published /tmp scope through /private/tmp, while
+  # Ghostty may report either spelling. Both roots were derived and validated
+  # above; keep the slash boundary so a same-prefix sibling is still rejected.
+  local published_expected_config_path resolved_expected_config_path
+  published_expected_config_path="${app_host_home_input%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+  resolved_expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+  local canonical_expected_config_path canonical_published_expected_config_path
+  canonical_expected_config_path="$(
+    canonicalize_existing_app_host_config_path "$resolved_expected_config_path"
+  )" || {
+    echo "FAIL: isolated app-host configuration sentinel is unavailable" >&2
+    return 1
+  }
+  canonical_published_expected_config_path="$(
+    canonicalize_existing_app_host_config_path "$published_expected_config_path"
+  )" || {
+    echo "FAIL: published app-host configuration sentinel is unavailable" >&2
+    return 1
+  }
+  local matches scan_status line reported_path canonical_reported_path
+  local found_expected_config
   found_expected_config=0
   if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
@@ -141,33 +205,16 @@ validate_app_host_config_paths() {
 
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
-      reported_path="${line#*path=}"
-      reported_path="${reported_path%$'\r'}"
-      case "$reported_path" in
-        /*) ;;
-        *)
-          echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
-          echo "$line" >&2
-          return 1
-          ;;
-      esac
-
-      reported_directory="${reported_path%/*}"
-      reported_basename="${reported_path##*/}"
-      resolved_reported_directory=""
-      if [ -z "$reported_directory" ] \
-        || [ -z "$reported_basename" ] \
-        || [ "$reported_basename" = "." ] \
-        || [ "$reported_basename" = ".." ] \
-        || [ -L "$reported_path" ] \
-        || ! resolved_reported_directory="$(cd "$reported_directory" 2>/dev/null && pwd -P)"; then
+      line="${line%$'\r'}"
+      reported_path="$(extract_app_host_config_path "$line")"
+      canonical_reported_path="$(
+        canonicalize_existing_app_host_config_path "$reported_path"
+      )" || {
         echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
         echo "$line" >&2
         return 1
-      fi
-      resolved_reported_path="${resolved_reported_directory%/}/$reported_basename"
-
-      case "$resolved_reported_path" in
+      }
+      case "$canonical_reported_path" in
         "$app_host_home"|"${app_host_home%/}/"*) ;;
         *)
           echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
@@ -178,7 +225,8 @@ validate_app_host_config_paths() {
 
       case "$line" in
         *"[default] reading configuration file path="*|*"[config] reading configuration file path="*)
-          if [ "$resolved_reported_path" = "$expected_config_path" ]; then
+          if [ "$canonical_reported_path" = "$canonical_expected_config_path" ] \
+            || [ "$canonical_reported_path" = "$canonical_published_expected_config_path" ]; then
             found_expected_config=1
           fi
           ;;

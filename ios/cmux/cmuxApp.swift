@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -23,19 +24,27 @@ struct cmuxApp: App {
     @MainActor
     private static let root: AppCompositionRoot = {
         let reachability = ReachabilityService()
-        let auth = MobileAuthComposition(reachability: reachability)
-        auth.start()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
             role: .iosClient
         )
+        let auth = MobileAuthComposition(
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
+        )
+        // Per-tag isolation by default: this build pairs only with its own
+        // Mac tag plus the runtime grant set its anchor Mac advertises
+        // (`cmux mobile compatible-tags`), persisted across launches.
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: MobileIOSBuildScope.current()
+            buildScope: MobileIOSBuildScope.current(),
+            additionalInstanceTags: MobileMacTagAllowlist.persisted()
         )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             reachability: reachability,
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
             diagnosticLog: diagnosticLog
         )
         let connectivityInvalidationServiceURL = PresenceClient
@@ -104,6 +113,15 @@ struct cmuxApp: App {
                     resourceID: resourceID,
                     offset: offset
                 )
+            },
+            simulatorStreamLaneProvider: { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else {
+                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
+                }
+                return try await iroh.openSimulatorStreamLane(
+                    for: request,
+                    panelID: panelUUID
+                )
             }
         )
 
@@ -111,6 +129,7 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             iroh: iroh,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
@@ -149,6 +168,7 @@ struct cmuxApp: App {
             #endif
         }
         .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
@@ -165,12 +185,15 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            featureFlags: Self.root.featureFlags,
             connectionMethodStore: Self.root.connectionMethodStore,
+            autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             personalIrohDiscovery: Self.root.iroh,
             personalIrohForget: Self.root.iroh,
+            buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )

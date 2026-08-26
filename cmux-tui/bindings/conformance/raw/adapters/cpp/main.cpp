@@ -494,7 +494,7 @@ raw::Result<raw::Json> real_flow(const raw::Json& request) {
     raw::Json::Array observed_json;
     for (const auto& name : observed) observed_json.emplace_back(name);
     return raw::Json(raw::Json::Object{
-        {"identified", identity.value().protocol == 11},
+        {"identified", identity.value().protocol == 12},
         {"workspace_created", workspace.value > 0},
         {"terminal_created", context->terminal_created},
         {"marker_sent", true},

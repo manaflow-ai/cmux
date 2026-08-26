@@ -59,6 +59,18 @@ extension TerminalController {
         return nil
     }
 
+    /// Checks Dock focus availability without activating a window or changing selection.
+    func canRevealDockForFocus(tabManager: TabManager) -> Bool {
+        let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
+            .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+        guard let context = AppDelegate.shared?.preferredRegisteredMainWindowContext(
+            preferredWindow: preferredWindow
+        ) else {
+            return false
+        }
+        return context.keyboardFocusCoordinator.canFocusRightSidebar(mode: .dock)
+    }
+
     @discardableResult
     func revealDockForFocus(tabManager: TabManager) -> Bool {
         let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
@@ -76,6 +88,10 @@ extension TerminalController {
 
     func dockUnavailableMessage() -> String {
         String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
+    }
+
+    func dockFocusUnavailableMessage() -> String {
+        String(localized: "dock.error.focusUnavailable", defaultValue: "Dock could not be revealed")
     }
 
     func dockConflictingRoutingSelectorsMessage() -> String {
@@ -106,7 +122,9 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
         if focus {
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            // Creation is authoritative; revealing its secondary focus request
+            // is best-effort when the Dock host is still mounting.
+            _ = focusAndRevealWindowDock(for: dock, fallback: tabManager)
         }
         let newPanelId = dock.newSurface(
             kind: kind,
@@ -116,7 +134,8 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
-            focus: focus
+            focus: focus,
+            preloadInitialNavigationInBackground: kind == .browser
         )
         guard let newPanelId else {
             return .createFailed
@@ -296,18 +315,33 @@ extension TerminalController {
         return workspaceID != dockOwnerId
     }
 
-    /// Focuses the Dock's owning window, makes it the active manager, and
-    /// reveals the Dock there, returning the owning manager. A Dock surface or
-    /// pane renders only in its owning window (the registry is the source of
-    /// truth), so Dock focus operations anchor there even when the caller's
-    /// routed context resolved another window.
+    /// Focuses the Dock's owning window and reveals the Dock there. Returns
+    /// whether the Dock became available for the requested focus operation. A
+    /// Dock surface or pane renders only in its owning window (the registry is
+    /// the source of truth), so Dock focus operations anchor there even when
+    /// the caller's routed context resolved another window.
     @discardableResult
-    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
+    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> Bool {
         let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
-        _ = AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId)
+        guard let appDelegate = AppDelegate.shared,
+              let registeredTabManager = appDelegate.tabManagerForWindowDockOwner(dock.workspaceId),
+              registeredTabManager === owningTabManager,
+              appDelegate.existingWindowDock(forWindowId: dock.workspaceId) === dock,
+              let owningWindow = appDelegate.mainWindow(for: dock.workspaceId),
+              let owningContext = appDelegate.preferredRegisteredMainWindowContext(
+                  preferredWindow: owningWindow
+              ),
+              owningContext.windowId == dock.workspaceId,
+              owningContext.tabManager === owningTabManager,
+              appDelegate.focusRightSidebarInActiveMainWindow(
+                  mode: .dock,
+                  focusFirstItem: false,
+                  preferredWindow: owningWindow
+              ) else {
+            return false
+        }
         setActiveTabManager(owningTabManager)
-        revealDockForFocus(tabManager: owningTabManager)
-        return owningTabManager
+        return true
     }
 
     /// The window-Dock branch of `controlSurfaceClose`: closes the routed

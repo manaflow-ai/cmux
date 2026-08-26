@@ -54,12 +54,19 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     }
 
     /// The cached window-hierarchy snapshot returned for `.windows`.
+    ///
+    /// References are weak so observing the accessibility hierarchy never owns
+    /// an AppKit window or extends a transient window's lifetime.
     public struct Snapshot {
-        let windows: [NSWindow]
+        private let windowReferences: [WeakWindowReference]
+
+        var windows: [NSWindow] {
+            windowReferences.compactMap(\.window)
+        }
 
         /// Builds a snapshot from a window list.
         public init(windows: [NSWindow]) {
-            self.windows = windows
+            windowReferences = windows.map(WeakWindowReference.init(window:))
         }
     }
 

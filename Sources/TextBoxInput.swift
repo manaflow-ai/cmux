@@ -1501,10 +1501,12 @@ private final class TextBoxSubmitEventRunner {
     private var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
     private var observers: [NSObjectProtocol] = []
     private var waitTimeoutTimer: DispatchSourceTimer?
+    private var pasteFilePathTask: Task<Void, Never>?
+    private var pasteFilePathMutationLease: TerminalPasteboardMutationLease?
     private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
-    private var originalPasteboardItems: [PasteboardItemSnapshot]?
-    private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
+    private var temporaryPasteboardMutationResult:
+        TerminalPasteboardMutationResult?
     private var observationToken = UUID()
 
     private static var waitTimeoutSeconds: TimeInterval {
@@ -1516,8 +1518,10 @@ private final class TextBoxSubmitEventRunner {
         return 15
     }
 
-    private struct PasteboardItemSnapshot {
-        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    private enum PasteFilePathStart {
+        case pending
+        case completed
+        case rejected
     }
 
     private struct PendingRun {
@@ -1618,7 +1622,12 @@ private final class TextBoxSubmitEventRunner {
                     return
                 }
             case .pasteFilePath(let path):
-                guard pasteFilePath(path) else {
+                switch pasteFilePath(path) {
+                case .pending:
+                    return
+                case .completed:
+                    continue
+                case .rejected:
                     fail(.terminalWriteRejected)
                     return
                 }
@@ -1659,6 +1668,7 @@ private final class TextBoxSubmitEventRunner {
 
     private func fail(_ failure: TextBoxSubmit.CompletionContext.Failure) {
         removeObservers()
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -1677,6 +1687,7 @@ private final class TextBoxSubmitEventRunner {
     }
 
     private func finish() {
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -1749,6 +1760,7 @@ private final class TextBoxSubmitEventRunner {
 
     private func cancelForTesting() {
         removeObservers()
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         onComplete = nil
     }
@@ -2016,86 +2028,125 @@ private final class TextBoxSubmitEventRunner {
         timer.resume()
     }
 
-    private func pasteFilePath(_ path: String) -> Bool {
+    private func pasteFilePath(_ path: String) -> PasteFilePathStart {
+        // A run can paste several images. Restore the prior temporary write
+        // first so each new receipt captures the user's latest clipboard.
+        restorePasteboardIfNeeded()
         let pasteboard = NSPasteboard.general
-        if originalPasteboardItems == nil {
-            originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-        } else if !TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
-            pasteboard: pasteboard,
-            token: temporaryPasteboardRestorationToken
-        ) {
-            originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-            temporaryPasteboardRestorationToken = nil
-        }
-
         let fileURL = URL(fileURLWithPath: path).standardizedFileURL
-        pasteboard.clearContents()
-        let wroteURL = pasteboard.writeObjects([fileURL as NSURL])
-        if !wroteURL {
-            pasteboard.clearContents()
-            pasteboard.declareTypes([.fileURL, PasteboardFileURLReader.legacyFilenamesPboardType], owner: nil)
-            _ = pasteboard.setString(fileURL.absoluteString, forType: .fileURL)
-            _ = pasteboard.setPropertyList([fileURL.path], forType: PasteboardFileURLReader.legacyFilenamesPboardType)
+        let item = NSPasteboardItem()
+        let wroteFileURL = item.setString(
+            fileURL.absoluteString,
+            forType: .fileURL
+        )
+        let wroteLegacyPaths = item.setPropertyList(
+            [fileURL.path],
+            forType: PasteboardFileURLReader.legacyFilenamesPboardType
+        )
+        guard wroteFileURL || wroteLegacyPaths else {
+            return .rejected
         }
-        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationGuard.token(
-            afterWritingTemporaryFileURL: fileURL,
-            to: pasteboard
-        )
-
-#if DEBUG
-        cmuxDebugLog(
-            "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) pathLength=\(fileURL.path.utf8.count) wroteURL=\(wroteURL ? 1 : 0) " +
-            "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ","))"
-        )
-#endif
-
-        let handled = surface.performExplicitInputBindingAction("paste_from_clipboard")
-#if DEBUG
-        cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
-#endif
-        if handled {
-            return true
-        } else {
+        guard let lease = GhosttyApp.terminalPasteboard.reserveMutation(
+            of: pasteboard,
+            replacingWith: [item]
+        ) else {
             filePasteFallbackSatisfiedClipboardRead = true
-            let sentFallback = surface.sendText(TerminalImageTransferPlanner.escapeForShell(path))
-            restorePasteboardIfNeeded()
-            return sentFallback
+            return surface.sendText(
+                TerminalImageTransferPlanner.escapeForShell(path)
+            ) ? .completed : .rejected
+        }
+        pasteFilePathMutationLease = lease
+
+        pasteFilePathTask = Task { @MainActor [weak self] in
+            guard let result = await lease.waitUntilApplied() else {
+                _ = lease.finish()
+                guard let self, Self.active[id] === self else { return }
+                pasteFilePathTask = nil
+                if pasteFilePathMutationLease === lease {
+                    pasteFilePathMutationLease = nil
+                }
+                fail(.terminalWriteRejected)
+                return
+            }
+            guard let self, Self.active[id] === self else {
+                _ = lease.finish()
+                return
+            }
+            pasteFilePathTask = nil
+            if pasteFilePathMutationLease === lease {
+                pasteFilePathMutationLease = nil
+            }
+
+            guard result.didWrite else {
+                _ = lease.finish()
+                filePasteFallbackSatisfiedClipboardRead = true
+                guard surface.sendText(
+                    TerminalImageTransferPlanner.escapeForShell(path)
+                ) else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                processNext()
+                return
+            }
+            temporaryPasteboardMutationResult = result
+
+#if DEBUG
+            cmuxDebugLog(
+                "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) " +
+                "pathLength=\(fileURL.path.utf8.count) wroteURL=1 " +
+                "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ","))"
+            )
+#endif
+
+            let handled = surface.performExplicitInputBindingAction(
+                "paste_from_clipboard"
+            )
+            // The binding's synchronous runtime callback has now registered
+            // its read behind this mutation, so the lane can advance.
+            _ = lease.finish()
+#if DEBUG
+            cmuxDebugLog(
+                "textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) " +
+                "handled=\(handled ? 1 : 0)"
+            )
+#endif
+            guard handled else {
+                filePasteFallbackSatisfiedClipboardRead = true
+                let sentFallback = surface.sendText(
+                    TerminalImageTransferPlanner.escapeForShell(path)
+                )
+                restorePasteboardIfNeeded()
+                guard sentFallback else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                processNext()
+                return
+            }
+            processNext()
+        }
+        return .pending
+    }
+
+    private func cancelPendingPasteboardMutation() {
+        pasteFilePathTask?.cancel()
+        pasteFilePathTask = nil
+        guard let lease = pasteFilePathMutationLease else { return }
+        pasteFilePathMutationLease = nil
+        let appliedResult = lease.finish()
+        if temporaryPasteboardMutationResult == nil {
+            temporaryPasteboardMutationResult = appliedResult
         }
     }
 
     private func restorePasteboardIfNeeded() {
-        guard let originalPasteboardItems else { return }
-        self.originalPasteboardItems = nil
-        let pasteboard = NSPasteboard.general
-        guard TextBoxPasteboardRestorationGuard.shouldRestore(
-            pasteboard: pasteboard,
-            token: temporaryPasteboardRestorationToken
-        ) else {
-            temporaryPasteboardRestorationToken = nil
-            return
-        }
-        temporaryPasteboardRestorationToken = nil
-        pasteboard.clearContents()
-        guard !originalPasteboardItems.isEmpty else { return }
-        let restoredItems = originalPasteboardItems.map { snapshot in
-            let item = NSPasteboardItem()
-            for representation in snapshot.representations {
-                item.setData(representation.data, forType: representation.type)
-            }
-            return item
-        }
-        pasteboard.writeObjects(restoredItems)
-    }
-
-    private static func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
-        (pasteboard.pasteboardItems ?? []).map { item in
-            PasteboardItemSnapshot(
-                representations: item.types.compactMap { type in
-                    guard let data = item.data(forType: type) else { return nil }
-                    return (type: type, data: data)
-                }
-            )
-        }
+        guard let result = temporaryPasteboardMutationResult else { return }
+        guard GhosttyApp.terminalPasteboard.restoreContents(
+            replacedBy: result,
+            in: .general
+        ) else { return }
+        temporaryPasteboardMutationResult = nil
     }
 
     private func claudeImageTokenReady() -> Bool {
@@ -2209,7 +2260,7 @@ struct TextBoxInputContainer: View {
     @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
-    @State var pendingProviderLaunchTimeoutTimer: Timer?
+    @State var pendingProviderLaunchTimeoutScheduler = MainActorDeferredActionScheduler()
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
     private var pendingCommentCount: Int {
@@ -2341,8 +2392,7 @@ struct TextBoxInputContainer: View {
             }
         }
         .onDisappear {
-            pendingProviderLaunchTimeoutTimer?.invalidate()
-            pendingProviderLaunchTimeoutTimer = nil
+            pendingProviderLaunchTimeoutScheduler.cancel()
         }
         .onChange(of: configuredSubmitActionsJSON) { _, _ in
             refreshSubmitActionsCacheIfNeeded()
@@ -2721,12 +2771,8 @@ struct TextBoxInputContainer: View {
         _ = surface.sendNamedKey("ctrl-\(key)")
     }
 
-    private func handlePaste(_ pasteboard: NSPasteboard, into textView: TextBoxInputTextView) -> Bool {
-        let preparedContent = TerminalImageTransferPlanner.prepare(
-            pasteboard: pasteboard,
-            mode: .paste
-        )
-        return insertPreparedContent(preparedContent, into: textView)
+    func ownsTextView(_ textView: TextBoxInputTextView) -> Bool {
+        textViewReference.textView === textView
     }
 
     private func insertPreparedContent(
@@ -2778,15 +2824,35 @@ struct TextBoxInputContainer: View {
         }
     }
 
-    private func uploadFileAttachments(
+    func uploadFileAttachments(
         _ fileURLs: [URL],
         remoteTarget: TerminalRemoteUploadTarget,
-        focusing textView: TextBoxInputTextView
+        focusing textView: TextBoxInputTextView,
+        replacingPlaceholderID existingPlaceholderID: UUID? = nil,
+        validationToken existingValidationToken: UInt64? = nil,
+        preparedAttachments: [TextBoxPreparedAttachment] = [],
+        preparationService: TerminalImageTransferPreparationService? = nil
     ) {
-        let placeholderID = UUID()
-        textView.insertPendingAttachmentUploadPlaceholder(id: placeholderID)
+        let placeholderID = existingPlaceholderID ?? UUID()
+        if existingPlaceholderID == nil {
+            guard textView.beginPendingPasteReservation(id: placeholderID)
+            else {
+                cleanupPreparedPasteFileURLs(
+                    fileURLs,
+                    using: preparationService
+                )
+                return
+            }
+        }
         let operation = TerminalImageTransferOperation()
-        let uploadValidationToken = textView.pendingAttachmentUploadValidationToken()
+        let uploadValidationToken = existingValidationToken
+            ?? textView.pendingAttachmentUploadValidationToken()
+        let preparedAttachmentsByPath = Dictionary(
+            preparedAttachments.map {
+                ($0.fileURL.standardizedFileURL.path, $0)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         surface.hostedView.beginImageTransferIndicator(
             for: operation,
             onCancel: { _ = operation.cancel() }
@@ -2795,10 +2861,12 @@ struct TextBoxInputContainer: View {
         let finish: (Result<[String], Error>) -> Void = { [weak surface] result in
             DispatchQueue.main.async {
                 @MainActor func removePendingPlaceholder() {
-                    guard textViewReference.textView === textView,
-                          textView.removePendingAttachmentUploadPlaceholder(id: placeholderID) else {
+                    guard textView.removePendingAttachmentUploadPlaceholder(
+                        id: placeholderID
+                    ) else {
                         return
                     }
+                    guard textViewReference.textView === textView else { return }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 }
@@ -2806,7 +2874,10 @@ struct TextBoxInputContainer: View {
                 surface?.hostedView.endImageTransferIndicator(for: operation)
                 guard operation.finish() else {
                     removePendingPlaceholder()
-                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    cleanupPreparedPasteFileURLs(
+                        fileURLs,
+                        using: preparationService
+                    )
                     return
                 }
 
@@ -2814,12 +2885,27 @@ struct TextBoxInputContainer: View {
                 case .success(let remotePaths):
                     guard !remotePaths.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         NSSound.beep()
                         return
                     }
                     let newAttachments = fileURLs.enumerated().compactMap { index, fileURL -> TextBoxAttachment? in
                         guard remotePaths.indices.contains(index) else { return nil }
+                        if let preparedAttachment = preparedAttachmentsByPath[
+                            fileURL.standardizedFileURL.path
+                        ] {
+                            return TextBoxAttachment(
+                                preparedAttachment: preparedAttachment,
+                                submissionText: TextBoxAttachment.submissionText(
+                                    forPath: remotePaths[index]
+                                ),
+                                submissionPath: remotePaths[index],
+                                cleanupLocalURLWhenDisposed: true
+                            )
+                        }
                         return TextBoxAttachment(
                             localURL: fileURL,
                             submissionText: TextBoxAttachment.submissionText(forPath: remotePaths[index]),
@@ -2829,14 +2915,20 @@ struct TextBoxInputContainer: View {
                     }
                     guard !newAttachments.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         NSSound.beep()
                         return
                     }
                     guard textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         return
                     }
                     guard textView.replacePendingAttachmentUploadPlaceholder(
@@ -2844,14 +2936,20 @@ struct TextBoxInputContainer: View {
                         with: newAttachments
                     ) else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         return
                     }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 case .failure:
                     removePendingPlaceholder()
-                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    cleanupPreparedPasteFileURLs(
+                        fileURLs,
+                        using: preparationService
+                    )
                     NSSound.beep()
                 }
             }
@@ -3019,6 +3117,7 @@ struct TextBoxInputView: NSViewRepresentable {
         coordinator.parent.onTextViewDismantled(textView)
         textView.onMoveToWindow = { _ in }
         textView.onLayoutCompleted = { _, _ in }
+        textView.onPendingAttachmentUploadStateChanged = { _ in }
         textView.invalidatePendingAttachmentUploads()
         textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
@@ -3063,6 +3162,11 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
             coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
         }
+        textView.onPendingAttachmentUploadStateChanged = { [weak coordinator] hasPendingUpload in
+            coordinator?.notePendingAttachmentUploadStateChanged(
+                hasPendingUpload
+            )
+        }
         textView.refreshInlineAttachmentCells(font: font, foregroundColor: foregroundColor)
         textView.recenterSingleLineTextContainer()
         textView.wantsLayer = true
@@ -3074,7 +3178,7 @@ struct TextBoxInputView: NSViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextBoxInputView
         private var pendingAttachmentUploadStateForNextLayout: Bool?
         private var pendingMarkedTextStateForNextLayout: Bool?
@@ -3138,15 +3242,25 @@ struct TextBoxInputView: NSViewRepresentable {
             deliveredMarkedTextState = hasMarkedText
         }
 
+        func notePendingAttachmentUploadStateChanged(
+            _ hasPendingUpload: Bool
+        ) {
+            pendingAttachmentUploadStateForNextLayout = nil
+            guard parent.hasPendingAttachmentUpload != hasPendingUpload else {
+                return
+            }
+            parent.hasPendingAttachmentUpload = hasPendingUpload
+            parent.onContentChanged()
+        }
+
         private func publishTextViewContent(_ textView: TextBoxInputTextView) {
-            let nextText = textView.plainText()
-            let nextAttachments = textView.inlineAttachments()
+            let nextContent = textView.bindingContentForPreservation()
             let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            let contentChanged = parent.text != nextText
-                || parent.attachments.map(\.id) != nextAttachments.map(\.id)
+            let contentChanged = parent.text != nextContent.text
+                || parent.attachments.map(\.id) != nextContent.attachments.map(\.id)
                 || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
-            parent.text = nextText
-            parent.attachments = nextAttachments
+            parent.text = nextContent.text
+            parent.attachments = nextContent.attachments
             parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
             if contentChanged {
                 parent.onContentChanged()
@@ -3248,11 +3362,11 @@ final class TextBoxInputTextView: NSTextView {
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
     var onLayoutCompleted: (TextBoxInputTextView, Int) -> Void = { _, _ in }
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
+    var onPendingAttachmentUploadStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
-
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
-    private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
-    private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
+    static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
+    static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
         "cmux.textBoxPendingAttachmentUploadID"
     )
     private var attachmentPreviewPopover: NSPopover?
@@ -3274,6 +3388,16 @@ final class TextBoxInputTextView: NSTextView {
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
+    var nextPendingPasteReservationSequence: UInt64 = 0
+    var activePastePreparationTasks: [UUID: Task<Void, Never>] = [:]
+    var pendingPasteReservations: [UUID: TextBoxPendingPasteReservation] = [:] {
+        didSet {
+            let hadPendingPaste = !oldValue.isEmpty
+            let hasPendingPaste = !pendingPasteReservations.isEmpty
+            guard hadPendingPaste != hasPendingPaste else { return }
+            onPendingAttachmentUploadStateChanged(hasPendingPaste)
+        }
+    }
     private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
     private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
@@ -3387,9 +3511,9 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else {
-            return false
-        }
+        if handleTextChangeTouchingPendingPasteReservation(in: affectedCharRange, replacementString: replacementString) { return false }
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        updateMarkerlessPendingPasteReservations(for: affectedCharRange, replacementString: replacementString)
         queueAutomaticAttachmentFileCleanup(in: affectedCharRange)
         return true
     }
@@ -3464,6 +3588,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func clearContent(cleanupAttachmentFiles: Bool = true) {
+        invalidatePendingAttachmentUploads()
         let attachments = inlineAttachments()
         if cleanupAttachmentFiles {
             cleanupDisposableAttachmentFiles(
@@ -3472,7 +3597,6 @@ final class TextBoxInputTextView: NSTextView {
             )
         }
         discardAllInlineAttachmentRendering()
-        invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(NSAttributedString(string: ""))
@@ -3530,6 +3654,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func attributedContentForPreservation() -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
+        restorePendingPasteReservations(in: preserved)
         Self.removePendingAttachmentUploadPlaceholders(from: preserved)
         return preserved
     }
@@ -3626,17 +3751,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
-        var attributes = currentTextAttributes()
-        attributes[Self.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
-        insertText(
-            NSAttributedString(
-                string: Self.pendingAttachmentUploadPlaceholderCharacter,
-                attributes: attributes
-            ),
-            replacementRange: selectedRange()
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
+        _ = beginPendingPasteReservation(id: id)
     }
 
     @discardableResult
@@ -3644,56 +3759,27 @@ final class TextBoxInputTextView: NSTextView {
         id: UUID,
         with attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard !attachments.isEmpty,
-              let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
-            return false
-        }
+        commitPendingPasteReservation(id: id, with: attachments)
+    }
 
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
-        let selectedRangeBeforeReplacement = selectedRange()
-        let inserted = inlineAttachmentAttributedString(for: attachments, replacing: placeholderRange)
-        textStorage.replaceCharacters(in: placeholderRange, with: inserted)
-        setSelectedRange(
-            adjustedSelectionRange(
-                selectedRangeBeforeReplacement,
-                replacing: placeholderRange,
-                insertedLength: inserted.length
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        return true
+    @discardableResult
+    func replacePendingAttachmentUploadPlaceholder(
+        id: UUID,
+        withText insertedText: String
+    ) -> Bool {
+        commitPendingPasteReservation(id: id, withText: insertedText)
     }
 
     @discardableResult
     func removePendingAttachmentUploadPlaceholder(id: UUID) -> Bool {
-        guard let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
-            return false
-        }
-
-        let selectedRangeBeforeRemoval = selectedRange()
-        textStorage.replaceCharacters(in: placeholderRange, with: NSAttributedString(string: ""))
-        setSelectedRange(
-            adjustedSelectionRange(
-                selectedRangeBeforeRemoval,
-                replacing: placeholderRange,
-                insertedLength: 0
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        return true
+        rollbackPendingPasteReservation(id: id)
     }
 
     func hasPendingAttachmentUploadPlaceholder() -> Bool {
-        pendingAttachmentUploadPlaceholderRange(id: nil) != nil
+        !pendingPasteReservations.isEmpty
     }
 
-    private func insertAttachments(
+    func insertAttachments(
         _ attachments: [TextBoxAttachment],
         replacementRange: NSRange
     ) {
@@ -4705,6 +4791,8 @@ final class TextBoxInputTextView: NSTextView {
 
     func invalidatePendingAttachmentUploads() {
         attachmentUploadInvalidationGeneration &+= 1
+        cancelActivePastePreparations()
+        rollbackAllPendingPasteReservations(notifyingTextChange: false)
     }
 
     func submitIfAllowed() {
@@ -5097,7 +5185,7 @@ final class TextBoxInputTextView: NSTextView {
         return (attachments, range)
     }
 
-    private func isValidSelectedRange(_ range: NSRange) -> Bool {
+    func isValidSelectedRange(_ range: NSRange) -> Bool {
         guard range.location != NSNotFound,
               range.location >= 0,
               range.length >= 0 else {
@@ -5118,32 +5206,46 @@ final class TextBoxInputTextView: NSTextView {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
 
-        var types: [NSPasteboard.PasteboardType] = [.string]
-        if !fileURLs.isEmpty {
-            types.append(.fileURL)
-            types.append(PasteboardFileURLReader.legacyFilenamesPboardType)
+        var items: [NSPasteboardItem] = []
+        for fileURL in fileURLs {
+            let item = NSPasteboardItem()
+            guard item.setString(
+                fileURL.absoluteString,
+                forType: .fileURL
+            ) else {
+                return false
+            }
+            items.append(item)
+        }
+        if items.isEmpty {
+            items.append(NSPasteboardItem())
         }
 
-        pasteboard.clearContents()
-        pasteboard.declareTypes(types, owner: nil)
-
-        var wroteContent = false
+        let firstItem = items[0]
+        var wroteFirstItemContent = !fileURLs.isEmpty
         if !fileURLs.isEmpty {
-            if let firstURL = fileURLs.first {
-                wroteContent = pasteboard.setString(firstURL.absoluteString, forType: .fileURL) || wroteContent
-            }
-            wroteContent = pasteboard.setPropertyList(
+            wroteFirstItemContent = firstItem.setPropertyList(
                 fileURLs.map(\.path),
                 forType: PasteboardFileURLReader.legacyFilenamesPboardType
-            ) || wroteContent
+            ) || wroteFirstItemContent
         }
 
         if !submissionText.isEmpty {
-            wroteContent = pasteboard.setString(submissionText, forType: .string) || wroteContent
+            wroteFirstItemContent = firstItem.setString(
+                submissionText,
+                forType: .string
+            ) || wroteFirstItemContent
         } else if let firstURL = fileURLs.first {
-            wroteContent = pasteboard.setString(firstURL.path, forType: .string) || wroteContent
+            wroteFirstItemContent = firstItem.setString(
+                firstURL.path,
+                forType: .string
+            ) || wroteFirstItemContent
         }
-        return wroteContent
+        guard wroteFirstItemContent else { return false }
+        return GhosttyApp.terminalPasteboard.replaceContents(
+            of: pasteboard,
+            with: items
+        )
     }
 
     private func deleteAttachmentSelection(
@@ -5371,7 +5473,7 @@ final class TextBoxInputTextView: NSTextView {
         return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
     }
 
-    private static func pendingAttachmentUploadPlaceholderRanges(
+    static func pendingAttachmentUploadPlaceholderRanges(
         in attributed: NSAttributedString,
         id: UUID?
     ) -> [NSRange] {
@@ -5403,7 +5505,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
+    func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
         Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
@@ -5503,7 +5605,7 @@ final class TextBoxInputTextView: NSTextView {
         fileURL.standardizedFileURL.path
     }
 
-    private func adjustedSelectionRange(
+    func adjustedSelectionRange(
         _ selectedRange: NSRange,
         replacing replacedRange: NSRange,
         insertedLength: Int

@@ -4,6 +4,9 @@ import Testing
 
 private let compactIrohQRCoder = CmxAttachTicketCompactCoder()
 private let compactIrohQREndpointID = String(repeating: "c", count: 64)
+private let compactIrohQRTarget = CmxPairingURLScheme(
+    iOSBundleIdentifier: "dev.cmux.app.beta"
+)!
 
 private func compactIrohQRExpiry() -> Date {
     Date(timeIntervalSince1970: 4_000_000_000)
@@ -88,11 +91,12 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     #expect(hints.isEmpty)
     let pairingURL = try #require(CmxPairingQRCode().encode(
         ticket,
-        routeDisclosureMode: .irohIdentityOnly
+        routeDisclosureMode: .irohIdentityOnly,
+        pairingURLScheme: compactIrohQRTarget
     ))
     #expect(
         pairingURL
-            == "\(CmxPairingURLScheme.current)://attach?v=3&i=\(compactIrohQREndpointID)"
+            == "\(compactIrohQRTarget.rawValue)://attach?v=3&i=\(compactIrohQREndpointID)"
     )
     #expect(!pairingURL.contains("payload="))
     #expect(!pairingURL.contains("mac-1"))
@@ -105,19 +109,21 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         URLComponents(url: parsedURL, resolvingAgainstBaseURL: false)
     )
     let pairingDecoded = try CmxPairingQRCode().decode(components)
-    #expect(pairingDecoded.routes == [
-        try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: compactIrohQREndpointID),
-                pathHints: []
-            )
-        ),
-    ])
+    let expectedPairingRoute = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(endpointID: compactIrohQREndpointID),
+            pathHints: []
+        )
+    )
+    #expect(pairingDecoded.routes == [expectedPairingRoute])
     #expect(pairingDecoded.macDeviceID.isEmpty)
     #expect(pairingDecoded.macDisplayName == nil)
     #expect(pairingDecoded.macUserID == nil)
+    // Endpoint-only v3 codes intentionally omit compatibility metadata. Keep
+    // that absence distinguishable from an explicitly incompatible version.
+    #expect(pairingDecoded.macPairingCompatibilityVersion == nil)
     #expect(pairingDecoded.macAppVersion == nil)
     #expect(pairingDecoded.macAppBuild == nil)
     #expect(pairingDecoded.expiresAt == nil)
@@ -128,7 +134,7 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
     let beforeURL =
-        "\(CmxPairingURLScheme.current)://attach?v=1&payload=\(compactBase64)"
+        "\(compactIrohQRTarget.rawValue)://attach?v=1&payload=\(compactBase64)"
     let beforeImage = try #require(CmxPairingQRBitmap().makeImage(payload: beforeURL))
     let afterImage = try #require(CmxPairingQRBitmap().makeImage(payload: pairingURL))
     let quietZone = CmxPairingQRBitmap.quietZoneModules * 2

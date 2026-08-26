@@ -238,6 +238,30 @@ extension TerminalController {
                 "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
             ]
         }
+        let simulatorEncoder = MobileSimulatorWireEncoder()
+        let simulators: [[String: Any]]
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            simulators = mobileSimulatorPanels(in: workspace).compactMap { panel in
+                simulatorEncoder.object(MobileHostService.shared.mobileSimulatorStreamCoordinator.descriptor(
+                    panel: panel
+                ) ?? simulatorEncoder.descriptor(panel: panel, workspaceID: workspace.id))
+            }
+        } else {
+            simulators = []
+        }
+        let surfaces = mobileSurfaceDescriptors(in: workspace).map { surface -> [String: Any] in
+            var payload: [String: Any] = [
+                "surface_id": surface.surfaceID,
+                "kind": surface.kind,
+                "title": surface.title,
+                "is_focused": surface.isFocused,
+                "file_path": v2OrNull(surface.filePath),
+            ]
+            if let todo = surface.todo {
+                payload["todo"] = mobileTodoPayload(todo)
+            }
+            return payload
+        }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
@@ -276,7 +300,9 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            "surfaces": surfaces,
+            "simulators": simulators
         ]
     }
 
@@ -451,19 +477,26 @@ extension TerminalController {
             memberIDsByGroup[groupId, default: []].append(workspace.id.uuidString)
         }
         return groups.map { group in
-            [
+            var payload: [String: Any] = [
                 "id": group.id.uuidString,
                 "name": group.name,
                 "is_collapsed": group.isCollapsed,
                 "is_pinned": group.isPinned,
                 "icon_symbol": mobileWorkspaceGroupEffectiveIconSymbol(
                     group,
-                    anchorCwd: currentDirectoryByWorkspaceID[group.anchorWorkspaceId] ?? nil,
+                    anchorCwd: group.liveAnchorWorkspaceId.flatMap {
+                        currentDirectoryByWorkspaceID[$0]
+                    },
                     configStore: configStore
                 ),
-                "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
-                "member_workspace_ids": memberIDsByGroup[group.id] ?? []
+                "is_empty": group.isEmpty,
+                "member_workspace_ids": memberIDsByGroup[group.id] ?? [],
+                // Keep the legacy required field present for older phones.
+                // New clients use `is_empty` and never treat this stable
+                // header identity as a live workspace capability.
+                "anchor_workspace_id": group.anchorWorkspaceId.uuidString
             ]
+            return payload
         }
     }
 

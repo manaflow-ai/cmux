@@ -15,6 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
+# PTY-backed interpreter startup can be several seconds on a busy macOS
+# builder. Keep the harness timeout separate from the short behavioral
+# deadlines exercised by each child process.
+HELPER_TEST_TIMEOUT_SECONDS = 15
 SWIFT_TESTING_FAILED_EXIT_CODE = 123
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 TOTAL_TIMEOUT_EXIT_CODE = 127
@@ -78,7 +82,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=timeout_env,
     )
     if timeout_result.returncode != 124:
@@ -107,7 +111,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env={
             **os.environ,
             "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "1",
@@ -126,6 +130,36 @@ def main() -> int:
         print(total_timeout_result.stdout, end="")
         print(total_timeout_result.stderr, end="", file=sys.stderr)
         print("FAIL: helper did not report total timeout")
+        return 1
+
+    heartbeat_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            "import os, time; os.close(1); os.close(2); time.sleep(0.35)",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        # PTY-backed interpreter startup can exceed five seconds on a busy
+        # macOS builder. The assertion is about recurring heartbeats, not
+        # launch latency, so leave enough room for the child to start and
+        # finish its short quiet interval.
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
+        env={
+            **os.environ,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS": "0.1",
+        },
+    )
+    if heartbeat_result.returncode != 0 or heartbeat_result.stdout.count(
+        "[xcodebuild still running after"
+    ) < 2:
+        print(heartbeat_result.stdout, end="")
+        print(heartbeat_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not emit recurring heartbeats for a quiet child")
         return 1
 
     post_test_env = {
@@ -151,7 +185,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=post_test_env,
     )
     if passing_post_test_result.returncode != 0:
@@ -174,17 +208,15 @@ def main() -> int:
             time.sleep(0.1)
         """
     )
-    noisy_started = time.monotonic()
     noisy_post_test_result = subprocess.run(
         [sys.executable, str(HELPER), sys.executable, "-c", noisy_post_test_child],
         cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=post_test_env,
     )
-    noisy_elapsed = time.monotonic() - noisy_started
     if noisy_post_test_result.returncode != 0:
         print(noisy_post_test_result.stdout, end="")
         print(noisy_post_test_result.stderr, end="", file=sys.stderr)
@@ -193,10 +225,14 @@ def main() -> int:
             f"to exit 0, got {noisy_post_test_result.returncode}"
         )
         return 1
-    if noisy_elapsed > 1.5:
+    # The child startup cost varies substantially across CI hosts. Count the
+    # captured post-summary lines instead of using wall-clock startup time: a
+    # re-armed deadline lets the child emit all 20 lines, while a one-shot
+    # deadline captures only the first couple before terminating it.
+    if noisy_post_test_result.stdout.count("post-summary-noise") >= 20:
         print(noisy_post_test_result.stdout, end="")
         print(noisy_post_test_result.stderr, end="", file=sys.stderr)
-        print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
+        print("FAIL: noisy post-test timeout was rearmed")
         return 1
 
     delayed_swift_testing_child = textwrap.dedent(
@@ -216,7 +252,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -243,7 +279,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -277,7 +313,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -311,7 +347,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -352,7 +388,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -386,7 +422,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if mixed_framework_result.returncode != 0:
@@ -417,7 +453,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if suite_count_swift_testing_result.returncode != 0:
@@ -451,10 +487,12 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env={
             **expected_mixed_framework_env,
-            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "0.2",
+            # Leave room for the PTY child to start before exercising the
+            # incomplete Swift Testing classification on an idle phase.
+            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "5",
         },
     )
     if (
@@ -487,7 +525,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if failing_mixed_framework_result.returncode != SWIFT_TESTING_FAILED_EXIT_CODE:
@@ -514,7 +552,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=post_test_env,
     )
     if failing_post_test_result.returncode != 125:
@@ -533,7 +571,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
     )
     if direct_output_result.returncode != 0:
         print(direct_output_result.stdout, end="")
@@ -572,7 +610,10 @@ def main() -> int:
             print("FAIL: helper did not write child output to log path")
             return 1
 
-    print("PASS: xcodebuild noninteractive helper dismisses crash prompts and idle-times out stuck children")
+    print(
+        "PASS: xcodebuild noninteractive helper dismisses crash prompts, "
+        "heartbeats quiet children, and idle-times out stuck children"
+    )
     return 0
 
 

@@ -3,9 +3,18 @@ import Foundation
 
 enum WorkspaceSurfaceIdentifierClipboardText {
     @MainActor
-    static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+    static func copy(_ text: String, to pasteboard: NSPasteboard? = nil) {
+        guard let pasteboard else {
+            GhosttyApp.terminalPasteboard.writeString(
+                text,
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return
+        }
+        _ = GhosttyApp.terminalPasteboard.writeString(
+            text,
+            to: pasteboard
+        )
     }
 
     @MainActor

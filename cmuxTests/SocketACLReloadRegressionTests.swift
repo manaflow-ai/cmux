@@ -14,7 +14,7 @@ import CmuxSettings
 struct SocketACLReloadRegressionTests {
     @Test func reloadConfigAppliesSocketModeToRunningServer() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let originalDelegate = AppDelegate.shared
         let originalStore = KeyboardShortcutSettings.settingsFileStore
@@ -31,7 +31,7 @@ struct SocketACLReloadRegressionTests {
         let appDelegate = AppDelegate()
 
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             KeyboardShortcutSettings.settingsFileStore = originalStore
             for (key, value) in restoredDefaults {
                 if let value {
@@ -69,7 +69,7 @@ struct SocketACLReloadRegressionTests {
 
     @Test func watchedConfigReloadAppliesSocketModeToRunningServer() async throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let originalStore = KeyboardShortcutSettings.settingsFileStore
         let defaults = UserDefaults.standard
@@ -89,7 +89,7 @@ struct SocketACLReloadRegressionTests {
 
         defer {
             reloadContinuation.finish()
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             KeyboardShortcutSettings.settingsFileStore = originalStore
             for (key, value) in restoredDefaults {
                 if let value {
@@ -139,14 +139,14 @@ struct SocketACLReloadRegressionTests {
 
     @Test func reconcilePathChangeRebindsRunningListener() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let directory = shortTemporaryDirectory(prefix: "salp")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let firstPath = directory.appendingPathComponent("first.sock").path
         let secondPath = directory.appendingPathComponent("second.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -177,14 +177,14 @@ struct SocketACLReloadRegressionTests {
 
     @Test func reconcilePathChangeSupersedesPendingRearm() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let directory = shortTemporaryDirectory(prefix: "salp")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let stalePath = directory.appendingPathComponent("stale.sock").path
         let configuredPath = directory.appendingPathComponent("configured.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -218,14 +218,14 @@ struct SocketACLReloadRegressionTests {
 
     @Test func reconcilePreservesIntentionalFallbackForSamePreferredPath() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let directory = shortTemporaryDirectory(prefix: "salf")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let preferredPath = directory.appendingPathComponent("preferred.sock").path
         let fallbackPath = directory.appendingPathComponent("fallback.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -252,14 +252,14 @@ struct SocketACLReloadRegressionTests {
 
     @Test func reconcileRestartsAfterLivePermissionUpdateLosesSocketPath() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let directory = shortTemporaryDirectory(prefix: "salm")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         let tabManager = TabManager()
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -290,7 +290,7 @@ struct SocketACLReloadRegressionTests {
 
     @Test func deletedStalePathRecoversUsingLatestConfiguredPath() async throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let originalDelegate = AppDelegate.shared
         let defaults = UserDefaults.standard
@@ -309,7 +309,7 @@ struct SocketACLReloadRegressionTests {
         let configuredPath = directory.appendingPathComponent("configured.sock").path
         let appDelegate = AppDelegate()
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             if let originalMode {
                 defaults.set(originalMode, forKey: SocketControlSettings.appStorageKey)
             } else {
@@ -363,7 +363,7 @@ struct SocketACLReloadRegressionTests {
 
     @Test func restartStopsListenerWhenModeIsOffWithoutTabManager() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let defaults = UserDefaults.standard
         let originalMode = defaults.object(forKey: SocketControlSettings.appStorageKey)
@@ -373,7 +373,7 @@ struct SocketACLReloadRegressionTests {
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         let appDelegate = AppDelegate()
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             if let originalMode {
                 defaults.set(originalMode, forKey: SocketControlSettings.appStorageKey)
             } else {

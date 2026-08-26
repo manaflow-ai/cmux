@@ -27,13 +27,9 @@ public final class MobileDisplaySettings {
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
-    private static let terminalFilesChipEnabledKey = "cmux.mobile.terminalFilesChipEnabled"
-    private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     #if DEBUG
-    private static let taskComposerLayoutStyleKey = "cmux.mobile.debug.taskComposerLayoutStyle.v1"
-    private static let taskComposerModelPickerVariantKey = "cmux.mobile.debug.taskComposerModelPickerVariant.v1"
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     #endif
 
@@ -85,24 +81,6 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// Whether the beta terminal files chip and its count scan are enabled.
-    /// Defaults to `false`. Mutating this writes through to the injected
-    /// ``UserDefaults``.
-    public var terminalFilesChipEnabled: Bool {
-        didSet {
-            defaults.set(terminalFilesChipEnabled, forKey: Self.terminalFilesChipEnabledKey)
-        }
-    }
-
-    /// Whether the beta New Task composer is available from the workspace list.
-    /// Defaults to `false`. Mutating this writes through to the injected
-    /// ``UserDefaults``.
-    public var taskComposerEnabled: Bool {
-        didSet {
-            defaults.set(taskComposerEnabled, forKey: Self.taskComposerEnabledKey)
-        }
-    }
-
     /// History rows the terminal mirror hydrates when it connects (deeper
     /// values scroll further back; larger one-time download at connect).
     /// Defaults to ``MobileTerminalScrollbackPreference/defaultRows``.
@@ -140,26 +118,6 @@ public final class MobileDisplaySettings {
     }
 
     #if DEBUG
-    /// Persisted selection for the debug-only New Task layout lab.
-    var taskComposerLayoutStyle: TaskComposerLayoutStyle {
-        didSet {
-            defaults.set(
-                taskComposerLayoutStyle.rawValue,
-                forKey: Self.taskComposerLayoutStyleKey
-            )
-        }
-    }
-
-    /// Persisted selection for the debug-only New Task model-picker lab.
-    var taskComposerModelPickerVariant: TaskComposerModelPickerVariant {
-        didSet {
-            defaults.set(
-                taskComposerModelPickerVariant.rawValue,
-                forKey: Self.taskComposerModelPickerVariantKey
-            )
-        }
-    }
-
     /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
         didSet {
@@ -169,28 +127,34 @@ public final class MobileDisplaySettings {
             )
         }
     }
+
+    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
+    /// device (iOS ≤26; legacy is the shipping default), exposed in
+    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
+    /// snapshot the flag when they mount, so a change applies after the
+    /// workspace is reopened. Writes through to the shared
+    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
+    /// `GhosttySurfaceHostView` reads.
+    public var forceRebuildKeyboardDock: Bool {
+        didSet {
+            defaults.set(
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
+            )
+        }
+    }
     #else
-    /// Production builds expose only the shipping classic New Task layout.
-    var taskComposerLayoutStyle: TaskComposerLayoutStyle { .classic }
-    /// Production builds hide model selection in the New Task composer.
-    var taskComposerModelPickerVariant: TaskComposerModelPickerVariant { .off }
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
-    /// - Parameters:
-    ///   - defaults: The store backing the persisted preferences.
+    /// - Parameter defaults: The store backing the persisted preferences.
     ///     Defaults to `.standard`; tests pass a scoped suite. Stored properties
     ///     are initialized from `defaults`; absent keys read as their default
     ///     (single-line titles, enabled folder taps, hidden missing files, two
     ///     preview lines) without a write.
-    ///   - environment: The process environment consulted for the DEBUG-only
-    ///     task-composer lab fallbacks; tests pass an explicit dictionary.
-    public init(
-        defaults: UserDefaults = .standard,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) {
+    public init(defaults: UserDefaults = .standard) {
         let haptics = MobileHapticFeedback(defaults: defaults)
         self.defaults = defaults
         self.haptics = haptics
@@ -199,9 +163,7 @@ public final class MobileDisplaySettings {
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.hapticFeedbackEnabled = haptics.isEnabled
-        self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
-        self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
@@ -212,49 +174,12 @@ public final class MobileDisplaySettings {
             to: Self.unreadIndicatorLeftShiftRange
         )
         #if DEBUG
-        self.taskComposerLayoutStyle = defaults.string(
-            forKey: Self.taskComposerLayoutStyleKey
-        ).flatMap(TaskComposerLayoutStyle.init(rawValue:))
-            ?? Self.debugDefaultTaskComposerLayoutStyle(environment: environment)
-        self.taskComposerModelPickerVariant = defaults.string(
-            forKey: Self.taskComposerModelPickerVariantKey
-        ).flatMap(TaskComposerModelPickerVariant.init(rawValue:))
-            ?? Self.debugDefaultTaskComposerModelPickerVariant(environment: environment)
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }
-
-    #if DEBUG
-    /// The layout fallback when nothing is persisted. The task-composer
-    /// accessibility preview pins the shipping classic layout so the XCUITest
-    /// suite keeps a stable hierarchy; `CMUX_UITEST_TASK_COMPOSER_LAYOUT` opts
-    /// a test or screenshot run into another layout explicitly.
-    static func debugDefaultTaskComposerLayoutStyle(
-        environment: [String: String]
-    ) -> TaskComposerLayoutStyle {
-        if let style = environment["CMUX_UITEST_TASK_COMPOSER_LAYOUT"]
-            .flatMap(TaskComposerLayoutStyle.init(rawValue:)) {
-            return style
-        }
-        return UITestConfig.taskComposerPreviewEnabled(from: environment) ? .classic : .composer
-    }
-
-    /// The model-picker fallback when nothing is persisted. The task-composer
-    /// accessibility preview pins the shipping off state (the combined variant
-    /// changes the agent menu's element tree);
-    /// `CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT` opts a test into a variant.
-    static func debugDefaultTaskComposerModelPickerVariant(
-        environment: [String: String]
-    ) -> TaskComposerModelPickerVariant {
-        if let variant = environment["CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT"]
-            .flatMap(TaskComposerModelPickerVariant.init(rawValue:)) {
-            return variant
-        }
-        return UITestConfig.taskComposerPreviewEnabled(from: environment) ? .off : .combined
-    }
-    #endif
 
     /// Clamps a stored or assigned preview line count to the supported range.
     /// A static member (not a file-scope func) because the package-conventions

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileCamera
 import CmuxMobileSupport
 import SwiftUI
@@ -14,6 +15,7 @@ struct MobilePairingScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     private let authorization: CameraAuthorization
     private let previewEnabled: Bool
     @State private var authorizationStatus: AVAuthorizationStatus
@@ -44,13 +46,22 @@ struct MobilePairingScannerSheet: View {
                     switch authorizationStatus {
                     case .authorized:
                         ZStack(alignment: .bottom) {
-                            QRCodeScannerView { code in
-                                dismiss()
-                                onCode(code)
-                            }
+                            QRCodeScannerView(
+                                onCode: { code in
+                                    diagnosticLog?.recordAppEvent(.qrScanSucceeded)
+                                    dismiss()
+                                    onCode(code)
+                                },
+                                onUnavailable: {
+                                    diagnosticLog?.recordAppEvent(
+                                        .qrScanFailed,
+                                        failure: .endpointUnavailable
+                                    )
+                                }
+                            )
                             .ignoresSafeArea(edges: .bottom)
 
-                            Text(MobilePairingScannerGuidanceCopy.text)
+                            Text(Self.guidanceText)
                                 .font(.footnote.weight(.medium))
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.white)
@@ -67,6 +78,7 @@ struct MobilePairingScannerSheet: View {
                         ProgressView()
                             .accessibilityIdentifier("MobilePairingScannerPermissionProgress")
                             .task {
+                                diagnosticLog?.recordAppEvent(.cameraAuthorizationRequested)
                                 authorizationStatus = await authorization.requestVideoAccess()
                             }
                     case .denied:
@@ -133,6 +145,7 @@ struct MobilePairingScannerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        diagnosticLog?.recordAppEvent(.qrScanCancelled, failure: .cancelled)
                         dismiss()
                         onCancel?()
                     } label: {
@@ -143,6 +156,27 @@ struct MobilePairingScannerSheet: View {
             }
         }
         .accessibilityIdentifier("MobilePairingScannerSheet")
+        .onAppear {
+            diagnosticLog?.recordAppEvent(.qrScanStarted)
+        }
+        .onChange(of: authorizationStatus, initial: true) { _, status in
+            switch status {
+            case .authorized:
+                diagnosticLog?.recordAppEvent(.cameraAuthorizationGranted)
+            case .denied, .restricted:
+                diagnosticLog?.recordAppEvent(
+                    .cameraAuthorizationDenied,
+                    failure: .permissionDenied
+                )
+            case .notDetermined:
+                break
+            @unknown default:
+                diagnosticLog?.recordAppEvent(
+                    .cameraAuthorizationDenied,
+                    failure: .unknown
+                )
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, !previewEnabled else { return }
             authorizationStatus = authorization.videoStatus
@@ -153,6 +187,7 @@ struct MobilePairingScannerSheet: View {
     private var manualEntryButton: some View {
         if let onEnterManually {
             Button {
+                diagnosticLog?.recordAppEvent(.qrScanCancelled, failure: .cancelled)
                 dismiss()
                 onEnterManually()
             } label: {
@@ -181,13 +216,28 @@ struct MobilePairingScannerSheet: View {
 }
 #endif
 
-enum MobilePairingScannerGuidanceCopy {
-    static var text: String {
+extension MobilePairingScannerSheet {
+    /// The localized Tailscale setup sequence shared by every pairing entrypoint.
+    static var guidanceText: String {
         L10n.string(
-            "mobile.pairing.scannerInstruction",
+            "mobile.tailscalePairing.instructions",
             defaultValue: """
-            On your Mac, open Tailscale Pairing in cmux to show the QR. \
-            Install Tailscale on both devices and connect them to the same Tailscale network first.
+            Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, \
+            choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open \
+            Tailscale Pairing and scan its code here.
+            """
+        )
+    }
+
+    /// Tailscale setup guidance for an empty computer list, including the route back to Auto-Connect.
+    static var emptyStateGuidanceText: String {
+        L10n.string(
+            "mobile.tailscalePairing.emptyDescription",
+            defaultValue: """
+            Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, \
+            choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open \
+            Tailscale Pairing and scan its code here. To use Auto-Connect instead, open Settings, \
+            tap Connection Method, and choose Auto-Connect.
             """
         )
     }

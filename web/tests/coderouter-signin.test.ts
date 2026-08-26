@@ -16,4 +16,17 @@ describe("coderouter sign-in privacy", () => {
     expect(source).toContain("<MagicLinkSignIn />");
     expect(source).toContain("Drive, Gmail, and Calendar");
   });
+
+  test("renders Stack Auth as a blocking route instead of an empty instant shell", () => {
+    const appRoot = resolve(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "../app/handler",
+    );
+    const page = readFileSync(resolve(appRoot, "[...stack]/page.tsx"), "utf8");
+    const layout = readFileSync(resolve(appRoot, "layout.tsx"), "utf8");
+
+    expect(page).toContain("export const instant = false");
+    expect(layout).toContain("export const instant = false");
+    expect(layout).not.toContain("<Suspense");
+  });
 });

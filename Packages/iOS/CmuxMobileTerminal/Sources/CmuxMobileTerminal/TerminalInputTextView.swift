@@ -45,6 +45,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// *text* does not use this path; it rides ``onText``.
     var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
+    var onToolbarDiagnosticAction: ((TerminalToolbarDiagnosticAction) -> Void)?
     var onHideKeyboard: (() -> Void)?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
@@ -351,11 +352,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
-        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
+        // Constructed in the SHOW state (keyboard down): `setKeyboardShown`
+        // only fires on visibility TRANSITIONS, so a surface that opens with
+        // the keyboard down would otherwise keep whatever glyph was built
+        // here — a workspace used to open showing "hide" while nothing was
+        // up. The host syncs the real state right after the toolbar installs.
+        dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
-        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
+        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
@@ -422,7 +428,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
         // ``dockedBottomPadding``) that holds the button row. The host pins that
-        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
+        // bottom edge through the composer to its keyboard-driven dock edge, so
         // bottom-pinning the controls keeps them glued to the system keyboard edge.
         // `dockedBottomPadding` lifts the strip off the very bottom edge so the
         // controls have breathing room.
@@ -697,8 +703,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // keyboard's `inputAccessoryView`; `GhosttySurfaceView` docks
         // `toolbarView` persistently at the bottom so it survives keyboard
         // dismissal. Leaving `inputAccessoryView` nil means the keyboard shows
-        // without its own accessory (the docked bar rides above it via
-        // `keyboardLayoutGuide`).
+        // without its own accessory (the docked bar rides above it on the
+        // host's notification-driven keyboard edge).
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAccessoryConfigurationChanged),
@@ -1042,6 +1048,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             config.preferredSymbolConfigurationForImage = isComposer
                 ? Self.composerButtonSymbolConfig
                 : Self.accessoryButtonSymbolConfig
+            // Hierarchical SF Symbols such as `ellipsis.circle` can retain
+            // UIKit's default tint when installed on a glass configuration.
+            // Apply the same explicit foreground transform used by the text
+            // and background styling so resting custom icons stay white and
+            // armed built-ins keep their blue active state.
+            let restingForeground = themeChromeColor
+            let activeForeground = UIColor.systemBlue.terminalReadableForeground
+            config.imageColorTransformer = UIConfigurationColorTransformer { _ in
+                armed || sticky ? activeForeground : restingForeground
+            }
             config.attributedTitle = nil
         } else {
             var attributed = AttributedString(title)
@@ -1099,6 +1115,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         _ action: TerminalInputAccessoryAction,
         sourceView: UIView? = nil
     ) {
+        onToolbarDiagnosticAction?(.accessory(action))
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a
@@ -1397,12 +1414,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if !armed { consumeModifier(.shift) }
     }
 
-    #if DEBUG
     /// Maps a `UIResponder` to its compact ``InputResponderIdentity`` for the
     /// composer-dock diagnostics. Used to encode *which* view owns first
     /// responder into the integer ``DiagnosticEvent`` payload. The `.other` case
     /// is paired with the responder's class name in the companion `anchormux`
-    /// string log for a human-readable readback.
+    /// string log for a human-readable readback. This mapping is also used by
+    /// the release-safe structured diagnostic events.
     static func responderIdentity(of responder: UIResponder?) -> InputResponderIdentity {
         switch responder {
         case nil: return .none
@@ -1414,6 +1431,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
+    #if DEBUG
     /// The responder's concrete class name for the human-readable `anchormux`
     /// readback (the integer ``InputResponderIdentity`` collapses every
     /// unexpected class to `.other`; this preserves the exact type for the copied

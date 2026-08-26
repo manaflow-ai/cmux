@@ -828,7 +828,10 @@ final class GhosttyConfigTests: XCTestCase {
         defer { GhosttyConfig.invalidateLoadCache() }
 
         var loadCount = 0
-        let loadFromDisk: (GhosttyConfig.ColorSchemePreference) -> GhosttyConfig = { scheme in
+        let loadFromDisk: (
+            GhosttyConfig.ColorSchemePreference,
+            Bool
+        ) -> GhosttyConfig = { scheme, _ in
             loadCount += 1
             var config = GhosttyConfig()
             config.fontFamily = "\(scheme)-\(loadCount)"
@@ -859,7 +862,10 @@ final class GhosttyConfigTests: XCTestCase {
         defer { GhosttyConfig.invalidateLoadCache() }
 
         var loadCount = 0
-        let loadFromDisk: (GhosttyConfig.ColorSchemePreference) -> GhosttyConfig = { _ in
+        let loadFromDisk: (
+            GhosttyConfig.ColorSchemePreference,
+            Bool
+        ) -> GhosttyConfig = { _, _ in
             loadCount += 1
             var config = GhosttyConfig()
             config.fontFamily = "reload-\(loadCount)"
@@ -3565,13 +3571,14 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathExists() {
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathIsLive() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
             currentUserID: 501,
-            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) }
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketCanBeReclaimed: { _ in false }
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
@@ -3586,13 +3593,15 @@ final class SocketControlSettingsTests: XCTestCase {
             probeStableDefaultPathEntry: { socketPath in
                 XCTAssertEqual(socketPath, "/private/tmp/cmux.sock")
                 return .socket(ownerUserID: 501)
-            }
+            },
+            stableDefaultSocketCanBeReclaimed: { _ in false }
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchDoesNotProbeSameUserStableSocketLiveness() {
+    func testInitialStableLaunchUsesTransportReclaimabilityForSameUserSocket() {
+        var didProbe = false
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
@@ -3600,15 +3609,16 @@ final class SocketControlSettingsTests: XCTestCase {
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
             stableDefaultSocketCanBeReclaimed: { _ in
-                XCTFail("Existing startup sockets should fall back without liveness probing on the main thread")
-                return true
+                didProbe = true
+                return false
             }
         )
 
+        XCTAssertTrue(didProbe)
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchDoesNotProbeSameUserStableSocketReclaimability() {
+    func testInitialStableLaunchKeepsStablePathWhenTransportReclaimsSameUserSocket() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
@@ -3616,12 +3626,12 @@ final class SocketControlSettingsTests: XCTestCase {
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
             stableDefaultSocketCanBeReclaimed: { socketPath in
-                XCTFail("Existing startup sockets should fall back without reclaimability probing: \(socketPath)")
-                return false
+                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                return true
             }
         )
 
-        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+        XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
     }
 
     func testInitialStableLaunchKeepsUserScopedPreferredPathWithoutProbing() {
@@ -4351,7 +4361,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         )
 
         XCTAssertTrue(paths.contains(nativeConfig.path))
-        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
+        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+            configPaths: paths,
+            adaptiveDefaultThemeEnabled: true
+        ))
     }
 
     func testLoadedGhosttyConfigScanPathsSkipsNativeLegacyConfigWhenCurrentConfigIsNonEmpty() throws {
@@ -4376,18 +4389,24 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
+        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+            configPaths: paths,
+            adaptiveDefaultThemeEnabled: true
+        ))
     }
 
     // MARK: shouldApplyManagedDefaultAppearance
 
-    func testShouldApplyManagedDefaultAppearanceAllowsNonAppearanceConfig() throws {
+    func testShouldApplyManagedDefaultAppearanceSkipsNonAppearanceConfig() throws {
         try withTempConfig("""
         font-family = JetBrains Mono
         background-opacity = 0.92
         """) { path in
-            XCTAssertTrue(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+            XCTAssertFalse(
+                GhosttyApp.shouldApplyManagedDefaultAppearance(
+                    configPaths: [path],
+                    adaptiveDefaultThemeEnabled: true
+                )
             )
         }
     }
@@ -4395,15 +4414,29 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldApplyManagedDefaultAppearanceSkipsExplicitTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\n") { path in
             XCTAssertFalse(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+                GhosttyApp.shouldApplyManagedDefaultAppearance(
+                    configPaths: [path],
+                    adaptiveDefaultThemeEnabled: true
+                )
             )
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceAppliesWithExplicitTerminalColorDirective() throws {
-        // A lone color key must not suppress the managed default theme (#7161).
+    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
         try withTempConfig("background = black\n") { path in
-            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path]))
+            XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+                configPaths: [path],
+                adaptiveDefaultThemeEnabled: true
+            ))
+        }
+    }
+
+    func testShouldApplyManagedDefaultAppearanceAllowsEmptyConfig() throws {
+        try withTempConfig("# no Ghostty settings\n") { path in
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
+                configPaths: [path],
+                adaptiveDefaultThemeEnabled: true
+            ))
         }
     }
 
@@ -4541,7 +4574,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.shouldApplyManagedDefaultAppearance(
+                configPaths: [main.path],
+                adaptiveDefaultThemeEnabled: true
+            )
         )
     }
 
@@ -4560,7 +4596,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.shouldApplyManagedDefaultAppearance(
+                configPaths: [main.path],
+                adaptiveDefaultThemeEnabled: true
+            )
         )
     }
 
@@ -4586,7 +4625,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.shouldApplyManagedDefaultAppearance(
+                configPaths: [main.path],
+                adaptiveDefaultThemeEnabled: true
+            )
         )
     }
 

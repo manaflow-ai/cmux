@@ -19,10 +19,12 @@ struct MobileArtifactChunkFetchLoop: Sendable {
     ) async throws -> Data {
         var offset: Int64 = 0
         var result = Data()
+        var validator = ChatArtifactChunkValidator()
         while true {
             try Task.checkCancellation()
             let chunk = try await fetchChunk(offset)
             try Task.checkCancellation()
+            try validator.receive(chunk)
 
             if collectsData {
                 if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
@@ -34,10 +36,8 @@ struct MobileArtifactChunkFetchLoop: Sendable {
             progress?(offset, chunk.totalSize)
             try await onChunk(chunk)
             if chunk.eof {
+                try validator.finish()
                 return result
-            }
-            guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
             }
         }
     }

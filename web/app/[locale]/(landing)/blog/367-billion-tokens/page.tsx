@@ -141,8 +141,8 @@ export default function TokenMultitaskingPage() {
       </p>
       <p>
         {t.rich("economicsP2", {
-          subrouter: (chunks) => (
-            <Link href="/dashboard/subrouter">{chunks}</Link>
+          coderouter: (chunks) => (
+            <Link href="/dashboard/coderouter">{chunks}</Link>
           ),
         })}
       </p>

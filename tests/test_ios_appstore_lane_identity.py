@@ -116,7 +116,11 @@ def bundle_id_for_target(path):
     return value or APPSTORE_BUNDLE_ID
 
 def entitlements_for_bundle(bundle_id):
-    return profile_for_bundle(bundle_id)["Entitlements"]
+    entitlements = dict(profile_for_bundle(bundle_id)["Entitlements"])
+    override_group = os.environ.get("CMUX_FAKE_SIGNED_KEYCHAIN_GROUP")
+    if override_group:
+        entitlements["keychain-access-groups"] = [override_group]
+    return entitlements
 """
 
     _write_executable(
@@ -180,6 +184,25 @@ if command.startswith("Print "):
         print(value)
     raise SystemExit(0)
 
+if command.startswith("Set "):
+    # Match /usr/libexec/PlistBuddy: Set only updates an existing entry.
+    _, key_path, raw_value = (command.split(" ", 2) + [""])[:3]
+    keys = parts(key_path)
+    current = plist
+    try:
+        for key in keys[:-1]:
+            current = current[int(key)] if isinstance(current, list) else current[key]
+        if isinstance(current, list):
+            current[int(keys[-1])] = raw_value
+        elif keys[-1] in current:
+            current[keys[-1]] = raw_value
+        else:
+            raise KeyError(keys[-1])
+    except (KeyError, IndexError, ValueError):
+        raise SystemExit(1)
+    save(plist_path, plist)
+    raise SystemExit(0)
+
 if command.startswith("Add "):
     _, key_path, value_type, raw_value = (command.split(" ", 3) + [""])[:4]
     if value_type == "dict":
@@ -240,7 +263,7 @@ if args[:2] == ["-create", "xml1"] and len(args) == 3:
     write_plist(args[2], {})
     raise SystemExit(0)
 
-if args[:1] == ["-insert"] and len(args) >= 5:
+if args[:1] in (["-insert"], ["-replace"]) and len(args) >= 5:
     key = args[1]
     kind = args[2]
     value_arg = args[3]
@@ -250,6 +273,8 @@ if args[:1] == ["-insert"] and len(args) >= 5:
         value = value_arg
     elif kind == "-bool":
         value = value_arg.upper() in {"YES", "TRUE", "1"}
+    elif kind == "-json":
+        value = json.loads(value_arg)
     else:
         raise SystemExit(1)
     set_value(plist, key, value)
@@ -328,6 +353,11 @@ if "archive" in args:
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
+            # A manual archive builds with code signing disabled, so
+            # $(AppIdentifierPrefix) expands to "" and the group bakes as the
+            # bare bundle id, the exact mis-bake that made TestFlight builds
+            # keychain-dead. The lane must correct it before codesign.
+            "CMUXKeychainAccessGroup": bundle_id,
         }},
     )
     # upload-testflight.sh refuses archives without dSYM bundles.
@@ -655,8 +685,46 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         "final signed beta IPA Info.plist is dev.cmux.app.beta",
     )
     _check(
+        info.get("CMUXKeychainAccessGroup") == BETA_APP_ID,
+        "final signed beta IPA Info.plist carries the exact beta keychain group",
+    )
+    _check(
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
+    )
+
+
+def test_upload_keychain_group_failure_does_not_dump_entitlements(
+    tmp: Path, fakebin: Path
+) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_FAKE_SIGNED_KEYCHAIN_GROUP"] = f"{TEAM_ID}.unexpected.bundle"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041754",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode != 0, "upload rejects a mismatched signed keychain group")
+    _check(
+        "keychain-access-groups must contain exactly" in result.stderr,
+        "upload identifies the mismatched keychain group",
+    )
+    _check(
+        "unexpected.bundle" not in result.stderr
+        and '"aps-environment"' not in result.stderr
+        and '"com.apple.developer.applesignin"' not in result.stderr,
+        "keychain-group failure does not dump signed entitlements",
     )
 
 
@@ -947,6 +1015,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     with zipfile.ZipFile(ipa_path) as zf:
         info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
+    _check(
+        info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
+        "final signed App Store IPA Info.plist carries the exact App Store keychain group",
+    )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
         "final signed IPA keeps the App Store marketing version",
@@ -1410,6 +1482,9 @@ def main() -> None:
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
+        test_upload_keychain_group_failure_does_not_dump_entitlements(
+            tmp / "keychain-group-privacy-test", fakebin
+        )
         test_upload_strips_framework_without_valid_executable(
             tmp / "beta-framework-strip-test", fakebin
         )

@@ -7,7 +7,7 @@
 # it never touches the user's stable cmux instance.
 #
 # Flow (--surface both):
-#   1. Load dev sign-in creds (dogfood account wins; --agent forces agent).
+#   1. Select exactly one auth profile for both surfaces.
 #   2. Enable the iOS pairing host on the tagged build (opt-in, default OFF):
 #        defaults write com.cmuxterm.app.debug.<tag-id> mobile.iOSPairingHost.enabled -bool true
 #      Written BEFORE the macOS launch so a single build binds the NWListener on
@@ -36,12 +36,8 @@
 #   --no-pair           skip enabling the host + minting + auto-pair.
 #   --simulator <name>  iOS simulator name (default "iPhone 17").
 #   --device            target a connected iPhone instead of the simulator.
-#   --agent             use the shared agent account for the iOS sign-in. NOTE:
-#                       this does NOT change the macOS account: the Mac app picks
-#                       its account from disk via DebugDogfoodCredentialResolver
-#                       (dogfood-first), which has no agent-force selector and
-#                       which we cannot override without env-leaking the password.
-#                       For a pure agent-account run, use --surface ios --agent.
+#   --agent             use the shared agent account for both Mac and Simulator.
+#                       Physical iPhone dogfood always uses the personal profile.
 
 set -euo pipefail
 
@@ -75,10 +71,9 @@ case "$SURFACE" in
   *) echo "error: --surface must be mac|ios|both (got '$SURFACE')" >&2; exit 2 ;;
 esac
 
-if [[ "$AGENT" -eq 1 && ( "$SURFACE" == "mac" || "$SURFACE" == "both" ) ]]; then
-  echo "warning: --agent only changes the iOS sign-in account. The macOS app picks its" >&2
-  echo "         account from ~/.secrets via DebugDogfoodCredentialResolver (dogfood-first)," >&2
-  echo "         which has no agent-force selector. For a pure agent run use --surface ios --agent." >&2
+if [[ "$AGENT" -eq 1 && "$IOS_TARGET" == "device" ]]; then
+  echo "error: --agent is simulator-only; physical iPhone dogfood always uses the personal profile" >&2
+  exit 2
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -114,12 +109,28 @@ fi
 # Stack vars are not on it), which would leak the password to every child
 # terminal/CLI the app spawns. Validate in a subshell to surface a clear early
 # error, but keep the password out of dev-setup.sh's environment.
-DEV_SECRETS_ARGS=()
-[[ "$AGENT" -eq 1 ]] && DEV_SECRETS_ARGS+=(--agent)
+AUTH_PROFILE="personal"
+AUTH_CREDENTIALS_FILE="$HOME/.secrets/cmuxterm-dev.env"
+if [[ "$AGENT" -eq 1 ]]; then
+  AUTH_PROFILE="agent"
+  # Let the agent profile search both the current and legacy secret files.
+  # Passing cmuxterm-dev.env explicitly would make an older ~/.secrets/cmux.env
+  # pair undiscoverable because explicit files are intentionally exclusive.
+  AUTH_CREDENTIALS_FILE=""
+fi
+DEV_SECRETS_ARGS=(--profile "$AUTH_PROFILE")
+[[ -n "$AUTH_CREDENTIALS_FILE" ]] && DEV_SECRETS_ARGS+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
 # shellcheck source=scripts/lib/dev-secrets.sh
-if ! ( source "$SCRIPT_DIR/lib/dev-secrets.sh"; cmux_dev_secrets_load "${DEV_SECRETS_ARGS[@]}" ); then
+AUTH_ACCOUNT="$(
+  source "$SCRIPT_DIR/lib/dev-secrets.sh"
+  cmux_dev_secrets_load "${DEV_SECRETS_ARGS[@]}" >/dev/null
+  printf '%s' "$CMUX_DEV_AUTH_ACCOUNT"
+)" || exit 2
+if [[ -z "$AUTH_ACCOUNT" ]]; then
+  echo "error: selected auth profile did not resolve an account" >&2
   exit 2
 fi
+echo "==> dev auth contract: $AUTH_PROFILE ($AUTH_ACCOUNT)"
 
 # --- tag identity (delegated to scripts/lib/mobile-attach.sh) ----------------
 # slug -> socket path + DerivedData; tag-id -> bundle id. The shared lib owns the
@@ -153,9 +164,15 @@ enable_pairing_host() {
 # listener on its first launch (no double build).
 build_and_launch_mac() {
   echo "==> building + launching macOS dev app (tag: $TAG)"
-  # reload.sh --launch builds the tagged Debug app and opens it. The macOS app
-  # auto-signs-in from ~/.secrets/cmuxterm-dev.env via DebugDogfoodCredentialResolver.
-  "$REPO_ROOT/scripts/reload.sh" --tag "$TAG" --launch
+  local reload_args=(
+    --tag "$TAG" \
+    --launch \
+    --auth-profile "$AUTH_PROFILE" \
+    --expected-account "$AUTH_ACCOUNT"
+  )
+  [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
+    && reload_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
+  "$REPO_ROOT/scripts/reload.sh" "${reload_args[@]}"
 }
 
 # --- iOS build + target-aware launch ----------------------------------------
@@ -165,32 +182,38 @@ build_and_launch_ios() {
   # --no-launch: build + install only. mobile-dev-launch.sh below does the launch
   # with the sign-in + auto-pair env, so a plain reload launch would be redundant
   # (and would launch signed-out).
-  local ios_args=(--tag "$TAG" --no-launch)
+  # The iOS reload interface owns build/install flags only. Auth identity is
+  # deliberately passed to the separate mobile-dev-launch invocation below,
+  # which is the one that injects credentials and performs pairing.
+  local ios_reload_args=(--tag "$TAG" --no-launch)
   if [[ "$IOS_TARGET" == "device" ]]; then
     # --device-only skips the simulator build/boot entirely (--device would also
     # reload the default simulator first and can fail before reaching the iPhone).
-    ios_args+=(--device-only)
+    ios_reload_args+=(--device-only)
   else
     # Build + install onto the SAME simulator mobile-dev-launch.sh launches on,
     # so the requested sim has the freshly built app (reload defaults to iPhone 17).
-    ios_args+=(--simulator "$SIMULATOR_NAME")
+    ios_reload_args+=(--simulator "$SIMULATOR_NAME")
   fi
-  "$REPO_ROOT/ios/scripts/reload.sh" "${ios_args[@]}"
+  "$REPO_ROOT/ios/scripts/reload.sh" "${ios_reload_args[@]}"
 
   echo "==> launching iOS dev app$([[ "$auto_pair" -eq 1 ]] && printf ' (auto-pairing)')"
-  local launch_args=(--tag "$TAG")
+  local mobile_launch_args=(--tag "$TAG")
+  mobile_launch_args+=(
+    --auth-profile "$AUTH_PROFILE"
+    --expected-account "$AUTH_ACCOUNT"
+  )
+  [[ -n "$AUTH_CREDENTIALS_FILE" ]] \
+    && mobile_launch_args+=(--credentials-file "$AUTH_CREDENTIALS_FILE")
   if [[ "$auto_pair" -eq 1 ]]; then
-    launch_args+=(--attach)
-  fi
-  if [[ "$AGENT" -eq 1 ]]; then
-    launch_args+=(--agent)
+    mobile_launch_args+=(--attach)
   fi
   if [[ "$IOS_TARGET" == "device" ]]; then
-    launch_args+=(--device)
+    mobile_launch_args+=(--device)
   else
-    launch_args+=(--simulator "$SIMULATOR_NAME")
+    mobile_launch_args+=(--simulator "$SIMULATOR_NAME")
   fi
-  "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${launch_args[@]}"
+  "$REPO_ROOT/scripts/mobile-dev-launch.sh" "${mobile_launch_args[@]}"
 }
 
 # --- apply environment profile(s) (P3) --------------------------------------

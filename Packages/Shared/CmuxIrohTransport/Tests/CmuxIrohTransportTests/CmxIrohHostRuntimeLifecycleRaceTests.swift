@@ -166,13 +166,12 @@ extension CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.requestRegistrationRefresh() }
         await broker.waitForRegistrationCount(2)
-        let refresh = await runtime.registrationRefreshTask
 
         await runtime.stop()
         await gate.open()
-        await refresh?.value
+        await refresh.value
 
         #expect(await runtime.snapshot().state == .inactive)
         #expect(await endpoint.observedCloseCallCount() == 1)
@@ -196,13 +195,12 @@ extension CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.requestRegistrationRefresh() }
         await broker.waitForRegistrationCount(2)
-        let refresh = await runtime.registrationRefreshTask
 
         let preparation = await runtime.deactivateForSignOut()
         await gate.open()
-        await refresh?.value
+        await refresh.value
 
         #expect(preparation.wasPersisted)
         #expect(await runtime.snapshot().state == .inactive)

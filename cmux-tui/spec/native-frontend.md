@@ -27,6 +27,56 @@ remote-session path so each terminal view has its own VT mirror and viewport.
 Selecting a visible terminal view explicitly transfers canonical geometry to
 that client/view pair.
 
+## Persistent Swift frontend boundary
+
+The persistent daemon has three identity lifetimes that must remain separate:
+
+- a durable resource address is `(machine_id, session_id, resource_id)`;
+  hostname, socket, relay, and mount route are mutable resolution data;
+- a durable frontend view is `(frontend_id, window_id)`, represented by one
+  `frontend_projection` public ID and fenced by a new generation on relaunch;
+- a live attachment is one connection-local stream and opaque view lease. It
+  owns transient render delivery and may temporarily participate in canonical
+  terminal sizing.
+
+The current multiview path already keeps the PTY and terminal content under the
+session while giving each attachment a private VT mirror. The remaining legacy
+paths are the compatibility active workspace, screen, and pane fields, opaque
+frontend projections with no typed owner, and resource viewer controls that
+identify only a connection. Those paths cannot identify two Swift windows
+multiplexed over one socket.
+
+Two designs were considered. Connection-owned projections are smaller, but
+they cannot survive reconnect, distinguish windows, or support following one
+frontend view. Stable window projections plus expiring attachment leases add
+one explicit identity layer and preserve those properties. The stable-window
+design is the frontend contract.
+
+Shared topology must not gain a globally active resource. A frontend restores
+its durable window projection, resolves each durable resource address through
+the current route table, and attaches to resources that are still live. Cold
+journal reduction is a separate fallback that reconstructs historical state;
+it never pretends to reattach a dead process. A terminal checkpoint restores
+renderable terminal state, not arbitrary child-process memory.
+
+Live following uses an ephemeral presence stream keyed by frontend projection
+and generation. Discrete settled focus changes may also update the durable
+projection and journal. Continuous scroll and animation samples stay on the
+presence stream, with only settled state checkpointed, so following does not
+wait for durable storage or turn paint-rate data into restoration history.
+
+Remote creation is a durable operation, not a cross-machine transaction. The
+origin daemon records a caller-generated correlation key and the states
+`prepared`, `executing`, `created`, `not_applied`, or `indeterminate`. Swift may
+render a projection-local placeholder keyed by that correlation key, then
+replace it with the authoritative resource address or an explicit failure.
+Routes never become resource identity, and disconnect never implies failure.
+
+View-size leases are live presence. They are removed when their stream or
+connection closes and remote mounts must additionally expire them when their
+heartbeat generation is lost. Durable frontend geometry is only a restoration
+preference; it does not keep a stale canonical PTY-size claim alive.
+
 ## Startup workspace mutation
 
 The native TUI prepares visible topology before entering terminal mode. When

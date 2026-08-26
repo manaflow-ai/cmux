@@ -77,6 +77,9 @@ extension SocketTransport {
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             return SocketStageFailure(stage: "existing_path", errnoCode: EEXIST)
         }
+        guard st.st_uid == getuid() else {
+            return SocketStageFailure(stage: "existing_path", errnoCode: EACCES)
+        }
         switch pathProbeResult(at: path) {
         case .stale:
             break

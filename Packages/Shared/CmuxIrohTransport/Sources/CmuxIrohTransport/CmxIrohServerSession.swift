@@ -197,7 +197,7 @@ public actor CmxIrohServerSession {
                 from: stream.receiveStream
             )
             switch decoded.header.lane {
-            case .terminal, .artifact:
+            case .terminal, .artifact, .simulatorStream:
                 break
             case .control, .serverEvents:
                 throw CmxIrohServerSessionError.invalidPeerLane
@@ -235,7 +235,7 @@ public actor CmxIrohServerSession {
             break
         case .artifact:
             throw CmxIrohServerSessionError.applicationLanesUnavailable
-        case .control, .terminal:
+        case .control, .terminal, .simulatorStream:
             throw CmxIrohServerSessionError.invalidServerLane
         }
         let stream = try await connection.openSendStream()
@@ -250,7 +250,7 @@ public actor CmxIrohServerSession {
     }
 
     public func close() async {
-        await closeConnection()
+        await closeConnection(reason: "server_closed")
     }
 
     /// Closes the session while retaining the host-side failure that initiated the close.
@@ -259,7 +259,7 @@ public actor CmxIrohServerSession {
         if explicitCloseFailure == nil {
             explicitCloseFailure = failure
         }
-        await closeConnection()
+        await closeConnection(reason: Self.closeReason(for: failure))
     }
 
     /// Returns a named host-side close cause after an explicit policy invalidation.
@@ -275,18 +275,35 @@ public actor CmxIrohServerSession {
         await connection.observedPathEvents()
     }
 
-    private func closeConnection() async {
+    private func closeConnection(reason: String) async {
         guard !closed else { return }
         closed = true
         if let controlStream {
             await controlStream.sendStream.reset(errorCode: 0)
             await controlStream.receiveStream.stop(errorCode: 0)
         }
-        await connection.close(errorCode: 0, reason: "server_closed")
+        await connection.close(errorCode: 0, reason: reason)
         self.controlStream = nil
         admittedPeer = nil
         onlineAdmissionLease = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
+    }
+
+    private static func closeReason(for failure: DiagnosticFailureKind) -> String {
+        switch failure {
+        case .superseded:
+            "superseded_session"
+        case .admissionLeaseExpired:
+            "admission_lease_expired"
+        case .admissionRevalidationFailed:
+            "admission_revalidation_failed"
+        case .sendQueueOverflow:
+            "send_queue_overflow"
+        case .cancelled:
+            "server_cancelled"
+        default:
+            "server_failed"
+        }
     }
 
     private func admittedControlStream() throws -> CmxIrohBidirectionalStream {

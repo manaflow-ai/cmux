@@ -880,7 +880,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return configuration.workspacesByID[workspaceID]
         case .groupHeader(let groupID):
             guard let group = configuration.groupsByID[groupID] else { return nil }
-            return configuration.workspacesByID[group.anchorWorkspaceID]
+            guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return nil }
+            return configuration.workspacesByID[anchorWorkspaceID]
         case .chrome, .groupFooter, .filterEmpty:
             return nil
         }
@@ -900,11 +901,29 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .actionCapabilities.supportsMoveActions == true
         case .groupHeader(let groupID):
             configuration.groupsByID[groupID]
-                .flatMap { configuration.workspacesByID[$0.anchorWorkspaceID] }?
-                .actionCapabilities.supportsMoveActions == true
+                .map { !$0.isEmpty && groupActionCapabilities(for: $0).supportsMoveActions }
+                ?? false
         case .chrome, .filterEmpty, .groupFooter:
             false
         }
+    }
+
+    /// Group actions are owned by the Mac connection, not by a particular
+    /// workspace row. The group snapshot carries that Mac-scoped capability,
+    /// including when the group has no live anchor row.
+    func groupActionCapabilities(
+        for group: MobileWorkspaceGroupPreview
+    ) -> MobileWorkspaceActionCapabilities {
+        if let capabilities = group.actionCapabilities {
+            // Group actions are Mac-scoped and remain available for a
+            // header-only group without a live workspace row.
+            return capabilities
+        }
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID,
+           let capabilities = configuration.workspacesByID[anchorWorkspaceID]?.actionCapabilities {
+            return capabilities
+        }
+        return .none
     }
 
     fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
@@ -980,12 +999,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             } else {
                 onOpenChanges = nil
             }
+            let isSelected = configuration.navigationStyle == .sidebar
+                && configuration.selectedWorkspaceID == workspace.id
             return AnyView(
                 WorkspaceRow(
                     workspace: workspace,
                     connectionStatus: connectionStatus,
-                    isSelected: configuration.navigationStyle == .sidebar
-                        && configuration.selectedWorkspaceID == workspace.id,
+                    isSelected: isSelected,
                     changesChip: changesChip,
                     onOpenChanges: onOpenChanges,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
@@ -996,6 +1016,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     children: onOpenChanges == nil ? .combine : .contain
                 )
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
                 .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
                 .accessibilityLabel(workspace.name)
                 .accessibilityValue(
@@ -1031,8 +1052,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let group = configuration.groupsByID[groupID] else {
                 return AnyView(EmptyView())
             }
-            let capabilities = configuration.workspacesByID[group.anchorWorkspaceID]?
-                .actionCapabilities ?? .none
+            let capabilities = groupActionCapabilities(for: group)
             return AnyView(
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
@@ -1040,13 +1060,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                         hasUnread: configuration.groupHasUnreadByID[groupID, default: false],
                         navigationStyle: configuration.navigationStyle,
                         isAnchorSelected: configuration.navigationStyle == .sidebar
-                            && configuration.selectedWorkspaceID == group.anchorWorkspaceID,
+                            && configuration.selectedWorkspaceID == group.liveAnchorWorkspaceID,
                         canCreateWorkspaceInGroup: configuration.createWorkspaceInGroup != nil,
                         canRenameGroup: capabilities.supportsGroupActions
                             && configuration.renameWorkspaceGroup != nil,
                         canSetGroupPinned: capabilities.supportsGroupActions
                             && configuration.setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: capabilities.supportsGroupActions
+                        canUngroupWorkspaceGroup: !group.isPinned
+                            && capabilities.supportsGroupActions
                             && configuration.ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: capabilities.supportsGroupActions
                             && configuration.deleteWorkspaceGroup != nil,

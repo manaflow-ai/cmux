@@ -15,8 +15,11 @@ struct CompletedRestoredAgentForkAvailabilityTests {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         let snapshot = forkableClaudeSnapshot()
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = snapshot
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+        workspace.restoredAgentLifecycle.setSnapshot(snapshot, panelId: panel.id)
+        workspace.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panel.id
+        )
 
         #expect(workspace.forkAgentConversationContextMenuAvailability(forPanelId: panel.id) == .available)
         #expect(workspace.forkAgentConversationContextMenuOpenSelection(forPanelId: panel.id).snapshot != nil)

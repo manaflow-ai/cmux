@@ -8,7 +8,6 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openAttachEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
 
-export const dynamic = "force-dynamic";
 
 export async function POST(
   request: Request,

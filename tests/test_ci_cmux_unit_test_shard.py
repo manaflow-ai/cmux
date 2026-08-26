@@ -11,6 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
+CI_PHYSICAL_SHARD_TOTAL = 4
+CI_LOGICAL_BATCHES_PER_WORKER = 2
+CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
 
 def write_large_suite_fixture(test_root: Path) -> None:
@@ -267,9 +270,10 @@ def main() -> int:
         "-only-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests": [],
         "-only-testing:cmuxTests/BrowserSessionHistoryRestoreTests": [],
     }
+    repo_assigned_selectors: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         output = Path(tmp) / "repo-shard.args"
-        for shard in range(1, 5):
+        for shard in range(1, CI_LOGICAL_SHARD_TOTAL + 1):
             result = subprocess.run(
                 [
                     sys.executable,
@@ -279,7 +283,7 @@ def main() -> int:
                     "--shard-index",
                     str(shard),
                     "--shard-total",
-                    "4",
+                    str(CI_LOGICAL_SHARD_TOTAL),
                     "--output",
                     str(output),
                 ],
@@ -293,11 +297,15 @@ def main() -> int:
                 print(f"FAIL: repo shard helper exited {result.returncode}")
                 return 1
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
+            repo_assigned_selectors.extend(shard_selectors)
             for focused_selector in (
                 "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
                 "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
+                "-only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
+                "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
                 "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
+                "-only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
             ):
                 if focused_selector in shard_selectors:
                     print(f"FAIL: focused gate selector should not be folded into shard: {focused_selector}")
@@ -305,6 +313,35 @@ def main() -> int:
             for separated_selector, placements in repo_separated_placement.items():
                 if separated_selector in shard_selectors:
                     placements.append(shard)
+
+    listed = subprocess.run(
+        [sys.executable, str(HELPER), "--root", str(ROOT), "--list"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if listed.returncode != 0:
+        print(listed.stdout, end="")
+        print(listed.stderr, end="", file=sys.stderr)
+        print(f"FAIL: repo selector listing exited {listed.returncode}")
+        return 1
+    expected_repo_selectors = {
+        f"-only-testing:{line.split(chr(9), 1)[0]}"
+        for line in listed.stdout.splitlines()
+        if line
+    }
+    assigned_repo_selector_set = set(repo_assigned_selectors)
+    if len(repo_assigned_selectors) != len(assigned_repo_selector_set):
+        print("FAIL: logical app-host shards assign at least one selector more than once")
+        return 1
+    if assigned_repo_selector_set != expected_repo_selectors:
+        missing = sorted(expected_repo_selectors - assigned_repo_selector_set)
+        unexpected = sorted(assigned_repo_selector_set - expected_repo_selectors)
+        print(
+            "FAIL: logical app-host shards do not exactly cover discovered selectors; "
+            f"missing={missing[:10]} unexpected={unexpected[:10]}"
+        )
+        return 1
 
     placements = list(repo_separated_placement.values())
     if any(len(shards) != 1 for shards in placements) or placements[0] == placements[1]:

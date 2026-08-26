@@ -8,14 +8,14 @@ import Testing
 /// race into a multi-minute connectivity gap on every app foreground.
 struct CmxIrohTrustBrokerClientAuthClassifierTests {
     @Test
-    func unauthorizedRejectionPreservesVerifiedPolicyDuringRefresh() {
-        #expect(CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(
+    func unauthorizedRejectionPreservesVerifiedStateDuringRefresh() {
+        #expect(CmxIrohTrustBrokerClientError.preservesVerifiedStateDuringRefresh(
             CmxIrohTrustBrokerClientError.rejected(
                 statusCode: 401,
                 code: "unauthorized"
             )
         ))
-        #expect(!CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(
+        #expect(!CmxIrohTrustBrokerClientError.preservesVerifiedStateDuringRefresh(
             CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
         ))
     }

@@ -1,13 +1,12 @@
 import AppKit
 
-/// AppKit container stacking the bonsplit drag destination above the
-/// virtualized table. Workspace reorder drops land on the table itself
-/// (native `validateDrop`/`acceptDrop`), so no reorder overlay is needed.
+/// AppKit container stacking drag destinations above the virtualized table.
 @MainActor
 final class SidebarWorkspaceTableContainerView: NSView {
     let scrollView = NSScrollView()
     let clipView = SidebarWorkspaceTableClipView()
     let tableView = SidebarWorkspaceTableViewImpl()
+    let reorderDropView = SidebarWorkspaceReorderDropView()
     let bonsplitDropView = SidebarBonsplitTabWorkspaceDropView()
     let emptyDropIndicatorView = SidebarWorkspaceTableEmptyDropIndicatorView()
 
@@ -19,9 +18,11 @@ final class SidebarWorkspaceTableContainerView: NSView {
         scrollView.contentView = clipView
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        reorderDropView.translatesAutoresizingMaskIntoConstraints = false
         bonsplitDropView.translatesAutoresizingMaskIntoConstraints = false
         emptyDropIndicatorView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(scrollView)
+        addSubview(reorderDropView)
         addSubview(bonsplitDropView)
         addSubview(emptyDropIndicatorView)
         NSLayoutConstraint.activate([
@@ -29,6 +30,10 @@ final class SidebarWorkspaceTableContainerView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            reorderDropView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            reorderDropView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            reorderDropView.topAnchor.constraint(equalTo: topAnchor),
+            reorderDropView.bottomAnchor.constraint(equalTo: bottomAnchor),
             bonsplitDropView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bonsplitDropView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bonsplitDropView.topAnchor.constraint(equalTo: topAnchor),

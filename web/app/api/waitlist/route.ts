@@ -10,8 +10,6 @@ import {
 } from "../../../services/telemetry";
 import { checkEmailDeliverable } from "./email-check";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const WAITLIST_PLATFORMS = ["linux", "android", "windows"] as const;
 
@@ -56,10 +54,18 @@ export async function POST(request: Request) {
       // public POST flood the resolver as well as Slack. Reuses the feedback
       // rule. Only active on Vercel.
       if (process.env.VERCEL === "1" && env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
-        const { error, rateLimited } = await checkRateLimit(
-          env.CMUX_FEEDBACK_RATE_LIMIT_ID,
-          { request },
-        );
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(env.CMUX_FEEDBACK_RATE_LIMIT_ID, {
+            request,
+          });
+        } catch {
+          console.error("waitlist.route.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
         setSpanAttributes(span, {
           "cmux.rate_limited": rateLimited || error === "blocked",
         });

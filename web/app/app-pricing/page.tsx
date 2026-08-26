@@ -42,12 +42,13 @@ import {
   TEAM_PRICING_USD,
   proBillingInterval,
 } from "../../services/billing/plans";
+import { isVaultEnabled } from "../../services/vault/config";
 
 const ENTERPRISE_CTA_URL = withExternalBrowserIntent("/enterprise");
 const pricing = enMessages.pricing;
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
+const HOSTED_NETWORKING_ENABLED = false;
 
-export const dynamic = "force-dynamic";
 
 export default async function AppPricingPage({
   searchParams,
@@ -77,14 +78,25 @@ export default async function AppPricingPage({
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = appPricingBanner(params, snapshot, signInHref);
   const theme = appPricingTheme(params);
+  const featureVisibility = {
+    vault: isVaultEnabled(),
+    hostedNetworking: HOSTED_NETWORKING_ENABLED,
+  };
   const proFeatures = visibleProFeatures({
     base: pricing.pro.features,
     vault: pricing.pro.vaultFeatures,
     hostedNetworking: pricing.pro.hostedNetworkingFeatures,
+    visibility: featureVisibility,
   });
-  const compareRows = visibleCompareRows(pricing.compare.rows as CompareRow[]);
+  const compareRows = visibleCompareRows(
+    pricing.compare.rows as CompareRow[],
+    featureVisibility,
+  );
   const sizeRows = pricing.sizes.rows as SizeRow[];
-  const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
+  const faqItems = visibleFaqItems(
+    pricing.faq.items as FaqItem[],
+    featureVisibility,
+  );
   const annualComparePrice = pricingMessage(pricing.annualComparePrice, {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
   });

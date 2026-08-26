@@ -26,6 +26,13 @@ public struct MobileSection: View {
     /// Guards against overlapping Apply taps while a probe is in flight.
     @State private var isApplying = false
 
+    /// Whether an MDM configuration profile disables iOS remote control.
+    /// Refreshed from ``ManagedDevicePolicy/changeSignals(notificationCenter:)``
+    /// so a profile pushed while the Settings window stays open re-renders
+    /// the section.
+    @State private var remoteControlManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+
     /// Host bridge: opens the pairing window, applies the port (availability
     /// checked), and supplies the live pairing status and default display name.
     private let hostActions: SettingsHostActions
@@ -77,33 +84,54 @@ public struct MobileSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)
             SettingsCard {
-                pairDeviceRow
-                SettingsCardDivider()
+                if remoteControlManagedByPolicy {
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.managedByOrganization",
+                        defaultValue: "Remote control from the iOS app is disabled by your organization."
+                    ))
+                    SettingsCardDivider()
+                }
+                // Phone-push forwarding is outbound-only and explicitly out of
+                // the DisableRemoteControl policy's scope, so its rows stay
+                // editable even while the remote-control rows are managed.
                 phonePushForwardingRow
                 SettingsCardDivider()
                 phonePushModeRow
                 SettingsCardDivider()
                 phonePushHideContentRow
                 SettingsCardDivider()
-                iOSPairingHostRow
-                SettingsCardDivider()
-                portRow
-                boundPortStatusRow
-                SettingsCardDivider()
-                displayNameRow
-                SettingsCardDivider()
-                artifactFolderAccessRow
-                if iOSPairingHost.current {
+                Group {
+                    pairDeviceRow
                     SettingsCardDivider()
-                    diagnostics
+                    iOSPairingHostRow
+                    SettingsCardDivider()
+                    portRow
+                    boundPortStatusRow
+                    SettingsCardDivider()
+                    displayNameRow
+                    SettingsCardDivider()
+                    artifactFolderAccessRow
+                    // The Iroh endpoint hosts for every signed-in Mac even when
+                    // the legacy pairing listener is toggled off, so diagnostics
+                    // follow the live snapshot rather than the toggle alone.
+                    if iOSPairingHost.current || status.current?.isRunning == true {
+                        SettingsCardDivider()
+                        diagnostics
+                    }
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.port.note",
+                        defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
+                    ))
                 }
-                SettingsCardNote(String(
-                    localized: "settings.mobile.port.note",
-                    defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
-                ))
+                .disabled(remoteControlManagedByPolicy)
             }
         }
         .task { startObservingSettings() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                remoteControlManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+            }
+        }
     }
 
     private func startObservingSettings() {
@@ -264,7 +292,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingPort",
             String(localized: "settings.mobile.port", defaultValue: "Pairing Port"),
-            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred TCP port for the iOS pairing listener (1–65535).")
+            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535.")
         ) {
             HStack(spacing: 8) {
                 TextField(
@@ -324,7 +352,7 @@ public struct MobileSection: View {
                 Label(
                     String(
                         localized: "settings.mobile.port.apply.inUse",
-                        defaultValue: "Port \(requested) is in use. Still listening on \(status.current?.boundPort ?? requested)."
+                        defaultValue: "Port \(requested) is in use. The pairing listener is still on \(status.current?.boundPort ?? requested)."
                     ),
                     systemImage: "exclamationmark.triangle.fill"
                 )
@@ -335,7 +363,7 @@ public struct MobileSection: View {
             // the actual listening port instead of this saved-for-later note.
             statusCaption {
                 Label(
-                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved. Will use port \(saved) when iOS Pairing is on."),
+                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved. The pairing listener will use port \(saved) when iOS Pairing is on."),
                     systemImage: "checkmark.circle.fill"
                 )
                 .foregroundStyle(.secondary)
@@ -363,14 +391,14 @@ public struct MobileSection: View {
             Label(
                 String(
                     localized: "settings.mobile.port.status.fallback",
-                    defaultValue: "Port \(snapshot.configuredPort) is in use. Listening on \(bound) instead."
+                    defaultValue: "Port \(snapshot.configuredPort) is in use. The pairing listener is on \(bound) instead."
                 ),
                 systemImage: "exclamationmark.triangle.fill"
             )
             .foregroundStyle(.orange)
         } else if let bound = snapshot.boundPort {
             Label(
-                String(localized: "settings.mobile.port.status.ok", defaultValue: "Listening on port \(bound)."),
+                String(localized: "settings.mobile.port.status.ok", defaultValue: "Pairing listener on port \(bound)."),
                 systemImage: "checkmark.circle.fill"
             )
             .foregroundStyle(.secondary)
@@ -471,7 +499,7 @@ public struct MobileSection: View {
             if snapshot.routes.isEmpty {
                 SettingsCardNote(String(
                     localized: "settings.mobile.routes.empty",
-                    defaultValue: "No reachable addresses yet. Pairing over the network needs Tailscale running on this Mac."
+                    defaultValue: "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
                 ))
             } else {
                 VStack(alignment: .leading, spacing: 4) {

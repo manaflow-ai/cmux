@@ -140,7 +140,8 @@ extension ControlNotificationContext {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationCreateResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForSurface(
@@ -148,7 +149,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForTarget(
@@ -157,7 +159,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String?
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationList() -> [ControlNotificationSnapshot] { [] }
@@ -193,7 +196,8 @@ extension ControlWorkspaceGroupContext {
             allChildrenAreAnchors: "",
             workspaceIsOtherGroupAnchor: "",
             invalidReferenceWorkspace: "invalid reference workspace",
-            closeWorkspacesMustBeBoolean: "close workspaces must be boolean"
+            closeWorkspacesMustBeBoolean: "close workspaces must be boolean",
+            emptyPinnedCannotUngroup: "empty pinned group cannot be ungrouped"
         )
     }
 
@@ -541,8 +545,13 @@ extension ControlSurfaceContext {
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution { .pending }
+
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
+        "Terminal session is out of date; restart the shell and try again"
+    }
 
     func controlSurfacePortsKick(
         workspaceID: UUID,

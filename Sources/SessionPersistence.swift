@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxBrowser
 import CmuxCore
 import Foundation
 import Bonsplit
@@ -266,6 +267,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         case name, kind, command, cwd, checkpointId, source
         case environment, autoResume, approvalPolicy, approvalRecordId
         case launchCommand, permissionMode, launchFlavor, updatedAt
+        case resumeEvidenceProvenance
     }
 
     var name: String?
@@ -278,6 +280,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var launchCommand: AgentLaunchCommandSnapshot?
     var permissionMode: String?
     var autoResume: Bool?
+    /// Verified Codex hook provenance carried into the app-owned atomic gate.
+    /// Non-Codex and legacy bindings leave this unset.
+    var resumeEvidenceProvenance: String?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
     var launchFlavor: SurfaceResumeLaunchFlavor
@@ -296,6 +301,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         launchCommand: AgentLaunchCommandSnapshot? = nil,
         permissionMode: String? = nil,
         autoResume: Bool? = nil,
+        resumeEvidenceProvenance: String? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
         launchFlavor: SurfaceResumeLaunchFlavor = .local,
@@ -318,6 +324,11 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.launchCommand = Self.normalizedLaunchCommand(launchCommand)
         self.permissionMode = Self.normalized(permissionMode)
         self.autoResume = autoResume
+        let retainsCodexEvidence = normalizedSource?.lowercased() == "agent-hook"
+            && normalizedKind?.lowercased() == "codex"
+        self.resumeEvidenceProvenance = retainsCodexEvidence
+            ? Self.normalized(resumeEvidenceProvenance)
+            : nil
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
         self.launchFlavor = launchFlavor
@@ -341,6 +352,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             ),
             permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
+            resumeEvidenceProvenance: try container.decodeIfPresent(String.self, forKey: .resumeEvidenceProvenance),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
             launchFlavor: decodedLaunchFlavor ?? .local,
@@ -354,6 +366,14 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "process-detected"
     }
 
+    /// Plain interactive SSH bindings are intentionally durable across a
+    /// restore pass.  Their process is expected to be absent while the new
+    /// local PTY is starting, so a transiently empty process scan must not
+    /// erase the command before the next autosave can observe it again.
+    var isPlainSSHProcessDetectedBinding: Bool {
+        isProcessDetected && kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ssh"
+    }
+
     var isAgentHookBinding: Bool {
         source == "agent-hook"
     }
@@ -364,6 +384,16 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     var allowsAutomaticResume: Bool {
         autoResume == true
+    }
+
+    /// Keeps an uncertain binding available for manual continuation without
+    /// allowing a stale process observation to launch on the next restore.
+    func disablingAutomaticResume() -> Self {
+        guard autoResume == true else { return self }
+        var disabled = self
+        disabled.autoResume = false
+        disabled.approvalPolicy = .manual
+        return disabled
     }
 
     var usesLocalRestoreVerb: Bool {
@@ -426,6 +456,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     ) -> AgentLaunchCommandSnapshot? {
         guard var launchCommand else { return nil }
         launchCommand.workingDirectory = normalized(launchCommand.workingDirectory)
+        launchCommand.verificationHome = normalized(launchCommand.verificationHome)
         launchCommand.environment = normalizedEnvironment(launchCommand.environment)
         return launchCommand
     }
@@ -1564,6 +1595,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var pageZoom: Double
     var developerToolsVisible: Bool
     var isMuted: Bool
+    var chromeVisibility: BrowserChromeVisibility? = nil
     var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
@@ -1583,6 +1615,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         pageZoom: Double,
         developerToolsVisible: Bool,
         isMuted: Bool = false,
+        chromeVisibility: BrowserChromeVisibility? = nil,
         omnibarVisible: Bool? = nil,
         backHistoryURLStrings: [String]?,
         forwardHistoryURLStrings: [String]?,
@@ -1596,6 +1629,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.pageZoom = pageZoom
         self.developerToolsVisible = developerToolsVisible
         self.isMuted = isMuted
+        self.chromeVisibility = chromeVisibility
         self.omnibarVisible = omnibarVisible
         self.backHistoryURLStrings = backHistoryURLStrings
         self.forwardHistoryURLStrings = forwardHistoryURLStrings
@@ -1611,6 +1645,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case pageZoom
         case developerToolsVisible
         case isMuted
+        case chromeVisibility
         case omnibarVisible
         case backHistoryURLStrings
         case forwardHistoryURLStrings
@@ -1627,6 +1662,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)
         developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
         isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        chromeVisibility = try container.decodeIfPresent(BrowserChromeVisibility.self, forKey: .chromeVisibility)
         omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
         backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
         forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
@@ -1841,15 +1877,20 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The group's anchor workspace (the group header). The loader prefers
-    /// `anchorMemberIndex` (restore-stable) and treats this field as a hint when
-    /// duplicate/corrupt snapshots force a workspace to mint a fresh UUID.
+    /// The group's anchor identity (the group header). For an empty pinned
+    /// group this is a stable placeholder rather than a live workspace. The
+    /// loader prefers `anchorMemberIndex` (restore-stable) for live groups and
+    /// treats this field as a hint when duplicate/corrupt snapshots force a
+    /// workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil
     /// 0-based index of the anchor among the group's members in tab order. Restore-stable:
     /// tab order is preserved across restore, so the same index resolves to the same
     /// logical anchor even when a workspace UUID cannot be reused. Older snapshots
     /// that omit this field fall back to "first member by tab order".
     var anchorMemberIndex: Int? = nil
+    /// `true` when the group intentionally has no live workspace anchor.
+    /// Optional for snapshots written before pinned empty groups were supported.
+    var anchorIsEmpty: Bool? = nil
     var isPinned: Bool? = nil
     var customColor: String? = nil
     var iconSymbol: String? = nil
