@@ -14813,14 +14813,20 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::GraphicsStatus(status)) => {
+                // Kitty quota updates are advisory: the mux disables graphics
+                // for an unresponsive surface and the terminal remains usable.
+                // Keep the structured event available to logs and remote
+                // observers, but do not replace user-facing command status
+                // with a diagnostic the user cannot act on.
+                if matches!(&status, GraphicsStatus::KittyImageBudgetUpdateFailed { .. }) {
+                    return Ok(RenderAction::None);
+                }
                 let messages = &localization::catalog().graphics;
                 self.status_message = Some(match status {
                     GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => {
                         messages.kitty_image_budget_worker_start_failed(&error)
                     }
-                    GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } => {
-                        messages.kitty_image_budget_update_failed(retry_exhausted, &summary)
-                    }
+                    GraphicsStatus::KittyImageBudgetUpdateFailed { .. } => unreachable!(),
                     GraphicsStatus::CellPixelUpdateRetriesExhausted {
                         attempts,
                         remaining,
@@ -33792,24 +33798,6 @@ mod tests {
                     },
                 ),
                 "Kitty 画像予算ワーカーを開始できませんでした: thread unavailable",
-            ),
-            (
-                MuxEvent::GraphicsStatus(
-                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
-                        retry_exhausted: false,
-                        summary: Arc::<str>::from("surface 7: offline"),
-                    },
-                ),
-                "Kitty 画像予算の更新に失敗しました。再試行しています: surface 7: offline",
-            ),
-            (
-                MuxEvent::GraphicsStatus(
-                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
-                        retry_exhausted: true,
-                        summary: Arc::<str>::from("surface 7: offline"),
-                    },
-                ),
-                "Kitty 画像予算の更新に失敗し、再試行回数の上限に達したため停止しました: surface 7: offline",
             ),
             (
                 MuxEvent::GraphicsStatus(
