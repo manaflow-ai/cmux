@@ -14,18 +14,10 @@ import UIKit
 final class GhosttySurfaceFreeRetention: @unchecked Sendable {
     private var retainedObject: AnyObject?
     private var didRelease = false
-    private let onRelease: @MainActor @Sendable () -> Void
 
     /// Creates a token that retains `object` until ``releaseAfterSurfaceFree``.
-    ///
-    /// `onRelease` is an injectable callback used by deterministic tests to
-    /// observe the release boundary without creating a libghostty surface.
-    init(
-        object: AnyObject,
-        onRelease: @escaping @MainActor @Sendable () -> Void = {}
-    ) {
+    init(object: AnyObject) {
         retainedObject = object
-        self.onRelease = onRelease
     }
 
     /// Releases the retained object after `ghostty_surface_free` returns.
@@ -36,7 +28,6 @@ final class GhosttySurfaceFreeRetention: @unchecked Sendable {
     func releaseAfterSurfaceFree() -> Bool {
         guard !didRelease else { return false }
         didRelease = true
-        onRelease()
         retainedObject = nil
         return true
     }

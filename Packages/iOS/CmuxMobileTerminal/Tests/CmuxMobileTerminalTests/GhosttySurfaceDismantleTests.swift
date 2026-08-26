@@ -10,6 +10,7 @@ import UIKit
 @MainActor
 @Suite("Ghostty surface dismantle", .serialized)
 struct GhosttySurfaceDismantleTests {
+    /// Verifies that dismantling detaches callbacks and is idempotent.
     @Test("prepareForDismantle retires the surface and detaches callbacks")
     func prepareForDismantleRetiresSurface() throws {
         let runtime = try GhosttyRuntime.shared()
@@ -37,8 +38,10 @@ struct GhosttySurfaceDismantleTests {
 
 @MainActor
 private final class DismantleTestDelegate: GhosttySurfaceViewDelegate {
+    /// Accepts input produced by the surface during the test.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
 
+    /// Accepts viewport reports without affecting the lifetime assertions.
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,
         didResize size: TerminalGridSize,

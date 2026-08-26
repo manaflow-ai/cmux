@@ -3363,6 +3363,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
+    ///
+    /// This is also the terminal surface's ownership handoff: the libghostty
+    /// surface is retired before SwiftUI releases the hosting view.
     public func prepareForDismantle() {
         isDismantled = true
         // Block-based observers stay registered (and their closures retained
@@ -3585,6 +3588,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return ghostty_surface_process_exited(surface)
     }
 
+    /// Retires the current libghostty surface exactly once and queues its free
+    /// behind all operations already submitted for this surface generation.
     func disposeSurface() {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
@@ -3610,6 +3615,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         enqueueSurfaceFree(surface, generation: surfaceGeneration, on: currentQueue)
     }
 
+    /// Queues a synchronous libghostty free while retaining the UIKit view
+    /// until the C teardown and any recovery completion have finished.
     func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
         generation: UInt64, on queue: GhosttySurfaceWorkQueue,
