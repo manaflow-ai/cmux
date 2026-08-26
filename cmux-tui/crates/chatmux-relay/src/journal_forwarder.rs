@@ -1905,8 +1905,7 @@ mod tests {
         {
             let pool = shared.pool.lock().expect("lock pool");
             assert!(pool.flush_again);
-            let total =
-                pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
+            let total = pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
             assert_eq!(total, MAX_BATCH_RECORDS);
         }
         remove_cursor_test_path(&root).await;
