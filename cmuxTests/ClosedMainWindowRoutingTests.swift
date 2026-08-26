@@ -2833,6 +2833,66 @@ struct MainWindowKeyObservationOwnershipTests {
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
     }
+
+    @Test("Windowless orphan manager cannot register under another window id")
+    func windowlessOrphanManagerCannotRegisterUnderAnotherWindowId() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let ownerWindowId = UUID()
+        let replacementWindowId = UUID()
+        let ownerWindow = makeMainWindow(id: ownerWindowId)
+        let replacementWindow = makeMainWindow(id: replacementWindowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: ownerWindowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            ownerWindow.orderOut(nil)
+            replacementWindow.orderOut(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.registerMainWindow(
+            ownerWindow,
+            windowId: ownerWindowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == ownerWindowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        let route = try #require(app.recoverableMainWindowRoute(windowId: ownerWindowId))
+        route.window = nil
+        manager.window = nil
+        ownerWindow.identifier = nil
+        ownerWindow.orderOut(nil)
+
+        app.registerMainWindow(
+            replacementWindow,
+            windowId: replacementWindowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(app.mainWindowContexts.isEmpty)
+        #expect(
+            app.mainWindowLifecycleCoordinator.registeredContext(windowId: replacementWindowId) == nil
+        )
+        #expect(app.recoverableMainWindowRoute(windowId: ownerWindowId)?.tabManager === manager)
+        #expect(!manager.isFinalizedForWindowClose)
+    }
 }
 
 @MainActor

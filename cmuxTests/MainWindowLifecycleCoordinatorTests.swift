@@ -317,6 +317,23 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(coordinator.orphanedRoutes().map(\.windowId) == [windowIds[1], windowIds[0]])
     }
 
+    @Test("Inactive pruning preserves frozen persistence routes")
+    func inactivePruningPreservesFrozenPersistenceRoutes() {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            frozenWindowSnapshot: emptyWindowSnapshot(windowId: windowId)
+        )
+        #expect(app.mainWindowLifecycleCoordinator.rememberStandaloneOrphanedRoute(route))
+
+        app.retireInactiveRecoverableMainWindowRoutes(reason: "frozen-route-regression")
+
+        #expect(app.mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId) === route)
+        #expect(route.frozenWindowSnapshot != nil)
+        app.forgetRecoverableMainWindowRoute(windowId: windowId)
+    }
+
     @Test("Ineligible remote orphan does not consume a freeze slot")
     func ineligibleRemoteOrphanDoesNotConsumeFreezeSlot() throws {
         let coordinator = MainWindowLifecycleCoordinator()

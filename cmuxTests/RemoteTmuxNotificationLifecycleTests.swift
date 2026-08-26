@@ -24,11 +24,11 @@ struct RemoteTmuxNotificationLifecycleTests {
         let manager: TabManager
         let workspace: Workspace
 
-        init() throws {
+        init(controller: RemoteTmuxController? = nil) throws {
             let appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
-            controller = RemoteTmuxController()
+            self.controller = controller ?? RemoteTmuxController()
             host = RemoteTmuxHost(destination: "user@notification")
             connection = RemoteTmuxControlConnection(host: host, sessionName: "notification")
             pipe = Pipe()
@@ -43,8 +43,8 @@ struct RemoteTmuxNotificationLifecycleTests {
             connection.handleMessageForTesting(
                 .commandResult(commandNumber: 0, lines: [], isError: false)
             )
-            controller.cacheConnection(connection)
-            try controller.mirrorSession(host: host, sessionName: "notification", into: manager)
+            self.controller.cacheConnection(connection)
+            try self.controller.mirrorSession(host: host, sessionName: "notification", into: manager)
             let mirroredWorkspace = manager.tabs.first(where: \.isRemoteTmuxMirror)
             workspace = try #require(mirroredWorkspace)
         }
@@ -320,6 +320,42 @@ struct RemoteTmuxNotificationLifecycleTests {
         #expect(
             appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
                 === harness.manager
+        )
+    }
+
+    @Test
+    func retiringWindowlessRouteDetachesMirrorWhenWorkspaceOwnerIsAbsent() throws {
+        TerminalNotificationStore.shared.clearAll()
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try Harness(controller: appDelegate.remoteTmuxController)
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+
+        #expect(
+            appDelegate.remoteTmuxController.sessionMirror(
+                host: harness.host,
+                sessionName: "notification"
+            ) != nil
+        )
+        appDelegate.unregisterMainWindowContextForTesting(windowId: harness.windowID)
+        let route = try #require(
+            appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)
+        )
+        route.window = nil
+        harness.manager.window = nil
+        let previousTabManager = appDelegate.tabManager
+        appDelegate.tabManager = nil
+        defer { appDelegate.tabManager = previousTabManager }
+
+        #expect(appDelegate.tabManagerFor(tabId: harness.workspace.id) == nil)
+
+        appDelegate.forgetRecoverableMainWindowRoute(windowId: harness.windowID)
+
+        #expect(
+            appDelegate.remoteTmuxController.sessionMirror(
+                host: harness.host,
+                sessionName: "notification"
+            ) == nil
         )
     }
 

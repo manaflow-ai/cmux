@@ -287,6 +287,53 @@ struct MainWindowCloseTerminationRoutingTests {
         )
     }
 
+    @Test("Compatibility recovery route retains and retires its supplied Dock")
+    func compatibilityRecoveryRouteRetainsAndRetiresItsSuppliedDock() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = DockSplitStore(
+            workspaceId: windowId,
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            if !dock.isRetired {
+                dock.retire()
+            }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.rememberRecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebarSnapshot: SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: 280
+            ),
+            windowDock: dock
+        )
+
+        #expect(app.existingWindowDock(forWindowId: windowId) === dock)
+
+        app.forgetRecoverableMainWindowRoute(windowId: windowId)
+
+        #expect(dock.isRetired)
+        #expect(app.existingWindowDock(forWindowId: windowId) == nil)
+    }
+
     @Test("Exact sole owner retains last-window quit behavior")
     func exactSoleOwnerRetainsLastWindowQuitBehavior() throws {
         _ = NSApplication.shared
