@@ -68,6 +68,24 @@ against a live Blaxel sandbox:
 An Aug-20 client binary interoperated with a daemon built from `main` tip,
 consistent with the protocol-version gate doing its job (both protocol 5).
 
+## Local repro without Blaxel credentials
+
+`scripts/spike-cmux-tui-local.sh` runs the same protocol loop with a local
+`server start --remote-ws 127.0.0.1:<port>` process standing in for the VM:
+`up` (isolated daemon state, enrollment, approval), `evidence` (spawn PTY
+bash over workspace RPC, write a marker, SIGKILL the client link, connect
+fresh, assert the new connection's snapshot still carries the pre-kill marker
+with an advanced `through_sequence`), `attach` (interactive remote TUI),
+`down`. Evidence is self-checking and was verified against a debug build
+(2026-08-26, `through_sequence 4 -> 7` across the kill).
+
+One semantic both spike scripts encode: RPC-spawned processes must use
+`lifetime: "detached"`. A `workspace`-lifetime process is tied to the
+client's workspace lease and is killed when that client's connection drops,
+which is exactly the drop the spike (and any cloud client) must survive.
+Cloud-owned terminals live in the daemon's cmux-tui session (or detached),
+never on a connection-scoped lease.
+
 ## Per-provider replacement
 
 One artifact replaces `cmuxd-remote-linux-amd64` everywhere:

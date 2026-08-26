@@ -171,7 +171,7 @@ evidence)
   rpc() { CMUX_REMOTE_STATE_DIR="$CLIENT_STATE" "$CLIENT" remote rpc "$ROUTE"; }
   echo "==> spawn PTY bash in a remote workspace"
   ws="$(printf '%s\n' '{"type":"open-workspace","root":"/root"}' | rpc | json 'd["id"]')"
-  proc="$(python3 -c 'import json,sys; print(json.dumps({"type":"spawn-process","workspace":sys.argv[1],"argv":["bash"],"cwd":None,"env":{},"io":{"type":"pty","cols":100,"rows":30,"term":"xterm-256color","eof":"control-d"},"lifetime":"workspace"}))' "$ws" | rpc | json 'd["process"]')"
+  proc="$(python3 -c 'import json,sys; print(json.dumps({"type":"spawn-process","workspace":sys.argv[1],"argv":["bash"],"cwd":None,"env":{},"io":{"type":"pty","cols":100,"rows":30,"term":"xterm-256color","eof":"control-d"},"lifetime":"detached"}))' "$ws" | rpc | json 'd["process"]')"
   echo "    process $proc"
 
   echo "==> write marker, snapshot"
