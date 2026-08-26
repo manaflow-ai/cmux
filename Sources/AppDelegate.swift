@@ -17232,14 +17232,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         guard let webView = shortcutEventBrowserWebView(event),
-              expectedWebView == nil || expectedWebView === webView,
-              let window = webView.window,
+              expectedWebView == nil || expectedWebView === webView else {
+            return false
+        }
+
+        if let cache = event.cmuxBrowserWebViewCache,
+           let captureDecision = cache.captureDecision {
+            return captureDecision
+        }
+
+        guard let window = webView.window,
               !isCommandPaletteEffectivelyVisible(for: window),
               NSApp.modalWindow == nil,
               window.attachedSheet == nil else {
+            event.cmuxBrowserWebViewCache?.captureDecision = false
             return false
         }
-        return true
+
+        let captureDecision = browserCaptureMatchesCmuxShortcut(event)
+        event.cmuxBrowserWebViewCache?.captureDecision = captureDecision
+        return captureDecision
+    }
+
+    /// Returns whether the event would otherwise be claimed by cmux's
+    /// configured shortcut dispatcher (including a stale default menu item).
+    /// Browser capture must not suppress unrelated native AppKit commands such
+    /// as Cmd+H, Cmd+M, or Cmd+`.
+    private func browserCaptureMatchesCmuxShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let focusContext = shortcutEventFocusContext(event)
+        if KeyboardShortcutSettings.Action.allCases.contains(where: { action in
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard !action.isBrowserContentShortcut,
+                  !shortcut.isUnbound,
+                  KeyboardShortcutSettings.effectiveWhenClause(for: action)
+                      .evaluate(focusContext.shortcutContext) else {
+                return false
+            }
+
+            if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+                guard shortcut.firstStroke == prefix,
+                      let secondStroke = shortcut.secondStroke else {
+                    return false
+                }
+                return matchShortcutStroke(event: event, stroke: secondStroke)
+            }
+            if shortcut.hasChord {
+                return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+            }
+            return matchShortcut(event: event, shortcut: shortcut)
+        }) {
+            return true
+        }
+
+        let configuredActions = configuredCmuxShortcutActions(
+            for: preferredMainWindowContextForShortcutRouting(event: event)
+        )
+        if configuredActions.contains(where: { action in
+            guard let shortcut = action.shortcut, !shortcut.isUnbound else { return false }
+            return matchConfiguredShortcut(event: event, shortcut: shortcut)
+        }) {
+            return true
+        }
+
+        // A remapped action leaves its old menu equivalent behind until the
+        // menu refreshes. Yield that stale default to the focused page too.
+        return KeyboardShortcutSettings.Action.allCases.contains { action in
+            guard !action.isBrowserContentShortcut else { return false }
+            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
+            let defaultShortcut = action.defaultShortcut
+            guard currentShortcut != defaultShortcut,
+                  !defaultShortcut.isUnbound else {
+                return false
+            }
+            return matchesKeyboardShortcutEvent(
+                event,
+                action: action,
+                shortcut: defaultShortcut
+            )
+        }
     }
 
     /// Delivers a remapped-away menu shortcut to the focused browser page.

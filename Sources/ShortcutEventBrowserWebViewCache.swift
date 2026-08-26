@@ -12,6 +12,7 @@ final class ShortcutEventBrowserWebViewCache {
     let eventWindow: NSWindow
     let firstResponder: NSResponder
     let webView: CmuxWebView?
+    var captureDecision: Bool?
 
     init(
         eventWindow: NSWindow,

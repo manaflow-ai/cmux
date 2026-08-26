@@ -98,7 +98,7 @@ extension KeyboardShortcutSettings.Action {
 
         func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
             return isAvailable(
-                focusedBrowserPanel: context.browserPanel != nil,
+                focusedBrowserPanel: context.focusState.browser,
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 focusedSimulatorPanel: context.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
                 focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
