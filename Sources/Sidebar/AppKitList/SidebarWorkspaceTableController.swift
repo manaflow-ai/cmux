@@ -485,7 +485,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if width > 0 { lastMeasuredWidth = width }
         } else {
             // Divider drag in flight: keep last-width heights (text truncates
-            // live) and re-measure once the width settles.
+            // live) and re-measure once the width settles. Rows whose model is
+            // changing in this apply are the exception: prepare just those
+            // rows at the live width before their cells are reconfigured, so
+            // the delegate never answers with an old-width cache entry for a
+            // newly laid-out model.
+            var rowsToMeasureAtLiveWidth = contentChanges
+            rowsToMeasureAtLiveWidth.formUnion(releasedPumpRows)
+            if width > 0, !rowsToMeasureAtLiveWidth.isEmpty {
+                heightChanges.formUnion(
+                    rowHeightCache.prepareRows(
+                        at: rowsToMeasureAtLiveWidth,
+                        in: nextRows,
+                        columnWidth: width
+                    )
+                )
+            }
             scheduleWidthRemeasure()
         }
         // Releasing a pump override changes what heightOfRow answers, so the
@@ -1639,11 +1654,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         deferredStructuralHeightRows.formUnion(heightRows)
         if structuralUpdateDepth == 1 {
             var rowsToNote = deferredStructuralHeightRows
-            for rowId in deferredPumpHeightRowIds {
-                if let index = rows.firstIndex(where: { $0.id == rowId }) {
-                    rowsToNote.insert(index)
-                }
-            }
+            let pumpRowIds = deferredPumpHeightRowIds
+            deferredPumpHeightRowIds.removeAll(keepingCapacity: true)
+            rowsToNote.formUnion(IndexSet(rows.indices.compactMap { index in
+                pumpRowIds.contains(rows[index].id) ? index : nil
+            }))
             if !rowsToNote.isEmpty {
                 table.noteHeightOfRows(withIndexesChanged: rowsToNote)
             }
@@ -1700,10 +1715,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         guard let model = configuration.appKitWorkspaceRowModel else { return }
         guard let actions = configuration.appKitWorkspaceRowActions else {
+            releasePumpHeightOverride(for: configuration.id, ownedBy: cell)
             cell.configurePresentation(model: model)
             return
         }
         let rowId = configuration.id
+        // A hover/viewport repaint reapplies the authoritative model to an
+        // already-mounted cell. Retire any pump geometry owned by that exact
+        // cell before the repaint so its superseded height cannot outlive the
+        // model that is about to be installed.
+        releasePumpHeightOverride(for: rowId, ownedBy: cell)
         cell.setPresentationActive(isPresentationActive)
         cell.configure(
             model: model,
@@ -1756,9 +1777,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// A pump height is installed-cell state. Retiring that exact cell returns
     /// the row to its authoritative cached geometry; an older retirement must
     /// not clear an override already transferred to a replacement cell.
-    private func releasePumpHeightOverride(ownedBy cell: SidebarWorkspaceRowTableCellView) {
-        guard let workspaceId = cell.currentModelForMeasurement?.workspaceId else { return }
-        let rowId = SidebarWorkspaceRenderItemID.workspace(workspaceId)
+    private func releasePumpHeightOverride(
+        for rowId: SidebarWorkspaceRenderItemID,
+        ownedBy cell: SidebarWorkspaceRowTableCellView
+    ) {
         guard pumpHeightOverrides[rowId]?.cellIdentity == ObjectIdentifier(cell) else { return }
         pumpHeightOverrides.removeValue(forKey: rowId)
         if isApplyingTableGeometryUpdate {
@@ -1766,6 +1788,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         } else {
             mutationScheduler.stageRowHeightChange(rowId)
         }
+    }
+
+    private func releasePumpHeightOverride(ownedBy cell: SidebarWorkspaceRowTableCellView) {
+        let cellIdentity = ObjectIdentifier(cell)
+        guard let rowId = pumpHeightOverrides.first(where: {
+            $0.value.cellIdentity == cellIdentity
+        })?.key else { return }
+        releasePumpHeightOverride(
+            for: rowId,
+            ownedBy: cell
+        )
     }
 
     /// Invalidates authoritative row heights after retired pump cells release ownership.
