@@ -3643,6 +3643,11 @@ struct ContentView: View {
         previousSelectedWorkspaceId = newSelectedId
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
+            if let newSelectedId,
+               oldSelectedId == newSelectedId,
+               tabManager.workspaceSwitchCoordinator.isMeasuringSwitch {
+                return nil
+            }
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             tabManager.cancelPendingWorkspaceHandoffRetirement()
             tabManager.workspaceSwitchCoordinator.cancel()
