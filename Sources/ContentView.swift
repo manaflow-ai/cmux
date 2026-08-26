@@ -11624,8 +11624,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
                 return
             }
-            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>],
-               !panelIdsByWorkspaceId.isEmpty {
+            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+                guard !panelIdsByWorkspaceId.isEmpty else { return }
                 // Scoped index events carry the exact panel keys whose
                 // process bindings changed. Resolve only those live workspace
                 // owners here; a full owner traversal is reserved for the

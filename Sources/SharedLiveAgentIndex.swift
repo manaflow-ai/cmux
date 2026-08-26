@@ -102,6 +102,7 @@ final class SharedLiveAgentIndex {
     private enum OwnershipRefreshTaskKind: Equatable {
         case full
         case fork
+        case sidebar
     }
     private var ownershipRefreshWaiterKinds: [UUID: OwnershipRefreshTaskKind] = [:]
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
@@ -565,7 +566,18 @@ final class SharedLiveAgentIndex {
                 return nil
             }
             if let sidebarLivenessRefreshTask {
-                await sidebarLivenessRefreshTask.value
+                guard await awaitOwnershipRefreshTask(
+                    sidebarLivenessRefreshTask,
+                    kind: .sidebar,
+                    timeoutNanoseconds: Self.remainingOwnershipRefreshNanoseconds(
+                        until: ownershipRefreshDeadline
+                    )
+                ) else {
+                    guard !Task.isCancelled else { return nil }
+                    abandonOwnershipRefreshTasks()
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
+                    return nil
+                }
                 continue
             }
             if let refreshTask {
@@ -702,10 +714,12 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             guard !Task.isCancelled else {
                 self.sidebarLivenessRefreshTask = nil
+                self.noteOwnershipRefreshCompleted(kind: .sidebar, success: false)
                 return
             }
             guard self.indexGeneration == sourceGeneration else {
                 self.sidebarLivenessRefreshTask = nil
+                self.noteOwnershipRefreshCompleted(kind: .sidebar, success: true)
                 self.restartForkAvailabilityRefreshIfPending()
                 return
             }
@@ -720,6 +734,7 @@ final class SharedLiveAgentIndex {
             self.index = refreshed
             self.liveAgentProcessFingerprint = nextFingerprint
             self.sidebarLivenessRefreshTask = nil
+            self.noteOwnershipRefreshCompleted(kind: .sidebar, success: true)
             self.restartForkAvailabilityRefreshIfPending()
             if !changedPanelIdsByWorkspaceId.isEmpty {
                 self.postSharedLiveAgentIndexDidChange(
@@ -1147,7 +1162,7 @@ final class SharedLiveAgentIndex {
     ) async -> Bool {
         guard !task.isCancelled else { return false }
         let minimumGeneration = refreshCompletionGeneration + 1
-        guard refreshTask != nil || forkAvailabilityRefreshTask != nil else {
+        guard refreshTask != nil || forkAvailabilityRefreshTask != nil || sidebarLivenessRefreshTask != nil else {
             return !task.isCancelled
         }
         let waiterID = UUID()
@@ -1344,6 +1359,7 @@ final class SharedLiveAgentIndex {
     private func abandonOwnershipRefreshTasks() {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        sidebarLivenessRefreshTask?.cancel()
         // Keep the detached loader handle until its synchronous probe actually
         // returns. Cancellation cannot interrupt that closure, and dropping it
         // here would let the next refresh start a second full scan while the
@@ -1821,10 +1837,14 @@ final class SharedLiveAgentIndex {
 
     private func postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
         guard !panelIdsByWorkspaceId.isEmpty else {
-            // Preserve the unscoped notification contract for consumers such
-            // as command-palette forkability, which use an empty scope to
-            // request a full availability refresh.
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+            // An empty map is a completed, scoped no-op. Keep the map present
+            // so sidebar consumers do not mistake it for a legacy unscoped
+            // event and traverse every workspace/panel to re-arm watchers.
+            NotificationCenter.default.post(
+                name: .sharedLiveAgentIndexDidChange,
+                object: self,
+                userInfo: ["panelIdsByWorkspaceId": [UUID: Set<UUID>()]]
+            )
             return
         }
         let changedPanelIds = Set(panelIdsByWorkspaceId.values.joined())
