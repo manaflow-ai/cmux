@@ -223,6 +223,27 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.status == .failed)
     }
 
+    @Test("A standalone failure marker remains failure evidence")
+    func standaloneFailureMarker() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_failed_marker", "name": "Write",
+                 "input": ["file_path": "/tmp/result.md", "content": "draft"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_failed_marker",
+                content: "Failed",
+                isError: nil
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .failed)
+    }
+
     @Test("Edit tool maps to a fileEdit with line counts and a -/+ diff")
     func editTool() {
         let line = assistantLine(blocks: [

@@ -202,11 +202,15 @@ struct TranscriptToolCompletion: Sendable {
             || prefix.hasPrefix("permission denied")
             || prefix.hasPrefix("access denied")
             || prefix.hasPrefix("operation not permitted")
+            || prefix == "failed"
             || prefix.hasPrefix("failed:")
             || prefix.hasPrefix("failed to ")
             || prefix.hasPrefix("patch failed")
+            || prefix == "failure"
             || prefix.hasPrefix("failure:")
+            || prefix == "unable"
             || prefix.hasPrefix("unable to ")
+            || prefix == "exception"
             || prefix.hasPrefix("exception:")
             || prefix.hasPrefix("no matches")
     }
