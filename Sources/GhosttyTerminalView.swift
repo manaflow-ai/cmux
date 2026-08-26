@@ -1847,14 +1847,16 @@ class GhosttyApp {
         source: String = "unspecified",
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
-        completion: ConfigurationReloadCompletion? = nil
+        completion: ConfigurationReloadCompletion? = nil,
+        commitCompletion: ConfigurationReloadCompletion? = nil
     ) -> Bool {
         let request = TerminalPendingConfigurationReload(
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
             preferredColorScheme: preferredColorScheme,
-            completions: completion.map { [$0] } ?? []
+            completions: completion.map { [$0] } ?? [],
+            commitCompletions: commitCompletion.map { [$0] } ?? []
         )
         return enqueueConfigurationReload(request)
     }
@@ -1916,16 +1918,18 @@ class GhosttyApp {
         performConfigurationReload(
             request,
             didCommit: {
-                request.completions.forEach { $0() }
+                request.commitCompletions.forEach { $0() }
             }
         ) { [weak self] in
             guard let self else {
+                request.completions.forEach { $0() }
                 completion()
                 return
             }
             let shouldScheduleNext =
                 self.configurationReloadCoordinator
                     .finishReload()
+            request.completions.forEach { $0() }
             self.drainPendingAppearanceSynchronization()
             if shouldScheduleNext {
                 self.schedulePendingConfigurationReload()

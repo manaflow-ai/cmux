@@ -13628,6 +13628,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
         completion:
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        commitCompletion:
             GhosttyApp.ConfigurationReloadCompletion? = nil
     ) -> Bool {
 #if DEBUG
@@ -13638,7 +13640,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
             preferredColorScheme: preferredColorScheme,
-            completion: completion
+            completion: completion,
+            commitCompletion: commitCompletion
         )
     }
 

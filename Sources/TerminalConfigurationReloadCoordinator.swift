@@ -42,7 +42,7 @@ final class TerminalConfigurationReloadCoordinator {
     ) -> TerminalConfigurationReloadEnqueueResult {
         var request = originalRequest
         let requestedCompletionCount =
-            request.completions.count
+            request.totalCompletionCount
         let availableCompletionCount = max(
             0,
             maximumOutstandingCompletionCount
@@ -52,14 +52,27 @@ final class TerminalConfigurationReloadCoordinator {
             requestedCompletionCount,
             availableCompletionCount
         )
-        if retainedCompletionCount
-            < requestedCompletionCount {
-            request.completions = Array(
-                request.completions.prefix(
-                    retainedCompletionCount
-                )
+        // Commit acknowledgements are the latency-sensitive socket path, so
+        // retain them before optional post-fanout callbacks when capacity is
+        // exhausted. Both kinds still count against one bounded lifetime.
+        let retainedCommitCompletionCount = min(
+            request.commitCompletions.count,
+            retainedCompletionCount
+        )
+        let retainedFinalCompletionCount = min(
+            request.completions.count,
+            retainedCompletionCount - retainedCommitCompletionCount
+        )
+        request.commitCompletions = Array(
+            request.commitCompletions.prefix(
+                retainedCommitCompletionCount
             )
-        }
+        )
+        request.completions = Array(
+            request.completions.prefix(
+                retainedFinalCompletionCount
+            )
+        )
         outstandingCompletionCount +=
             retainedCompletionCount
 
@@ -99,7 +112,7 @@ final class TerminalConfigurationReloadCoordinator {
             "Only one configuration reload can be active"
         )
         activeCompletionCount =
-            pendingRequest.completions.count
+            pendingRequest.totalCompletionCount
         phase = .preparing
         return pendingRequest
     }

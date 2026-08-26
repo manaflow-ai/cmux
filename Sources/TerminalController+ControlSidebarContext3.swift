@@ -356,17 +356,21 @@ extension TerminalController {
     @discardableResult
     func controlSidebarReloadConfigWithAdmission(
         completion:
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        commitCompletion:
             GhosttyApp.ConfigurationReloadCompletion? = nil
     ) -> Bool {
         if let appDelegate = AppDelegate.shared {
             return appDelegate.reloadConfiguration(
                 source: "socket.reload_config",
-                completion: completion
+                completion: completion,
+                commitCompletion: commitCompletion
             )
         }
         return GhosttyApp.shared.reloadConfiguration(
             source: "socket.reload_config",
-            completion: completion
+            completion: completion,
+            commitCompletion: commitCompletion
         )
     }
 

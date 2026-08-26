@@ -1396,10 +1396,12 @@ class TerminalController {
         ) { completion in
             Task { @MainActor in
                 let completionWasAdmitted =
-                    self.controlSidebarReloadConfigWithAdmission {
-                        completion(true)
-                        waiterLease.retire()
-                    }
+                    self.controlSidebarReloadConfigWithAdmission(
+                        commitCompletion: {
+                            completion(true)
+                            waiterLease.retire()
+                        }
+                    )
                 if !completionWasAdmitted {
                     completion(false)
                     waiterLease.retire()
