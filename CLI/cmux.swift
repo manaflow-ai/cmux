@@ -4861,6 +4861,10 @@ final class ClaudeHookSessionStore {
         return nil
     }
 
+    /// Serializes a state mutation and optionally persists its task projection.
+    ///
+    /// - Parameter persistTaskSyncSidecar: Set when the mutation changes
+    ///   task-sync state; unrelated lifecycle writes skip the sidecar rename.
     func withLockedState<T>(
         deadline: Date? = nil,
         persist: Bool = true,
