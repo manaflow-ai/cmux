@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreMedia
 public import Foundation
 import os
 import Speech
