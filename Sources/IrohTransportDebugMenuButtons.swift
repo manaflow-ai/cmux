@@ -3,6 +3,8 @@ import CmuxIrohTransport
 import SwiftUI
 
 #if DEBUG
+import CmuxNextTransport
+
 struct IrohAndAgentSessionDebugMenuButtons: View {
     let openReact: () -> Void
     let openSolid: () -> Void
@@ -75,14 +77,14 @@ struct IrohTransportDebugMenuButtons: View {
         CmxIrohTransportVerificationMode(rawValue: transportModeRaw) ?? .automatic
     }
 }
-#endif
-
 
 /// Graduation P4 (manaflow-ai/cmux#10629): dev toggle for the parallel
-/// next-transport host. Off by default; state is visible inline.
+/// next-transport host. Off by default; readiness and state are visible
+/// inline. DEBUG-only like the runtime it drives (`MobileHostNextTransportRuntime`
+/// does not exist in Release builds).
 struct NextTransportDebugMenuButtons: View {
     @AppStorage(MobileHostNextTransportRuntime.debugDefaultsKey)
-    private var enabled = true
+    private var enabled = false
 
     var body: some View {
         // State rides the submenu title: a plain Text row inside a Menu
@@ -122,8 +124,10 @@ struct NextTransportDebugMenuButtons: View {
         let runtime = MobileHostNextTransportRuntime.shared
         guard runtime.state != "off" else { return "" }
         let admitted = runtime.admissions
+        let status = " · \(runtime.readiness) · \(runtime.state)"
         return admitted == 0
-            ? " · \(runtime.state)"
-            : " · \(runtime.state) · \(admitted) admitted"
+            ? status
+            : status + " · \(admitted) admitted"
     }
 }
+#endif
