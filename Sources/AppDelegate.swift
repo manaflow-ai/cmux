@@ -17272,7 +17272,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let normalizedFlags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard !normalizedFlags.isEmpty else { return false }
+        guard !normalizedFlags.isEmpty || activeConfiguredShortcutChordPrefixForCurrentEvent != nil else {
+            return false
+        }
+        let routingModifierFlags = normalizedFlags.intersection([.command, .control])
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           routingModifierFlags.isEmpty,
+           !browserCaptureIsNonPrintableShortcutKey(event.keyCode) {
+            // Shift/Option letters and punctuation are ordinary page text.
+            // They do not need a settings/focus scan; keep the hot path at
+            // WebKit speed. Command/Control remain eligible for cmux bindings.
+            return false
+        }
 
         let focusContext = shortcutEventFocusContext(event)
         if KeyboardShortcutSettings.Action.allCases.contains(where: { action in
@@ -17284,17 +17295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
 
-            if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-                guard shortcut.firstStroke == prefix,
-                      let secondStroke = shortcut.secondStroke else {
-                    return false
-                }
-                return matchShortcutStroke(event: event, stroke: secondStroke)
-            }
-            if shortcut.hasChord {
-                return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-            }
-            return matchShortcut(event: event, shortcut: shortcut)
+            return browserCaptureMatchesShortcut(event: event, shortcut: shortcut)
         }) {
             return true
         }
@@ -17304,7 +17305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         if configuredActions.contains(where: { action in
             guard let shortcut = action.shortcut, !shortcut.isUnbound else { return false }
-            return matchConfiguredShortcut(event: event, shortcut: shortcut)
+            return browserCaptureMatchesShortcut(event: event, shortcut: shortcut)
         }) {
             return true
         }
@@ -17324,6 +17325,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 action: action,
                 shortcut: defaultShortcut
             )
+        }
+    }
+
+    private func browserCaptureMatchesShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut
+    ) -> Bool {
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard shortcut.firstStroke == prefix,
+                  let secondStroke = shortcut.secondStroke else {
+                return false
+            }
+            return matchShortcutStroke(event: event, stroke: secondStroke)
+        }
+        if shortcut.hasChord {
+            // Yield the prefix itself to the page. If it is captured, cmux
+            // never arms the chord and the page receives both strokes normally.
+            return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        }
+        return matchShortcut(event: event, shortcut: shortcut)
+    }
+
+    private func browserCaptureIsNonPrintableShortcutKey(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 36, 48, 49, 51, 53, 115, 116, 117, 119, 120, 121, 122,
+             96, 97, 98, 99, 100, 101, 103, 105, 107, 109, 111, 113,
+             123, 124, 125, 126:
+            return true
+        default:
+            return false
         }
     }
 
