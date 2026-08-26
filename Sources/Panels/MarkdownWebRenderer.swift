@@ -145,6 +145,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
+        private let surfaceSelectionReader = WebSurfaceSelectionReader()
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -351,7 +352,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             guard isLoaded, let webView else {
                 return .snapshot(.none(kind: .markdown, filePath: normalizedPath))
             }
-            return await WebSurfaceSelectionReader().read(
+            return await surfaceSelectionReader.read(
                 webView: webView,
                 kind: .markdown,
                 filePath: normalizedPath

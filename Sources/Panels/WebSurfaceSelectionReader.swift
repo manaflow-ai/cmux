@@ -2,24 +2,9 @@ import Foundation
 import WebKit
 
 /// Reads DOM or editable-control selection without changing focus or page state.
-nonisolated struct WebSurfaceSelectionReader {
-    @MainActor
-    private final class EvaluationCancellationTarget: @unchecked Sendable {
-        // The weak WebView is only read or mutated on MainActor. The unchecked
-        // conformance lets the cancellation callback schedule that hop without
-        // retaining the WebView after its panel has replaced it.
-        weak var webView: WKWebView?
-
-        init(webView: WKWebView) {
-            self.webView = webView
-        }
-
-        func cancel() {
-            if webView?.isLoading == true {
-                webView?.stopLoading()
-            }
-        }
-    }
+@MainActor
+final class WebSurfaceSelectionReader {
+    private let evaluationOwner = WebSurfaceSelectionEvaluationOwner()
 
     private nonisolated struct Payload: Decodable {
         let hasSelection: Bool
@@ -39,6 +24,7 @@ nonisolated struct WebSurfaceSelectionReader {
       if (Object.prototype.hasOwnProperty.call(globalThis, runtimeKey)) return false;
 
       const maxTextCharacters = \(SurfaceSelectionSnapshot.maximumTextBytes / 4);
+      const maxTraversalNodes = 4096;
       const unicodeSafeEnd = (value, offset) => {
         let end = Math.max(0, Math.min(value.length, offset));
         if (end > 0 && end < value.length) {
@@ -75,9 +61,11 @@ nonisolated struct WebSurfaceSelectionReader {
           const walker = ownerDocument.createTreeWalker(root, 4);
           const boundedRange = range.cloneRange();
           let used = 0;
+          let visitedNodes = 0;
           let truncated = false;
           let node = root.nodeType === 3 ? root : walker.nextNode();
           while (node) {
+            if (++visitedNodes > maxTraversalNodes) return null;
             const value = node.nodeValue || '';
             let start = 0;
             let end = value.length;
@@ -321,17 +309,19 @@ nonisolated struct WebSurfaceSelectionReader {
       installDocument = (targetDocument) => {
         if (!targetDocument || trackedDocuments.has(targetDocument)) return;
         trackedDocuments.add(targetDocument);
+        let captureQueued = false;
         const captureDocument = () => {
-          const targetWindow = targetDocument.defaultView;
-          if (!targetWindow) return;
-          // A collapsed selectionchange while the document is unfocused is
-          // WebKit's native-focus handoff signal. When the page still owns
-          // focus, an empty range is an intentional page-side clear.
-          capture(targetWindow, targetDocument.hasFocus());
-        };
-        const reconcileInput = () => {
-          const targetWindow = targetDocument.defaultView;
-          if (targetWindow) capture(targetWindow, true);
+          if (captureQueued) return;
+          captureQueued = true;
+          queueMicrotask(() => {
+            captureQueued = false;
+            const targetWindow = targetDocument.defaultView;
+            if (!targetWindow) return;
+            // A collapsed selectionchange while the document is unfocused is
+            // WebKit's native-focus handoff signal. When the page still owns
+            // focus, an empty range is an intentional page-side clear.
+            capture(targetWindow, targetDocument.hasFocus());
+          });
         };
         const clearForInteraction = () => clear();
         // A collapsed selectionchange is not itself a clear signal: WebKit
@@ -347,7 +337,7 @@ nonisolated struct WebSurfaceSelectionReader {
           if (keyChangesSelection(event)) clear();
         }, true);
         targetDocument.addEventListener('focusin', captureDocument, true);
-        targetDocument.addEventListener('input', reconcileInput, true);
+        targetDocument.addEventListener('input', captureDocument, true);
         const invalidateForNavigation = () => clear(targetDocument);
         targetDocument.defaultView?.addEventListener('hashchange', invalidateForNavigation, true);
         targetDocument.defaultView?.addEventListener('popstate', invalidateForNavigation, true);
@@ -450,29 +440,13 @@ nonisolated struct WebSurfaceSelectionReader {
         filePath: String? = nil,
         url: String? = nil
     ) async -> SurfaceSelectionReadResult {
+        guard let encoded = await evaluationOwner.evaluate(
+            webView: webView,
+            script: Self.script
+        ), let data = encoded.data(using: .utf8) else {
+            return .unavailable
+        }
         do {
-            let cancellationTarget = EvaluationCancellationTarget(webView: webView)
-            guard let encoded = try await withTaskCancellationHandler(operation: {
-                try await webView.callAsyncJavaScript(
-                    Self.script,
-                    arguments: [:],
-                    in: nil,
-                    contentWorld: .page
-                ) as? String
-            }, onCancel: {
-                Task { @MainActor in
-                    // WebKit has no cancellable evaluation handle. Stopping
-                    // an active navigation releases the page-side request
-                    // when a socket deadline cancels this reader; the in-page
-                    // Promise timeout bounds normal evaluations independently.
-                    cancellationTarget.cancel()
-                }
-            }) else {
-                return .unavailable
-            }
-            guard let data = encoded.data(using: .utf8) else {
-                return .unavailable
-            }
             let payload = try JSONDecoder().decode(Payload.self, from: data)
             let normalizedPath = filePath.map {
                 URL(fileURLWithPath: $0).standardizedFileURL.path
@@ -490,8 +464,6 @@ nonisolated struct WebSurfaceSelectionReader {
                 filePath: normalizedPath,
                 url: url
             ))
-        } catch is CancellationError {
-            return .unavailable
         } catch {
             return .unavailable
         }

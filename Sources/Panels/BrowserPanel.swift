@@ -2000,6 +2000,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
+    private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
     var browserViewportHostRestorationTask: Task<Void, Never>?
@@ -7004,7 +7005,7 @@ extension BrowserPanel {
                 webView.backForwardList.currentItem != nil else {
             return .snapshot(.none(kind: .browser, url: url))
         }
-        return await WebSurfaceSelectionReader().read(
+        return await surfaceSelectionReader.read(
             webView: webView,
             kind: .browser,
             url: url

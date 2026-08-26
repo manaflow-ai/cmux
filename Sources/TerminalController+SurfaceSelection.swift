@@ -68,6 +68,23 @@ extension TerminalController {
         }
 
         let params = typedParams.mapValues(\.foundationObject)
+        let remoteOwnerKey = WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
+        let remoteOwnerWorkspaceID: UUID?
+        if v2HasNonNullParam(params, remoteOwnerKey) {
+            guard let rawOwner = params[remoteOwnerKey] as? String,
+                  let parsedOwner = UUID(uuidString: rawOwner) else {
+                return failure(
+                    code: "not_found",
+                    message: String(
+                        localized: "socket.surfaceSelection.workspaceNotFound",
+                        defaultValue: "Workspace not found."
+                    )
+                )
+            }
+            remoteOwnerWorkspaceID = parsedOwner
+        } else {
+            remoteOwnerWorkspaceID = nil
+        }
         let selectorKeys = [
             "window_id",
             "group_id",
@@ -139,6 +156,23 @@ extension TerminalController {
                     defaultValue: "Selection reading is currently unavailable."
                 )
             )
+        }
+        func remoteSurfaceBelongsToOwner(_ surfaceID: UUID, ownerWorkspaceID: UUID) -> Bool {
+            let ownershipRouting = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: nil,
+                surfaceID: surfaceID,
+                paneID: nil
+            )
+            if let workspace = resolveSurfaceWorkspace(
+                routing: ownershipRouting,
+                tabManager: tabManager
+            ), workspace.id == ownerWorkspaceID {
+                return true
+            }
+            return windowDockContainingPanel(surfaceID)?.workspaceId == ownerWorkspaceID
         }
         if let groupID = routing.groupID,
            !tabManager.workspaceGroups.contains(where: { $0.id == groupID }) {
@@ -250,6 +284,17 @@ extension TerminalController {
             panel = target.panel
         }
 
+        if let remoteOwnerWorkspaceID,
+           !remoteSurfaceBelongsToOwner(surfaceID, ownerWorkspaceID: remoteOwnerWorkspaceID) {
+            return failure(
+                code: "not_found",
+                message: String(
+                    localized: "socket.surfaceSelection.workspaceNotFound",
+                    defaultValue: "Workspace not found."
+                )
+            )
+        }
+
         let snapshot: SurfaceSelectionSnapshot
         switch await panel.readSurfaceSelection() {
         case .snapshot(let value):
@@ -277,6 +322,17 @@ extension TerminalController {
                     "surface_id": surfaceID.uuidString,
                     "kind": panel.panelType.rawValue,
                 ]
+            )
+        }
+
+        if let remoteOwnerWorkspaceID,
+           !remoteSurfaceBelongsToOwner(surfaceID, ownerWorkspaceID: remoteOwnerWorkspaceID) {
+            return failure(
+                code: "not_found",
+                message: String(
+                    localized: "socket.surfaceSelection.workspaceNotFound",
+                    defaultValue: "Workspace not found."
+                )
             )
         }
 
