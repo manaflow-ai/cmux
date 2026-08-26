@@ -5,7 +5,7 @@
 @MainActor
 func pollUntil(
     attempts: Int = MobileShellWallClockWaitPolicy.defaultPollAttempts,
-    _ condition: @MainActor () async -> Bool
+    _ condition: @escaping @MainActor @Sendable () async -> Bool
 ) async throws -> Bool {
     let operation: @Sendable () async throws -> Bool = {
         try Task.checkCancellation()
