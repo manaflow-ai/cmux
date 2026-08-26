@@ -270,6 +270,42 @@ struct CmxIrohRelayPolicyTests {
     }
 
     @Test
+    func expiredPolicyReuseGraceIsClampedToTheCacheMaximum() async throws {
+        let fixture = try Fixture()
+        let cache = CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore())
+        // The fixture token carries the default one-hour signed validity.
+        _ = try await cache.install(
+            signedPolicy: fixture.token(sequence: 1),
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+
+        // An unbounded caller grace must not make the expired signed policy
+        // reusable indefinitely: past the cache's own maximum the load fails
+        // closed as expired.
+        let expectedMaximumGrace: TimeInterval = 24 * 60 * 60
+        let farPastExpiry = fixture.now.addingTimeInterval(
+            3_600 + expectedMaximumGrace + 60
+        )
+        await #expect(throws: CmxIrohRelayPolicyError.expired) {
+            try await cache.load(
+                trustRoot: fixture.trustRoot,
+                now: farPastExpiry,
+                expiredPolicyReuseGrace: .infinity
+            )
+        }
+
+        // Inside the clamp the same unbounded request still grants the
+        // bounded fail-open window (cmux#10375).
+        let graced = try await cache.load(
+            trustRoot: fixture.trustRoot,
+            now: fixture.now.addingTimeInterval(3_600 + 60),
+            expiredPolicyReuseGrace: .infinity
+        )
+        #expect(graced?.sequence == 1)
+    }
+
+    @Test
     func corruptPolicyCacheCannotEraseTheRollbackFloor() async throws {
         let fixture = try Fixture()
         let store = TestSecureCredentialStore()

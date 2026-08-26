@@ -94,7 +94,101 @@ struct CmxIrohClientSessionDialBoundTests {
         await session.close()
     }
 
+    @Test("the dial bound holds when the stalled phase ignores cancellation")
+    func dialBoundHoldsWhenTheStalledPhaseIgnoresCancellation() async throws {
+        let receiveStream = TestUncancellableIrohReceiveStream()
+        let control = CmxIrohBidirectionalStream(
+            receiveStream: receiveStream,
+            sendStream: TestIrohSendStream()
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control]
+        )
+        // Model the transport contract of the FFI driver: closing the QUIC
+        // connection terminates the pending read; Swift task cancellation
+        // alone does nothing (the bindings poll a Rust future that never
+        // observes it).
+        let closeUnblocksReads = Task {
+            await connection.waitUntilClosed()
+            await receiveStream.failPendingReceives()
+        }
+        defer { closeUnblocksReads.cancel() }
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [try publicRelayHint()]),
+            credential: credential,
+            dialPhaseTimeout: .milliseconds(40)
+        )
+
+        // Observe without cancelling: the deadline must be enforced by the
+        // session itself, at the transport boundary, not by this test's
+        // cooperative cancellation.
+        let connectTask = Task { try await session.connect() }
+        let outcome = await observedOutcome(of: connectTask, within: .seconds(2))
+        #expect(outcome == .failed(.dialTimedOut))
+        #expect(await connection.observedCloseCallCount() >= 1)
+
+        // Drain a still-wedged attempt (the red state) so no orphaned task
+        // outlives the test.
+        await connection.close(errorCode: 0, reason: "test_cleanup")
+        await session.close()
+    }
+
     // MARK: - Support
+
+    private enum ObservedDialOutcome: Equatable {
+        case succeeded
+        case failed(CmxIrohClientSessionError)
+        case failedOther(String)
+        case stillRunningAtObservationDeadline
+    }
+
+    private actor ObservedDialOutcomeBox {
+        private var outcome: ObservedDialOutcome?
+
+        func record(_ value: ObservedDialOutcome) {
+            outcome = value
+        }
+
+        func current() -> ObservedDialOutcome? {
+            outcome
+        }
+    }
+
+    /// Waits for `connectTask` without ever cancelling it, so a deadline that
+    /// only works through cooperative cancellation cannot pass by accident.
+    /// The monitor is deliberately unstructured: in the red state the connect
+    /// attempt is wedged, and a structured wait on it would deadlock this
+    /// test; the caller's cleanup close drains it after observation.
+    private func observedOutcome(
+        of connectTask: Task<Void, any Error>,
+        within limit: Duration
+    ) async -> ObservedDialOutcome {
+        let box = ObservedDialOutcomeBox()
+        Task {
+            do {
+                try await connectTask.value
+                await box.record(.succeeded)
+            } catch let error as CmxIrohClientSessionError {
+                await box.record(.failed(error))
+            } catch {
+                await box.record(.failedOther(String(describing: error)))
+            }
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: limit)
+        while clock.now < deadline {
+            if let outcome = await box.current() { return outcome }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return await box.current() ?? .stillRunningAtObservationDeadline
+    }
 
     /// Runs `connect()` under a test watchdog so the red state (an unbounded
     /// admission hang) fails this test quickly instead of hanging the suite.
