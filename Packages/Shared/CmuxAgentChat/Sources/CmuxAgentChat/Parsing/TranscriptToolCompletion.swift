@@ -192,39 +192,23 @@ struct TranscriptToolCompletion: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(400)
             .lowercased()
-        let lines = prefix.split(whereSeparator: \.isNewline)
-        guard let firstLine = lines.first else { return false }
-        if Self.isFailureEnvelopeLine(firstLine) { return true }
-        // A few providers wrap a failure in an `Output:`/`Result:` envelope.
-        // Only inspect that envelope's final line; all other payload lines may
-        // be arbitrary grep/read data and are not failure evidence.
-        guard firstLine == "output:" || firstLine == "result:",
-              let finalLine = lines.dropFirst().last else {
-            return false
-        }
-        return Self.isFailureEnvelopeLine(finalLine)
-    }
-
-    private static func isFailureEnvelopeLine(_ line: Substring) -> Bool {
-        line.hasPrefix("script failed")
-            || line.hasPrefix("tool failed")
-            || line.hasPrefix("apply_patch verification failed")
-            || line.hasPrefix("error:")
-            || line.hasPrefix("permission denied")
-            || line.hasPrefix("access denied")
-            || line.hasPrefix("operation not permitted")
-            || line == "failed"
-            || line.hasPrefix("failed:")
-            || line.hasPrefix("failed to ")
-            || line.hasPrefix("patch failed")
-            || line == "failure"
-            || line.hasPrefix("failure:")
-            || line == "unable"
-            || line.hasPrefix("unable to ")
-            || line == "exception"
-            || line.hasPrefix("exception:")
-            || line == "no matches"
-            || line.hasPrefix("no matches ")
+        // Only provider-style prefixes are status evidence. The remainder of
+        // a transcript is arbitrary command output; scanning its lines for
+        // words such as "error" or "failed" mislabels valid grep/read data.
+        return prefix.hasPrefix("script failed")
+            || prefix.hasPrefix("tool failed")
+            || prefix.hasPrefix("apply_patch verification failed")
+            || prefix.hasPrefix("error:")
+            || prefix.hasPrefix("permission denied")
+            || prefix.hasPrefix("access denied")
+            || prefix.hasPrefix("operation not permitted")
+            || prefix.hasPrefix("failed:")
+            || prefix.hasPrefix("failed to ")
+            || prefix.hasPrefix("patch failed")
+            || prefix.hasPrefix("failure:")
+            || prefix.hasPrefix("unable to ")
+            || prefix.hasPrefix("exception:")
+            || prefix.hasPrefix("no matches")
     }
 
     private var reportsFailureWithoutExitStatus: Bool {

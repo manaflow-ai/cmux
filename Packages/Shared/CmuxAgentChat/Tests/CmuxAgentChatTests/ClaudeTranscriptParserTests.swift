@@ -202,8 +202,8 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.status == .succeeded)
     }
 
-    @Test("Failure markers on later output lines still fail closed")
-    func multilineFailureMarker() {
+    @Test("Provider failure prefixes remain failure evidence")
+    func failurePrefixWithDetails() {
         let lines = [
             assistantLine(blocks: [
                 ["type": "tool_use", "id": "toolu_failed", "name": "Grep",
@@ -211,7 +211,7 @@ struct ClaudeTranscriptParserTests {
             ]),
             toolResultLine(
                 toolUseID: "toolu_failed",
-                content: "Output:\nError: permission denied",
+                content: "Error: permission denied\nadditional details",
                 isError: nil
             ),
         ]

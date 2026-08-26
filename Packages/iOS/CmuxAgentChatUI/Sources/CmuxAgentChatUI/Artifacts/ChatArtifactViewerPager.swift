@@ -305,6 +305,7 @@ struct ChatArtifactViewerPager: View {
                 isSavingToArtifacts = false
             } catch is CancellationError {
                 operationTask.cancel()
+                guard !Task.isCancelled else { return }
                 artifactSaveOperationTask = nil
                 artifactSaveTask = nil
                 isSavingToArtifacts = false
