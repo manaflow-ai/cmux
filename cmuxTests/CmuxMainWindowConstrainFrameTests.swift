@@ -74,6 +74,41 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         )
     }
 
+    // AeroSpace parks hidden windows at the bottom-right corner with only a
+    // tiny sliver still intersecting the display. In CGWindow coordinates the
+    // issue repro is {1511, 950, 1506, 941} on a 1512x982 display; converting
+    // the y origin to AppKit's bottom-left coordinate system gives this frame.
+    // The constrain veto must recognize that this is intentional WM parking,
+    // not a stranded window that AppKit should pull back on-screen.
+    func testPreservesFrameParkedAtBottomRightByTilingWindowManager() {
+        let display = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let parked = NSRect(x: 1511, y: -909, width: 1506, height: 941)
+        let overlap = parked.intersection(display)
+        XCTAssertEqual(overlap.width, 1, accuracy: 0.5)
+        XCTAssertEqual(overlap.height, 32, accuracy: 0.5)
+
+        XCTAssertTrue(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                parked,
+                visibleFrames: [display]
+            ),
+            "AeroSpace's bottom-right parking frame must not be re-clamped by AppKit."
+        )
+    }
+
+    func testDoesNotPreserveFrameWithWideCornerSliverAsWindowManagerParking() {
+        let display = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // A 20pt corner sliver is large enough to be an accidental user
+        // placement; the parking exemption should stay deliberately narrow.
+        let frame = NSRect(x: 1420, y: -580, width: 800, height: 600)
+        XCTAssertFalse(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                frame,
+                visibleFrames: [display]
+            )
+        )
+    }
+
     func testDoesNotPreserveFrameStrandedOffScreen() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 3000, y: 2000, width: 800, height: 600)
