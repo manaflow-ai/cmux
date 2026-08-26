@@ -685,6 +685,36 @@ import Testing
         #expect(snapshot.remoteVOutput?.contains("origin\tcorp:owner/repo.git") == true)
     }
 
+    @Test func remoteURLInHasConfigIncludedFileFailsClosed() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        let includedURL = fixture.root.appendingPathComponent("invalid-remote.inc")
+        try """
+        [remote "forbidden"]
+            url = https://github.com/forbidden/repository.git
+        """.write(to: includedURL, atomically: true, encoding: .utf8)
+        try """
+        [includeIf "hasconfig:remote.*.url:https://trigger.example/**"]
+            path = invalid-remote.inc
+        [remote "trigger"]
+            url = https://trigger.example/repository.git
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(!snapshot.isComplete)
+    }
+
     @Test func worktreeIncludeIfMatchesWorkingTreeRoot() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
