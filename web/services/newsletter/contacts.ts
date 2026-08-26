@@ -24,6 +24,36 @@ export type NewsletterSource = "stack" | "stripe";
 export const STACK_USER_ID_PROPERTY = "cmux_stack_user_id";
 export const PREVIOUS_EMAILS_PROPERTY = "cmux_previous_emails";
 
+export function previousEmailsFromProperty(value: unknown): string[] {
+  const parsed =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return [];
+          }
+        })()
+      : value;
+  if (!Array.isArray(parsed)) return [];
+  return [
+    ...new Set(
+      parsed
+        .filter((email): email is string => typeof email === "string")
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export function previousEmailsPropertyValue(
+  emails: readonly string[],
+): string {
+  return JSON.stringify([
+    ...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean)),
+  ]);
+}
+
 // Deliberately loose shape check: one local part, one @, a dot-bearing
 // domain. The sources (Stack, Stripe) have already validated deliverability;
 // this gate only rejects values malformed enough to make Resend's create

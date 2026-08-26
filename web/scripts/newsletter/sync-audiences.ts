@@ -32,6 +32,7 @@ import {
 import {
   PREVIOUS_EMAILS_PROPERTY,
   STACK_USER_ID_PROPERTY,
+  previousEmailsFromProperty,
   type NewsletterContact,
 } from "../../services/newsletter/contacts";
 import { ResendClient } from "../../services/newsletter/resend-client";
@@ -59,11 +60,8 @@ function alignContactsToExistingIdentity(
   const byPreviousEmail = new Map<string, (typeof existing)[number]>();
   for (const contact of existing) {
     const previous = contact.properties?.[PREVIOUS_EMAILS_PROPERTY];
-    if (!Array.isArray(previous)) continue;
-    for (const value of previous) {
-      if (typeof value === "string") {
-        byPreviousEmail.set(value.trim().toLowerCase(), contact);
-      }
+    for (const value of previousEmailsFromProperty(previous)) {
+      byPreviousEmail.set(value, contact);
     }
   }
   return desired.map((candidate) => {
@@ -176,8 +174,8 @@ if (args.audience === "founders" || args.audience === "all") {
       const byStackUserId = new Map(
         projected.flatMap((contact) => {
           const id =
-            typeof contact.properties?.cmux_stack_user_id === "string"
-              ? contact.properties.cmux_stack_user_id
+            typeof contact.properties?.[STACK_USER_ID_PROPERTY] === "string"
+              ? contact.properties[STACK_USER_ID_PROPERTY]
               : null;
           return id ? [[id, contact] as const] : [];
         }),
@@ -196,7 +194,11 @@ if (args.audience === "founders" || args.audience === "all") {
             last_name: desired.lastName ?? null,
             unsubscribed: false,
             ...(desired.stackUserId
-              ? { properties: { cmux_stack_user_id: desired.stackUserId } }
+              ? {
+                  properties: {
+                    [STACK_USER_ID_PROPERTY]: desired.stackUserId,
+                  },
+                }
               : {}),
           };
           projected.push(plannedContact);

@@ -469,7 +469,7 @@ describe("syncSegment", () => {
       id: "con_migrated",
       email: "new@example.com",
       unsubscribed: false,
-      properties: { cmux_previous_emails: ["old@example.com"] },
+      properties: { cmux_previous_emails: '["old@example.com"]' },
       segmentIds: new Set(["seg_founders"]),
     });
 
@@ -809,6 +809,55 @@ describe("ResendClient error handling", () => {
     });
     await expect(client.listSegments()).resolves.toEqual([]);
     expect(calls).toBe(2);
+  });
+
+  test("hydrates and unwraps contact properties from point reads", async () => {
+    const fetchImpl: FetchLike = async (url) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === "/contacts") {
+        return {
+          status: 200,
+          headers: { get: () => null },
+          text: async () =>
+            JSON.stringify({
+              data: [
+                {
+                  id: "con_props",
+                  email: "props@example.com",
+                  unsubscribed: false,
+                },
+              ],
+              has_more: false,
+            }),
+        };
+      }
+      return {
+        status: 200,
+        headers: { get: () => null },
+        text: async () =>
+          JSON.stringify({
+            id: "con_props",
+            email: "props@example.com",
+            unsubscribed: false,
+            properties: {
+              cmux_stack_user_id: { type: "string", value: "stack-1" },
+              cmux_previous_emails: {
+                type: "string",
+                value: '["old@example.com"]',
+              },
+            },
+          }),
+      };
+    };
+    const contacts = await new ResendClient({
+      apiKey: "re_props",
+      fetchImpl,
+      writeSpacingMs: 0,
+    }).listContacts();
+    expect(contacts[0].properties).toEqual({
+      cmux_stack_user_id: "stack-1",
+      cmux_previous_emails: '["old@example.com"]',
+    });
   });
 
   test("a cancel signal stops in-flight requests and pending backoff", async () => {

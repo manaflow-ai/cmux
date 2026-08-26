@@ -22,6 +22,8 @@
 import {
   STACK_USER_ID_PROPERTY,
   PREVIOUS_EMAILS_PROPERTY,
+  previousEmailsFromProperty,
+  previousEmailsPropertyValue,
   type NewsletterContact,
   mergeContactSources,
 } from "./contacts";
@@ -180,13 +182,9 @@ export async function syncSegment(options: {
   const revokedToRemove = segmentMembers
     .filter((member) => {
       const email = member.email.trim().toLowerCase();
-      const previousEmails = Array.isArray(
+      const previousEmails = previousEmailsFromProperty(
         member.properties?.[PREVIOUS_EMAILS_PROPERTY],
-      )
-        ? (member.properties?.[PREVIOUS_EMAILS_PROPERTY] as unknown[]).filter(
-            (value): value is string => typeof value === "string",
-          )
-        : [];
+      );
       const wasRevoked =
         revokedEmails.has(email) ||
         previousEmails.some((previous) =>
@@ -239,14 +237,16 @@ export async function syncSegment(options: {
       if (!latest || latest.unsubscribed) continue;
       const previousEmails = new Set<string>([
         ...update.previousEmails,
-        ...((Array.isArray(latest.properties?.[PREVIOUS_EMAILS_PROPERTY])
-          ? latest.properties?.[PREVIOUS_EMAILS_PROPERTY]
-          : []) as string[]),
+        ...previousEmailsFromProperty(
+          latest.properties?.[PREVIOUS_EMAILS_PROPERTY],
+        ),
       ]);
       await client.updateContactEmail(latest.id, update.email, {
         ...(latest.properties ?? {}),
         [STACK_USER_ID_PROPERTY]: update.stackUserId,
-        [PREVIOUS_EMAILS_PROPERTY]: [...previousEmails],
+        [PREVIOUS_EMAILS_PROPERTY]: previousEmailsPropertyValue(
+          [...previousEmails],
+        ),
       });
       if (memberEmails.delete(update.previousEmail)) {
         memberEmails.add(update.email);

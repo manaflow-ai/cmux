@@ -25,29 +25,17 @@
 import {
   PREVIOUS_EMAILS_PROPERTY,
   STACK_USER_ID_PROPERTY,
+  previousEmailsFromProperty,
   type NewsletterContact,
 } from "./contacts";
-
-function previousEmailsFrom(
-  properties: Record<string, unknown> | null | undefined,
-): string[] {
-  const value = properties?.[PREVIOUS_EMAILS_PROPERTY];
-  if (!Array.isArray(value)) return [];
-  return [
-    ...new Set(
-      value.filter((email): email is string => typeof email === "string").map(
-        (email) => email.trim().toLowerCase(),
-      ),
-    ),
-  ];
-}
+import type { ContactPropertyValue } from "./resend-client";
 
 // Existing global contact state read from Resend before any write is planned.
 export type ExistingContact = {
   id: string;
   email: string;
   stackUserId?: string;
-  properties?: Record<string, unknown> | null;
+  properties?: Record<string, ContactPropertyValue> | null;
   firstName?: string;
   lastName?: string;
   unsubscribed: boolean;
@@ -81,7 +69,7 @@ export type ContactNameBackfill = {
 export type ContactPropertiesBackfill = {
   contactId: string;
   email: string;
-  properties: Record<string, unknown>;
+  properties: Record<string, ContactPropertyValue>;
 };
 
 export type ContactEmailUpdate = {
@@ -192,7 +180,9 @@ export function planSegmentSync(options: {
         stackUserId: contact.stackUserId,
         previousEmails: [
           current.email.trim().toLowerCase(),
-          ...previousEmailsFrom(current.properties),
+          ...previousEmailsFromProperty(
+            current.properties?.[PREVIOUS_EMAILS_PROPERTY],
+          ),
         ],
       });
     }

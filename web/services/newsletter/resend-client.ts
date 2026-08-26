@@ -37,8 +37,10 @@ export type ResendContact = {
   first_name?: string | null;
   last_name?: string | null;
   unsubscribed: boolean;
-  properties?: Record<string, unknown> | null;
+  properties?: Record<string, string | number | boolean | null> | null;
 };
+
+export type ContactPropertyValue = string | number | boolean | null;
 
 export type FetchLike = (
   url: string,
@@ -134,6 +136,48 @@ type RequestOptions = {
   redactedLabel?: string;
 };
 
+function normalizeContactProperties(
+  raw: unknown,
+): Record<string, ContactPropertyValue> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const normalized: Record<string, ContactPropertyValue> = {};
+  for (const [key, rawValue] of Object.entries(raw)) {
+    // Some Resend API versions return `{ type, value }` descriptors while
+    // create/update accept scalar values. Normalize both forms at the client
+    // boundary so reconciliation never sends descriptor objects back.
+    const value =
+      rawValue &&
+      typeof rawValue === "object" &&
+      !Array.isArray(rawValue) &&
+      "value" in rawValue
+        ? (rawValue as { value?: unknown }).value
+        : rawValue;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      normalized[key] = value;
+    } else if (
+      Array.isArray(value) &&
+      value.every((item) => typeof item === "string")
+    ) {
+      // Older contact records may have stored a JSON array. Keep it scalar at
+      // the client boundary; callers can decode it when needed.
+      normalized[key] = JSON.stringify(value);
+    }
+  }
+  return normalized;
+}
+
+function normalizeContact(raw: ResendContact): ResendContact {
+  return {
+    ...raw,
+    properties: normalizeContactProperties(raw.properties),
+  };
+}
+
 // Resend rate limits are account-wide, while webhook handlers construct short-
 // lived clients. Share a lane by API key so clients for the same account cannot
 // each believe they are the first writer during a purchase burst. The cap
@@ -185,6 +229,27 @@ export class ResendClient {
     this.maxRetryAfterMs = options.maxRetryAfterMs ?? MAX_RETRY_AFTER_MS;
     this.cancelSignal = options.cancelSignal;
     this.writeLane = writeLaneFor(this.apiKey);
+  }
+
+  private async hydrateContactProperties(
+    contacts: ResendContact[],
+  ): Promise<ResendContact[]> {
+    // List endpoints intentionally return a compact contact shape. Hydrate in
+    // a small bounded worker pool because identity/suppression reconciliation
+    // depends on custom properties, while avoiding an unbounded Promise.all.
+    const hydrated = [...contacts];
+    let nextIndex = 0;
+    const worker = async () => {
+      for (;;) {
+        const index = nextIndex++;
+        if (index >= hydrated.length) return;
+        const detail = await this.getContactById(hydrated[index].id);
+        if (detail) hydrated[index] = { ...hydrated[index], ...detail };
+      }
+    };
+    const workerCount = Math.min(4, hydrated.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return hydrated;
   }
 
   private async request<T>(
@@ -458,14 +523,20 @@ export class ResendClient {
 
   // Account-wide contact listing.
   async listContacts(): Promise<ResendContact[]> {
-    return this.listAll<ResendContact>("/contacts");
+    return this.hydrateContactProperties(
+      (await this.listAll<ResendContact>("/contacts")).map(normalizeContact),
+    );
   }
 
   // One segment's membership, via the segment-scoped endpoint so a bad
   // segment id fails loudly instead of silently returning every contact.
   async listSegmentContacts(segmentId: string): Promise<ResendContact[]> {
-    return this.listAll<ResendContact>(
-      `/segments/${encodeURIComponent(segmentId)}/contacts`,
+    return this.hydrateContactProperties(
+      (
+        await this.listAll<ResendContact>(
+          `/segments/${encodeURIComponent(segmentId)}/contacts`,
+        )
+      ).map(normalizeContact),
     );
   }
 
@@ -474,11 +545,11 @@ export class ResendClient {
   // kept out of error messages via redactedLabel.
   async getContactByEmail(email: string): Promise<ResendContact | null> {
     try {
-      return await this.request<ResendContact>(
+      return normalizeContact(await this.request<ResendContact>(
         "GET",
         `/contacts/${encodeURIComponent(email)}`,
         { redactedLabel: "/contacts/<email>" },
-      );
+      ));
     } catch (error) {
       if (error instanceof ResendApiError && error.status === 404) {
         return null;
@@ -489,11 +560,11 @@ export class ResendClient {
 
   async getContactById(contactId: string): Promise<ResendContact | null> {
     try {
-      return await this.request<ResendContact>(
+      return normalizeContact(await this.request<ResendContact>(
         "GET",
         `/contacts/${encodeURIComponent(contactId)}`,
         { redactedLabel: "/contacts/<id>" },
-      );
+      ));
     } catch (error) {
       if (error instanceof ResendApiError && error.status === 404) {
         return null;
@@ -509,7 +580,7 @@ export class ResendClient {
   // reconcile.ts invariants).
   async createContact(contact: {
     email: string;
-    properties?: Record<string, unknown>;
+    properties?: Record<string, ContactPropertyValue>;
     firstName?: string;
     lastName?: string;
     segmentIds?: string[];
@@ -552,7 +623,7 @@ export class ResendClient {
   async updateContactEmail(
     contactId: string,
     email: string,
-    properties?: Record<string, unknown>,
+    properties?: Record<string, ContactPropertyValue>,
   ): Promise<void> {
     await this.throttledWrite(
       "PATCH",
@@ -569,7 +640,7 @@ export class ResendClient {
 
   async updateContactProperties(
     contactId: string,
-    properties: Record<string, unknown>,
+    properties: Record<string, ContactPropertyValue>,
   ): Promise<void> {
     await this.throttledWrite(
       "PATCH",
