@@ -1543,12 +1543,23 @@ export function openVmPort(input: {
     // Keep the preview token in the same revocation ledger as terminal/RPC
     // endpoints. The raw token is never persisted; only its hash is needed to
     // identify and invalidate this account's lease during sign-out.
+    //
+    // The ledger row must outlive the token it tracks: revocation sweeps only
+    // consider leases whose expiresAt is in the future, so a row that expires
+    // before the provider token does would leave a still-valid 7-day desktop
+    // token invisible to sign-out revocation after the row lapsed. Track the
+    // provider's real expiry, falling back to the default TTL when the driver
+    // reports none.
+    const leaseExpiresAt =
+      typeof endpoint.expiresAtMs === "number" && Number.isFinite(endpoint.expiresAtMs)
+        ? new Date(endpoint.expiresAtMs)
+        : new Date(Date.now() + PREVIEW_ENDPOINT_LEASE_TTL_MS);
     yield* repo.recordLease({
       vmId: vm.id,
       userId: input.userId,
       kind: "preview",
       tokenHash: hashToken(endpoint.token),
-      expiresAt: new Date(Date.now() + PREVIEW_ENDPOINT_LEASE_TTL_MS),
+      expiresAt: leaseExpiresAt,
       transport: "https",
       metadata: { port: input.port },
     }).pipe(
