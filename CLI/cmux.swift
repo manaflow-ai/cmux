@@ -202,6 +202,7 @@ struct ClaudeHookSessionRecord: Codable {
     /// detached worker. The child clears it when it claims the naming pass;
     /// expiry lets a crashed child be reclaimed.
     var autoNameSpawnLeaseAt: TimeInterval?
+    var autoNameSpawnLeaseToken: String?
     /// Highest transcript size observed while the current in-flight owner was
     /// summarizing or reconciling. Its finisher consumes the accumulator only
     /// while it still owns `autoNameLastObservationGeneration`.
@@ -331,9 +332,9 @@ final class ClaudeHookSessionStore {
         workspaceId: String? = nil,
         surfaceId: String? = nil,
         now: Date
-    ) throws -> Bool {
+    ) throws -> String? {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             let timestamp = now.timeIntervalSince1970
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
@@ -345,26 +346,29 @@ final class ClaudeHookSessionStore {
             )
             if let leaseAt = record.autoNameSpawnLeaseAt,
                timestamp - leaseAt < AutoNamingEngine().config.inFlightExpiry {
-                return false
+                return nil
             }
             if let inFlightAt = record.autoNameInFlightAt,
                timestamp - inFlightAt < AutoNamingEngine().config.inFlightExpiry {
-                return false
+                return nil
             }
+            let token = UUID().uuidString
             record.autoNameSpawnLeaseAt = timestamp
+            record.autoNameSpawnLeaseToken = token
             record.updatedAt = timestamp
             state.sessions[normalized] = record
-            return true
+            return token
         }
     }
 
     /// Releases a detached-worker reservation when launch or early setup fails.
-    func releaseAutoNamingSpawn(sessionId: String) throws {
+    func releaseAutoNamingSpawn(sessionId: String, token: String) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
-            record.autoNameSpawnLeaseAt = nil
+            guard var record = state.sessions[normalized],
+                  record.autoNameSpawnLeaseToken == token else { return }
+            record.autoNameSpawnLeaseToken = nil
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
         }
@@ -453,9 +457,6 @@ final class ClaudeHookSessionStore {
                 startedAt: now.timeIntervalSince1970,
                 updatedAt: now.timeIntervalSince1970
             )
-            // A detached child that reaches the store owns the reservation;
-            // clear it before evaluating the normal in-flight throttle.
-            record.autoNameSpawnLeaseAt = nil
             let snapshot = AutoNamingSessionSnapshot(
                 lastTitle: record.autoNameLastTitle,
                 lastLineCount: record.autoNameLastLineCount,
@@ -818,7 +819,6 @@ final class ClaudeHookSessionStore {
                 foldAutoNamingInFlightObservationIntoHighWater(record: &record)
             }
             record.autoNameInFlightAt = nil
-            record.autoNameSpawnLeaseAt = nil
             record.autoNameLastObservationGeneration = nil
             record.autoNameInFlightObservedLineCount = nil
             record.updatedAt = Date().timeIntervalSince1970
@@ -33555,12 +33555,12 @@ export default CMUXSessionRestore;
                     probe: autoNameProbe,
                     session: autoNamingSession,
                     currentProgress: autoNamingProgress
-                ), (try? store.claimAutoNamingSpawn(
+                ), let spawnToken = try? store.claimAutoNamingSpawn(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     now: Date()
-                )) == true {
+                ), let spawnToken {
                     spawnDetachedAgentAutoName(
                         def: def,
                         sessionId: sessionId,
@@ -33568,6 +33568,7 @@ export default CMUXSessionRestore;
                         surfaceId: surfaceId,
                         transcriptPath: autoNamingTranscriptPath,
                         cwd: cwd,
+                        spawnToken: spawnToken,
                         env: env,
                         telemetry: telemetry
                     )

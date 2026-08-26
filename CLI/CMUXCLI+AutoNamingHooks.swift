@@ -185,6 +185,7 @@ extension CMUXCLI {
         surfaceId: String,
         transcriptPath: String?,
         cwd: String?,
+        spawnToken: String,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
     ) {
@@ -215,6 +216,7 @@ extension CMUXCLI {
         ]
         var spawnEnv = env
         spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)
+        spawnEnv["CMUX_AUTO_NAME_SPAWN_TOKEN"] = spawnToken
         process.environment = spawnEnv
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -223,7 +225,7 @@ extension CMUXCLI {
             try process.run()
         } catch {
             try? ClaudeHookSessionStore(processEnv: spawnEnv)
-                .releaseAutoNamingSpawn(sessionId: sessionId)
+                .releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
             telemetry.breadcrumb("\(def.name)-hook.auto-name.spawn-failed")
             return
         }
@@ -258,7 +260,9 @@ extension CMUXCLI {
         let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId)
+        if let spawnToken = normalizedHookValue(env["CMUX_AUTO_NAME_SPAWN_TOKEN"]) {
+            try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
+        }
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("codex-hook.auto-name.stale")
             return
@@ -378,7 +382,7 @@ extension CMUXCLI {
         }
         return .success((
             titleApplied: titleApplied,
-            targetsResolved: !targetUnresolved && workspaceResolved && panelResolved,
+            targetsResolved: terminalSkip || (!targetUnresolved && workspaceResolved && panelResolved),
             terminalSkip: payload["terminal_skip"] as? Bool == true,
             targetUnresolved: targetUnresolved
         ))

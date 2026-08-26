@@ -4215,6 +4215,7 @@ class TerminalController {
                 guard sessionMatches else {
                     workspaceApplySkipped = true
                     if panelId != nil { panelApplySkipped = true }
+                    terminalSkip = true
                     targetUnresolved = true
                     return
                 }
