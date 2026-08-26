@@ -99,11 +99,10 @@ struct ClaudeTaskSyncHookTests {
         let latestTodos = try #require(latestInput["todos"] as? [[String: Any]])
         #expect(latestTodos.compactMap { $0["id"] as? String } == ["1", "3"])
 
-        let taskStoreIdentity = ClaudeTaskStoreIdentity(
-            tasksRootURL: context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
-        )
+        // The task-store scope namespaces durable claims, while the
+        // cross-process lease intentionally uses one bounded file.
         #expect(FileManager.default.fileExists(
-            atPath: context.storeURL.path + ".task-sync.\(taskStoreIdentity.rawValue).lock"
+            atPath: context.storeURL.path + ".task-sync.lock"
         ))
     }
 

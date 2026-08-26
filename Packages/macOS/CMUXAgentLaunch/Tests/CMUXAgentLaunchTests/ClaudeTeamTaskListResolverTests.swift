@@ -401,6 +401,35 @@ struct ClaudeTeamTaskListResolverTests {
         }
     }
 
+    @Test("Current binding lookup fails closed when team metadata changes")
+    func rejectsUnstableCurrentBinding() throws {
+        let root = temporaryTeamsRoot(named: "current-binding-race")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeTeamConfig(
+            name: "Racing_Team",
+            leaderSessionID: "leader-session",
+            leadAgentID: nil,
+            memberIDs: ["agent-teammate"],
+            directoryName: "racing-team",
+            in: root
+        )
+        let marker = root.appendingPathComponent("scan-mutated", isDirectory: true)
+        let fileManager = MutatingTeamScanFileManager {
+            try? FileManager.default.createDirectory(
+                at: marker,
+                withIntermediateDirectories: false
+            )
+        }
+        let resolver = ClaudeTeamTaskListResolver(
+            teamsRootURL: root,
+            fileManager: fileManager
+        )
+
+        #expect(throws: ClaudeTaskSnapshotLoaderError.teamConfigurationChangedDuringScan) {
+            try resolver.currentTaskListBinding(forTaskListID: "Racing_Team")
+        }
+    }
+
     private func temporaryTeamsRoot(named name: String) -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-claude-teams-\(name)-\(UUID().uuidString)",
@@ -426,5 +455,34 @@ struct ClaudeTeamTaskListResolverTests {
         if let leadAgentID { value["leadAgentId"] = leadAgentID }
         let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
         try data.write(to: directory.appendingPathComponent("config.json"))
+    }
+}
+
+private final class MutatingTeamScanFileManager: FileManager {
+    private let mutation: () -> Void
+    private var didMutate = false
+
+    init(mutation: @escaping () -> Void) {
+        self.mutation = mutation
+        super.init()
+    }
+
+    override func enumerator(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: FileManager.DirectoryEnumerationOptions = [],
+        errorHandler handler: ((URL, Error) -> Bool)? = nil
+    ) -> FileManager.DirectoryEnumerator? {
+        let enumerator = super.enumerator(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: mask,
+            errorHandler: handler
+        )
+        if !didMutate {
+            didMutate = true
+            mutation()
+        }
+        return enumerator
     }
 }
