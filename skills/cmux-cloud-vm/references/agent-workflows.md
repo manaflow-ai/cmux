@@ -10,7 +10,7 @@ The routed path — no machine id anywhere:
 cmux vm run --sync -- bun install                                # --sync runs the command inside the synced work/<dir>
 # idempotent start: reuse a live server on the port, otherwise launch one with a
 # workspace-scoped pidfile/log so a later run can tell whose server it is talking to
-cmux vm run --sync -- sh -c 'if wget -qO- http://localhost:3000 >/dev/null 2>&1; then echo "dev server already up (pid $(cat .cmux-dev.pid 2>/dev/null))"; else rm -f .cmux-dev.log; nohup bun run dev > .cmux-dev.log 2>&1 & echo $! > .cmux-dev.pid; fi'
+cmux vm run --sync -- sh -c 'pid=$(cat .cmux-dev.pid 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && netstat -tlnp 2>/dev/null | grep -q ":3000 .*[ /]$pid/"; then echo "dev server already up (pid $pid owns :3000)"; else rm -f .cmux-dev.pid .cmux-dev.log; if netstat -tln 2>/dev/null | grep -q ":3000 "; then echo "port 3000 is owned by another process; not starting a second server" >&2; netstat -tlnp 2>/dev/null | grep ":3000 " >&2; exit 1; fi; nohup bun run dev > .cmux-dev.log 2>&1 & echo $! > .cmux-dev.pid; fi'
 # wait for the port, not a fixed delay; fail loudly with this run's log if it never comes up
 cmux vm run --sync -- sh -c 'for i in $(seq 1 60); do wget -qO- http://localhost:3000 >/dev/null 2>&1 && exit 0; sleep 1; done; tail -n 20 .cmux-dev.log; exit 1'
 id=$(cmux vm run --json -- true | jq -r '.machine')             # the machine the router bound
@@ -28,7 +28,7 @@ cmux vm push "$id" . work/app
 cmux vm exec "$id" -- sh -c 'cd work/app && bun install'
 ```
 
-Finish with `cmux notify --title "Cloud dev server up" --body "<url>"` so the user can leave and return.
+Finish with `cmux notify --title "Cloud dev server up" --body "<url>"` so the user can leave and return. To *show* the machine's shell, `cmux vm shell <id>` opens a cmux-tui session in the app (the machine runs the cmux-tui remote daemon; the pane is a real cmux-tui client with its own workspaces/screens/panes) — use it for the human, keep doing your own work through `vm run`/`exec`.
 
 ## 2. Repo with history (private repos, no credentials on the machine)
 
@@ -45,8 +45,9 @@ Public repos can just clone on the machine: `cmux vm exec <id> -- git clone http
 ## 3. Builds and tests in the cloud instead of the local Mac
 
 ```bash
-# run-scoped paths: a reused machine may hold an older run's log and status
-run=test-$(date +%s)
+# run-scoped paths: a reused machine may hold an older run's log and status, and two
+# launches in the same second must not share one — use a UUID, not a timestamp
+run=test-$(uuidgen | tr 'A-Z' 'a-z' | cut -c1-8)
 cmux vm exec <id> -- sh -c "cd work/app && rm -f /tmp/$run.log /tmp/$run.status && nohup sh -c 'make test > /tmp/$run.log 2>&1; echo \$? > /tmp/$run.status.tmp && mv /tmp/$run.status.tmp /tmp/$run.status' >/dev/null 2>&1 &"
 # poll instead of holding a long exec open: the status file appears (atomically) only
 # when this run finishes and holds its exit code, so pass/fail is never ambiguous

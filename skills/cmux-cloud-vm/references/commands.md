@@ -71,7 +71,7 @@ Aliases: `upload` / `download`. Transfers ride the exec channel (no SSH), chunke
 ```bash
 cmux vm open <id> 3000 --print         # mint a private tokened URL for the port; print only
 cmux vm open <id> 3000                 # same, plus a browser split in the user's app
-cmux vm shell <id>                     # terminal pane attached to the machine
+cmux vm shell <id>                     # cmux-tui session in the app (the machine runs the cmux-tui remote daemon)                     # terminal pane attached to the machine
 cmux vm desktop <id>                   # noVNC screen pane (desktop-image machines only)
 ```
 

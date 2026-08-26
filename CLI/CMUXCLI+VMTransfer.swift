@@ -851,14 +851,14 @@ extension CMUXCLI {
         return Set(store.machines)
     }
 
-    static func saveVMRunPool(_ machines: Set<String>, to url: URL? = nil) {
+    static func saveVMRunPool(_ machines: Set<String>, to url: URL? = nil) throws {
         let storeURL = url ?? vmRunPoolStoreURL()
-        guard let data = try? JSONEncoder().encode(VMRunPoolStore(machines: machines.sorted())) else { return }
-        try? FileManager.default.createDirectory(
+        let data = try JSONEncoder().encode(VMRunPoolStore(machines: machines.sorted()))
+        try FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try? data.write(to: storeURL, options: [.atomic])
+        try data.write(to: storeURL, options: [.atomic])
     }
 
     /// Read-modify-write on the pool store under an exclusive advisory lock, so
@@ -866,26 +866,28 @@ extension CMUXCLI {
     /// only contains its own machine (atomic replacement alone loses the other
     /// id). The lock file sits beside the store; `flock` releases it on close
     /// even if the process dies mid-update.
-    static func updateVMRunPool(at url: URL? = nil, _ mutate: (inout Set<String>) -> Void) {
+    /// Fails loudly instead of degrading to an unlocked or unpersisted update: a
+    /// machine the router provisioned but could not record would be orphaned from
+    /// the pool, so the caller must know.
+    static func updateVMRunPool(at url: URL? = nil, _ mutate: (inout Set<String>) -> Void) throws {
         let storeURL = url ?? vmRunPoolStoreURL()
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         let lockPath = storeURL.path + ".lock"
         let lockFD = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-        if lockFD >= 0 {
-            _ = flock(lockFD, LOCK_EX)
+        guard lockFD >= 0 else {
+            throw CLIError(message: "vm run: could not open the pool lock at \(lockPath): \(String(cString: strerror(errno)))")
         }
-        defer {
-            if lockFD >= 0 {
-                _ = flock(lockFD, LOCK_UN)
-                close(lockFD)
-            }
+        defer { close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else {
+            throw CLIError(message: "vm run: could not lock the pool store at \(lockPath): \(String(cString: strerror(errno)))")
         }
+        defer { _ = flock(lockFD, LOCK_UN) }
         var machines = loadVMRunPool(from: storeURL)
         mutate(&machines)
-        saveVMRunPool(machines, to: storeURL)
+        try saveVMRunPool(machines, to: storeURL)
     }
 
     /// Routing policy, in order:
@@ -922,7 +924,7 @@ extension CMUXCLI {
             if prunedPoolIDs != poolIDs {
                 // Only drop ids that are gone; a concurrent create may have added
                 // one between our load and this write.
-                Self.updateVMRunPool { machines in machines.formIntersection(liveIDs) }
+                try Self.updateVMRunPool { machines in machines.formIntersection(liveIDs) }
             }
             let pool = vms.filter { vm in
                 guard let id = vm["id"] as? String else { return false }
@@ -995,7 +997,13 @@ extension CMUXCLI {
         }
         // Membership is recorded before anything else can fail: this is what
         // makes the machine eligible for reuse by later runs.
-        Self.updateVMRunPool { machines in machines.insert(id) }
+        // A create that cannot be recorded is surfaced, not hidden: the machine exists
+        // on the provider, so the error names it for `--machine` / `vm rm`.
+        do {
+            try Self.updateVMRunPool { machines in machines.insert(id) }
+        } catch {
+            throw CLIError(message: "vm run: provisioned \(id) but could not record it in the pool store (\(error)). Use `cmux vm run --machine \(id)` or `cmux vm rm \(id)`.")
+        }
         // The label is cosmetic (membership is already recorded), but without it
         // the machine is not recognizable as pool in `vm ls`, so say so.
         do {
