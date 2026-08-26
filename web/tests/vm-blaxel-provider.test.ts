@@ -333,6 +333,22 @@ describe("BlaxelProvider preview branding under races", () => {
     process.env.CMUX_VM_BLAXEL_CUSTOM_DOMAIN = savedEnv.domain;
   }
 
+  test("refuses to open the sandbox API and cmuxd ingress ports", async () => {
+    withEnv();
+    const fetchMock = installFetch(() => ({ status: 500, body: { error: "must not be called" } }));
+    try {
+      const provider = new BlaxelProvider();
+      // 8080 is the sandbox control plane; 7777 is cmuxd, whose ingress stays
+      // behind the short-lived attach lease flow, never a week-long token.
+      await expect(provider.openPort("noble-wren", 8080)).rejects.toThrow(/valid port/);
+      await expect(provider.openPort("noble-wren", 7777)).rejects.toThrow(/valid port/);
+      expect(fetchMock.calls).toHaveLength(0);
+    } finally {
+      fetchMock.restore();
+      restoreEnv();
+    }
+  });
+
   test("adopts a preview minted concurrently instead of clobbering it with a hash URL", async () => {
     withEnv();
     let raced = false;

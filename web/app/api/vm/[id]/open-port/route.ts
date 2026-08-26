@@ -65,8 +65,9 @@ export async function POST(
           port,
         }));
         // People see and keep openUrl, so it points at the cmux desktop
-        // wrapper (`cmux_token` on our origin, honest expiry screen); the raw
-        // gateway URL and token stay available for programmatic callers.
+        // wrapper (`cmux_token` in the URL fragment on our origin — never
+        // sent to any server — plus an honest expiry screen); the raw gateway
+        // URL and token stay available for programmatic callers.
         const wrapped = desktopWrapperUrl({
           origin: new URL(request.url).origin,
           vmId: id,

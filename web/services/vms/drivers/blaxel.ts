@@ -1061,8 +1061,17 @@ export class BlaxelProvider implements VMProvider {
       "cmux.vm.provider.open_port",
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "open_port", "cmux.vm.id": vmId, "cmux.vm.port": port },
       async () => {
-        if (!Number.isInteger(port) || port < 1 || port > 65535 || port === CMUX_SANDBOX_API_PORT) {
-          throw new ProviderError("blaxel", `openPort(${vmId}) requires a valid port other than ${CMUX_SANDBOX_API_PORT}`);
+        // 8080 is the sandbox control API; 7777 is cmuxd's own ingress, which stays behind
+        // the short-lived attach flow — a week-long open-port token to the daemon would
+        // outlive every lease the attach path hands out.
+        if (
+          !Number.isInteger(port) || port < 1 || port > 65535 ||
+          port === CMUX_SANDBOX_API_PORT || port === CMUXD_WS_PORT
+        ) {
+          throw new ProviderError(
+            "blaxel",
+            `openPort(${vmId}) requires a valid port other than ${CMUX_SANDBOX_API_PORT} and ${CMUXD_WS_PORT}`,
+          );
         }
         // Wake the sandbox (status read) so the preview answers immediately.
         await this.getSandbox(vmId);
