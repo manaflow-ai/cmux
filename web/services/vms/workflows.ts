@@ -50,6 +50,7 @@ import {
   type CloudVmRow,
   type VmRepositoryShape,
 } from "./repository";
+import { bestEffort, reportBestEffortFailure } from "./bestEffort";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 
 export type VmEntry = {
@@ -586,7 +587,7 @@ function finishBaseCreate(
         generation: create.generation.generation,
         retainedProviderVmId: create.previousVm?.providerVmId ?? null,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.base.lifecycle", { vmId: running.id, provider: input.provider }));
 
     return baseVmEntryFromRows(
       create.base,
@@ -633,7 +634,7 @@ function reopenBaseIfProviderDeleted(
               baseName: input.baseName ?? "base",
               generation: create.generation.generation,
             },
-          }).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(bestEffort("usage_event.vm.destroyed", { vmId: existing.id, provider: existing.provider }));
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
@@ -869,7 +870,7 @@ export function forkVm(input: {
           forkProviderVmId: fork.providerVmId,
           idempotencyKeySet: !!input.idempotencyKey,
         },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(bestEffort("usage_event.vm.forked", { vmId: source.id, provider: source.provider }));
       return { snapshot: null, fork };
     }
 
@@ -905,7 +906,7 @@ export function forkVm(input: {
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.forked", { vmId: source.id, provider: source.provider }));
     return { snapshot, fork };
   });
 }
@@ -927,7 +928,7 @@ function beginCreateWithLazyProviderRefresh(
           input.timing,
           "limit_reconcile",
           refreshActiveLimitProviderStatuses(repo, providers, input),
-        ).pipe(Effect.catchAll(() => Effect.void));
+        ).pipe(bestEffort("active_limit_provider_refresh", { userId: input.userId, billingTeamId: input.billingTeamId }));
         return yield* measureVmEffect(input.timing, "begin_create", repo.beginCreate(input));
       });
     }),
@@ -1015,7 +1016,7 @@ function reconcileObservedProviderStatus(
         provider: vm.provider,
         imageId: vm.imageId,
         metadata: { source: usageEventSource },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(bestEffort("usage_event.vm.destroyed", { vmId: vm.id, provider: vm.provider }));
       return "destroyed" as const;
     }
     return "updated" as const;
@@ -1071,7 +1072,9 @@ function bestEffortPause(
 ): Effect.Effect<void, never> {
   const pause = providers.pause;
   if (!pause) return Effect.void;
-  return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+  return pause(vm.provider, providerVmId).pipe(
+    bestEffort("provider_pause_rollback", { vmId: vm.id, provider: vm.provider }),
+  );
 }
 
 function resumeUntilRunning(
@@ -1140,7 +1143,7 @@ function rollbackPausedResumeReservation(
     id: vm.id,
     providerVmId,
     status: "paused",
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(bestEffort("resume_reservation_rollback", { vmId: vm.id, provider: vm.provider }));
 }
 
 function recordResumeUsageEvent(
@@ -1157,7 +1160,7 @@ function recordResumeUsageEvent(
     provider: vm.provider,
     imageId: vm.imageId,
     metadata: { source: resumeSource },
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(bestEffort("usage_event.vm.resumed", { vmId: vm.id, provider: vm.provider }));
 }
 
 // Active-limit note: the control-plane-owned paused-row resume path is
@@ -1325,7 +1328,9 @@ function recordRunningTransition<E extends VmWorkflowError>(
   const rollbackPause = (): Effect.Effect<void, never> => {
     const pause = providers.pause;
     if (!pause) return Effect.void;
-    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+    return pause(vm.provider, providerVmId).pipe(
+      bestEffort("provider_pause_rollback", { vmId: vm.id, provider: vm.provider }),
+    );
   };
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
@@ -1374,7 +1379,7 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.destroyed", { vmId: vm.id, provider: vm.provider }));
   });
 }
 
@@ -1401,7 +1406,7 @@ export function revokeExpiredIdentityLeases(input: {
         id: lease.id,
         retryAfter,
         error: "revoke pending",
-      }) ?? Effect.void).pipe(Effect.catchAll(() => Effect.void));
+      }) ?? Effect.void).pipe(bestEffort("lease_revocation_retry_mark", { provider: lease.provider }));
       const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
         Effect.as(true),
         Effect.catchAll((err) => {
@@ -1444,7 +1449,7 @@ export function revokeUserIdentityLeasesForAccountDeletion(
           Effect.catchAll((err) => {
             if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
             return repo.markLeasesRevoked(revokedIds).pipe(
-              Effect.catchAll(() => Effect.void),
+              bestEffort("account_deletion.mark_leases_revoked", { userId }),
               Effect.andThen(Effect.fail(new VmAccountDeletionIdentityRevocationError({ cause: err }))),
             );
           }),
@@ -1511,7 +1516,7 @@ export function execVm(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.exec", { vmId: vm.id, provider: vm.provider }));
     return result satisfies ExecResult;
   });
 }
@@ -1581,7 +1586,9 @@ export function openVmPort(input: {
     }).pipe(
       Effect.catchAll((err) => {
         const cleanup = providers.revokeEndpointLeases
-          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(
+            bestEffort("endpoint_lease_rollback", { vmId: vm.id, provider: vm.provider }),
+          )
           : Effect.void;
         return cleanup.pipe(Effect.andThen(Effect.fail(err)));
       }),
@@ -1595,7 +1602,7 @@ export function openVmPort(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { port: input.port },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.open_port", { vmId: vm.id, provider: vm.provider }));
     return endpoint;
   });
 }
@@ -1748,7 +1755,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.attach", { vmId: vm.id, provider: vm.provider }));
     const session = endpoint.transport === "websocket"
       ? yield* repo.upsertVmSession({
         vmId: vm.id,
@@ -1804,7 +1811,7 @@ export function openSshEndpoint(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(bestEffort("usage_event.vm.ssh_endpoint", { vmId: vm.id, provider: vm.provider }));
     return endpoint;
   });
 }
@@ -1993,7 +2000,7 @@ function reserveCreateCredit(
               imageVersion: input.imageVersion ?? null,
               message: errorMessage(err),
             },
-          }).pipe(Effect.catchAll(() => Effect.void))
+          }).pipe(bestEffort("usage_event.vm.create.credit.grant_failed", { vmId: vm.id, provider: input.provider }))
         ),
       );
 
@@ -2010,14 +2017,14 @@ function reserveCreateCredit(
       }).pipe(
         Effect.tapError((err) =>
           Effect.all([
-            repo.markCreateFailed({
+            bestEffort("mark_create_failed", { vmId: vm.id, provider: input.provider })(repo.markCreateFailed({
               id: vm.id,
               code: isVmCreateCreditsInsufficientError(err)
                 ? "billing_credits_insufficient"
                 : "billing_reserve_failed",
               message: errorMessage(err),
-            }),
-            repo.recordUsageEvent({
+            })),
+            bestEffort("usage_event.vm.create.billing_failed", { vmId: vm.id, provider: input.provider })(repo.recordUsageEvent({
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,
@@ -2032,8 +2039,8 @@ function reserveCreateCredit(
                   ? String((err as { _tag?: unknown })._tag)
                   : null,
               },
-            }),
-          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+            })),
+          ], { discard: true })
         ),
       );
       return creditReservation;
@@ -2076,7 +2083,7 @@ function recordCreateRequestedEvents(
           imageVersion: input.imageVersion ?? null,
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ]).pipe(bestEffort("usage_event.vm.create.requested", { vmId: requestedVm.id, provider: input.provider })),
   );
 }
 
@@ -2105,7 +2112,7 @@ function recordCreateSuccessEvents(
           imageVersion: running.imageVersion,
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ]).pipe(bestEffort("usage_event.vm.created", { vmId: running.id, provider: running.provider })),
   );
 }
 
@@ -2187,12 +2194,16 @@ function seedInitialCreateCredits(
 
     yield* billing.applyCreateCreditGrant(grant).pipe(
       Effect.tapError(() =>
-        repo.deleteBillingGrant(claim.grantId).pipe(Effect.catchAll(() => Effect.void))
+        repo.deleteBillingGrant(claim.grantId).pipe(
+          bestEffort("billing_grant_rollback", { vmId: vm.id, provider: input.provider }),
+        )
       ),
     );
-    yield* repo.markBillingGrantApplied(claim.grantId).pipe(Effect.catchAll(() => Effect.void));
+    yield* repo.markBillingGrantApplied(claim.grantId).pipe(
+      bestEffort("billing_grant_mark_applied", { vmId: vm.id, provider: input.provider }),
+    );
     yield* recordGrantEvent(repo, vm, "vm.create.credit.granted", grant)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(bestEffort("usage_event.vm.create.credit.granted", { vmId: vm.id, provider: vm.provider }));
   });
 }
 
@@ -2226,10 +2237,26 @@ function refundCredit(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
   reservation: VmCreateCreditReservation,
-) {
+): Effect.Effect<void, never> {
   return billing.refundCreate(reservation).pipe(
-    Effect.andThen(recordCreditEvent(repo, vm, "vm.create.credit.refunded", reservation)),
-    Effect.catchAll(() => Effect.void),
+    Effect.andThen(
+      recordCreditEvent(repo, vm, "vm.create.credit.refunded", reservation).pipe(
+        bestEffort("usage_event.vm.create.credit.refunded", { vmId: vm.id, provider: vm.provider }),
+      ),
+    ),
+    Effect.catchAll((refundError) =>
+      Effect.gen(function* () {
+        reportBestEffortFailure("billing.refund_create", refundError, {
+          vmId: vm.id,
+          provider: vm.provider,
+        });
+        // A lost refund must stay visible in the billing ledger even though
+        // the parent workflow proceeds best-effort.
+        yield* recordCreditEvent(repo, vm, "vm.create.credit.refund_failed", reservation).pipe(
+          bestEffort("usage_event.vm.create.credit.refund_failed", { vmId: vm.id, provider: vm.provider }),
+        );
+      })
+    ),
   );
 }
 
@@ -2265,7 +2292,9 @@ function revokeEndpointIdentity(provider: ProviderId, endpoint: AttachEndpoint |
   return Effect.gen(function* () {
     if (endpoint.transport !== "ssh" || !endpoint.identityHandle) return;
     const providers = yield* VmProviderGateway;
-    yield* providers.revokeSSHIdentity(provider, endpoint.identityHandle).pipe(Effect.catchAll(() => Effect.void));
+    yield* providers.revokeSSHIdentity(provider, endpoint.identityHandle).pipe(
+      bestEffort("ssh_identity_rollback", { provider }),
+    );
   });
 }
 
