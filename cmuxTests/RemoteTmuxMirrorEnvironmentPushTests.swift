@@ -144,12 +144,21 @@ import Testing
         #expect(pushes.contains(
             "set-environment -t 'work' CMUX_WORKSPACE_ID '11111111-2222-3333-4444-555555555555'"
         ))
+        let localRouteClears: Set<String> = [
+            "set-environment -t 'work' CMUX_PANEL_ID ''",
+            "set-environment -t 'work' CMUX_SOCKET ''",
+            "set-environment -t 'work' CMUX_SOCKET_PATH ''",
+            "set-environment -t 'work' CMUX_SURFACE_ID ''",
+        ]
+        #expect(Set(pushes).isSuperset(of: localRouteClears))
         // Session scope is the point of the fix: `-g` values are invisible to
         // the session-scoped `show-environment` the shell integration runs.
         #expect(pushes.allSatisfy { !$0.contains(" -g ") })
-        // No relay exists on the ssh-tmux transport, so a local socket path
-        // must never be published to the remote.
-        #expect(commands.allSatisfy { !$0.contains("CMUX_SOCKET_PATH") })
+        // No relay exists on the ssh-tmux transport, so a non-empty local
+        // socket or surface route must never survive in the mirrored session.
+        #expect(pushes.allSatisfy {
+            !$0.contains("CMUX_SOCKET_PATH '") || $0.hasSuffix("CMUX_SOCKET_PATH ''")
+        })
         wire.connection.stop()
     }
 
@@ -190,6 +199,13 @@ import Testing
         #expect(pushes.contains(
             "set-environment -t 'work' CMUX_WORKSPACE_ID 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'"
         ))
+        let localRouteClears: Set<String> = [
+            "set-environment -t 'work' CMUX_PANEL_ID ''",
+            "set-environment -t 'work' CMUX_SOCKET ''",
+            "set-environment -t 'work' CMUX_SOCKET_PATH ''",
+            "set-environment -t 'work' CMUX_SURFACE_ID ''",
+        ]
+        #expect(Set(pushes).isSuperset(of: localRouteClears))
         #expect(pushes.allSatisfy { !$0.contains(" -g ") })
         connection.stop()
     }
