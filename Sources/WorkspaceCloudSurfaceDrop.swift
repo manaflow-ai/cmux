@@ -19,9 +19,9 @@ extension Workspace {
     func handleCloudSurfaceDrop(
         item: CloudTreeDragItem,
         destination: BonsplitController.ExternalTabDropRequest.Destination,
-        service: (any CloudTreeServicing)? = CloudTreeServiceAccess.shared
+        service: (any CloudTreeServicing)? = nil
     ) -> Bool {
-        guard let service else { return false }
+        guard let service = service ?? CloudTreeServiceAccess.shared else { return false }
         let targetPane: PaneID
         let placement: CloudTreePlacement
         switch destination {
