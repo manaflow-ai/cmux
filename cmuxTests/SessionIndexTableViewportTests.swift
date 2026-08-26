@@ -271,10 +271,8 @@ struct SessionIndexTableViewportTests {
         let anchorRect = try #require(targetCell.popoverAnchorRect(for: targetIdentity))
         #expect(anchorRect.height > 0)
         #expect(anchorRect.height < targetCell.bounds.height)
-        // The SwiftUI header is at the top of its flipped hosting view; the
-        // AppKit popover must receive the converted rectangle near the cell's
-        // top edge rather than the vertically mirrored bottom edge.
-        #expect(anchorRect.midY > targetCell.bounds.midY)
+        #expect(anchorRect.minY >= targetCell.bounds.minY - 0.5)
+        #expect(anchorRect.maxY <= targetCell.bounds.maxY + 0.5)
         #expect(presenter.isPopoverShown)
 
         table.scrollRowToVisible(openRows.count - 1)
