@@ -1,9 +1,11 @@
 import Foundation
+import CmuxWorkspaces
 
 extension AgentHibernationRecord {
     /// Whether the indexed process set is complete enough to terminate safely.
     var hasPressureSafeProcessEvidence: Bool {
-        hasLiveProcess &&
+        processLiveness == .running &&
+            hasLiveProcess &&
             !containsUnrelatedProcess &&
             !processIDs.isEmpty &&
             processIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
@@ -12,20 +14,40 @@ extension AgentHibernationRecord {
 
     /// Reclaim may terminate a live process only with complete scope evidence.
     var processSafetyAllowsHibernation: Bool {
-        !hasLiveProcess || hasPressureSafeProcessEvidence
+        switch processLiveness {
+        case .exited:
+            return !containsUnrelatedProcess &&
+                !hasLiveProcess &&
+                panelProcessIDs.isEmpty &&
+                processIDs.isEmpty &&
+                processIdentities.isEmpty
+        case .running:
+            return hasPressureSafeProcessEvidence
+        case .unknown:
+            return false
+        }
     }
 }
 
 extension RestorableAgentSessionIndex.Entry {
     /// Whether a fresh index still proves a safe scheduled process scope.
     var processSafetyAllowsScheduledHibernation: Bool {
-        processIDs.isEmpty ||
-            (
+        switch processLiveness {
+        case .exited:
+            return !containsUnrelatedProcess &&
+                processIDs.isEmpty &&
+                hibernationPanelProcessIDs.isEmpty &&
+                terminationProcessIDs.isEmpty &&
+                terminationProcessIdentities.isEmpty
+        case .running:
+            return !processIDs.isEmpty &&
                 !containsUnrelatedProcess &&
-                    !terminationProcessIDs.isEmpty &&
-                    terminationProcessIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
-                    Set(terminationProcessIdentities.keys) == terminationProcessIDs
-            )
+                !terminationProcessIDs.isEmpty &&
+                terminationProcessIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
+                Set(terminationProcessIdentities.keys) == terminationProcessIDs
+        case .unknown:
+            return false
+        }
     }
 }
 
@@ -78,7 +100,7 @@ extension AppDelegate {
                         panelId: panelId,
                         fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
                     )
-                    let processEntry = index.entry(
+                    let processEntry = index.exactEntry(
                         workspaceId: workspace.id,
                         panelId: panelId
                     )
@@ -97,7 +119,8 @@ extension AppDelegate {
                             containsUnrelatedProcess: processEntry?.containsUnrelatedProcess ?? false,
                             panelProcessIDs: processEntry?.hibernationPanelProcessIDs ?? [],
                             processIDs: processEntry?.terminationProcessIDs ?? [],
-                            processIdentities: processEntry?.terminationProcessIdentities ?? [:]
+                            processIdentities: processEntry?.terminationProcessIdentities ?? [:],
+                            processLiveness: processEntry?.processLiveness ?? .unknown
                         )
                     )
                 }

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 struct AgentHibernationPanelKey: Hashable, Sendable {
     let workspaceId: UUID
@@ -20,6 +21,7 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
+    let processLiveness: RestorableAgentProcessLiveness = .unknown
 }
 
 @MainActor

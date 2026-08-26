@@ -9,6 +9,8 @@ extension AgentHibernationController {
         switch entry.processLiveness {
         case .exited:
             return entry.processIDs.isEmpty &&
+                entry.agentProcessIDs.isEmpty &&
+                entry.agentProcessIdentities.isEmpty &&
                 entry.hibernationPanelProcessIDs.isEmpty &&
                 entry.terminationProcessIDs.isEmpty &&
                 entry.terminationProcessIdentities.isEmpty
@@ -35,7 +37,7 @@ extension AgentHibernationController {
             for: record,
             index: index
         )
-        let currentProcessEntry = index.entry(
+        let currentProcessEntry = index.exactEntry(
             workspaceId: record.key.workspaceId,
             panelId: record.key.panelId
         )

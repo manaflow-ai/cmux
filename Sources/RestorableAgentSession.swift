@@ -1027,6 +1027,15 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
+    /// Returns only the process entry keyed by this exact workspace/panel pair.
+    ///
+    /// Unlike ``entry(workspaceId:panelId:)``, this does not use the panel-ID
+    /// compatibility fallback. Process teardown safety must never borrow a
+    /// live scope from a panel's previous workspace after the surface moves.
+    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
+
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
     }

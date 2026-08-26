@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import os
 import Testing
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -351,7 +352,7 @@ struct AgentHibernationTerminationFailureTests {
         )
 
         #expect(record.hasPressureSafeProcessEvidence == false)
-        #expect(record.processSafetyAllowsHibernation)
+        #expect(record.processSafetyAllowsHibernation == false)
     }
 
     @Test

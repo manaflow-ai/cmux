@@ -314,6 +314,14 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             pidsByProcessGroupID[$0] ?? []
         })
         let terminationProcessIDs = descendantProcessIDs.union(processGroupMemberIDs)
+        let terminationTTYDevices = terminationProcessIDs.compactMap {
+            processesByPID[$0]?.ttyDevice
+        }
+        let hasCompleteTerminationTTYEvidence = terminationProcessIDs.isEmpty ||
+            (
+                terminationTTYDevices.count == terminationProcessIDs.count &&
+                    Set(terminationTTYDevices).count == 1
+            )
 
         let hasCompleteAgentRoots =
             !agentProcessIDs.isEmpty &&
@@ -329,6 +337,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             terminationProcessIDs,
             !hasCompleteAgentRoots ||
                 !hasTerminalEvidence ||
+                !hasCompleteTerminationTTYEvidence ||
                 processGroupIDs.isEmpty ||
                 !hasCompleteProcessGroups ||
                 !processGroupMemberIDs.isSubset(of: allowedProcessIDs) ||
