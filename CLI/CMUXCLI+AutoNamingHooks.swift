@@ -260,8 +260,12 @@ extension CMUXCLI {
         let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        if let spawnToken = normalizedHookValue(env["CMUX_AUTO_NAME_SPAWN_TOKEN"]) {
-            try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
+        let spawnToken = normalizedHookValue(env["CMUX_AUTO_NAME_SPAWN_TOKEN"])
+        var spawnLeasePending = spawnToken != nil
+        defer {
+            if spawnLeasePending, let spawnToken {
+                try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId, token: spawnToken)
+            }
         }
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("codex-hook.auto-name.stale")
@@ -296,6 +300,7 @@ extension CMUXCLI {
             allowSummarization: !workspaceUserOwned,
             expectedWorkspaceTitle: probe["workspace_title"] as? String,
             expectedPanelTitle: probe["panel_title"] as? String,
+            spawnToken: spawnToken,
             telemetryKey: "codex-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in

@@ -439,7 +439,8 @@ final class ClaudeHookSessionStore {
         transcriptLineCount: Int,
         now: Date,
         engine: AutoNamingEngine,
-        allowNewTitleGeneration: Bool
+        allowNewTitleGeneration: Bool,
+        spawnToken: String? = nil
     ) throws -> AutoNamingBeginOutcome {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
@@ -469,6 +470,18 @@ final class ClaudeHookSessionStore {
                 inFlightAt: record.autoNameInFlightAt,
                 lastAttemptAt: record.autoNameLastAttemptAt
             )
+            if let spawnToken {
+                guard record.autoNameSpawnLeaseToken == spawnToken else {
+                    return AutoNamingBeginOutcome(
+                        decision: .skipInFlight,
+                        lastTitle: snapshot.lastTitle,
+                        observationGeneration: nil,
+                        reconciliationExhausted: false
+                    )
+                }
+                record.autoNameSpawnLeaseAt = nil
+                record.autoNameSpawnLeaseToken = nil
+            }
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
                 transcriptLineCount: transcriptLineCount,
