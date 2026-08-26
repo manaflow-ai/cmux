@@ -720,9 +720,7 @@ pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
 
 /// Resolve a socket and report whether it belongs to cmux's private runtime
 /// directory. Environment-selected and explicit paths remain caller-managed.
-pub(super) fn resolve_socket_with_origin(
-    global: &GlobalArgs,
-) -> anyhow::Result<(PathBuf, bool)> {
+pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<(PathBuf, bool)> {
     if let Some(path) = &global.socket {
         return Ok((path.clone(), false));
     }

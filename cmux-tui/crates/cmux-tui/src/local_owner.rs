@@ -92,7 +92,7 @@ pub(crate) fn ensure_owner(
     deadline: Instant,
 ) -> Result<Ensured, EnsureError> {
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
-        .map_err(EnsureError::Spawn)?;
+        .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
     if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
         return Ok(Ensured::Running(ready));
     }
@@ -311,7 +311,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    let mut child = command.spawn()?;
+    let child = command.spawn()?;
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
     // lingers as a zombie of a long-lived interactive client.
@@ -373,8 +373,8 @@ impl SpawnLock {
         loop {
             match fs4::FileExt::try_lock(&file) {
                 Ok(()) => return Ok(Self { _file: file }),
-                Err(error) if io::Error::from(error).kind() == io::ErrorKind::WouldBlock => {}
-                Err(error) => return Err(io::Error::from(error)),
+                Err(fs4::TryLockError::WouldBlock) => {}
+                Err(fs4::TryLockError::Error(error)) => return Err(error),
             }
             if Instant::now() >= deadline {
                 return Err(io::Error::new(
