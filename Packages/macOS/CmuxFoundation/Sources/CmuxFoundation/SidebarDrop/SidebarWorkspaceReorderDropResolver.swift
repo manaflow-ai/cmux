@@ -113,21 +113,30 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }()
         let rawTargetIndex: Int = {
+            // A root row can sit on either side of a trailing/leading empty
+            // header. Simulate the insertion in the complete visual top-level
+            // order so a previous realized group row does not force every root
+            // drop to the same group boundary.
+            if context.target?.groupId == nil {
+                return fullOrderGroupInsertionIndex(
+                    request: request,
+                    context: context,
+                    draggedGroup: draggedGroup,
+                    groupOrder: groupOrder,
+                    groupsById: groupsById,
+                    groupByAnchorId: groupByAnchorId,
+                    workspacesById: workspacesById
+                )
+            }
             if let targetGroupId,
                let targetGroupIndex = groupOrder.firstIndex(of: targetGroupId) {
-                let isRootBoundaryAfterGroup = context.target?.groupId == nil
-                    && context.previousTarget?.groupId == targetGroupId
                 return targetGroupIndex
-                    + ((context.edge == .bottom || isRootBoundaryAfterGroup) ? 1 : 0)
+                    + (context.edge == .bottom ? 1 : 0)
             }
-            // Root workspace rows can be separated from the pointer by groups
-            // that are currently offscreen and therefore absent from
-            // `request.targets`. Resolve against the complete top-level order
-            // and the target row's identity instead of counting realized
-            // headers in this viewport.
-            return fullOrderGroupSlotIndex(
+            return fullOrderGroupInsertionIndex(
                 request: request,
                 context: context,
+                draggedGroup: draggedGroup,
                 groupOrder: groupOrder,
                 groupsById: groupsById,
                 groupByAnchorId: groupByAnchorId,
@@ -182,12 +191,14 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         )
     }
 
-    /// Resolves a root-boundary pointer to a slot in the authoritative group
-    /// order. The workspace/group snapshots contain every row even when the
-    /// overlay only realizes a viewport-sized subset of targets.
-    private func fullOrderGroupSlotIndex(
+    /// Returns the pre-removal group insertion index for a root-row drop by
+    /// simulating that drop in the full top-level row order. This preserves the
+    /// distinction between a header before a root row and one trailing after it,
+    /// even when only a viewport-sized subset of targets is realized.
+    private func fullOrderGroupInsertionIndex(
         request: SidebarWorkspaceReorderDropRequest,
         context: SidebarWorkspaceReorderHitContext,
+        draggedGroup: SidebarWorkspaceReorderGroupSnapshot,
         groupOrder: [UUID],
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
         groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
@@ -200,15 +211,17 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             groupByAnchorId: groupByAnchorId,
             promotingWorkspaceId: nil
         )
-        let topLevelIds = topLevelWorkspaceIdsIncludingEmptyGroups(
+        var topLevelIds = topLevelWorkspaceIdsIncludingEmptyGroups(
             baseIds: baseTopLevelIds,
             request: request,
             workspacesById: workspacesById
         )
+        let currentGroupIndex = groupOrder.firstIndex(of: draggedGroup.id) ?? groupOrder.count
+        guard let draggedRowIndex = topLevelIds.firstIndex(of: draggedGroup.anchorWorkspaceId) else {
+            return currentGroupIndex
+        }
+        topLevelIds.remove(at: draggedRowIndex)
 
-        // Prefer the actual containing row. For a gap outside the realized
-        // rows, use the next row's top edge, then the previous row's bottom
-        // edge. A completely unobserved tail is the authoritative end slot.
         let targetAndEdge: (target: SidebarWorkspaceReorderDropTarget, edge: SidebarDropEdge)? = {
             if let target = context.target {
                 return (target, context.edge)
@@ -221,34 +234,72 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             }
             return nil
         }()
-        guard let targetAndEdge else { return groupOrder.count }
-        let target = targetAndEdge.target
-        let edge = targetAndEdge.edge
+        let targetRowId: UUID?
+        let targetEdge: SidebarDropEdge
+        if let targetAndEdge {
+            let target = targetAndEdge.target
+            targetRowId = {
+                if let groupId = target.groupId,
+                   let group = groupsById[groupId] {
+                    return group.anchorWorkspaceId
+                }
+                if let groupId = workspacesById[target.workspaceId]?.groupId,
+                   let group = groupsById[groupId] {
+                    return group.anchorWorkspaceId
+                }
+                return target.workspaceId
+            }()
+            targetEdge = targetAndEdge.edge
+        } else {
+            targetRowId = nil
+            targetEdge = .bottom
+        }
+        let targetIndexBeforeInsertion = targetRowId.flatMap { topLevelIds.firstIndex(of: $0) }
+        let insertionPosition: Int
+        if let targetIndex = targetIndexBeforeInsertion {
+            insertionPosition = targetEdge == .bottom
+                ? targetIndex + 1
+                : targetIndex
+        } else {
+            insertionPosition = targetEdge == .bottom ? topLevelIds.count : 0
+        }
+        topLevelIds.insert(
+            draggedGroup.anchorWorkspaceId,
+            at: max(0, min(insertionPosition, topLevelIds.count))
+        )
 
-        let targetGroupId: UUID? = {
-            if let groupId = target.groupId, groupsById[groupId] != nil {
-                return groupId
+        var emittedGroupIds = Set<UUID>()
+        var projectedGroupOrder: [UUID] = []
+        projectedGroupOrder.reserveCapacity(groupOrder.count)
+        for rowId in topLevelIds {
+            guard let groupId = groupByAnchorId[rowId]?.id,
+                  emittedGroupIds.insert(groupId).inserted else {
+                continue
             }
-            if let groupId = workspacesById[target.workspaceId]?.groupId,
-               groupsById[groupId] != nil {
-                return groupId
-            }
-            return groupByAnchorId[target.workspaceId]?.id
-        }()
-        if let targetGroupId,
-           let groupIndex = groupOrder.firstIndex(of: targetGroupId) {
-            return groupIndex + (edge == .bottom ? 1 : 0)
+            projectedGroupOrder.append(groupId)
         }
-
-        // A root workspace is not itself a group slot. Count all group header
-        // identities before it in the complete top-level row space; this
-        // includes durable empty headers regardless of viewport realization.
-        guard let targetIndex = topLevelIds.firstIndex(of: target.workspaceId) else {
-            return edge == .bottom ? groupOrder.count : 0
+        projectedGroupOrder.append(contentsOf: groupOrder.filter {
+            !emittedGroupIds.contains($0)
+        })
+        guard var finalGroupIndex = projectedGroupOrder.firstIndex(of: draggedGroup.id) else {
+            return currentGroupIndex
         }
-        return topLevelIds[..<targetIndex].reduce(into: 0) { count, id in
-            if groupByAnchorId[id] != nil { count += 1 }
+        // A root row's top edge is the boundary before that row. If the
+        // dragged header currently trails the row, the visual boundary falls
+        // inside the preceding group's run, which cannot represent an empty
+        // header slot. Move to the preceding group slot instead of reporting
+        // the current trailing slot as a no-op.
+        if targetEdge == .top,
+           let targetIndex = targetIndexBeforeInsertion,
+           draggedRowIndex > targetIndex,
+           finalGroupIndex == currentGroupIndex {
+            finalGroupIndex = max(0, currentGroupIndex - 1)
         }
+        // Convert the desired final slot back to the planner's pre-removal
+        // insertion coordinate used by the existing adjustment below.
+        return currentGroupIndex < finalGroupIndex
+            ? finalGroupIndex + 1
+            : finalGroupIndex
     }
 
     private func hitContext(

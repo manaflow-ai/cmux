@@ -1066,7 +1066,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                             && configuration.renameWorkspaceGroup != nil,
                         canSetGroupPinned: capabilities.supportsGroupActions
                             && configuration.setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: !group.isPinned && !group.isEmpty
+                        canUngroupWorkspaceGroup: !group.isPinned
                             && capabilities.supportsGroupActions
                             && configuration.ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: capabilities.supportsGroupActions

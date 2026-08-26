@@ -313,6 +313,81 @@ import Testing
         #expect(plan.indicator?.edge == .bottom)
     }
 
+    @Test func trailingEmptyGroupRootTopDropMovesAcrossPrecedingGroup() throws {
+        let liveGroupId = UUID()
+        let liveAnchorId = UUID()
+        let liveMemberId = UUID()
+        let rootId = UUID()
+        let trailingEmptyGroupId = UUID()
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: SidebarWorkspaceReorderDropRequest(
+                // The top edge of the root row is on the opposite side of the
+                // trailing empty header, even though the preceding group row is
+                // the nearest realized target.
+                point: CGPoint(x: 12, y: 80),
+                draggedWorkspaceId: trailingEmptyGroupId,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(
+                        id: liveAnchorId,
+                        isPinned: false,
+                        groupId: liveGroupId
+                    ),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(
+                        id: liveMemberId,
+                        isPinned: false,
+                        groupId: liveGroupId
+                    ),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(
+                        id: rootId,
+                        isPinned: false,
+                        groupId: nil
+                    ),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: liveGroupId,
+                        anchorWorkspaceId: liveAnchorId,
+                        isPinned: false
+                    ),
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: trailingEmptyGroupId,
+                        anchorWorkspaceId: trailingEmptyGroupId,
+                        isPinned: false,
+                        isEmpty: true
+                    ),
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: liveAnchorId,
+                        groupId: liveGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: liveMemberId,
+                        groupId: liveGroupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 12, y: 40, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootId,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 80, width: 180, height: 32)
+                    ),
+                ]
+            )
+        ))
+
+        guard case .reorderGroup(let targetIndex) = plan.action else {
+            Issue.record("expected a trailing empty-group move")
+            return
+        }
+        #expect(targetIndex == 0)
+        #expect(plan.indicator?.tabId == liveAnchorId)
+        #expect(plan.indicator?.edge == .top)
+    }
+
     @Test func droppingIntoEmptyGroupPreservesHeaderSlot() throws {
         let groupId = UUID()
         let headerId = groupId

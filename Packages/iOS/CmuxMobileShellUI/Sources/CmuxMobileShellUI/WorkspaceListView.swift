@@ -998,7 +998,7 @@ struct WorkspaceListView: View {
                             && renameWorkspaceGroup != nil,
                         canSetGroupPinned: anchorCapabilities.supportsGroupActions
                             && setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: !group.isPinned && !group.isEmpty
+                        canUngroupWorkspaceGroup: !group.isPinned
                             && anchorCapabilities.supportsGroupActions
                             && ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: anchorCapabilities.supportsGroupActions
