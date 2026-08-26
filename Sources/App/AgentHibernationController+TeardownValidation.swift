@@ -36,7 +36,7 @@ extension AgentHibernationController {
             ) &&
             (
                 request.trigger != .systemMemoryPressure ||
-                    currentProcessEntry?.containsUnrelatedProcess == false
+                    currentProcessEntry?.containsUnrelatedProcess != true
             ) &&
             currentHibernationPanelProcessIDs == record.panelProcessIDs &&
             currentTerminationProcessIDs == record.processIDs &&

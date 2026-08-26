@@ -83,7 +83,7 @@ struct SharedLiveAgentIndexLoader {
             processScopeFingerprint: Self.processScopeFingerprint(
                 from: processSnapshot,
                 hibernationProcessScopes: hibernationProcessScopes
-            ),
+            ).union(Self.terminationProcessIdentityFingerprint(from: index)),
             forkValidatedPanels: Self.forkValidatedPanels(
                 in: index,
                 processArgumentsProvider: processArgumentsProvider,
@@ -126,6 +126,28 @@ struct SharedLiveAgentIndexLoader {
             ].joined(separator: "|")
         })
         return fingerprint
+    }
+
+    /// Fingerprints every authorized termination generation so a PID reuse or
+    /// transient identity lookup change replaces the cached index.
+    private static func terminationProcessIdentityFingerprint(
+        from index: RestorableAgentSessionIndex
+    ) -> Set<String> {
+        Set(index.forkValidationEntries().map { key, entry in
+            let identities = entry.terminationProcessIdentities
+                .sorted { $0.key < $1.key }
+                .map { processID, identity in
+                    "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
+                }
+                .joined(separator: ",")
+            return [
+                "hibernation-identities",
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                entry.terminationProcessIDs.sorted().map(String.init).joined(separator: ","),
+                identities
+            ].joined(separator: "|")
+        })
     }
 
     private static func forkValidatedPanels(

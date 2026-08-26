@@ -6,6 +6,7 @@ extension AgentHibernationRecord {
         hasLiveProcess &&
             !containsUnrelatedProcess &&
             !processIDs.isEmpty &&
+            processIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
             processIdentities.count == processIDs.count
     }
 
@@ -28,6 +29,7 @@ extension RestorableAgentSessionIndex.Entry {
             (
                 !containsUnrelatedProcess &&
                     !terminationProcessIDs.isEmpty &&
+                    terminationProcessIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
                     terminationProcessIdentities.count == terminationProcessIDs.count
             )
     }
