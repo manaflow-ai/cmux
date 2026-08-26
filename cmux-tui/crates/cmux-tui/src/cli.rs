@@ -308,18 +308,14 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                     Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
-            "--json" => {
-                set_output_mode(&mut global, OutputMode::Json, value)
-                    .map_err(|error| (error, global.output))?;
-                index += 1;
-            }
-            "--jsonl" => {
-                set_output_mode(&mut global, OutputMode::JsonLines, value)
-                    .map_err(|error| (error, global.output))?;
-                index += 1;
-            }
-            "--quiet" => {
-                set_output_mode(&mut global, OutputMode::Quiet, value)
+            "--json" | "--jsonl" | "--quiet" => {
+                let output = match value.as_str() {
+                    "--json" => OutputMode::Json,
+                    "--jsonl" => OutputMode::JsonLines,
+                    "--quiet" => OutputMode::Quiet,
+                    _ => unreachable!(),
+                };
+                set_output_mode(&mut global, output, value)
                     .map_err(|error| (error, global.output))?;
                 index += 1;
             }
@@ -517,8 +513,8 @@ USAGE
   cmux workspace list
   cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
-  cmux workspace <selector> run [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--correlation-key <value>] shell <script>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace <selector> screen ...
   Nested panes support split --right or --down.
@@ -549,7 +545,7 @@ USAGE
   cmux pane <selector> zoom [--enabled <bool>]
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
 ";
 
@@ -574,6 +570,7 @@ USAGE
   cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
+  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>

@@ -549,10 +549,12 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         // The whole bottom dock is owned by `GhosttySurfaceView` in one
         // coordinate system, so composer growth pushes only the terminal up.
+        .terminalKeyboardGeometryProbe("detail-inside")
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
         )
+        .terminalKeyboardGeometryProbe("detail-outside")
         .background {
             // Fill under translucent chrome with the terminal's own color.
             store.activeTerminalTheme.terminalBackgroundColor

@@ -75,7 +75,7 @@ public struct MobileWorkspaceRecencyOrder: Sendable {
     /// first incoming block position. Pinned groups or workspaces retain the
     /// standing pinned-first behavior without splitting a group. A workspace
     /// whose group metadata is temporarily missing remains an ungrouped row;
-    /// empty group metadata remains invisible, matching the normal list path.
+    /// durable empty group metadata remains visible as a header-only block.
     ///
     /// - Parameters:
     ///   - workspaces: Workspaces in the aggregated sidebar order.
@@ -90,7 +90,9 @@ public struct MobileWorkspaceRecencyOrder: Sendable {
             uniquingKeysWith: { first, _ in first }
         )
         let groupsByAnchorID = Dictionary(
-            groups.map { ($0.anchorWorkspaceID, $0) },
+            groups.compactMap { group in
+                group.liveAnchorWorkspaceID.map { ($0, group) }
+            },
             uniquingKeysWith: { first, _ in first }
         )
         var membersByGroupID: [MobileWorkspaceGroupPreview.ID: GroupMembers] = [:]
@@ -126,8 +128,18 @@ public struct MobileWorkspaceRecencyOrder: Sendable {
         var blocks = ungroupedBlocks
         blocks.reserveCapacity(ungroupedBlocks.count + membersByGroupID.count)
         var emittedGroupIDs = Set<MobileWorkspaceGroupPreview.ID>()
-        for group in groups where emittedGroupIDs.insert(group.id).inserted {
-            guard let members = membersByGroupID[group.id] else { continue }
+        for (groupIndex, group) in groups.enumerated() where emittedGroupIDs.insert(group.id).inserted {
+            guard let members = membersByGroupID[group.id] else {
+                guard group.isEmpty else { continue }
+                blocks.append(DisplayBlock(
+                    group: group,
+                    workspaces: [],
+                    newestActivityAt: nil,
+                    isPinned: group.isPinned,
+                    stableIndex: workspaces.count + groupIndex
+                ))
+                continue
+            }
             blocks.append(DisplayBlock(
                 group: group,
                 workspaces: members.workspaces,

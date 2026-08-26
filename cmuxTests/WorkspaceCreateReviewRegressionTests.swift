@@ -11,6 +11,25 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct WorkspaceCreateReviewRegressionTests {
+    @Test("worktree creation result preserves filesystem identity")
+    func worktreeCreationResultPreservesFilesystemIdentity() {
+        let result = CmuxExtensionWorktreeCreationResult(
+            projectRootPath: "/tmp/project",
+            worktreePath: "/tmp/project/.cmux/worktrees/created",
+            branchName: "cmux-sidebar-created",
+            workspaceTitle: "cmux-sidebar-created",
+            createdHead: String(repeating: "0", count: 40),
+            generatedArtifactRelativePath: "cmux-sample-dev/index.html",
+            generatedArtifactContents: Data(),
+            worktreeDeviceID: 17,
+            worktreeFileID: 29,
+            setupCommand: ""
+        )
+
+        #expect(result.worktreeDeviceID == 17)
+        #expect(result.worktreeFileID == 29)
+    }
+
     @Test func oversizedWorkingDirectoryIsRejectedBeforeClassification() async {
         let classifierCalls = LockedInvocationCount()
         let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(

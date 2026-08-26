@@ -332,6 +332,37 @@ impl TerminalLifecycle {
     }
 }
 
+/// Per-terminal policy for the terminal's views when its hosted process
+/// exits. `Close` (the default) detaches every view and drops the runtime
+/// surface, leaving only the durable exit receipt. `Keep` retains the tabs
+/// and the live screen surface next to that receipt while the daemon runs;
+/// after a daemon restart the in-memory VT is gone, so a kept-exited
+/// terminal degrades to the normal detach during reconciliation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalOnExit {
+    #[default]
+    Close,
+    Keep,
+}
+
+impl TerminalOnExit {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Close => "close",
+            Self::Keep => "keep",
+        }
+    }
+
+    pub fn parse(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "close" => Ok(Self::Close),
+            "keep" => Ok(Self::Keep),
+            other => anyhow::bail!("invalid terminal on-exit policy {other:?}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegistryTerminal {
     pub terminal_id: String,
@@ -340,6 +371,10 @@ pub struct RegistryTerminal {
     pub lifecycle: TerminalLifecycle,
     pub launch_spec: Value,
     pub exit: Option<Value>,
+    /// Defaults on decode so durable JSON written before the policy existed
+    /// (stored intents, journal changes) keeps deserializing as close.
+    #[serde(default)]
+    pub on_exit: TerminalOnExit,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2561,6 +2596,15 @@ impl WorkspaceRegistry {
             migrate_terminal_hosts_to_session_ownership(&tx)?;
             tx.commit()?;
         }
+        // Probe the actual table shape instead of the stamped schema number:
+        // the column ships without a version bump so older builds keep opening
+        // this registry (they omit the column on writes and the durable
+        // default applies).
+        if !terminal_hosts_has_on_exit_column(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_terminal_hosts_add_on_exit(&tx)?;
+            tx.commit()?;
+        }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
             let violation = connection
@@ -2791,7 +2835,7 @@ impl WorkspaceRegistry {
         let revision = current_terminal_revision(&self.connection)?;
         let mut statement = self.connection.prepare(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
-                    launch_spec_json, exit_json
+                    launch_spec_json, exit_json, on_exit
              FROM terminal_hosts
              WHERE lifecycle != 'tombstoned'
              ORDER BY created_revision ASC, terminal_id ASC",
@@ -2804,6 +2848,7 @@ impl WorkspaceRegistry {
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, Option<String>>(5)?,
+                row.get::<_, String>(6)?,
             ))
         })?;
         let terminals =
@@ -2915,14 +2960,15 @@ impl WorkspaceRegistry {
         tx.execute(
             "INSERT INTO terminal_hosts(
                terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
-               exit_json, created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
+               exit_json, on_exit, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
              ON CONFLICT(terminal_id) DO UPDATE SET
                workspace_key=excluded.workspace_key,
                incarnation=excluded.incarnation,
                lifecycle=excluded.lifecycle,
                launch_spec_json=excluded.launch_spec_json,
                exit_json=excluded.exit_json,
+               on_exit=excluded.on_exit,
                updated_revision=excluded.updated_revision,
                deleted_revision=excluded.deleted_revision",
             params![
@@ -2932,6 +2978,7 @@ impl WorkspaceRegistry {
                 terminal.lifecycle.as_str(),
                 launch_spec_json,
                 exit_json,
+                terminal.on_exit.as_str(),
                 sqlite_revision,
                 (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(sqlite_revision),
             ],
@@ -3915,6 +3962,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            ),
            launch_spec_json TEXT NOT NULL,
            exit_json TEXT,
+           on_exit TEXT NOT NULL DEFAULT 'close' CHECK(on_exit IN ('close','keep')),
            created_revision INTEGER NOT NULL,
            updated_revision INTEGER NOT NULL,
            deleted_revision INTEGER
@@ -3958,6 +4006,27 @@ fn terminal_hosts_has_workspace_foreign_key(connection: &Connection) -> anyhow::
         }
     }
     Ok(false)
+}
+
+fn terminal_hosts_has_on_exit_column(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA table_info(terminal_hosts)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        if row.get::<_, String>(1)? == "on_exit" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Add the per-terminal exit policy to registries created before the column
+/// existed. Every pre-existing terminal keeps today's close-on-exit behavior.
+fn migrate_terminal_hosts_add_on_exit(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "ALTER TABLE terminal_hosts ADD COLUMN on_exit TEXT NOT NULL DEFAULT 'close'
+           CHECK(on_exit IN ('close','keep'));",
+    )?;
+    Ok(())
 }
 
 /// Remove the legacy ownership edge from terminals to workspaces. The
@@ -4688,6 +4757,9 @@ fn validate_terminal_transition(
     {
         anyhow::bail!("terminal launch spec cannot change during a live incarnation");
     }
+    if existing.on_exit != desired.on_exit {
+        anyhow::bail!("terminal on-exit policy is fixed at reservation");
+    }
     Ok(())
 }
 
@@ -4705,10 +4777,10 @@ fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyho
     Ok(())
 }
 
-type StoredTerminal = (String, String, Option<String>, String, String, Option<String>);
+type StoredTerminal = (String, String, Option<String>, String, String, Option<String>, String);
 
 fn terminal_from_stored(stored: StoredTerminal) -> anyhow::Result<RegistryTerminal> {
-    let (terminal_id, workspace_key, incarnation, lifecycle, launch_spec, exit) = stored;
+    let (terminal_id, workspace_key, incarnation, lifecycle, launch_spec, exit, on_exit) = stored;
     Ok(RegistryTerminal {
         terminal_id,
         workspace_key,
@@ -4716,6 +4788,7 @@ fn terminal_from_stored(stored: StoredTerminal) -> anyhow::Result<RegistryTermin
         lifecycle: TerminalLifecycle::parse(&lifecycle)?,
         launch_spec: serde_json::from_str(&launch_spec)?,
         exit: exit.map(|value| serde_json::from_str(&value)).transpose()?,
+        on_exit: TerminalOnExit::parse(&on_exit)?,
     })
 }
 
@@ -4726,11 +4799,19 @@ fn read_terminal(
     let stored = connection
         .query_row(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
-                    launch_spec_json, exit_json
+                    launch_spec_json, exit_json, on_exit
              FROM terminal_hosts WHERE terminal_id = ?1",
             [terminal_id],
             |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
             },
         )
         .optional()?;
