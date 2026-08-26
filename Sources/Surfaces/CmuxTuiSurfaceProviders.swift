@@ -154,6 +154,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var materializedPanels: Set<UUID> = []
 
     init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
+        machineID = summary.id
         self.summary = summary
         self.links = links
         self.catalog = catalog
