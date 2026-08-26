@@ -373,10 +373,16 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   const bin = shellQuote(CMUX_TUI_BINARY_PATH);
   const tmp = shellQuote(`${CMUX_TUI_BINARY_PATH}.tmp`);
   const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c -s`;
+  // A stock blaxel/base-image has no curl until background provisioning adds it, so
+  // the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
+  const fetch =
+    `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
+    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
+    `else wget -q -O ${tmp} ${shellQuote(source.url)}; fi`;
   return [
     `mkdir -p ${shellQuote(dirname(CMUX_TUI_BINARY_PATH))}`,
     `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ` +
-      `curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
+      `${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
     `${bin} --version`,
   ].join(" && ");
@@ -602,7 +608,11 @@ export class BlaxelProvider implements VMProvider {
 
   /** Create-time bootstrap for cmux-tui deployments: the watcher, hostname/VNC chain and provisioning as before, cmux-tui instead of cmuxd-remote. */
   private async bootstrapCmuxTuiOnly(name: string, sandboxUrl: string): Promise<void> {
-    await blaxelFetch("PUT", `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`, { content: SMART_SLEEP_SCRIPT, permissions: "0755" });
+    // A just-created sandbox answers 404 ("VM not found") on its API for a few
+    // seconds. The cmuxd path never noticed because encoding the Go binary took
+    // that long; here the first write is the readiness probe and retries instead.
+    await this.awaitSandboxApi(name, sandboxUrl, () =>
+      blaxelFetch("PUT", `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`, { content: SMART_SLEEP_SCRIPT, permissions: "0755" }));
     const prep = await this.sandboxExec(sandboxUrl, `chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux`);
     if (prep.exitCode !== 0) {
       throw new ProviderError("blaxel", `machine prep in ${name} failed: ${prep.stderr || prep.stdout}`);
@@ -620,6 +630,22 @@ export class BlaxelProvider implements VMProvider {
         waitForCompletion: false,
       }).catch(() => undefined),
     ]);
+  }
+
+  private async awaitSandboxApi<T>(name: string, sandboxUrl: string, call: () => Promise<T>): Promise<T> {
+    const deadline = Date.now() + 60_000;
+    let lastError: unknown;
+    while (Date.now() < deadline) {
+      try {
+        return await call();
+      } catch (err) {
+        const notReady = err instanceof ProviderError && /-> 404|VM not found|-> 503/i.test(err.message);
+        if (!notReady) throw err;
+        lastError = err;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+    throw new ProviderError("blaxel", `sandbox API for ${name} did not become reachable`, lastError);
   }
 
   /** Installs (or re-verifies) the pinned binary and starts the daemon. No-op when the deployment has not opted in. */

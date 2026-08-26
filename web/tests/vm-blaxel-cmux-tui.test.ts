@@ -62,7 +62,10 @@ describe("cmux-tui install and daemon commands", () => {
     // Skip the download when the installed copy already matches the pin.
     expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui' | sha256sum -c -s; then :; else`);
     // The download is verified against the same pin before it replaces anything.
+    // A stock base image has no curl yet: install it, else fall back to busybox wget.
+    expect(command).toContain("command -v curl >/dev/null 2>&1 || apk add --no-cache curl");
     expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o '/root/.cmux/bin/cmux-tui.tmp' '${URL}'`);
+    expect(command).toContain(`else wget -q -O '/root/.cmux/bin/cmux-tui.tmp' '${URL}'; fi`);
     expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui.tmp' | sha256sum -c -s && chmod 755`);
     expect(command).toContain("ln -sfn '/root/.cmux/bin/cmux-tui' /usr/local/bin/cmux-tui");
     expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
