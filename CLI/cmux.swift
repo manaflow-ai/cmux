@@ -1151,6 +1151,23 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Advances hook-message progress without retaining conversation content.
+    func recordAutoNamingMessageProgress(sessionId: String, observedCount: Int) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            let count = max(0, observedCount)
+            guard count > 0 || record.autoNameRecentMessages != nil else { return }
+            record.autoNameRecentMessages = nil
+            if count > 0 {
+                record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + count
+            }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
@@ -35232,7 +35249,9 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: workspaceId
+                            workspaceId: workspaceId,
+                            sessionId: sessionId,
+                            sessionStore: store
                         ),
                         rejectTerminalTurn: def.name == "codex"
                     )) ?? (staleTerminalTurn: false, nested: false)
@@ -35612,7 +35631,9 @@ export default CMUXSessionRestore;
                         for: def,
                         parsedInput: input,
                         client: client,
-                        workspaceId: workspaceId
+                        workspaceId: workspaceId,
+                        sessionId: sessionId,
+                        sessionStore: store
                     )
                 )) ?? false
             } else {
@@ -36298,7 +36319,9 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: workspaceId
+                            workspaceId: workspaceId,
+                            sessionId: sessionId,
+                            sessionStore: store
                         )
                     )
                 } else {
@@ -36501,7 +36524,9 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: mapped.workspaceId
+                            workspaceId: mapped.workspaceId,
+                            sessionId: sessionId,
+                            sessionStore: store
                         )
                     )
                 }

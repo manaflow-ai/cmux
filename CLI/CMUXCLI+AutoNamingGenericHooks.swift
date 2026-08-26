@@ -115,6 +115,8 @@ extension CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         client: SocketClient,
         workspaceId: String,
+        sessionId: String,
+        sessionStore: ClaudeHookSessionStore,
         engine: AutoNamingEngine = AutoNamingEngine()
     ) -> [AutoNamingTranscriptMessage] {
         guard usesHookMessageCacheForAutoNaming(def),
@@ -127,7 +129,18 @@ extension CMUXCLI {
         ), probe["enabled"] as? Bool == true else {
             return []
         }
-        return engine.extractHookMessages(fromPayloadObjects: [object])
+        let messages = engine.extractHookMessages(fromPayloadObjects: [object])
+        if probe["workspace_user_owned"] as? Bool == true {
+            // Manual workspace ownership opts out of retaining conversation
+            // excerpts. Keep only monotonic progress so an independently
+            // auto-owned panel can still detect compaction/reconciliation.
+            try? sessionStore.recordAutoNamingMessageProgress(
+                sessionId: sessionId,
+                observedCount: messages.count
+            )
+            return []
+        }
+        return messages
     }
 
     /// Detached naming pass for non-Codex generic agents.
@@ -189,7 +202,7 @@ extension CMUXCLI {
                 return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
             case .hookMessageCache:
                 guard let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId),
-                      !snapshot.messages.isEmpty else {
+                      workspaceUserOwned || !snapshot.messages.isEmpty else {
                     return nil
                 }
                 return (
@@ -516,7 +529,13 @@ extension CMUXCLI {
         )
         switch applyOutcome {
         case .success(let applied):
-            if applied.targetsResolved {
+            if applied.targetUnresolved {
+                // The socket owner could not prove this session still owns the
+                // target. Consume the observed transcript high-water without
+                // claiming a title so unchanged input cannot spend another
+                // summarizer process after every cooldown.
+                baselineConfirmedWithoutTitle = true
+            } else if applied.targetsResolved {
                 if applied.titleApplied {
                     confirmedTitle = sanitized
                 } else if let lastTitle = outcome.lastTitle {

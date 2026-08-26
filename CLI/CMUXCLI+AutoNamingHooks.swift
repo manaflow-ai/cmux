@@ -275,6 +275,9 @@ extension CMUXCLI {
             return
         }
         let suppliedTranscriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
+        // Deliberately do not fall back to `findCodexTranscriptPath`: title
+        // identity must come from this hook invocation or its persisted
+        // cmux-owned session binding, never a newest-file/mtime scan.
         let transcriptPath = suppliedTranscriptPath ?? normalizedHookValue(currentSession?.transcriptPath)
         if let suppliedTranscriptPath {
             try? sessionStore.recordAutoNamingTranscriptPath(
