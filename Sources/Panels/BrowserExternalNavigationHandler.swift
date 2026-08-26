@@ -61,10 +61,21 @@ struct BrowserExternalNavigationHandler {
     ) -> Bool {
         guard navigationType == .linkActivated,
               targetFrameIsMain != false,
+              Self.isWebNavigationURL(url),
               !Self.isAppOwnedInternalURL(url) else {
             return false
         }
         return shouldOpenExternally(url)
+    }
+
+    /// Rule-based browser handoffs are limited to web links. Other schemes
+    /// retain the browser's existing confirmation/fallback policy instead of
+    /// letting a user rule silently launch an arbitrary registered app.
+    private static func isWebNavigationURL(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "http", "https": return true
+        default: return false
+        }
     }
 
     private static func isAppOwnedInternalURL(_ url: URL) -> Bool {

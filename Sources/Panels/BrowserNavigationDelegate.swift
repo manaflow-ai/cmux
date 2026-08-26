@@ -327,6 +327,11 @@ import WebKit
                 ) ?? {}
                 reportTerminalCancellation()
                 decisionHandler(.cancel)
+                browserPresentExternalNavigationFailure(
+                    for: url,
+                    in: webView,
+                    presentAlert: presentAlert
+                )
                 return
             case .notConfigured:
                 break

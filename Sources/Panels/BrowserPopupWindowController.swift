@@ -467,7 +467,13 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 navigationType: navigationAction.navigationType,
                 targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
             ) {
-            case .opened, .failed:
+            case .opened:
+                return nil
+            case .failed:
+                browserPresentExternalNavigationFailure(
+                    for: url,
+                    in: webView
+                )
                 return nil
             case .notConfigured:
                 break
@@ -754,6 +760,10 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         case .failed:
             clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.cancel)
+            browserPresentExternalNavigationFailure(
+                for: url,
+                in: webView
+            )
             return
         case .notConfigured:
             break

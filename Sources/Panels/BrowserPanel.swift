@@ -1109,7 +1109,7 @@ private func browserPresentExternalNavigationPrompt(
     }
 }
 
-private func browserPresentExternalNavigationFailure(
+func browserPresentExternalNavigationFailure(
     for url: URL,
     in webView: WKWebView,
     presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -6092,6 +6092,22 @@ extension BrowserPanel {
         ) else {
             return
         }
+
+        // Context-menu tab creation bypasses WKNavigationDelegate, so apply
+        // the same configured external rule before creating a sibling tab.
+        switch BrowserExternalNavigationHandler().openConfiguredExternallyResult(
+            seed.url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true
+        ) {
+        case .opened:
+            return
+        case .failed:
+            browserPresentExternalNavigationFailure(for: seed.url, in: webView)
+            return
+        case .notConfigured:
+            break
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
@@ -8296,7 +8312,14 @@ private final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 navigationType: navigationAction.navigationType,
                 targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
             ) {
-            case .opened, .failed:
+            case .opened:
+                return nil
+            case .failed:
+                browserPresentExternalNavigationFailure(
+                    for: url,
+                    in: webView,
+                    presentAlert: presentAlert
+                )
                 return nil
             case .notConfigured:
                 break
