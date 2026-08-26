@@ -4579,10 +4579,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: window,
             queue: .main
         ) { [weak self] notification in
-            guard let occludedWindow = notification.object as? NSWindow else { return }
-            self?.terminalSurface?.setRendererWindowVisible(
-                occludedWindow.occlusionState.contains(.visible)
-            )
+            // NotificationCenter's closure is nonisolated even with
+            // `queue: .main`; the AppKit notification is delivered on the
+            // main actor, so keep this visibility transition synchronous.
+            MainActor.assumeIsolated {
+                guard let occludedWindow = notification.object as? NSWindow else { return }
+                self?.terminalSurface?.setRendererWindowVisible(
+                    occludedWindow.occlusionState.contains(.visible)
+                )
+            }
         }
         terminalSurface?.setRendererWindowVisible(
             window.occlusionState.contains(.visible)
