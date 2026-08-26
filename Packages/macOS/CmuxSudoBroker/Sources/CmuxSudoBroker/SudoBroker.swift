@@ -15,6 +15,9 @@ public actor SudoBroker {
     private var runnerMonitorTasks: [String: Task<Void, Never>] = [:]
     private var recoveredRunnerTasks: [String: Task<Void, Never>] = [:]
     private var cleanupRetryTasks: [String: Task<Void, Never>] = [:]
+    private var requesterExitTasks: [String: Task<Void, Never>] = [:]
+    private var requesterExitGenerations: [String: UInt64] = [:]
+    private var nextRequesterExitGeneration: UInt64 = 0
     private var cleanupRetryNotBefore: [String: Date] = [:]
     private var cleanupRecoveryAttempts: [String: Int] = [:]
     private var refreshTask: Task<Void, Never>?
@@ -52,7 +55,8 @@ public actor SudoBroker {
                     signaler: signaler
                 ),
                 watcher: SudoSpoolWatcher(),
-                requesterInspector: inspector
+                requesterInspector: inspector,
+                requesterExitObserver: SudoProcessExitObserver(inspector: inspector)
             ),
             messages: messages
         )
@@ -92,6 +96,15 @@ public actor SudoBroker {
     /// - Returns: Every active request snapshot after startup reconciliation.
     /// - Throws: A spool or watcher error when safe observation cannot start.
     public func start() async throws -> [SudoPendingRequest] {
+        // A second start supersedes callbacks registered by the prior watch
+        // generation. Cancel them before refreshing so a stale exit event cannot
+        // consume the newly armed observer for the same request.
+        let activeRequesterExitTasks = Array(requesterExitTasks.values)
+        for task in activeRequesterExitTasks {
+            task.cancel()
+        }
+        requesterExitTasks.removeAll()
+        requesterExitGenerations.removeAll()
         watcherGeneration &+= 1
         let generation = watcherGeneration
         shouldWatch = true
@@ -124,16 +137,26 @@ public actor SudoBroker {
         let now = await dependencies.clock.now()
         settleCompletedRecords(publishChanges: false)
 
-        for (id, record) in records {
+        for id in Array(records.keys) {
+            guard let record = records[id] else { continue }
             guard let phase = store.state(id: id)?.phase,
                   phase != record.phase else {
                 continue
             }
-            records[id] = SudoPendingRequest(
+            let updatedRecord = SudoPendingRequest(
                 request: record.request,
                 script: record.script,
                 phase: phase
             )
+            records[id] = updatedRecord
+            if phase == .pendingApproval {
+                if requesterExitTasks[id] == nil,
+                   let currentRecord = records[id] {
+                    scheduleRequesterExit(for: currentRecord)
+                }
+            } else {
+                cancelRequesterExit(id: id)
+            }
         }
 
         let snapshots = store.pendingRequests()
@@ -282,6 +305,9 @@ public actor SudoBroker {
                 if expiryTasks[id] == nil, existing.phase == .pendingApproval {
                     scheduleExpiry(for: existing)
                 }
+                if existing.phase == .pendingApproval, requesterExitTasks[id] == nil {
+                    scheduleRequesterExit(for: existing)
+                }
                 continue
             }
 
@@ -297,6 +323,7 @@ public actor SudoBroker {
             if expiryTasks[id] == nil {
                 scheduleExpiry(for: pending)
             }
+            scheduleRequesterExit(for: pending)
         }
         publishSnapshot()
         return discovered
@@ -404,6 +431,7 @@ public actor SudoBroker {
             }
         case .approved(let manifest):
             cancelExpiry(id: id)
+            cancelRequesterExit(id: id)
             records[id] = SudoPendingRequest(
                 request: pending.request,
                 script: pending.script,
@@ -470,6 +498,12 @@ public actor SudoBroker {
         cleanupRetryTasks.removeAll()
         cleanupRetryNotBefore.removeAll()
         cleanupRecoveryAttempts.removeAll()
+        let activeRequesterExitTasks = Array(requesterExitTasks.values)
+        for task in activeRequesterExitTasks {
+            task.cancel()
+        }
+        requesterExitTasks.removeAll()
+        requesterExitGenerations.removeAll()
         await dependencies.watcher?.stop()
         await activeRefreshTask?.value
         for task in activeExpiryTasks {
@@ -479,6 +513,9 @@ public actor SudoBroker {
             await task.value
         }
         for task in activeCleanupRetryTasks {
+            await task.value
+        }
+        for task in activeRequesterExitTasks {
             await task.value
         }
         refreshTask = nil
@@ -515,6 +552,76 @@ public actor SudoBroker {
                 return
             }
         }
+    }
+
+    private func scheduleRequesterExit(for pending: SudoPendingRequest) {
+        guard pending.phase == .pendingApproval,
+              let identity = pending.request.requesterIdentity,
+              let observer = dependencies.requesterExitObserver else {
+            return
+        }
+        let id = pending.request.id
+        let generation = watcherGeneration
+        cancelRequesterExit(id: id)
+        nextRequesterExitGeneration &+= 1
+        let observationGeneration = nextRequesterExitGeneration
+        requesterExitGenerations[id] = observationGeneration
+        requesterExitTasks[id] = Task { [weak self] in
+            for await _ in observer.events(for: identity) {
+                guard !Task.isCancelled else { return }
+                await self?.requesterExited(
+                    id: id,
+                    identity: identity,
+                    generation: generation,
+                    observationGeneration: observationGeneration
+                )
+                return
+            }
+        }
+    }
+
+    private func requesterExited(
+        id: String,
+        identity: SudoProcessIdentity,
+        generation: UInt64,
+        observationGeneration: UInt64
+    ) async {
+        guard requesterExitGenerations[id] == observationGeneration else {
+            return
+        }
+        defer {
+            if requesterExitGenerations[id] == observationGeneration {
+                requesterExitTasks.removeValue(forKey: id)
+                requesterExitGenerations.removeValue(forKey: id)
+            }
+        }
+        guard shouldWatch,
+              generation == watcherGeneration,
+              let record = records[id],
+              record.phase == .pendingApproval,
+              record.request.requesterIdentity == identity else {
+            return
+        }
+        let now = await dependencies.clock.now()
+        guard !Task.isCancelled,
+              shouldWatch,
+              generation == watcherGeneration,
+              requesterExitGenerations[id] == observationGeneration,
+              let currentRecord = records[id],
+              currentRecord.phase == .pendingApproval,
+              currentRecord.request.requesterIdentity == identity else {
+            return
+        }
+        settleIfPossible(
+            SudoResult(
+                id: id,
+                status: .failed,
+                errorCode: .requesterUnavailable,
+                note: messages.requesterUnavailable
+            ),
+            auditStatus: "failed requester-exit",
+            at: now
+        )
     }
 
     private func expirePending(id: String) async {
@@ -595,18 +702,14 @@ public actor SudoBroker {
                 return
             }
             cancelRunnerMonitor(id: result.id)
-            records[result.id] = SudoPendingRequest(
+            let pending = SudoPendingRequest(
                 request: record.request,
                 script: record.script,
                 phase: .pendingApproval
             )
-            scheduleExpiry(
-                for: SudoPendingRequest(
-                    request: record.request,
-                    script: record.script,
-                    phase: .pendingApproval
-                )
-            )
+            records[result.id] = pending
+            scheduleExpiry(for: pending)
+            scheduleRequesterExit(for: pending)
             publishSnapshot()
         }
     }
@@ -638,8 +741,9 @@ public actor SudoBroker {
     private func settleCompletedRecords(publishChanges: Bool = true) {
         var removedRecord = false
         for id in Array(records.keys) {
-            guard store.result(id: id) != nil else { continue }
+            guard store.authoritativeResult(id: id) != nil else { continue }
             cancelExpiry(id: id)
+            cancelRequesterExit(id: id)
             cancelRunnerMonitor(id: id)
             cancelRecoveredRunnerReconciliation(id: id)
             records.removeValue(forKey: id)
@@ -662,7 +766,7 @@ public actor SudoBroker {
     private func runnerTerminated(requestID: String) async {
         cancelRecoveredRunnerReconciliation(id: requestID)
         runnerMonitorTasks.removeValue(forKey: requestID)
-        if store.result(id: requestID) != nil {
+        if store.authoritativeResult(id: requestID) != nil {
             settleCompletedRecords()
             return
         }
@@ -676,7 +780,7 @@ public actor SudoBroker {
             states: [state],
             approvedDirectory: store.paths.approved
         )
-        guard store.result(id: requestID) == nil else {
+        guard store.authoritativeResult(id: requestID) == nil else {
             settleCompletedRecords()
             return
         }
@@ -697,6 +801,7 @@ public actor SudoBroker {
     ) throws {
         _ = try store.settle(result)
         cancelExpiry(id: result.id)
+        cancelRequesterExit(id: result.id)
         cancelRunnerMonitor(id: result.id)
         cancelRecoveredRunnerReconciliation(id: result.id)
         cancelCleanupRetry(id: result.id)
@@ -710,6 +815,11 @@ public actor SudoBroker {
 
     private func cancelExpiry(id: String) {
         expiryTasks.removeValue(forKey: id)?.cancel()
+    }
+
+    private func cancelRequesterExit(id: String) {
+        requesterExitTasks.removeValue(forKey: id)?.cancel()
+        requesterExitGenerations.removeValue(forKey: id)
     }
 
     private func cancelRunnerMonitor(id: String) {

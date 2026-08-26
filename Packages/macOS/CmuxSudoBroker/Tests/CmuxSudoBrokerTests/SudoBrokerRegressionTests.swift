@@ -258,6 +258,44 @@ struct SudoBrokerRegressionTests {
         #expect(fixture.store.result(id: request.id)?.errorCode == .requesterUnavailable)
     }
 
+    @Test(
+        "Requester exit settles a pending request without waiting for its deadline",
+        .timeLimit(.minutes(1))
+    )
+    func requesterExitSettlesPendingRequest() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(
+            id: "requester-exit",
+            createdAt: now,
+            timeoutSeconds: 3_600
+        )
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: TestExecutionRecovery(),
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector(),
+                requesterExitObserver: ImmediateRequesterExitObserver()
+            ),
+            messages: messages
+        )
+
+        _ = try await broker.start()
+        for _ in 0..<100 {
+            await Task.yield()
+            if fixture.store.result(id: request.id) != nil { break }
+        }
+
+        #expect(fixture.store.result(id: request.id)?.errorCode == .requesterUnavailable)
+        #expect(await broker.pendingRequests().isEmpty)
+        await broker.stop()
+    }
+
     @Test("Startup rejects legacy requests without a generation-qualified requester")
     func startupRejectsMissingRequesterIdentity() async throws {
         let fixture = try SudoTestFixture()
@@ -479,5 +517,14 @@ struct SudoBrokerRegressionTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.store.approvedScriptURL(id: request.id).path))
         #expect(fixture.store.manifest(id: request.id) == nil)
         #expect(fixture.store.result(id: request.id)?.errorCode == .processCleanupFailed)
+    }
+}
+
+private struct ImmediateRequesterExitObserver: SudoProcessExitObserving {
+    func events(for identity: SudoProcessIdentity) -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            continuation.yield(())
+            continuation.finish()
+        }
     }
 }

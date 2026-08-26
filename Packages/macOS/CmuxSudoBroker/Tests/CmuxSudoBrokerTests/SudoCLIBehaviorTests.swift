@@ -189,7 +189,7 @@ struct SudoCLIBehaviorTests {
         let requestID = "consumed-output"
         let outputURL = fixture.store.outputURL(id: requestID)
         try Data("root output\n".utf8).write(to: outputURL)
-        try fixture.store.writeResultIfAbsent(
+        try fixture.store.settle(
             SudoResult(id: requestID, status: .completed, exitCode: 0)
         )
         let waiter = SudoResultWaiter(store: fixture.store, io: output.io)
@@ -212,7 +212,7 @@ struct SudoCLIBehaviorTests {
         let requestID = "abandoned-output"
         let outputURL = fixture.store.outputURL(id: requestID)
         try Data("uncollected\n".utf8).write(to: outputURL)
-        try fixture.store.writeResultIfAbsent(
+        try fixture.store.settle(
             SudoResult(id: requestID, status: .completed, exitCode: 0)
         )
         try FileManager.default.setAttributes(

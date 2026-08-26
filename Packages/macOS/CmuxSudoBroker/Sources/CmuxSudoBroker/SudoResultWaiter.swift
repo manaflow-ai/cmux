@@ -17,6 +17,10 @@ struct SudoResultWaiter {
     ) throws -> SudoResultWaitOutcome {
         let leaseDescriptor = try store.acquireResultLease(id: requestID)
         defer { store.releaseResultLease(id: requestID, descriptor: leaseDescriptor) }
+        // Reconcile a broker crash before arming the waiter. This also makes a
+        // committed result observable when the app exited during archival. The
+        // lease is held first so maintenance cannot prune this waiter's output.
+        try store.ensureDirectories()
         var outputDescriptor: Int32 = -1
         defer {
             if outputDescriptor >= 0 { close(outputDescriptor) }
@@ -26,15 +30,23 @@ struct SudoResultWaiter {
         guard queue >= 0 else { throw SudoResultWaitError.queue(errno) }
         defer { close(queue) }
 
-        let directoryDescriptor = Darwin.open(
-            store.paths.results.path,
-            O_EVTONLY | O_CLOEXEC
-        )
-        guard directoryDescriptor >= 0 else {
+        let watchedDirectories = [
+            store.paths.results,
+            store.paths.requests,
+            store.paths.states,
+        ].map { directory in
+            Darwin.open(directory.path, O_EVTONLY | O_CLOEXEC)
+        }
+        guard watchedDirectories.allSatisfy({ $0 >= 0 }) else {
+            for descriptor in watchedDirectories where descriptor >= 0 { close(descriptor) }
             throw SudoResultWaitError.directory(errno)
         }
-        defer { close(directoryDescriptor) }
-        try registerVnode(descriptor: directoryDescriptor, queue: queue)
+        defer {
+            for descriptor in watchedDirectories { close(descriptor) }
+        }
+        for descriptor in watchedDirectories {
+            try registerVnode(descriptor: descriptor, queue: queue)
+        }
 
         let timerIdentifier = UInt.max
         let remainingSeconds = max(0, deadline.timeIntervalSinceNow)
@@ -58,7 +70,7 @@ struct SudoResultWaiter {
                 descriptor: &outputDescriptor
             )
             try drainOutput(descriptor: outputDescriptor)
-            if let result = store.result(id: requestID) {
+            if let result = store.authoritativeResult(id: requestID) {
                 try drainOutput(descriptor: outputDescriptor)
                 store.removeOutput(id: requestID)
                 return .result(result)
@@ -80,7 +92,7 @@ struct SudoResultWaiter {
                         descriptor: &outputDescriptor
                     )
                     try drainOutput(descriptor: outputDescriptor)
-                    if let settled = store.result(id: requestID) {
+                    if let settled = store.authoritativeResult(id: requestID) {
                         store.removeOutput(id: requestID)
                         return .result(settled)
                     }
@@ -109,7 +121,7 @@ struct SudoResultWaiter {
                 note: note
             )
         )
-        if let result = store.result(id: requestID) {
+        if let result = store.authoritativeResult(id: requestID) {
             store.removeOutput(id: requestID)
             if disposition == .pendingApproval,
                result.errorCode == .approvalTimedOut {

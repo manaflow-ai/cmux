@@ -192,7 +192,7 @@ public struct SudoCLICommand {
                 approvalTimeoutNote: failureMessages.approvalTimedOut
             )
         } catch {
-            if let result = store.result(id: request.id) {
+            if let result = store.authoritativeResult(id: request.id) {
                 return resultCode(.result(result), requestID: request.id)
             }
             let disposition = try? store.settlePendingTimeout(

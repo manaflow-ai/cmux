@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -13,6 +14,7 @@ struct SudoSpoolStore {
     private let fileManager: FileManager
     private let now: () -> Date
     private let maximumRequestBytes = 64 * 1_024
+    private static let commitmentByteCount = 32
 
     init(
         paths: SudoBrokerPaths,
@@ -44,6 +46,7 @@ struct SudoSpoolStore {
             }
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         }
+        reconcileResultCommitments()
         performMaintenance(at: now())
     }
 
@@ -103,13 +106,21 @@ struct SudoSpoolStore {
         }
     }
 
+    /// Reads at most the configured pending and active request envelope.
+    ///
+    /// Files beyond the envelope are rejected from discovery and remain inert;
+    /// normal maintenance reclaims stale artifacts.
     func pendingRequests() -> [SudoPendingRequest] {
         let names = (try? fileManager.contentsOfDirectory(atPath: paths.requests.path)) ?? []
-        return names.sorted().compactMap { name in
-            guard name.hasSuffix(".json") else { return nil }
+        var pendingCount = 0
+        var pendingScriptBytes = 0
+        var activeCount = 0
+        var snapshots: [SudoPendingRequest] = []
+        for name in names.sorted() {
+            guard name.hasSuffix(".json") else { continue }
             let id = String(name.dropLast(5))
             guard Self.isValidRequestID(id),
-                  result(id: id) == nil,
+                  authoritativeResult(id: id) == nil,
                   let requestData = try? readData(
                     at: paths.requests.appendingPathComponent(name),
                     maximumBytes: maximumRequestBytes
@@ -121,11 +132,30 @@ struct SudoSpoolStore {
                     maximumBytes: resourcePolicy.maximumScriptBytes
                   ),
                   let script = String(data: scriptData, encoding: .utf8) else {
-                return nil
+                continue
             }
             let phase = state(id: id)?.phase ?? .pendingApproval
-            return SudoPendingRequest(request: request, script: script, phase: phase)
+            switch phase {
+            case .pendingApproval:
+                let maximumCount = max(0, resourcePolicy.maximumPendingRequestCount)
+                let maximumBytes = max(0, resourcePolicy.maximumPendingScriptBytes)
+                guard pendingCount < maximumCount,
+                      scriptData.count <= maximumBytes - pendingScriptBytes else {
+                    continue
+                }
+                pendingCount += 1
+                pendingScriptBytes += scriptData.count
+            case .approved, .executing:
+                guard activeCount < resourcePolicy.maximumActiveRunnerCount else {
+                    continue
+                }
+                activeCount += 1
+            }
+            snapshots.append(
+                SudoPendingRequest(request: request, script: script, phase: phase)
+            )
         }
+        return snapshots
     }
 
     func state(id: String) -> SudoRequestState? {
@@ -151,18 +181,48 @@ struct SudoSpoolStore {
     }
 
     func result(id: String) -> SudoResult? {
-        guard Self.isValidRequestID(id),
-              let data = try? readData(
-                at: paths.results.appendingPathComponent("\(id).json"),
-                maximumBytes: maximumRequestBytes
-              ) else {
-            return nil
-        }
+        guard let data = resultData(id: id) else { return nil }
         guard let result = try? Self.decoder.decode(SudoResult.self, from: data),
               result.id == id else {
             return nil
         }
         return result
+    }
+
+    /// Returns a result only after the request artifacts have been durably settled.
+    ///
+    /// A result file that appears while request/state artifacts are still live is
+    /// treated as an untrusted preexisting write and never drives broker or CLI
+    /// state transitions.
+    func authoritativeResult(id: String) -> SudoResult? {
+        guard let data = resultData(id: id),
+              let result = try? Self.decoder.decode(SudoResult.self, from: data),
+              result.id == id,
+              let commitment = try? readData(
+                  at: resultCommitmentURL(id: id),
+                  maximumBytes: Self.commitmentByteCount
+              ),
+              commitment == Self.resultCommitment(for: data) else {
+            return nil
+        }
+        guard !hasLiveSettlementEvidence(id: id, result: result) else { return nil }
+        return result
+    }
+
+    private func resultData(id: String) -> Data? {
+        guard Self.isValidRequestID(id) else { return nil }
+        return try? readData(
+            at: paths.results.appendingPathComponent("\(id).json"),
+            maximumBytes: maximumRequestBytes
+        )
+    }
+
+    private func resultCommitmentURL(id: String) -> URL {
+        paths.results.appendingPathComponent("\(id).commit")
+    }
+
+    private static func resultCommitment(for data: Data) -> Data {
+        Data(SHA256.hash(data: data))
     }
 
     func manifest(id: String) -> SudoExecutionManifest? {
@@ -342,13 +402,30 @@ struct SudoSpoolStore {
     func settle(_ result: SudoResult) throws -> Bool {
         try withRequestLock(id: result.id) {
             let didWrite = try writeResultIfAbsent(result)
-            guard let authoritativeResult = self.result(id: result.id) else {
+            guard let persistedResult = self.result(id: result.id) else {
                 throw SudoSpoolError.invalidExistingResult
             }
+            guard persistedResult == result else {
+                guard self.authoritativeResult(id: result.id) != nil else {
+                    throw SudoSpoolError.resultAlreadyExists
+                }
+                return false
+            }
+            guard let persistedData = resultData(id: result.id) else {
+                throw SudoSpoolError.invalidExistingResult
+            }
+            // Publish the commitment before moving the request artifacts. The
+            // authoritative read still requires those artifacts to be gone, so
+            // a crash after this write can be reconciled safely on startup.
+            try writeResultCommitmentIfNeeded(id: result.id, data: persistedData)
             archiveArtifacts(
                 id: result.id,
-                preserveExecutionEvidence: authoritativeResult.errorCode == .processCleanupFailed
+                preserveExecutionEvidence: persistedResult.errorCode == .processCleanupFailed
             )
+            guard !hasLiveSettlementEvidence(id: result.id, result: persistedResult),
+                  resultData(id: result.id) != nil else {
+                throw SudoSpoolError.settlementIncomplete
+            }
             return didWrite
         }
     }
@@ -357,15 +434,82 @@ struct SudoSpoolStore {
         try withRequestLock(id: result.id) {
             let phase = state(id: result.id)?.phase
             let disposition = SudoCLITimeoutDisposition.resolve(phase: phase)
-            guard disposition == .pendingApproval, self.result(id: result.id) == nil else {
+            guard disposition == .pendingApproval else {
                 return disposition
             }
-            _ = try writeResultIfAbsent(result)
-            guard self.result(id: result.id) != nil else {
-                throw SudoSpoolError.invalidExistingResult
+            let persistedResult: SudoResult
+            if let existingResult = self.result(id: result.id) {
+                if self.authoritativeResult(id: result.id) != nil {
+                    return disposition
+                }
+                guard existingResult == result else {
+                    throw SudoSpoolError.resultAlreadyExists
+                }
+                persistedResult = existingResult
+            } else {
+                guard try writeResultIfAbsent(result) else {
+                    guard let existingResult = self.result(id: result.id),
+                          existingResult == result else {
+                        throw SudoSpoolError.resultAlreadyExists
+                    }
+                    persistedResult = existingResult
+                    return try commitPendingTimeout(
+                        result: persistedResult,
+                        disposition: disposition
+                    )
+                }
+                persistedResult = result
             }
-            archiveArtifacts(id: result.id, preserveExecutionEvidence: false)
-            return .pendingApproval
+            return try commitPendingTimeout(
+                result: persistedResult,
+                disposition: disposition
+            )
+        }
+    }
+
+    private func commitPendingTimeout(
+        result: SudoResult,
+        disposition: SudoCLITimeoutDisposition
+    ) throws -> SudoCLITimeoutDisposition {
+        guard let persistedData = resultData(id: result.id),
+              let persistedResult = self.result(id: result.id),
+              persistedResult == result else {
+            throw SudoSpoolError.invalidExistingResult
+        }
+        // Keep the commitment durable before archival so a killed CLI can be
+        // repaired by the next spool startup.
+        try writeResultCommitmentIfNeeded(id: result.id, data: persistedData)
+        archiveArtifacts(id: result.id, preserveExecutionEvidence: false)
+        guard !hasLiveSettlementEvidence(id: result.id, result: persistedResult) else {
+            throw SudoSpoolError.settlementIncomplete
+        }
+        return disposition
+    }
+
+    private func writeResultCommitmentIfNeeded(id: String, data: Data) throws {
+        let expected = Self.resultCommitment(for: data)
+        let url = resultCommitmentURL(id: id)
+        if fileManager.fileExists(atPath: url.path) {
+            guard let existing = try? readData(
+                at: url,
+                maximumBytes: Self.commitmentByteCount
+            ), existing == expected else {
+                throw SudoSpoolError.resultAlreadyExists
+            }
+            return
+        }
+        guard try writeAtomically(
+            expected,
+            to: url,
+            permissions: 0o600,
+            exclusive: true
+        ) else {
+            guard let existing = try? readData(
+                at: url,
+                maximumBytes: Self.commitmentByteCount
+            ), existing == expected else {
+                throw SudoSpoolError.settlementIncomplete
+            }
         }
     }
 
@@ -374,14 +518,14 @@ struct SudoSpoolStore {
         return names.sorted().compactMap { name in
             guard name.hasSuffix(".json") else { return nil }
             let id = String(name.dropLast(5))
-            guard result(id: id)?.errorCode == .processCleanupFailed else { return nil }
+            guard authoritativeResult(id: id)?.errorCode == .processCleanupFailed else { return nil }
             return state(id: id)
         }
     }
 
     func archiveRecoveredCleanup(id: String) throws {
         try withRequestLock(id: id) {
-            guard result(id: id)?.errorCode == .processCleanupFailed else { return }
+            guard authoritativeResult(id: id)?.errorCode == .processCleanupFailed else { return }
             archiveArtifacts(id: id, preserveExecutionEvidence: false)
         }
     }
@@ -564,6 +708,16 @@ struct SudoSpoolStore {
             }
         )
         pruneRegularFiles(
+            in: paths.results,
+            before: cutoff,
+            maximumTotalBytes: resourcePolicy.maximumResultBytes,
+            isEligible: { url in
+                guard url.pathExtension == "commit" else { return false }
+                let id = url.deletingPathExtension().lastPathComponent
+                return Self.isValidRequestID(id) && !hasActiveEvidence(id: id)
+            }
+        )
+        pruneRegularFiles(
             in: paths.locks,
             before: cutoff,
             maximumTotalBytes: .max,
@@ -582,6 +736,70 @@ struct SudoSpoolStore {
         try? withStoreLock(name: "audit") {
             trimAuditLog(forIncomingByteCount: 0)
         }
+    }
+
+    private func reconcileResultCommitments() {
+        let names = (try? fileManager.contentsOfDirectory(atPath: paths.results.path)) ?? []
+        for name in names where name.hasSuffix(".json") {
+            let id = String(name.dropLast(5))
+            try? withRequestLock(id: id) {
+                guard let data = resultData(id: id),
+                      let result = try? Self.decoder.decode(SudoResult.self, from: data),
+                      result.id == id else {
+                    return
+                }
+                let commitmentURL = resultCommitmentURL(id: id)
+                if fileManager.fileExists(atPath: commitmentURL.path) {
+                    // A committed result may have been interrupted during
+                    // archival. Verify the digest before touching any live
+                    // request artifacts, then finish the moves.
+                    guard let commitment = try? readData(
+                        at: commitmentURL,
+                        maximumBytes: Self.commitmentByteCount
+                    ), commitment == Self.resultCommitment(for: data) else {
+                        return
+                    }
+                    archiveArtifacts(
+                        id: id,
+                        preserveExecutionEvidence: result.errorCode == .processCleanupFailed
+                    )
+                    return
+                }
+
+                // Without a commitment, only a result whose request envelope
+                // has already disappeared is eligible for crash recovery. A
+                // live envelope could still be an unrelated preexisting write.
+                let requestJSON = paths.requests.appendingPathComponent("\(id).json")
+                let requestScript = paths.requests.appendingPathComponent("\(id).sh")
+                guard !fileManager.fileExists(atPath: requestJSON.path),
+                      !fileManager.fileExists(atPath: requestScript.path) else {
+                    return
+                }
+                if hasLiveSettlementEvidence(id: id, result: result) {
+                    archiveArtifacts(
+                        id: id,
+                        preserveExecutionEvidence: result.errorCode == .processCleanupFailed
+                    )
+                }
+                guard !hasLiveSettlementEvidence(id: id, result: result) else { return }
+                try? writeResultCommitmentIfNeeded(id: id, data: data)
+            }
+        }
+    }
+
+    private func hasLiveSettlementEvidence(id: String, result: SudoResult) -> Bool {
+        let requestJSON = paths.requests.appendingPathComponent("\(id).json")
+        let requestScript = paths.requests.appendingPathComponent("\(id).sh")
+        if fileManager.fileExists(atPath: requestJSON.path)
+            || fileManager.fileExists(atPath: requestScript.path) {
+            return true
+        }
+        guard result.errorCode != .processCleanupFailed else { return false }
+        return fileManager.fileExists(atPath: stateURL(id: id).path)
+            || fileManager.fileExists(
+                atPath: paths.executions.appendingPathComponent("\(id).json").path
+            )
+            || fileManager.fileExists(atPath: approvedScriptURL(id: id).path)
     }
 
     private func pruneAtomicWriteTemps(before cutoff: Date) {
@@ -609,11 +827,26 @@ struct SudoSpoolStore {
 
     private func pendingUsage(at date: Date) -> (requestCount: Int, scriptBytes: Int) {
         let names = (try? fileManager.contentsOfDirectory(atPath: paths.requests.path)) ?? []
+        let maximumPendingRequestCount = max(0, resourcePolicy.maximumPendingRequestCount)
+        let maximumPendingScriptBytes = max(0, resourcePolicy.maximumPendingScriptBytes)
         var requestCount = 0
         var scriptBytes = 0
         for name in names where name.hasSuffix(".sh") {
+            if requestCount >= maximumPendingRequestCount
+                || scriptBytes >= maximumPendingScriptBytes {
+                return (
+                    maximumPendingRequestCount,
+                    maximumPendingScriptBytes
+                )
+            }
             let id = String(name.dropLast(3))
-            guard Self.isValidRequestID(id), result(id: id) == nil else { continue }
+            // A raw result is still an execution/settlement barrier, but it is
+            // not enough to release admission capacity until its commitment is
+            // authoritative. This keeps forged preexisting results from
+            // bypassing the pending-resource envelope.
+            guard Self.isValidRequestID(id), authoritativeResult(id: id) == nil else {
+                continue
+            }
             let requestURL = paths.requests.appendingPathComponent("\(id).json")
             guard let data = try? readData(at: requestURL, maximumBytes: maximumRequestBytes),
                   let request = try? Self.decoder.decode(SudoRequest.self, from: data) else {
@@ -624,6 +857,9 @@ struct SudoSpoolStore {
             }
             let scriptURL = paths.requests.appendingPathComponent(name)
             guard let info = regularFileInfo(at: scriptURL) else { continue }
+            guard info.size <= maximumPendingScriptBytes - scriptBytes else {
+                return (maximumPendingRequestCount, maximumPendingScriptBytes)
+            }
             requestCount += 1
             scriptBytes += info.size
         }
@@ -655,6 +891,9 @@ struct SudoSpoolStore {
                 atPath: paths.requests.appendingPathComponent("\(id).json").path
             ) || fileManager.fileExists(atPath: stateURL(id: id).path)
             || fileManager.fileExists(
+                atPath: paths.requests.appendingPathComponent("\(id).sh").path
+            )
+            || fileManager.fileExists(
                 atPath: paths.executions.appendingPathComponent("\(id).json").path
             )
             || fileManager.fileExists(
@@ -683,6 +922,7 @@ struct SudoSpoolStore {
             || fileManager.fileExists(
                 atPath: paths.results.appendingPathComponent("\(id).json").path
             )
+            || fileManager.fileExists(atPath: resultCommitmentURL(id: id).path)
     }
 
     private func pruneRegularFiles(
@@ -967,4 +1207,6 @@ enum SudoSpoolError: Error {
     case writeFailed(String, Int32)
     case lockFailed(Int32)
     case invalidExistingResult
+    case resultAlreadyExists
+    case settlementIncomplete
 }
