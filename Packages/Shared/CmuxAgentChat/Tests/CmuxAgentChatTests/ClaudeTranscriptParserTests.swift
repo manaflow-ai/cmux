@@ -265,6 +265,27 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.status == .failed)
     }
 
+    @Test("Explicit Claude success status wins over the No matches display heuristic")
+    func explicitSuccessStatusWinsForNoMatches() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_grep_success", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_grep_success",
+                content: "No matches",
+                isError: false
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.status == .succeeded)
+    }
+
     @Test("Edit tool maps to a fileEdit with line counts and a -/+ diff")
     func editTool() {
         let line = assistantLine(blocks: [

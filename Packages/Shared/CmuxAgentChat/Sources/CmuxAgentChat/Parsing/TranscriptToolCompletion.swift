@@ -47,10 +47,16 @@ struct TranscriptToolCompletion: Sendable {
 
     /// Whether the result proves the pending invocation completed successfully.
     var succeeded: Bool {
-        guard isError != true else { return false }
+        // An explicit provider flag is authoritative for display. In
+        // particular, Claude's successful Grep result may legitimately say
+        // "No matches"; that text is only a failure heuristic when the
+        // provider omitted its status. Mutation authorization remains
+        // fail-closed in `authorizesMutation` below.
+        if let isError {
+            return !isError
+        }
         if let exitCode { return exitCode == 0 }
         if reportsFailureWithoutExitStatus { return false }
-        if isError == false { return true }
         return hasPositiveSuccessEvidence
     }
 
