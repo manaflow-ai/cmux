@@ -122,7 +122,7 @@ private struct WorkspaceTaskQueueRowView: View {
                 .font(.caption)
             }
             Spacer()
-            if row.boundWorkspaceID != nil {
+            if row.boundWorkspaceID != nil, row.boundWorkspaceTitle != nil {
                 Label(String(localized: "taskQueue.bound", defaultValue: "Running"), systemImage: "bolt.fill")
                     .font(.caption)
                     .foregroundStyle(.green)

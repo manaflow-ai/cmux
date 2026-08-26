@@ -517,12 +517,37 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             return .notDispatchable
         }
         if let boundWorkspaceID = item.boundWorkspaceID {
-            let boundWorkspaceIsLive = app.allWorkspacesForAgentTodoRetirement.contains {
+            let boundWorkspace = app.allWorkspacesForAgentTodoRetirement.first {
                 $0.id == boundWorkspaceID
             }
-            if boundWorkspaceIsLive {
-                return .notDispatchable
+            if let boundWorkspace {
+                // A workspace can outlive the process it dispatched. Revalidate
+                // the structured PID identities before treating the binding as
+                // active; a stale lifecycle/status row must not block retry.
+                _ = boundWorkspace.clearStaleAgentPIDs(refreshPorts: false)
+                let normalizedAgent = target.agentName?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                let candidateStatusKeys: Set<String> = if let normalizedAgent,
+                                                               !normalizedAgent.isEmpty {
+                    [
+                        normalizedAgent,
+                        FeedCoordinator.lifecycleStatusKey(forSource: normalizedAgent),
+                    ]
+                } else {
+                    []
+                }
+                let boundWorkspaceIsLive = boundWorkspace.agentPIDs.keys.contains { key in
+                    candidateStatusKeys.isEmpty
+                        || candidateStatusKeys.contains(boundWorkspace.agentStatusKey(forAgentPIDKey: key))
+                }
+                if boundWorkspaceIsLive {
+                    return .notDispatchable
+                }
             }
+            // The target is closed or its recorded process is gone. Keep the
+            // source row and target configuration, but release the stale
+            // binding before creating a replacement workspace.
             guard source.clearChecklistItemBinding(id: itemID) else { return .notFound }
         }
         guard let sourceManager = app.tabManagerFor(tabId: source.id) ?? tabManager else {

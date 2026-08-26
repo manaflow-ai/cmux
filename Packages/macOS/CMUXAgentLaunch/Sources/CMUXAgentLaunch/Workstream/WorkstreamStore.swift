@@ -383,23 +383,24 @@ public final class WorkstreamStore {
                 }
             }
             return (.toolUse, .toolUse(toolName: toolName, toolInputJSON: toolInput))
-        case .postToolUse:
+        case .postToolUse, .postToolUseFailure:
             let toolName = event.toolName ?? ""
+            let isError = event.hookEventName == .postToolUseFailure || (event.isError ?? false)
             if let taskTool = WorkstreamTaskTool(rawValue: toolName) {
                 var accumulator = taskToolTodosByWorkstream[event.sessionId] ?? WorkstreamTaskToolTodos()
                 let outcome = accumulator.applyPost(
                     tool: taskTool,
                     inputJSON: event.toolInputJSON,
                     responseJSON: event.toolResponseJSON,
-                    isError: event.isError ?? false,
+                    isError: isError,
                     requestID: event.requestId
                 )
-                if !outcome.producedList || (event.isError ?? false) {
+                if !outcome.producedList || isError {
                     accumulator.invalidateCompleteness()
                 }
                 taskToolTodosByWorkstream[event.sessionId] = accumulator
                 taskToolListCompletenessByWorkstream[event.sessionId] =
-                    !(event.isError ?? false) && outcome.producedList
+                    !isError && outcome.producedList
                     ? accumulator.isComplete
                     : false
                 touchTaskToolWorkstream(event.sessionId)
@@ -411,11 +412,6 @@ public final class WorkstreamStore {
             return (
                 .toolResult,
                 .toolResult(toolName: toolName, resultJSON: toolInput, isError: event.isError ?? false)
-            )
-        case .postToolUseFailure:
-            return (
-                .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: true)
             )
         case .preCompact:
             return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))

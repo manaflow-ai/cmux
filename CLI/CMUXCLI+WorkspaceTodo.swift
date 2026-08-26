@@ -121,7 +121,9 @@ extension CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: "todo requires a subcommand. Try: add, list, queue, dispatch, reveal, target, check, uncheck, start, edit, rm, move, clear, set, open")
         }
-        let aggregateSubcommands: Set<String> = ["queue", "all", "refresh"]
+        let aggregateSubcommands: Set<String> = [
+            "queue", "all", "refresh", "dispatch", "reveal", "target",
+        ]
         let (params, rest) = try workspaceTodoTarget(
             Array(commandArgs.dropFirst()),
             client: client,
