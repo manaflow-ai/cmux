@@ -18,6 +18,8 @@ extension TerminalController {
                     payload["limits"] = [
                         "maxActiveVms": limits.maxActiveVms,
                         "planId": limits.planId,
+                        "freeAccessWindowDays": limits.freeAccessWindowDays,
+                        "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload
@@ -329,6 +331,9 @@ extension TerminalController {
         ]
         if let displayName = vm.displayName, !displayName.isEmpty {
             payload["displayName"] = displayName
+        }
+        if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
+            payload["freeAccessExpiresAt"] = freeAccessExpiresAt
         }
         if let base = vm.base {
             payload["base"] = [

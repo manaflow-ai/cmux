@@ -69,6 +69,14 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
+            MachinesFreeAccessBanner(
+                text: text,
+                isExpired: plan.freeAccessBanner == .expired,
+                windowDays: plan.freeAccessWindowDays,
+                backgroundColor: chromeBackgroundColor
+            )
+        }
         content
     }
 
@@ -435,16 +443,16 @@ private struct MachinePlanMeter: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var meterText: String {
-        let format = String(
-            localized: "machines.meter.count",
-            defaultValue: "%1$d of %2$d machines"
-        )
-        return String(format: format, plan.activeCount, plan.maxActiveVms)
-    }
+    private var meterText: String { plan.countLabel }
 
     private var meterHelp: String {
         if plan.isAtLimit && !plan.isPaidPlan {
+            if plan.isSingleMachinePlan {
+                return String(
+                    localized: "machines.meter.help.atLimit.single",
+                    defaultValue: "Your plan includes 1 machine. Upgrade to create more."
+                )
+            }
             return String(
                 localized: "machines.meter.help.atLimit",
                 defaultValue: "Your plan includes %d machines. Upgrade to create more."
@@ -453,6 +461,58 @@ private struct MachinePlanMeter: View {
         return String(
             localized: "machines.meter.help",
             defaultValue: "Machines on your plan. Sleeping machines cost nothing."
+        )
+    }
+}
+
+/// One line under the header on free plans: how long the fleet stays
+/// reachable, counting down to the earliest machine's expiry, and the way out
+/// (the whole line is the upgrade affordance — the same Pro flow the ＋ button
+/// opens at the machine ceiling).
+private struct MachinesFreeAccessBanner: View {
+    let text: String
+    let isExpired: Bool
+    let windowDays: Int
+    let backgroundColor: NSColor
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            ProUpgradePresenter.present()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: isExpired ? "lock.fill" : "clock")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(text)
+                    .cmuxFont(size: 11, monospacedDigit: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                Text(String(localized: "machines.freeAccess.upgrade", defaultValue: "Upgrade"))
+                    .cmuxFont(size: 11)
+                    .underline(isHovered)
+            }
+            .foregroundColor(isExpired ? Color.orange : .secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .background(Color(nsColor: backgroundColor))
+        .help(helpText)
+        .accessibilityLabel(text)
+        .accessibilityIdentifier("CloudMachinesFreeAccessBanner")
+    }
+
+    private var helpText: String {
+        String(
+            format: String(
+                localized: "machines.freeAccess.help",
+                defaultValue: "Free plans keep a machine reachable for %d days after it is created. Upgrade to Pro to keep using it."
+            ),
+            windowDays
         )
     }
 }

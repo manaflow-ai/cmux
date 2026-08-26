@@ -64,14 +64,64 @@ struct MachineSnapshot: Equatable, Identifiable {
     }
 }
 
-/// Plan meter shown in the panel header: "2 of 3 machines".
+/// Plan meter shown in the panel header: "2 of 3 machines" / "1 of 1 machine".
 struct MachinePlanSnapshot: Equatable {
+    /// What the header says about the free plan's access window. Precomputed
+    /// against a clock in the view model so no row or meter reads `Date()` in
+    /// `body`; `.none` on paid plans and when nothing is on a window.
+    enum FreeAccessBanner: Equatable {
+        case none
+        /// More than a day left; `countdown` reads like "6d 23h".
+        case expiresIn(countdown: String)
+        /// Under a day left; `countdown` reads like "5h 12m".
+        case expiresToday(countdown: String)
+        /// The window closed: machines are preserved but locked until upgrade.
+        case expired
+    }
+
     let activeCount: Int
     let maxActiveVms: Int
     let planId: String
+    /// Days the plan keeps a machine reachable after creation; 0 = no window.
+    var freeAccessWindowDays: Int = 0
+    /// Earliest free-access expiry across the fleet (server value when present).
+    var freeAccessExpiresAt: Date? = nil
+    var freeAccessBanner: FreeAccessBanner = .none
 
     var isAtLimit: Bool { activeCount >= maxActiveVms }
     var isPaidPlan: Bool { planId != "free" }
+    /// Single-machine plans (free) read "1 of 1 machine", never "machines".
+    var isSingleMachinePlan: Bool { maxActiveVms == 1 }
+
+    /// The header meter text, singular/plural chosen by the plan's ceiling.
+    var countLabel: String {
+        if isSingleMachinePlan {
+            let format = String(localized: "machines.meter.count.single", defaultValue: "%1$d of 1 machine")
+            return String(format: format, activeCount)
+        }
+        let format = String(localized: "machines.meter.count", defaultValue: "%1$d of %2$d machines")
+        return String(format: format, activeCount, maxActiveVms)
+    }
+
+    /// The banner line under the header; nil when there is nothing to say.
+    var freeAccessBannerText: String? {
+        switch freeAccessBanner {
+        case .none:
+            return nil
+        case .expiresIn(let countdown):
+            return String(
+                format: String(localized: "machines.freeAccess.expiresIn", defaultValue: "Free cloud access \u{00B7} expires in %@"),
+                countdown
+            )
+        case .expiresToday(let countdown):
+            return String(
+                format: String(localized: "machines.freeAccess.expiresToday", defaultValue: "Free cloud access \u{00B7} expires today, %@ left"),
+                countdown
+            )
+        case .expired:
+            return String(localized: "machines.freeAccess.expired", defaultValue: "Free cloud access expired \u{00B7} Upgrade to Pro")
+        }
+    }
 }
 
 enum MachineSnapshotBuilder {
@@ -83,6 +133,11 @@ enum MachineSnapshotBuilder {
         let createdAt = summary.createdAt > 0
             ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
             : nil
+        // The backend's expiry wins when it sends one; the local window math is
+        // the fallback for older control planes.
+        let freeAccess = summary.freeAccessExpiresAt.map { expiresAt in
+            freeAccessState(expiresAt: Date(timeIntervalSince1970: TimeInterval(expiresAt) / 1000), now: now)
+        } ?? freeAccessState(createdAt: createdAt, windowDays: freeAccessWindowDays, now: now)
         return MachineSnapshot(
             id: summary.id,
             provider: summary.provider,
@@ -91,9 +146,69 @@ enum MachineSnapshotBuilder {
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
             label: summary.displayName,
-            freeAccess: freeAccessState(createdAt: createdAt, windowDays: freeAccessWindowDays, now: now),
+            freeAccess: freeAccess,
             stats: nil
         )
+    }
+
+    /// Row state from a known expiry instant.
+    static func freeAccessState(expiresAt: Date, now: Date = Date()) -> MachineSnapshot.FreeAccessState {
+        let remaining = expiresAt.timeIntervalSince(now)
+        if remaining <= 0 { return .expired }
+        return .active(daysLeft: Int((remaining / 86_400).rounded(.up)))
+    }
+
+    /// "6d 23h" while more than a day remains, "5h 12m" under a day, "1m" at
+    /// the floor. Whole units, truncated: a countdown must never overstate.
+    static func freeAccessCountdown(remaining: TimeInterval) -> String {
+        let total = max(Int(remaining), 60)
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        if days > 0 {
+            return String(
+                format: String(localized: "machines.freeAccess.countdown.daysHours", defaultValue: "%1$dd %2$dh"),
+                days, hours
+            )
+        }
+        if hours > 0 {
+            return String(
+                format: String(localized: "machines.freeAccess.countdown.hoursMinutes", defaultValue: "%1$dh %2$dm"),
+                hours, minutes
+            )
+        }
+        return String(
+            format: String(localized: "machines.freeAccess.countdown.minutes", defaultValue: "%dm"),
+            max(minutes, 1)
+        )
+    }
+
+    /// Header banner for the fleet's earliest expiry. Paid plans never see one.
+    static func freeAccessBanner(
+        expiresAt: Date?,
+        isPaidPlan: Bool,
+        now: Date = Date()
+    ) -> MachinePlanSnapshot.FreeAccessBanner {
+        guard !isPaidPlan, let expiresAt else { return .none }
+        let remaining = expiresAt.timeIntervalSince(now)
+        if remaining <= 0 { return .expired }
+        let countdown = freeAccessCountdown(remaining: remaining)
+        return remaining < 86_400 ? .expiresToday(countdown: countdown) : .expiresIn(countdown: countdown)
+    }
+
+    /// The fleet's earliest free-access expiry: the server's figure when it
+    /// sends one, else the earliest `createdAt + window` across the machines.
+    static func earliestFreeAccessExpiry(
+        limits: VMPlanLimits,
+        machines: [MachineSnapshot]
+    ) -> Date? {
+        if let serverMs = limits.freeAccessExpiresAt {
+            return Date(timeIntervalSince1970: TimeInterval(serverMs) / 1000)
+        }
+        guard limits.freeAccessWindowDays > 0 else { return nil }
+        return machines
+            .compactMap { $0.createdAt?.addingTimeInterval(TimeInterval(limits.freeAccessWindowDays) * 86_400) }
+            .min()
     }
 
     /// Mirrors the backend's window math (created + windowDays vs now); the
@@ -155,12 +270,22 @@ enum MachineSnapshotBuilder {
         }
     }
 
-    static func planSnapshot(activeCount: Int, limits: VMPlanLimits?) -> MachinePlanSnapshot? {
+    static func planSnapshot(
+        activeCount: Int,
+        limits: VMPlanLimits?,
+        machines: [MachineSnapshot] = [],
+        now: Date = Date()
+    ) -> MachinePlanSnapshot? {
         guard let limits else { return nil }
+        let isPaidPlan = limits.planId != "free"
+        let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
         return MachinePlanSnapshot(
             activeCount: activeCount,
             maxActiveVms: limits.maxActiveVms,
-            planId: limits.planId
+            planId: limits.planId,
+            freeAccessWindowDays: limits.freeAccessWindowDays,
+            freeAccessExpiresAt: expiresAt,
+            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now)
         )
     }
 }
@@ -199,6 +324,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// not polling; the slow poll only covers changes made elsewhere.
     private var freeAccessTransitionTask: Task<Void, Never>?
     private var freeAccessWindowDays = 0
+    /// Last plan limits the list returned; the banner countdown re-derives from
+    /// these on every local recompute without another round trip.
+    private var lastLimits: VMPlanLimits?
     private var authSignOutObserver: NSObjectProtocol?
     private static let statsInterval: Duration = .seconds(20)
 
@@ -294,6 +422,9 @@ final class MachinesPanelViewModel: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             let now = Date()
             self.machines = MachineSnapshotBuilder.applyingFreeAccess(to: self.machines, windowDays: windowDays, now: now)
+            self.plan = MachineSnapshotBuilder.planSnapshot(
+                activeCount: self.machines.count, limits: self.lastLimits, machines: self.machines, now: now
+            )
             self.scheduleFreeAccessTransition(now: now)
         }
     }
@@ -310,6 +441,7 @@ final class MachinesPanelViewModel: ObservableObject {
         freeAccessTransitionTask?.cancel()
         freeAccessTransitionTask = nil
         freeAccessWindowDays = 0
+        lastLimits = nil
         machines = []
         plan = nil
         activeOperation = nil
@@ -335,9 +467,10 @@ final class MachinesPanelViewModel: ObservableObject {
                 snapshots[index].stats = previous[snapshots[index].id] ?? nil
             }
             machines = snapshots
+            lastLimits = page.limits
             scheduleFreeAccessTransition()
             refreshStats()
-            plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits)
+            plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
         } catch let error as VMClientError {
             if case .notSignedIn = error {

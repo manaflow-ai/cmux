@@ -92,15 +92,6 @@ export async function GET(request: Request): Promise<Response> {
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
-      const vms = entries.map((entry) => ({
-        id: entry.providerVmId,
-        provider: entry.provider,
-        status: entry.status,
-        image: entry.image,
-        imageVersion: entry.imageVersion,
-        createdAt: entry.createdAt,
-        displayName: entry.displayName,
-      }));
       // Plan context for machine-fleet UIs: how many active VMs this caller may
       // hold and which plan sets that ceiling. Personal accounts skip the team
       // resolution above, so resolve lazily here.
@@ -113,11 +104,35 @@ export async function GET(request: Request): Promise<Response> {
       }
       // freeAccessWindowDays is 0 for paid plans (no window) so clients can
       // render countdowns/locks from the payload without hardcoding policy.
+      const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
+        ? vmFreeAccessWindowDays()
+        : 0;
+      const vms = entries.map((entry) => ({
+        id: entry.providerVmId,
+        provider: entry.provider,
+        status: entry.status,
+        image: entry.image,
+        imageVersion: entry.imageVersion,
+        createdAt: entry.createdAt,
+        displayName: entry.displayName,
+        // Server-authoritative expiry of the free access window for this machine
+        // (epoch ms); null on paid plans or when the window is disabled. Clients
+        // render countdowns from this instead of re-deriving the policy.
+        freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
+      }));
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
           planId: listEntitlements.planId,
-          freeAccessWindowDays: isPaidVmPlan(listEntitlements.planId) ? 0 : vmFreeAccessWindowDays(),
+          freeAccessWindowDays,
+          // The earliest expiry across the caller's machines: what a fleet header
+          // counts down to. Null when nothing is on a window.
+          freeAccessExpiresAt: vms.reduce<number | null>(
+            (earliest, vm) => vm.freeAccessExpiresAt === null
+              ? earliest
+              : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
+            null,
+          ),
         }
         : undefined;
       return jsonResponse({ vms, limits });
@@ -526,4 +541,12 @@ function billingTeamErrorResponse(err: {
     action: "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`. If you do not see a team, run `cmux auth login` again.",
     reason: "No eligible team was selected for this Cloud VM.",
   });
+}
+
+/** `createdAt + windowDays` in epoch ms; null when no window applies or createdAt is unusable. */
+function freeAccessExpiresAtMs(createdAt: unknown, windowDays: number): number | null {
+  if (windowDays <= 0) return null;
+  const createdMs = createdAt instanceof Date ? createdAt.getTime() : createdAt;
+  if (typeof createdMs !== "number" || !Number.isFinite(createdMs)) return null;
+  return createdMs + windowDays * 24 * 60 * 60 * 1000;
 }

@@ -259,6 +259,9 @@ struct VMSummary {
     let base: VMBaseSummary?
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
+    /// When the free plan's access window closes for this machine (epoch ms);
+    /// nil on paid plans or when the window is disabled server-side.
+    var freeAccessExpiresAt: Int64?
 
     /// The name to show people: the label when set, otherwise the machine id.
     var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
@@ -271,6 +274,9 @@ struct VMPlanLimits {
     let planId: String
     /// Days a free-plan machine stays reachable after creation; 0 = no window.
     let freeAccessWindowDays: Int
+    /// The earliest free-access expiry across the caller's machines (epoch ms);
+    /// nil when no machine is on a window. Server-authoritative.
+    var freeAccessExpiresAt: Int64?
 }
 
 struct VMListPage {
@@ -481,7 +487,12 @@ actor VMClient {
             let freeAccessWindowDays = (rawLimits["freeAccessWindowDays"] as? Int)
                 ?? (rawLimits["freeAccessWindowDays"] as? NSNumber)?.intValue
                 ?? 0
-            limits = VMPlanLimits(maxActiveVms: maxActiveVms, planId: planId, freeAccessWindowDays: freeAccessWindowDays)
+            limits = VMPlanLimits(
+                maxActiveVms: maxActiveVms,
+                planId: planId,
+                freeAccessWindowDays: freeAccessWindowDays,
+                freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"])
+            )
         }
         let vms = try items.enumerated().map { index, dict -> VMSummary in
             guard let id = dict["id"] as? String, !id.isEmpty else {
@@ -501,9 +512,18 @@ actor VMClient {
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
+            summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
             return summary
         }
         return VMListPage(vms: vms, limits: limits)
+    }
+
+    /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
+    private static func epochMilliseconds(_ raw: Any?) -> Int64? {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? Double, value.isFinite { return Int64(value) }
+        return nil
     }
 
     func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {

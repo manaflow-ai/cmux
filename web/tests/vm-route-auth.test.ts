@@ -558,6 +558,44 @@ describe("VM REST auth", () => {
     expect(createVm).not.toHaveBeenCalled();
   });
 
+  test("lists free-plan machines with a server-authoritative free access expiry", async () => {
+    getUser.mockResolvedValue(freePlanStackUser());
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "older", provider: "blaxel", image: "blaxel/xfce-vnc:latest", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
+      { providerVmId: "newer", provider: "blaxel", image: "blaxel/xfce-vnc:latest", imageVersion: "v", status: "running", createdAt: 1_777_100_000_000 },
+    ]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    expect(await response.json()).toMatchObject({
+      vms: [
+        { id: "older", freeAccessExpiresAt: 1_777_000_000_000 + sevenDaysMs },
+        { id: "newer", freeAccessExpiresAt: 1_777_100_000_000 + sevenDaysMs },
+      ],
+      limits: {
+        maxActiveVms: 1,
+        planId: "free",
+        freeAccessWindowDays: 7,
+        freeAccessExpiresAt: 1_777_000_000_000 + sevenDaysMs,
+      },
+    });
+  });
+
+  test("paid plans list machines without a free access expiry", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "pro-vm", provider: "blaxel", image: "blaxel/xfce-vnc:latest", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
+    ]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      vms: [{ id: "pro-vm", freeAccessExpiresAt: null }],
+      limits: { planId: "pro", freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+    });
+  });
+
   test("includes original failed create cause in the idempotency failure response", async () => {
     getUser.mockResolvedValue(authedStackUser());
     rejectRunVmWorkflowWith(

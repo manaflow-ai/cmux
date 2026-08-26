@@ -244,4 +244,85 @@ final class MachinesPanelModelTests: XCTestCase {
         let unrestricted = MachineSnapshotBuilder.snapshot(from: summary, freeAccessWindowDays: 0, now: now)
         XCTAssertEqual(unrestricted.freeAccess, .unrestricted)
     }
+
+    func testFreeAccessCountdownUsesWholeTruncatedUnits() {
+        XCTAssertEqual(MachineSnapshotBuilder.freeAccessCountdown(remaining: 6 * 86_400 + 23 * 3_600 + 59 * 60), "6d 23h")
+        XCTAssertEqual(MachineSnapshotBuilder.freeAccessCountdown(remaining: 5 * 3_600 + 12 * 60 + 30), "5h 12m")
+        XCTAssertEqual(MachineSnapshotBuilder.freeAccessCountdown(remaining: 90), "1m")
+        // Never below the floor, never negative.
+        XCTAssertEqual(MachineSnapshotBuilder.freeAccessCountdown(remaining: 5), "1m")
+    }
+
+    func testFreeAccessBannerStates() {
+        let now = Date(timeIntervalSince1970: 1_787_400_000)
+        XCTAssertEqual(MachineSnapshotBuilder.freeAccessBanner(expiresAt: now.addingTimeInterval(86_400 * 3), isPaidPlan: true, now: now), .none)
+        XCTAssertEqual(MachineSnapshotBuilder.freeAccessBanner(expiresAt: nil, isPaidPlan: false, now: now), .none)
+        XCTAssertEqual(
+            MachineSnapshotBuilder.freeAccessBanner(expiresAt: now.addingTimeInterval(6 * 86_400 + 23 * 3_600), isPaidPlan: false, now: now),
+            .expiresIn(countdown: "6d 23h")
+        )
+        XCTAssertEqual(
+            MachineSnapshotBuilder.freeAccessBanner(expiresAt: now.addingTimeInterval(5 * 3_600 + 12 * 60), isPaidPlan: false, now: now),
+            .expiresToday(countdown: "5h 12m")
+        )
+        XCTAssertEqual(MachineSnapshotBuilder.freeAccessBanner(expiresAt: now.addingTimeInterval(-1), isPaidPlan: false, now: now), .expired)
+    }
+
+    func testPlanSnapshotSingularMeterAndServerExpiry() {
+        let now = Date(timeIntervalSince1970: 1_787_400_000)
+        let serverExpiry = now.addingTimeInterval(2 * 86_400 + 3_600)
+        let single = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 1,
+            limits: VMPlanLimits(
+                maxActiveVms: 1,
+                planId: "free",
+                freeAccessWindowDays: 7,
+                freeAccessExpiresAt: Int64(serverExpiry.timeIntervalSince1970 * 1000)
+            ),
+            now: now
+        )
+        XCTAssertEqual(single?.isSingleMachinePlan, true)
+        XCTAssertEqual(single?.countLabel, "1 of 1 machine")
+        XCTAssertEqual(single?.freeAccessExpiresAt, serverExpiry)
+        XCTAssertEqual(single?.freeAccessBanner, .expiresIn(countdown: "2d 1h"))
+
+        let plural = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 2,
+            limits: VMPlanLimits(maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 0),
+            now: now
+        )
+        XCTAssertEqual(plural?.isSingleMachinePlan, false)
+        XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
+        XCTAssertEqual(plural?.freeAccessBanner, .none)
+    }
+
+    func testPlanSnapshotFallsBackToEarliestLocalExpiry() {
+        let now = Date(timeIntervalSince1970: 1_787_400_000)
+        let created = now.addingTimeInterval(-86_400)
+        func machine(_ id: String, createdAt: Date) -> MachineSnapshot {
+            MachineSnapshot(
+                id: id, provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true,
+                activity: .ready, createdAt: createdAt, label: nil
+            )
+        }
+        let plan = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 2,
+            limits: VMPlanLimits(maxActiveVms: 1, planId: "free", freeAccessWindowDays: 7),
+            machines: [machine("later", createdAt: created.addingTimeInterval(3_600)), machine("earlier", createdAt: created)],
+            now: now
+        )
+        XCTAssertEqual(plan?.freeAccessExpiresAt, created.addingTimeInterval(7 * 86_400))
+        XCTAssertEqual(plan?.freeAccessBanner, .expiresIn(countdown: "6d 0h"))
+    }
+
+    func testSnapshotPrefersServerFreeAccessExpiry() {
+        let now = Date(timeIntervalSince1970: 1_787_400_000)
+        var summary = VMSummary(
+            id: "noble-wren", provider: "blaxel", status: "running",
+            image: "blaxel/xfce-vnc:latest", createdAt: Int64(now.timeIntervalSince1970 * 1000), base: nil
+        )
+        summary.freeAccessExpiresAt = Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1000)
+        // Local window math would say 7 days left; the server says it already closed.
+        XCTAssertEqual(MachineSnapshotBuilder.snapshot(from: summary, freeAccessWindowDays: 7, now: now).freeAccess, .expired)
+    }
 }

@@ -57681,6 +57681,57 @@
         }
       }
     },
+    "cli.vm.list.planMeter.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of 1 machine on the %2$@ plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ プランのマシン %1$d / 1"
+          }
+        }
+      }
+    },
+    "cli.vm.list.freeAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access expires in %1$@ (%2$@) — upgrade to keep using it: %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセスは残り %1$@（%2$@）で終了します — 引き続き使うにはアップグレード: %3$@"
+          }
+        }
+      }
+    },
+    "cli.vm.list.freeAccessExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access has expired — upgrade to reconnect: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセスは終了しました — 再接続するにはアップグレード: %1$@"
+          }
+        }
+      }
+    },
     "cli.vm.pull.progress": {
       "extractionState": "manual",
       "localizations": {
@@ -123471,6 +123522,142 @@
         }
       }
     },
+    "machines.freeAccess.countdown.daysHours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$dd %2$dh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d日 %2$d時間"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.countdown.hoursMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$dh %2$dm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d時間 %2$d分"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.countdown.minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d分"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access expired · Upgrade to Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセスは終了しました · Pro にアップグレード"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.expiresIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access · expires in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセス · 残り %@"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.expiresToday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access · expires today, %@ left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセス · 本日期限、残り %@"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free plans keep a machine reachable for %d days after it is created. Upgrade to Pro to keep using it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料プランでは作成から %d 日間マシンに接続できます。引き続き使うには Pro にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレード"
+          }
+        }
+      }
+    },
     "machines.kind.base": {
       "extractionState": "manual",
       "localizations": {
@@ -123641,6 +123828,23 @@
         }
       }
     },
+    "machines.meter.count.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of 1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$d / 1"
+          }
+        }
+      }
+    },
     "machines.meter.help": {
       "extractionState": "manual",
       "localizations": {
@@ -123671,6 +123875,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在のプランでは %d 台まで作成できます。追加するにはアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "machines.meter.help.atLimit.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes 1 machine. Upgrade to create more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランでは 1 台まで作成できます。追加するにはアップグレードしてください。"
           }
         }
       }
