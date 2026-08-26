@@ -77,4 +77,17 @@ struct BrowserExternalURLPolicyTests {
         defaults.set(["third.test"], forKey: key.userDefaultsKey)
         #expect(await store.value(for: key) == "third.test")
     }
+
+    @Test func pathologicalRulesAreBoundedAndFailClosed() throws {
+        let oversizedRegex = "re:" + String(repeating: "a", count: 4_097)
+        let rules = (0..<300).map { "host\($0).example" } + [oversizedRegex]
+        let policy = BrowserExternalURLPolicy(patterns: rules)
+        let oversizedPolicy = BrowserExternalURLPolicy(patterns: [oversizedRegex])
+
+        // The matcher retains a bounded snapshot, so a malformed or excessive
+        // settings value cannot turn one navigation into unbounded work.
+        #expect(policy.patterns.count == 256)
+        #expect(!policy.matches(try #require(URL(string: "https://host299.example"))))
+        #expect(!oversizedPolicy.matches(try #require(URL(string: "https://\(String(repeating: "a", count: 4_097))"))))
+    }
 }

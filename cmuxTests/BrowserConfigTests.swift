@@ -5560,6 +5560,49 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         )
     }
 
+    func testExternalOpenCanonicalizesRemoteLoopbackAliasForMatchingAndOpening() throws {
+        defaults.set(
+            ["localhost"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let aliasedURL = try XCTUnwrap(
+            URL(string: "http://cmux-loopback.localtest.me:3000/dashboard")
+        )
+        let expectedURL = try XCTUnwrap(URL(string: "http://localhost:3000/dashboard"))
+        var openedURL: URL?
+        let handler = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: {
+                openedURL = $0
+                return true
+            }
+        )
+
+        XCTAssertTrue(
+            handler.shouldOpenExternally(
+                aliasedURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertEqual(handler.openConfiguredExternallyResult(aliasedURL), .opened)
+        XCTAssertEqual(openedURL, expectedURL)
+    }
+
+    func testExternalOpenPolicyCacheRefreshesAfterRulesChange() throws {
+        defaults.set("first.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let firstURL = try XCTUnwrap(URL(string: "https://first.example/"))
+        let secondURL = try XCTUnwrap(URL(string: "https://second.example/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        XCTAssertTrue(handler.shouldOpenExternally(firstURL))
+        XCTAssertFalse(handler.shouldOpenExternally(secondURL))
+
+        defaults.set("second.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(firstURL))
+        XCTAssertTrue(handler.shouldOpenExternally(secondURL))
+    }
+
     func testExternalOpenNavigationRuleOnlyAppliesToMainFrameLinkActivation() throws {
         defaults.set(
             ["example.com"],
