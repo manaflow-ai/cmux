@@ -3685,6 +3685,15 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
 
 final class BonsplitTabDragPayloadTests: XCTestCase {
+    func testRejectsStaleCurrentProcessPayloadAfterSourceEnded() throws {
+        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+
+        XCTAssertNil(
+            BonsplitTabDragPayload.transfer(from: pasteboard),
+            "A residual same-process payload must not resurrect a completed pane drag"
+        )
+    }
+
     func testRejectsFilePreviewCompatibilityPayload() throws {
         let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
 

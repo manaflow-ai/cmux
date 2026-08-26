@@ -222,9 +222,9 @@ struct DockPaneDropUnfocusedRoutingTests {
         ))
     }
 
-    @Test("Sidebar reorder mouse-up routing uses the active sidebar drag registry")
+    @Test("Sidebar reorder never authorizes terminal mouse-up routing")
     @MainActor
-    func sidebarReorderMouseUpRoutingUsesActiveSidebarDragRegistry() async throws {
+    func sidebarReorderNeverAuthorizesTerminalMouseUpRouting() async throws {
         await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
@@ -241,7 +241,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             let workspaceId = UUID()
             appDelegate.sidebarWorkspaceDragRegistry.begin(workspaceId: workspaceId)
             defer { appDelegate.sidebarWorkspaceDragRegistry.end(workspaceId: workspaceId) }
-            #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+            #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
                 eventType: .leftMouseUp,
                 hasActiveDropDrag: appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil

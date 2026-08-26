@@ -78,8 +78,8 @@ import Testing
         ))
     }
 
-    @Test func capturesPointerDragAfterSidebarPasteboardTypeExists() {
-        #expect(SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+    @Test func staleSidebarPasteboardTypeDoesNotCapturePointerDrag() {
+        #expect(!SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
             eventType: .leftMouseDragged,
             pasteboardTypes: [NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)]
         ))

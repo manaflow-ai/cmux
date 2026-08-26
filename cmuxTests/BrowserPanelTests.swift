@@ -1593,8 +1593,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
-    func testDragHoverEventsPassThroughForSidebarReorderWithoutMouseButtonState() {
-        XCTAssertTrue(
+    func testStaleSidebarReorderDoesNotPassThroughBrowserHoverEvents() {
+        XCTAssertFalse(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [DragOverlayRoutingPolicy.sidebarTabReorderType],
                 eventType: .cursorUpdate

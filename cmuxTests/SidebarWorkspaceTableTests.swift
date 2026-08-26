@@ -27,6 +27,22 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func nativeWorkspaceDragKeepsTableControllerAttachedThroughTeardown() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+
+        // AppKit has accepted the source drag, but SwiftUI is about to dismantle
+        // the representable (the fullscreen/display-transition repro). The
+        // controller must remain the table's delegate until native completion.
+        controller.workspaceDragSessionDidBegin()
+        controller.dismantleContainerView(container)
+
+        #expect(container.tableView.dataSource === controller)
+        #expect(container.tableView.delegate === controller)
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
