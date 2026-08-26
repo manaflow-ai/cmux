@@ -29,6 +29,22 @@ extension CMUXCLI {
         }
     }
 
+    /// Whether a CLI invocation is the Claude SessionEnd lifecycle hook.
+    static func isClaudeSessionEndHookCommand(
+        command: String,
+        commandArgs: [String]
+    ) -> Bool {
+        switch command.lowercased() {
+        case "claude-hook":
+            return commandArgs.first?.lowercased() == "session-end"
+        case "hooks":
+            return commandArgs.first?.lowercased() == "claude"
+                && commandArgs.dropFirst().first?.lowercased() == "session-end"
+        default:
+            return false
+        }
+    }
+
     /// Reconciles Claude Code's per-file task store into cmux's two todo views.
     ///
     /// A full filesystem snapshot is published to both Feed and the workspace
@@ -177,6 +193,7 @@ extension CMUXCLI {
                     )
                 }
             }
+            var taskSyncLease: ClaudeHookSessionStore.ClaudeTaskSyncLockLease?
             let taskSyncIsLatest = {
                 guard let activeTaskSyncClaim else { return true }
                 guard !taskHookStartedAfterSessionEnd else { return false }
@@ -209,6 +226,7 @@ extension CMUXCLI {
                         token: currentClaim.token
                     ) else { return false }
                     activeTaskSyncClaim = (ownerScope, currentClaim.token)
+                    try taskSyncLease?.switchScope(to: ownerScope)
                     return true
                 }
                 guard ownerScope != currentClaim.scope else { return true }
@@ -218,6 +236,7 @@ extension CMUXCLI {
                     token: currentClaim.token
                 ) else { return false }
                 activeTaskSyncClaim = (ownerScope, currentClaim.token)
+                try taskSyncLease?.switchScope(to: ownerScope)
                 return true
             }
             // Nested teammates mutate the same authoritative task list. Their
@@ -232,7 +251,9 @@ extension CMUXCLI {
             try sessionStore.withClaudeTaskSyncLock(
                 deadlineUptime: hookDeadlineUptime,
                 scope: initialCoalescingScope
-            ) {
+            ) { lease in
+                taskSyncLease = lease
+                defer { taskSyncLease = nil }
                 guard taskSyncIsLatest() else {
                     telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                     return

@@ -389,6 +389,97 @@ final class ClaudeHookSessionStore {
         notificationCorrelationKeys: [String]
     )
 
+    /// Task ownership state stored beside the legacy hook store so an older
+    /// cmux CLI that rewrites the main Codable file cannot erase newer fields.
+    private struct ClaudeTaskSyncSidecar: Codable {
+        struct SessionFields: Codable {
+            let startedAt: TimeInterval
+            let claudeTaskDirectoryName: String?
+            let claudeTaskStoreID: String?
+            let claudeTaskLegacyOwnerCleared: Bool?
+            let claudeTaskBindingStartedAt: TimeInterval?
+            let claudeTaskBindingSource: ClaudeTaskBindingSource?
+
+            init(record: ClaudeHookSessionRecord) {
+                startedAt = record.startedAt
+                claudeTaskDirectoryName = record.claudeTaskDirectoryName
+                claudeTaskStoreID = record.claudeTaskStoreID
+                claudeTaskLegacyOwnerCleared = record.claudeTaskLegacyOwnerCleared
+                claudeTaskBindingStartedAt = record.claudeTaskBindingStartedAt
+                claudeTaskBindingSource = record.claudeTaskBindingSource
+            }
+
+            func apply(to record: inout ClaudeHookSessionRecord) {
+                record.claudeTaskDirectoryName = claudeTaskDirectoryName
+                record.claudeTaskStoreID = claudeTaskStoreID
+                record.claudeTaskLegacyOwnerCleared = claudeTaskLegacyOwnerCleared
+                record.claudeTaskBindingStartedAt = claudeTaskBindingStartedAt
+                record.claudeTaskBindingSource = claudeTaskBindingSource
+            }
+        }
+
+        var version = 1
+        var sessions: [String: SessionFields] = [:]
+        var pendingSupersededSessionCleanup: [String: SessionFields] = [:]
+        var endedSessionIDs: [String: TimeInterval] = [:]
+        var endedSessionGenerationStarts: [String: TimeInterval] = [:]
+        var retiredClaudeTaskLists: [String: TimeInterval] = [:]
+        var claudeTaskSyncLatestTokens: [String: String] = [:]
+        var claudeTaskSyncGeneration: UInt64 = 0
+        var pendingLegacyClaudeTaskOwnerCleanup: [String: LegacyClaudeTaskOwnerCleanupRecord] = [:]
+        var pendingLegacyClaudeTaskOwnerCleanupOverflowEntries: [String: LegacyClaudeTaskOwnerCleanupRecord] = [:]
+        var pendingLegacyClaudeTaskOwnerCleanupSpill: [String: LegacyClaudeTaskOwnerCleanupRecord] = [:]
+        var pendingLegacyClaudeTaskOwnerCleanupOverflowCursor: String?
+        var pendingLegacyClaudeTaskOwnerCleanupOverflow = false
+        var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
+        var claudeTaskListDestinations: [String: ClaudeHookTaskListDestinationRecord] = [:]
+
+        init(state: ClaudeHookSessionStoreFile) {
+            sessions = state.sessions.mapValues { SessionFields(record: $0) }
+            pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup
+                .mapValues { SessionFields(record: $0) }
+            endedSessionIDs = state.endedSessionIDs
+            endedSessionGenerationStarts = state.endedSessionGenerationStarts
+            retiredClaudeTaskLists = state.retiredClaudeTaskLists
+            claudeTaskSyncLatestTokens = state.claudeTaskSyncLatestTokens
+            claudeTaskSyncGeneration = state.claudeTaskSyncGeneration
+            pendingLegacyClaudeTaskOwnerCleanup = state.pendingLegacyClaudeTaskOwnerCleanup
+            pendingLegacyClaudeTaskOwnerCleanupOverflowEntries = state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries
+            pendingLegacyClaudeTaskOwnerCleanupSpill = state.pendingLegacyClaudeTaskOwnerCleanupSpill
+            pendingLegacyClaudeTaskOwnerCleanupOverflowCursor = state.pendingLegacyClaudeTaskOwnerCleanupOverflowCursor
+            pendingLegacyClaudeTaskOwnerCleanupOverflow = state.pendingLegacyClaudeTaskOwnerCleanupOverflow
+            claudeTeamTaskBindings = state.claudeTeamTaskBindings
+            claudeTaskListDestinations = state.claudeTaskListDestinations
+        }
+
+        func apply(to state: inout ClaudeHookSessionStoreFile) {
+            for (sessionID, fields) in sessions {
+                guard var record = state.sessions[sessionID],
+                      record.startedAt == fields.startedAt else { continue }
+                fields.apply(to: &record)
+                state.sessions[sessionID] = record
+            }
+            for (sessionID, fields) in pendingSupersededSessionCleanup {
+                guard var record = state.pendingSupersededSessionCleanup[sessionID],
+                      record.startedAt == fields.startedAt else { continue }
+                fields.apply(to: &record)
+                state.pendingSupersededSessionCleanup[sessionID] = record
+            }
+            state.endedSessionIDs = endedSessionIDs
+            state.endedSessionGenerationStarts = endedSessionGenerationStarts
+            state.retiredClaudeTaskLists = retiredClaudeTaskLists
+            state.claudeTaskSyncLatestTokens = claudeTaskSyncLatestTokens
+            state.claudeTaskSyncGeneration = claudeTaskSyncGeneration
+            state.pendingLegacyClaudeTaskOwnerCleanup = pendingLegacyClaudeTaskOwnerCleanup
+            state.pendingLegacyClaudeTaskOwnerCleanupOverflowEntries = pendingLegacyClaudeTaskOwnerCleanupOverflowEntries
+            state.pendingLegacyClaudeTaskOwnerCleanupSpill = pendingLegacyClaudeTaskOwnerCleanupSpill
+            state.pendingLegacyClaudeTaskOwnerCleanupOverflowCursor = pendingLegacyClaudeTaskOwnerCleanupOverflowCursor
+            state.pendingLegacyClaudeTaskOwnerCleanupOverflow = pendingLegacyClaudeTaskOwnerCleanupOverflow
+            state.claudeTeamTaskBindings = claudeTeamTaskBindings
+            state.claudeTaskListDestinations = claudeTaskListDestinations
+        }
+    }
+
     final class CursorShellApprovalReconciliationLease {
         private var fileDescriptor: Int32
         private let lockStart: off_t
@@ -412,6 +503,79 @@ final class ClaudeHookSessionStore {
             _ = Darwin.fcntl(fileDescriptor, F_SETLK, &lock)
             Darwin.close(fileDescriptor)
             fileDescriptor = -1
+        }
+
+        deinit {
+            release()
+        }
+    }
+
+    /// A synchronous, scope-switchable lease for task-sync external I/O.
+    ///
+    /// Hook processes claim a task list only after the initial identity scan.
+    /// This lease releases the scan slot and acquires the resolved list slot
+    /// before Feed/checklist calls, so first-sighting teammates cannot publish
+    /// concurrently for one shared list.
+    final class ClaudeTaskSyncLockLease {
+        private unowned let store: ClaudeHookSessionStore
+        private let deadlineUptime: TimeInterval
+        private var descriptor: Int32 = -1
+        private(set) var scope: String?
+
+        fileprivate init(
+            store: ClaudeHookSessionStore,
+            deadlineUptime: TimeInterval,
+            scope: String?
+        ) {
+            self.store = store
+            self.deadlineUptime = deadlineUptime
+            self.scope = scope
+        }
+
+        fileprivate func acquire() throws {
+            try switchScope(to: scope)
+        }
+
+        /// Switches the lease to a newly resolved task-list scope.
+        fileprivate func switchScope(to nextScope: String?) throws {
+            let normalizedNextScope = nextScope?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let normalizedCurrentScope = scope?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard normalizedNextScope != normalizedCurrentScope || descriptor < 0 else {
+                return
+            }
+            release()
+            try store.checkLockDeadline()
+            guard ProcessInfo.processInfo.systemUptime < deadlineUptime else {
+                throw POSIXError(.ETIMEDOUT)
+            }
+            let lockPath = store.claudeTaskSyncLockPath(scope: nextScope)
+            let parentPath = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
+            try store.fileManager.createDirectory(
+                at: parentPath,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+            )
+            let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+            guard fd >= 0 else { throw POSIXError(.EIO) }
+            while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                guard errno == EACCES || errno == EAGAIN,
+                      ProcessInfo.processInfo.systemUptime < deadlineUptime else {
+                    Darwin.close(fd)
+                    throw POSIXError(.ETIMEDOUT)
+                }
+                usleep(5_000)
+            }
+            descriptor = fd
+            scope = nextScope
+        }
+
+        fileprivate func release() {
+            guard descriptor >= 0 else { return }
+            _ = flock(descriptor, LOCK_UN)
+            Darwin.close(descriptor)
+            descriptor = -1
         }
 
         deinit {
@@ -461,6 +625,10 @@ final class ClaudeHookSessionStore {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
     private var lockDeadlineUptime: TimeInterval?
+
+    private var taskSyncSidecarPath: String {
+        statePath + ".task-sync.json"
+    }
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
@@ -522,7 +690,34 @@ final class ClaudeHookSessionStore {
         scope: String? = nil,
         _ body: () throws -> T
     ) throws -> T {
+        try withClaudeTaskSyncLock(
+            deadlineUptime: deadlineUptime,
+            scope: scope
+        ) { _ in
+            try body()
+        }
+    }
+
+    /// Runs a task-sync section with a lease that can move from an initial
+    /// identity-scan slot to the resolved task-list slot before external I/O.
+    func withClaudeTaskSyncLock<T>(
+        deadlineUptime: TimeInterval,
+        scope: String? = nil,
+        _ body: (ClaudeTaskSyncLockLease) throws -> T
+    ) throws -> T {
         try checkLockDeadline()
+        let lease = ClaudeTaskSyncLockLease(
+            store: self,
+            deadlineUptime: deadlineUptime,
+            scope: scope
+        )
+        try lease.acquire()
+        defer { lease.release() }
+        return try body(lease)
+    }
+
+    /// Returns the bounded lock path selected for one task-sync scope.
+    private func claudeTaskSyncLockPath(scope: String?) -> String {
         // Derive a bounded slot from the task-store identity. Including a
         // domain separator keeps this filename namespace independent from the
         // ownership/claim keys persisted in the state file.
@@ -536,19 +731,7 @@ final class ClaudeHookSessionStore {
                 (partial << 8) | UInt64(byte)
             }
         let slot = digestPrefix % UInt64(Self.claudeTaskSyncLockSlotCount)
-        let lockPath = statePath + ".task-sync.lock.\(slot)"
-        let parentPath = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
-        try fileManager.createDirectory(
-            at: parentPath,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
-        )
-        try checkLockDeadline()
-        return try withExclusiveFileLock(
-            atPath: lockPath,
-            deadlineUptime: deadlineUptime,
-            body
-        )
+        return statePath + ".task-sync.lock.\(slot)"
     }
 
     /// Consumes a session only after any in-flight task-sync transaction ends.
@@ -4655,7 +4838,9 @@ final class ClaudeHookSessionStore {
 
     private func loadUnlocked(deadline: Date? = nil) throws -> ClaudeHookSessionStoreFile {
         guard fileManager.fileExists(atPath: statePath) else {
-            return ClaudeHookSessionStoreFile()
+            var emptyState = ClaudeHookSessionStoreFile()
+            try? loadTaskSyncSidecarUnlocked(deadline: deadline)?.apply(to: &emptyState)
+            return emptyState
         }
         let stateURL = URL(fileURLWithPath: statePath)
         guard let values = try? stateURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
@@ -4667,17 +4852,45 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Claude hook state file is too large for the hook deadline: \(statePath)")
         }
         if fileSize > Self.maxRecoverableHookStateFileBytes {
-            return try quarantineOversizedState(at: stateURL)
+            var recovered = try quarantineOversizedState(at: stateURL)
+            try? loadTaskSyncSidecarUnlocked(deadline: deadline)?.apply(to: &recovered)
+            return recovered
         }
         let data = try Data(contentsOf: stateURL)
         guard var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            return try quarantineOversizedState(at: stateURL)
+            var recovered = try quarantineOversizedState(at: stateURL)
+            try? loadTaskSyncSidecarUnlocked(deadline: deadline)?.apply(to: &recovered)
+            return recovered
         }
         if fileSize > Self.maxHookStateFileBytes {
             compactRecoveredState(&decoded)
         }
+        try? loadTaskSyncSidecarUnlocked(deadline: deadline)?.apply(to: &decoded)
         backfillSurfaceActiveSlots(&decoded)
         return decoded
+    }
+
+    /// Reads the task-sync sidecar while the main state lock is held. A missing
+    /// or malformed sidecar is ignored so older installations retain their
+    /// normal main-file recovery behavior.
+    private func loadTaskSyncSidecarUnlocked(
+        deadline: Date? = nil
+    ) throws -> ClaudeTaskSyncSidecar? {
+        let sidecarPath = taskSyncSidecarPath
+        guard fileManager.fileExists(atPath: sidecarPath) else { return nil }
+        let sidecarURL = URL(fileURLWithPath: sidecarPath)
+        guard let values = try? sidecarURL.resourceValues(
+            forKeys: [.isRegularFileKey, .fileSizeKey]
+        ), values.isRegularFile == true, let fileSize = values.fileSize else {
+            return nil
+        }
+        guard fileSize <= Self.maxHookStateFileBytes else { return nil }
+        try checkLockDeadline()
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook task-sync sidecar deadline exceeded: \(sidecarPath)")
+        }
+        let data = try Data(contentsOf: sidecarURL)
+        return try decoder.decode(ClaudeTaskSyncSidecar.self, from: data)
     }
 
     /// Moves an unreadable/oversized state file aside before rebuilding a
@@ -4805,6 +5018,11 @@ final class ClaudeHookSessionStore {
             attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
         )
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
+        // Write the task ownership sidecar first. It is intentionally separate
+        // from the legacy Codable envelope: an older CLI may rewrite the main
+        // file immediately afterward, but it cannot discard this file's newer
+        // task-generation proofs.
+        try saveTaskSyncSidecarUnlocked(state, deadline: deadline)
         let data = try encoder.encode(state)
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
@@ -4830,6 +5048,48 @@ final class ClaudeHookSessionStore {
             throw POSIXError(code)
         }
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: stateURL.path)
+    }
+
+    private func saveTaskSyncSidecarUnlocked(
+        _ state: ClaudeHookSessionStoreFile,
+        deadline: Date? = nil
+    ) throws {
+        let sidecarURL = URL(fileURLWithPath: taskSyncSidecarPath)
+        let parentURL = sidecarURL.deletingLastPathComponent()
+        try fileManager.createDirectory(
+            at: parentURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
+        let data = try encoder.encode(ClaudeTaskSyncSidecar(state: state))
+        try checkLockDeadline()
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook task-sync sidecar deadline exceeded: \(sidecarURL.path)")
+        }
+        let tempURL = parentURL.appendingPathComponent(
+            ".\(sidecarURL.lastPathComponent).\(UUID().uuidString).tmp"
+        )
+        guard fileManager.createFile(
+            atPath: tempURL.path,
+            contents: data,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
+        ) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: sidecarURL.path])
+        }
+        defer { try? fileManager.removeItem(at: tempURL) }
+        let renameResult = tempURL.path.withCString { source in
+            sidecarURL.path.withCString { destination in
+                Darwin.rename(source, destination)
+            }
+        }
+        guard renameResult == 0 else {
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            throw POSIXError(code)
+        }
+        try? fileManager.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o600))],
+            ofItemAtPath: sidecarURL.path
+        )
     }
 
     private func pruneExpired(_ state: inout ClaudeHookSessionStoreFile) {
@@ -7136,13 +7396,22 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
-        let claudeTaskSyncDeadlineUptime = Self.isClaudeTaskSyncHookCommand(
-            command: command,
-            commandArgs: commandArgs
-        ) ? (
-            ProcessInfo.processInfo.systemUptime
-                + Self.claudeTaskSyncResponseBudgetSeconds
-        ) : nil
+        let claudeHookDeadlineUptime: TimeInterval? = {
+            let now = ProcessInfo.processInfo.systemUptime
+            if Self.isClaudeTaskSyncHookCommand(
+                command: command,
+                commandArgs: commandArgs
+            ) {
+                return now + Self.claudeTaskSyncResponseBudgetSeconds
+            }
+            if Self.isClaudeSessionEndHookCommand(
+                command: command,
+                commandArgs: commandArgs
+            ) {
+                return now + Self.claudeSessionEndTaskSyncLockBudgetSeconds
+            }
+            return nil
+        }()
         let isCursorShellHookCommand = command == "hooks"
             && commandArgs.first?.lowercased() == "cursor"
             && ["shell-exec", "shell-done", "shell-failed"].contains(
@@ -7493,9 +7762,9 @@ struct CMUXCLI {
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         var client = SocketClient(path: resolvedSocketPath)
-        if let claudeTaskSyncDeadlineUptime {
+        if let claudeHookDeadlineUptime {
             client.enforceResponseDeadline(
-                untilUptime: claudeTaskSyncDeadlineUptime
+                untilUptime: claudeHookDeadlineUptime
             )
         }
         let cursorHookSocketTimeout: TimeInterval? = isCursorShellHookCommand ? 0.35 : nil
@@ -7528,7 +7797,7 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
-            if claudeTaskSyncDeadlineUptime != nil {
+            if claudeHookDeadlineUptime != nil {
                 printClaudeHookAck()
                 return
             }
@@ -7586,7 +7855,7 @@ struct CMUXCLI {
                 deadline: cursorHookDeadline
             )
         } catch {
-            guard claudeTaskSyncDeadlineUptime == nil else {
+            guard claudeHookDeadlineUptime == nil else {
                 cliTelemetry.captureError(stage: "socket_auth", error: error)
                 cliTelemetry.breadcrumb("claude-hook.task-sync.authentication-failed")
                 printClaudeHookAck()
@@ -38346,6 +38615,13 @@ export default CMUXSessionRestore;
             transcriptPath: parsedInput.transcriptPath
         ) {
             event["context"] = context
+        }
+        if subcommand == "task-sync" {
+            // Task-sync snapshots are complete state projections; the durable
+            // workspace checklist is their history source. Keep high-frequency
+            // snapshots live in Feed without appending every revision to the
+            // unbounded conversational JSONL audit log.
+            event["_cmux_transient"] = true
         }
         enrichUserPromptSubmitFeedEvent(
             &event,

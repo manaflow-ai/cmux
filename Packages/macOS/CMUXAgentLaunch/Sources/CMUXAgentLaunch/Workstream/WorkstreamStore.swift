@@ -134,7 +134,7 @@ public final class WorkstreamStore {
         let item = makeItem(from: event)
         insert(item)
         updateContextIndex(with: item)
-        if let persistence {
+        if let persistence, !event.isTransient {
             Task { [persistence, item] in
                 try? await persistence.append(item)
             }

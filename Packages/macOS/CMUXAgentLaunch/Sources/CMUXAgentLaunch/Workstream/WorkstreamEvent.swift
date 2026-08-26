@@ -6,7 +6,8 @@ import Foundation
 /// Field names mirror Vibe Island's hook payload format exactly so existing
 /// agent payloads pass through untouched: `session_id`, `hook_event_name`,
 /// `workspace_id`, `cwd`, `tool_name`, `tool_input`, `_source`, `_ppid`,
-/// `_opencode_request_id`. `context` is cmux-specific and optional.
+/// `_opencode_request_id`. `context` is cmux-specific and optional. Transient
+/// events remain live in the Feed ring but are not appended to disk history.
 public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let sessionId: String
     public let hookEventName: HookEventName
@@ -24,6 +25,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let ppid: Int?
     public let receivedAt: Date
     public let extraFieldsJSON: String?
+    /// Whether this event is live-only and should not be persisted to JSONL.
+    public let isTransient: Bool
 
     public init(
         sessionId: String,
@@ -40,7 +43,8 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         requestId: String? = nil,
         ppid: Int? = nil,
         receivedAt: Date = Date(),
-        extraFieldsJSON: String? = nil
+        extraFieldsJSON: String? = nil,
+        isTransient: Bool = false
     ) {
         self.sessionId = sessionId
         self.hookEventName = hookEventName
@@ -57,6 +61,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.ppid = ppid
         self.receivedAt = receivedAt
         self.extraFieldsJSON = extraFieldsJSON
+        self.isTransient = isTransient
     }
 
     /// Hook event discriminator. Values match the strings Vibe Island and
@@ -100,6 +105,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case requestId = "_opencode_request_id"
         case ppid = "_ppid"
         case receivedAt = "_received_at"
+        case isTransient = "_cmux_transient"
     }
 
     public init(from decoder: Decoder) throws {
@@ -117,6 +123,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.requestId = try c.decodeIfPresent(String.self, forKey: .requestId)
         self.ppid = try c.decodeIfPresent(Int.self, forKey: .ppid)
         self.receivedAt = try c.decodeIfPresent(Date.self, forKey: .receivedAt) ?? Date()
+        self.isTransient = try c.decodeIfPresent(Bool.self, forKey: .isTransient) ?? false
         let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
         let dynamic = try decoder.container(keyedBy: JSONDynamicKey.self)
         var extra: [String: AnyJSON] = [:]
@@ -150,6 +157,9 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encodeIfPresent(requestId, forKey: .requestId)
         try c.encodeIfPresent(ppid, forKey: .ppid)
         try c.encode(receivedAt, forKey: .receivedAt)
+        if isTransient {
+            try c.encode(true, forKey: .isTransient)
+        }
         if let extraFieldsJSON,
            case .object(let extra) = AnyJSON(jsonString: extraFieldsJSON) {
             let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
