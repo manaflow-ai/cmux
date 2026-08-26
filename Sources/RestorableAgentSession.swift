@@ -990,6 +990,7 @@ struct RestorableAgentSessionIndex: Sendable {
             updatedAt: TimeInterval,
             provenance: Provenance,
             processLiveness: RestorableAgentProcessLiveness,
+            hasRecordedProcessID: Bool,
             processIDs: Set<Int>,
             processIdentities: [Int: AgentPIDProcessIdentity],
             agentProcessIDs: Set<Int>,
@@ -1005,6 +1006,7 @@ struct RestorableAgentSessionIndex: Sendable {
             self.updatedAt = updatedAt
             self.provenance = provenance
             self.processLiveness = processLiveness
+            self.hasRecordedProcessID = hasRecordedProcessID
             self.processIDs = processIDs
             self.processIdentities = processIdentities
             self.agentProcessIDs = agentProcessIDs
