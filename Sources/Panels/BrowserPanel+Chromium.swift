@@ -19,7 +19,7 @@ extension BrowserPanel {
         // is therefore a security boundary: fail closed to WebKit, whose
         // navigation delegate enforces it for every request.
         let isTrustedCmuxScheme = initialURL?.scheme?.lowercased() == "cmux-diff-viewer"
-        requested == .chromium && (isRemoteWorkspace || isURLAllowlistActive || isTrustedCmuxScheme)
+        return requested == .chromium && (isRemoteWorkspace || isURLAllowlistActive || isTrustedCmuxScheme)
             ? .webkit
             : requested
     }
