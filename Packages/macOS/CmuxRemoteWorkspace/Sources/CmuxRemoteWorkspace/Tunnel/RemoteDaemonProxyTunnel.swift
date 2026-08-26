@@ -86,7 +86,10 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                     configuration: configuration,
                     remotePath: remotePath,
                     strings: strings,
-                    cliRequestHandler: Self.makeCLIRequestHandler(configuration: configuration)
+                    cliRequestHandler: Self.makeCLIRequestHandler(
+                        configuration: configuration,
+                        strings: strings
+                    )
                 ) { [weak self] detail in
                     guard let self else { return }
                     self.queue.async {
@@ -231,7 +234,10 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         session.start()
     }
 
-    private static func makeCLIRequestHandler(configuration: WorkspaceRemoteConfiguration) -> (@Sendable (Data) throws -> Data)? {
+    private static func makeCLIRequestHandler(
+        configuration: WorkspaceRemoteConfiguration,
+        strings: RemoteDaemonStrings
+    ) -> (@Sendable (Data) throws -> Data)? {
         guard let localSocketPath = configuration.localSocketPath?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !localSocketPath.isEmpty else {
