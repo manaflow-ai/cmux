@@ -116,6 +116,25 @@ npx cmux machine-agent --session agents
 
 Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ ssh host` on cmux.cloud.
 
+## Packaged installs and updates
+
+The `cmux` npm package is a small launcher with no dependencies. On first run it downloads the prebuilt `cmux-tui-<platform>` package for your platform from the npm registry, verifies the registry's sha512 integrity for the tarball, and caches the binaries in a versioned launcher cache (`~/Library/Caches/cmux-tui-launcher` on macOS, `$XDG_CACHE_HOME/cmux-tui-launcher` or `~/.cache/cmux-tui-launcher` on Linux). Later runs start instantly from that cache.
+
+Update with the launcher itself:
+
+```bash
+npx cmux update           # download the latest published version
+npx cmux update --check   # report whether a newer version exists
+```
+
+`cmux update` talks only to the npm registry and writes only the launcher cache. It never rewrites npm's `_npx` cache, so it cannot hit the npm `ENOTEMPTY` bug described below, and the updated binary is used on the next start.
+
+For offline or air-gapped machines, install the platform package next to the launcher; the launcher prefers a matching installed package and needs no network:
+
+```bash
+npm install -g cmux cmux-tui-darwin-arm64   # pick your platform package
+```
+
 ## Troubleshooting npx installs
 
 `npx cmux@latest` can fail inside npm before cmux runs:
@@ -127,14 +146,14 @@ npm error path ~/.npm/_npx/<hash>/node_modules/cmux-tui-darwin-arm64
 npm error ENOTEMPTY: directory not empty, rename ...
 ```
 
-This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits packages with per-platform binary dependencies (cmux ships `cmux-tui-<platform>` optional dependencies) most often. Clear the npx cache and rerun:
+This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Clear the npx cache and rerun:
 
 ```bash
 rm -rf ~/.npm/_npx
 npx cmux@latest
 ```
 
-A global install avoids the npx cache entirely: `npm install -g cmux`, then run `cmux` and upgrade with `npm install -g cmux@latest`.
+Newer launchers keep binaries out of npm's cache entirely (see the previous section), and `npx cmux update` replaces `npx cmux@latest` as the routine upgrade path.
 
 ## Sessions and sockets
 
