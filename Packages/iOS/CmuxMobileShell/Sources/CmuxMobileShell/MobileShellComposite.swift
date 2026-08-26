@@ -10968,11 +10968,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
+    #if DEBUG
+    /// Peer-transport v2 bootstrap probe, installed by the app layer.
+    /// Receives the live authenticated RPC client and the connected Mac's
+    /// device id each time a connection turns healthy.
+    @MainActor public static var peerTransportBootstrapProbe:
+        (@Sendable (_ client: MobileCoreRPCClient, _ macDeviceID: String) async -> Void)?
+    #endif
+
     func markMacConnectionHealthy() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
         }
+        #if DEBUG
+        // Peer-transport v2 bootstrap seam: runs over THIS composite's live
+        // authenticated RPC client after a connection turns healthy, so the
+        // probe never contends for the pooled control lane. The installer
+        // owns idempotence; an absent hook is a no-op.
+        if let probe = Self.peerTransportBootstrapProbe,
+            let client = remoteClient,
+            let macDeviceID = activeTicket?.macDeviceID,
+            !macDeviceID.isEmpty
+        {
+            Task { await probe(client, macDeviceID) }
+        }
+        #endif
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in
                 lastSuccessfulTerminalSubscription
