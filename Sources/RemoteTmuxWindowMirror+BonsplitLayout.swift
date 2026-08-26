@@ -79,6 +79,16 @@ extension RemoteTmuxWindowMirror {
             ?? windowPaneTitle(windowTitle, paneIndex: paneIndex)
     }
 
+    /// Copies one changed pane's title metadata and refreshes only its tab.
+    func updatePaneTitleMetadata(_ paneId: Int) {
+        guard paneIndexByPaneId[paneId] != nil else { return }
+        let metadata = connection?.paneTitleMetadataByPane[paneId]
+        if paneTitleMetadataByPane[paneId] != metadata {
+            paneTitleMetadataByPane[paneId] = metadata
+        }
+        updatePaneTitle(paneId)
+    }
+
     nonisolated static func dividerFraction(
         first: RemoteTmuxLayoutNode,
         rest: [RemoteTmuxLayoutNode],

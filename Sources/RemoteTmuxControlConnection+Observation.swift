@@ -41,6 +41,8 @@ extension RemoteTmuxControlConnection {
     ///     reflow on resize for alt-screen / inline-TUI panes like claude; `false`
     ///     = a plain shell whose primary-screen scrollback may reflow), both the
     ///     initial value and live changes (see ``subscribePaneReflow(paneId:)``).
+    ///   - onPaneTitleChanged: fires when one pane's deliberate tmux title changes,
+    ///     without requiring a full topology rebuild.
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
@@ -61,6 +63,7 @@ extension RemoteTmuxControlConnection {
         onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
+        onPaneTitleChanged: ((_ paneId: Int) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
@@ -73,6 +76,7 @@ extension RemoteTmuxControlConnection {
             onPaneSeed: onPaneSeed,
             onPaneCwd: onPaneCwd,
             onPaneReflow: onPaneReflow,
+            onPaneTitleChanged: onPaneTitleChanged,
             onActivePaneChanged: onActivePaneChanged,
             onSessionChanged: onSessionChanged,
             onTopologyChanged: onTopologyChanged,

@@ -972,7 +972,7 @@ final class RemoteTmuxControlConnection {
             } else if name.hasPrefix(Self.paneTitleSubscriptionPrefix),
                       let paneId = Int(name.dropFirst(Self.paneTitleSubscriptionPrefix.count)) {
                 if updatePaneTitleMetadata(paneId: paneId, wireValue: value) {
-                    observers.notifyTopologyChanged()
+                    observers.emitPaneTitleChanged(paneId)
                 }
             } else if name.hasPrefix(Self.borderStatusSubscriptionPrefix),
                       let windowId = Int(name.dropFirst(Self.borderStatusSubscriptionPrefix.count)) {
