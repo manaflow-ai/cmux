@@ -22,7 +22,8 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
               (words[3] as NSString).lastPathComponent == "tmux",
               words[4] == "-S",
               words[5].hasPrefix("/"),
-              words[5].hasSuffix("/server.sock"),
+              words[5].hasSuffix("/local-tmux/server.sock"),
+              URL(fileURLWithPath: words[5]).standardizedFileURL.path == words[5],
               words[6] == "attach-session",
               words[7] == "-t",
               words[8].range(of: "^=[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else {

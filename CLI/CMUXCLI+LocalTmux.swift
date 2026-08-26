@@ -296,7 +296,8 @@ extension CMUXCLI {
                     validatedName
                 ))
             }
-            let record = LocalTmuxSessionRecord(name: validatedName, socketPath: builder.socketPath, cwd: FileManager.default.currentDirectoryPath)
+            let sessionCwd = localTmuxSessionPath(name: validatedName, builder: builder, runner: runner) ?? ""
+            let record = LocalTmuxSessionRecord(name: validatedName, socketPath: builder.socketPath, cwd: sessionCwd)
             try registry.upsert(record)
             return record
         }
