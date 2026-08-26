@@ -81,6 +81,8 @@ use crate::{
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+/// Maximum JSON payload accepted on the Unix JSON-lines control socket.
+const MAX_JSON_LINE_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
@@ -110,6 +112,8 @@ const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
+/// Protocol version in which the session journal capability became available.
+pub const SESSION_JOURNAL_PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
@@ -480,9 +484,45 @@ pub(crate) fn decode_terminal_host_clear_history(
     fallback_key.map(KeyInput::try_from).transpose()
 }
 
+/// Validate the component used to identify a local session.
+///
+/// Session names become socket file names. Keep legacy names that are still a
+/// single path component, but reject values that can escape the socket root or
+/// carry control and line-separator characters.
+pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
+    let invalid = session.is_empty()
+        || matches!(session, "." | "..")
+        || session.chars().any(|character| {
+            character == '/'
+                || character == '\\'
+                || character == '\0'
+                || character.is_control()
+                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        });
+    anyhow::ensure!(
+        !invalid,
+        "session name must be a non-empty path component without separators or control characters"
+    );
+    Ok(())
+}
+
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
-    default_socket_path_in_runtime_dir(session, platform::runtime_dir())
+    match try_default_socket_path(session) {
+        Ok(path) => path,
+        Err(_) => invalid_session_socket_path(session),
+    }
+}
+
+/// Resolve a session socket path and report invalid input before any path use.
+pub fn try_default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
+}
+
+fn invalid_session_socket_path(session: &str) -> PathBuf {
+    let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+    platform::invalid_runtime_dir().join(format!("{digest}.sock"))
 }
 
 fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
@@ -490,7 +530,18 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
     let preferred = runtime_dir.join(&file_name);
     #[cfg(unix)]
     if !unix_socket_path_fits(&preferred) {
-        return platform::fallback_runtime_dir().join(file_name);
+        let fallback = platform::fallback_runtime_dir().join(&file_name);
+        if unix_socket_path_fits(&fallback) {
+            return fallback;
+        }
+        let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
+        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
+        let hashed =
+            platform::hashed_runtime_dir_for_base(preferred_base).join(format!("{digest}.sock"));
+        if unix_socket_path_fits(&hashed) {
+            return hashed;
+        }
+        return platform::fallback_hashed_runtime_dir().join(format!("{digest}.sock"));
     }
     preferred
 }
@@ -4697,12 +4748,107 @@ impl Drop for PendingServer {
     }
 }
 
+/// Prepare the daemon-owned runtime directory without accepting a symlink or
+/// an existing directory controlled by another user. The final metadata check
+/// also confirms that tightening permissions did not change the object type.
+fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                anyhow::bail!("runtime socket directory must not be a symlink: {}", dir.display());
+            }
+            if !metadata.is_dir() {
+                anyhow::bail!("runtime socket path parent is not a directory: {}", dir.display());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(dir)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let metadata = std::fs::symlink_metadata(dir)?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            anyhow::bail!("runtime socket directory changed during creation: {}", dir.display());
+        }
+        // The effective user must own the directory before we chmod it. This
+        // prevents an inherited path from being used to mutate another user's
+        // runtime directory.
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            anyhow::bail!(
+                "runtime socket directory is not owned by the effective user: {}",
+                dir.display()
+            );
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            platform::restrict_directory(dir)?;
+        }
+        let verified = std::fs::symlink_metadata(dir)?;
+        if verified.file_type().is_symlink()
+            || !verified.is_dir()
+            || verified.uid() != unsafe { libc::geteuid() }
+            || verified.permissions().mode() & 0o077 != 0
+        {
+            anyhow::bail!("runtime socket directory is not private: {}", dir.display());
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        platform::restrict_directory(dir)?;
+    }
+    Ok(())
+}
+
+/// Create missing parents for an explicitly selected socket path without
+/// changing the permissions or ownership of an existing directory. Explicit
+/// paths may point at a caller-managed location, but the final parent must
+/// still be a real directory rather than a symlink or other file.
+fn prepare_explicit_socket_directory(path: &Path) -> anyhow::Result<()> {
+    let Some(dir) = path.parent() else { return Ok(()) };
+    if dir.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    match std::fs::symlink_metadata(dir) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                anyhow::bail!("explicit socket path parent is not a directory: {}", dir.display());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(dir)?;
+            let metadata = std::fs::symlink_metadata(dir)?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                anyhow::bail!(
+                    "explicit socket path parent changed to a non-directory: {}",
+                    dir.display()
+                );
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
-    let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-        platform::restrict_directory(dir)?;
+    let (path, is_derived) = match path {
+        Some(path) => (path, false),
+        None => (try_default_socket_path(&mux.session)?, true),
+    };
+    // Only harden directories selected by the daemon. An explicit socket path
+    // is authoritative, so its parent may be a shared or pre-configured path
+    // such as /tmp and must not be chmod'ed or ownership-checked.
+    if is_derived {
+        if let Some(dir) = path.parent() {
+            prepare_runtime_socket_directory(dir)?;
+        }
+    } else {
+        prepare_explicit_socket_directory(&path)?;
     }
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
@@ -4922,16 +5068,27 @@ fn handle_connection_with_permit(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
     ));
-    let reader = BufReader::new(stream);
+    let mut reader = BufReader::new(stream);
     let mut drain_accepted = true;
-    for line in reader.lines() {
-        let mut line = match line {
-            Ok(line) => line,
+    loop {
+        let mut line = String::new();
+        // read_line includes the trailing LF. Read one byte beyond the largest
+        // valid payload plus its delimiter so an oversized payload is visible.
+        let read = match reader.by_ref().take((MAX_JSON_LINE_BYTES + 2) as u64).read_line(&mut line)
+        {
+            Ok(read) => read,
             Err(_) => {
                 drain_accepted = false;
                 break;
             }
         };
+        if read == 0 {
+            break;
+        }
+        if json_line_payload_len(&line) > MAX_JSON_LINE_BYTES {
+            drain_accepted = false;
+            break;
+        }
         if line.trim().is_empty() {
             zeroize_string(&mut line);
             continue;
@@ -4951,6 +5108,10 @@ fn handle_connection_with_permit(
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     drop(connection_permit);
+}
+
+fn json_line_payload_len(line: &str) -> usize {
+    line.strip_suffix('\n').map_or(line.len(), str::len)
 }
 
 #[cfg(test)]
@@ -11817,6 +11978,7 @@ fn handle_command_with_cancellation(
                 "pid": surface.process_id(),
                 "command": surface.spawn_command(),
                 "cwd": surface.local_cwd(),
+                "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
@@ -12943,6 +13105,23 @@ mod tests {
 
     static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
 
+    #[test]
+    fn json_line_limit_excludes_the_newline_delimiter() {
+        let exact_payload = "x".repeat(MAX_JSON_LINE_BYTES);
+        assert_eq!(json_line_payload_len(&exact_payload), MAX_JSON_LINE_BYTES);
+
+        let mut exact_line = exact_payload;
+        exact_line.push('\n');
+        assert_eq!(json_line_payload_len(&exact_line), MAX_JSON_LINE_BYTES);
+
+        let oversized_payload = "x".repeat(MAX_JSON_LINE_BYTES + 1);
+        assert!(json_line_payload_len(&oversized_payload) > MAX_JSON_LINE_BYTES);
+
+        let mut oversized_line = oversized_payload;
+        oversized_line.push('\n');
+        assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
+    }
+
     struct TestSocketDir(PathBuf);
 
     impl TestSocketDir {
@@ -12974,6 +13153,16 @@ mod tests {
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
         );
+    }
+
+    #[test]
+    fn session_name_validation_rejects_path_escape_input() {
+        for session in ["", ".", "..", "../escape", "nested/session", "nested\\session"] {
+            assert!(validate_session_name(session).is_err(), "accepted {session:?}");
+        }
+        assert!(validate_session_name("main").is_ok());
+        assert!(validate_session_name("legacy name").is_ok());
+        assert_ne!(default_socket_path("../escape"), default_socket_path("main"));
     }
 
     #[test]
@@ -13035,6 +13224,81 @@ mod tests {
         );
         assert!(unix_socket_path_fits(&path));
         assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_socket_path_hash_prefers_runtime_base_and_falls_back_to_tmp() {
+        let session = format!("legacy-{}", "x".repeat(200));
+        let preferred_runtime = PathBuf::from("/run/user/501/cmux-tui-501");
+        let preferred = default_socket_path_in_runtime_dir(&session, preferred_runtime);
+        assert_eq!(
+            preferred,
+            platform::hashed_runtime_dir_for_base(Path::new("/run/user/501"))
+                .join("e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2.sock",)
+        );
+        assert!(unix_socket_path_fits(&preferred));
+
+        let long_base = PathBuf::from("/tmp").join("x".repeat(200));
+        let fallback =
+            default_socket_path_in_runtime_dir(&session, long_base.join("cmux-tui-test-user"));
+        assert!(fallback.starts_with(platform::fallback_hashed_runtime_dir()));
+        assert!(unix_socket_path_fits(&fallback));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_socket_directory_rejects_symlinks_and_non_directories() {
+        use std::os::unix::fs::symlink;
+
+        let root = TestSocketDir::create("runtime-directory-security");
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        let alias = root.path().join("alias");
+        symlink(&target, &alias).unwrap();
+        assert!(prepare_runtime_socket_directory(&alias).is_err());
+
+        let file = root.path().join("file");
+        std::fs::write(&file, b"not a directory").unwrap();
+        assert!(prepare_runtime_socket_directory(&file).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_socket_directory_tightens_existing_owned_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TestSocketDir::create("runtime-directory-mode");
+        let directory = root.path().join("runtime");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        prepare_runtime_socket_directory(&directory).unwrap();
+        assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn serve_paused_preserves_explicit_socket_parent_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TestSocketDir::create("explicit-runtime-directory");
+        let directory = root.path().join("socket-parent");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let pending = serve_paused(test_mux(), Some(directory.join("mux.sock"))).unwrap();
+        drop(pending);
+        assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o755);
+    }
+
+    #[test]
+    fn serve_paused_creates_missing_explicit_socket_parent() {
+        let root = TestSocketDir::create("explicit-runtime-directory-missing");
+        let directory = root.path().join("missing").join("nested");
+        let socket = directory.join("mux.sock");
+        let pending = serve_paused(test_mux(), Some(socket.clone())).unwrap();
+        drop(pending);
+        assert!(directory.is_dir());
+        assert!(!socket.exists());
     }
 
     #[cfg(unix)]
@@ -18672,14 +18936,27 @@ mod tests {
             } else {
                 request["delta_y_px"] = json!(3.0);
             }
+            request["frame_seq"] = Value::Null;
             let request =
                 serde_json::from_value::<Request>(request).expect("legacy schema must parse");
-            let error = handle_command(&test_mux(), 0, request.cmd, &test_writer())
-                .unwrap_err()
-                .to_string();
+            let mux = test_mux();
+            let writer = test_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            assert!(handle_message(
+                &mux,
+                client,
+                &json!({
+                    "id": 1,
+                    "cmd": "set-client-info",
+                    "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+                })
+                .to_string(),
+                &writer,
+            ));
+            let error = handle_command(&mux, client, request.cmd, &writer).unwrap_err().to_string();
             assert!(
                 error.contains("requires a frame guard"),
-                "{cmd} must fail closed before surface lookup: {error}"
+                "{cmd} with a null frame_seq must fail closed before surface lookup: {error}"
             );
         }
     }

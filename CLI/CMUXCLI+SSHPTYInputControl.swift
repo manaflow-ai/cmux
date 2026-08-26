@@ -1,22 +1,29 @@
-import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
-    /// Flushes bytes that were typed while a managed SSH PTY was detached.
+    /// Flushes bytes typed while a managed persistent SSH PTY was detached.
     ///
-    /// This is an internal helper invoked by the generated retry wrapper while
-    /// it temporarily owns terminal input. It intentionally does not resolve a
-    /// cmux socket or print output.
+    /// The generated retry wrapper invokes this internal no-socket command
+    /// while it owns terminal input between attachment attempts.
     func runSSHPTYFlushInput(commandArgs: [String]) throws {
-        guard commandArgs.isEmpty else { return }
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        guard commandArgs.isEmpty else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.sshPtyAttach.flushInputUsage",
+                    defaultValue: "Internal SSH input flush does not accept arguments.",
+                    bundle: bundle
+                ),
+                exitCode: 2
+            )
+        }
         guard SSHPTYTerminalInputMode.flushInput() else {
             throw CLIError(
                 message: String(
-                    localized: "cli.sshPtyAttach.terminalInputFlushFailed",
-                    defaultValue: "SSH terminal input could not be reset; reconnecting.",
-                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
-                ),
-                exitCode: SSHPTYAttachExitCode.retryableTransient
+                    localized: "cli.sshPtyAttach.flushInputFailed",
+                    defaultValue: "SSH terminal input could not be discarded safely.",
+                    bundle: bundle
+                )
             )
         }
     }

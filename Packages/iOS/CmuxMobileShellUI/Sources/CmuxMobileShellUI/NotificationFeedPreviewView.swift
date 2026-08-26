@@ -111,7 +111,7 @@ public struct NotificationFeedPreviewView: View {
                 openSettings: {},
                 openDevices: {},
                 title: L10n.string(
-                    "mobile.workspaces.macPicker.allMacs",
+                    "mobile.workspaces.macPicker.allConnections",
                     defaultValue: "All Computers"
                 ),
                 isLoading: false,

@@ -58,11 +58,14 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
-    @Test func storeRecoveryFailureWithConnectedStatusShowsStatusLine() {
+    /// A stale recovery-failed flag never overrides a connected aggregate:
+    /// the visible list is healthy (for example through a secondary Mac), so
+    /// claiming Not Connected would be untruthful chrome.
+    @Test func storeRecoveryFailureWithConnectedStatusShowsNoChrome() {
         #expect(chrome(
             connectionRecoveryFailed: true,
             connectionStatus: .connected
-        ) == .statusLine(.notConnected))
+        ) == .none)
     }
 
     @Test func initialConnectionLoadingShowsMacStatusRow() {
@@ -167,7 +170,7 @@ import Testing
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
-        #expect(!chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .unavailable).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .reconnecting).showsMacUpdateHintIndicator)
         #expect(!chrome(

@@ -90,21 +90,18 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
 
     @ViewBuilder
     private var anchorTarget: some View {
-        switch navigationStyle {
-        case .push:
-            Button {
-                actions.selectWorkspace(group.anchorWorkspaceID)
-            } label: {
-                nameLabel
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID {
+            switch navigationStyle {
+            case .push, .sidebar:
+                Button {
+                    actions.selectWorkspace(anchorWorkspaceID)
+                } label: {
+                    nameLabel
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-        case .sidebar:
-            Button {
-                actions.selectWorkspace(group.anchorWorkspaceID)
-            } label: {
-                nameLabel
-            }
-            .buttonStyle(.plain)
+        } else {
+            nameLabel
         }
     }
 
