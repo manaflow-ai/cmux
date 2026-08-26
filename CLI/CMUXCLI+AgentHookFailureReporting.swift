@@ -7,11 +7,15 @@ nonisolated private let agentHookDeliveryLogger = Logger(
 )
 
 extension CMUXCLI {
-    /// Chooses a currently verified hook PID, retaining a mapped fallback when verification fails.
+    /// Chooses a process PID only after the live owner resolver corroborates it.
+    /// A merely readable process generation may belong to a shell or wrapper
+    /// parent, so generic hooks fail closed to their durable mapping when no
+    /// resolver result names the same candidate.
     func preferredAgentHookEventPID(
         agentName: String,
         mappedPID: Int?,
-        inferredPID: Int?
+        inferredPID: Int?,
+        verifiedPID: Int? = nil
     ) -> Int? {
         if agentName == "codex" {
             return inferredPID ?? mappedPID
@@ -19,13 +23,10 @@ extension CMUXCLI {
         guard let inferredPID else {
             return mappedPID
         }
-        // A generic provider can restart between hooks, leaving the durable
-        // session record pointed at its old PID until SessionStart runs. Use
-        // the current hook PID when its exact generation is readable; an
-        // unverified ambient claim must not displace the mapped owner.
-        guard AgentPIDProcessIdentity(agentTurnPID: inferredPID) != nil else {
-            return mappedPID ?? inferredPID
-        }
+        // A provider can restart between hooks, but liveness alone does not
+        // prove that this PID is the agent rather than a shell/runner parent.
+        // The process binding resolver supplies that missing ownership proof.
+        guard verifiedPID == inferredPID else { return mappedPID }
         return inferredPID
     }
 

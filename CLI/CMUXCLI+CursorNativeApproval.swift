@@ -422,10 +422,6 @@ extension CMUXCLI {
         processIdentity: AgentPIDProcessIdentity,
         sessionId: String
     ) -> CursorNativeAttentionIdentifiers {
-        let generationId = firstNonEmptyString(
-            in: rawObject,
-            keys: ["generation_id", "generationId", "turn_id", "turnId"]
-        )
         let toolCallId = firstNonEmptyString(
             in: rawObject,
             keys: [
@@ -436,22 +432,20 @@ extension CMUXCLI {
                 "toolUseID",
             ]
         )
-        let command = firstNonEmptyString(
-            in: rawObject,
-            keys: ["command", "shell_command", "shellCommand"]
-        )
         let scopeSeed = [
             "source=cursor",
             "pid=\(processIdentity.pid)",
             "start=\(processIdentity.startSeconds).\(processIdentity.startMicroseconds)",
             "session=\(sessionId)",
-            "generation=\(generationId ?? "")",
         ].joined(separator: "\n")
         let scopeId = "cursor-scope-\(digestPrefix(scopeSeed))"
+        // Cursor's post-policy payload may normalize or omit command/turn
+        // fields. The tool-call id is the contractually stable correlation
+        // key, so derive the observation solely from it and the process/session
+        // scope captured by the pre-tool event.
         let observationSeed = [
             "scope=\(scopeId)",
             "tool=\(toolCallId ?? "")",
-            "command=\(command ?? "")",
         ].joined(separator: "\n")
         return CursorNativeAttentionIdentifiers(
             scopeId: scopeId,

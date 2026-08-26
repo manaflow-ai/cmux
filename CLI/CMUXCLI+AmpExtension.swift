@@ -1191,7 +1191,13 @@ export default function (amp: PluginAPI) {
     pendingEnd: PendingTurnEnd,
   ): void => {
     discardTurnState(threadId, state);
-    const activeSiblingTurnCount = turnStates.size;
+    // A bounded observer eviction is evidence of unresolved sibling work even
+    // after its exact state has been released. Keep that evidence in the
+    // settled boundary so the shared reducer cannot publish Idle while an
+    // evicted turn (or an unknown overflowed turn) may still be active.
+    const activeSiblingTurnCount = turnStates.size
+      + turnStateOverflowTombstones.size
+      + (turnStateOverflowedUnknown ? 1 : 0);
     if (activeSiblingTurnCount === 0) {
       switch (pendingEnd.event.status) {
         case "done":

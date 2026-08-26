@@ -6,6 +6,6 @@ extension CMUXCLI {
         case notAttempted
         case unsupported
         case failed
-        case resolved(CallerTerminalBinding)
+        case resolved(pid: Int, binding: CallerTerminalBinding)
     }
 }

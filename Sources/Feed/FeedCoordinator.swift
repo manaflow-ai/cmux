@@ -630,9 +630,11 @@ extension FeedCoordinator {
     /// Surfaces in-app attention for a blocking feed decision: flips the exact
     /// panel owner's Feed-owned lifecycle to `.needsInput`, sets its
     /// Feed-owned "Needs input" status, and elevates workspace owners when
-    /// *Reorder on Notification* is enabled. The agent's own lifecycle and
-    /// status slots remain authoritative and untouched. Window-Dock owners
-    /// retain their own runtime instead of being reinterpreted as workspaces.
+    /// *Reorder on Notification* is enabled. When the event is explicitly
+    /// workspace-scoped and no panel is usable, the workspace status remains
+    /// the visible ownership without inventing a focused-panel lifecycle.
+    /// Window-Dock owners retain their own runtime instead of being
+    /// reinterpreted as workspaces.
     ///
     /// This is the convergence point the PreToolUse→PermissionRequest
     /// migration left behind: the `feed.push` bridge ingested the card and
@@ -766,7 +768,11 @@ extension FeedCoordinator {
                 panelId = resolved.surfaceId == nil ? tab.focusedPanelId : nil
             }
         }
-        guard let panelId else { return nil }
+        // A supplied surface identity is strict: if that panel is gone or no
+        // longer owned by this workspace, do not silently retarget the
+        // blocking card to a different (or merely focused) panel. Only an
+        // explicitly workspace-scoped event may continue with a nil panel.
+        guard resolved.surfaceId == nil || panelId != nil else { return nil }
         let statusKey = Self.attentionStatusKey(forSource: event.source)
         let usesRemoteProcessNamespace = owner.usesRemoteAgentProcessNamespace(panelId: panelId)
         let processGeneration: AgentPIDProcessIdentity? = {
@@ -775,12 +781,25 @@ extension FeedCoordinator {
                   !usesRemoteProcessNamespace else { return nil }
             return Self.localProcessGeneration(pid: ppid)
         }()
-        guard let token = owner.beginAgentFeedAttention(
-            key: statusKey,
-            panelId: panelId,
-            processGeneration: processGeneration
-        ) else {
-            return nil
+        let token: AgentFeedAttentionToken
+        if let panelId {
+            guard let panelToken = owner.beginAgentFeedAttention(
+                key: statusKey,
+                panelId: panelId,
+                processGeneration: processGeneration
+            ) else {
+                return nil
+            }
+            token = panelToken
+        } else {
+            // A workspace-scoped Feed decision still needs a stable
+            // conclusion token even when the workspace currently has no
+            // usable panel. There is no panel lifecycle slot to mutate here;
+            // the workspace status entry below is the visible ownership.
+            guard case .workspace = owner else { return nil }
+            token = AgentFeedAttentionToken(
+                processGeneration: processGeneration
+            )
         }
         let target = FeedAttentionTarget(
             workspaceId: owner.id,
@@ -1050,8 +1069,10 @@ extension FeedCoordinator {
         )
 
         let remainingTargets = pendingAttentionStates.keys.filter {
-            $0.panelId == panelId
-                && pendingAttentionStates[$0]?.statusOwnerId == workspaceId
+            guard pendingAttentionStates[$0]?.statusOwnerId == workspaceId else {
+                return false
+            }
+            return $0.panelId == panelId
         }
         for target in remainingTargets {
             concludeBlockingDecisionAttention(target)
@@ -1275,7 +1296,10 @@ extension FeedCoordinator {
         } else {
             panelId = tab?.focusedPanelId
         }
-        guard let panelId else {
+        // Native attention callers are required to provide a surface, while a
+        // blocking Feed event may intentionally be workspace-scoped. A stale
+        // supplied surface must never degrade into a workspace-wide badge.
+        guard resolved.surfaceId == nil || panelId != nil else {
             return nil
         }
         let owner: ControlSidebarPanelOwner
@@ -1290,7 +1314,13 @@ extension FeedCoordinator {
                 )
                 ?? .workspace(tab)
         }
-        let statusKey = Self.lifecycleStatusKey(forSource: source)
+        // Panel-bound native/lifecycle observations keep the agent's
+        // established status key. A blocking event without a surface cannot
+        // project lifecycle evidence onto a panel, so use the Feed-owned
+        // namespace to keep the workspace badge visible and isolated.
+        let statusKey = panelId == nil
+            ? Self.attentionStatusKey(forSource: source)
+            : Self.lifecycleStatusKey(forSource: source)
         let usesRemoteProcessNamespace =
             owner.usesRemoteAgentProcessNamespace(panelId: panelId)
         let processGeneration: AgentPIDProcessIdentity? = switch processEvidence {
@@ -1305,19 +1335,32 @@ extension FeedCoordinator {
         }
         // Relay generations cannot be probed in the local process table, but
         // they remain authoritative ordering evidence for reconciliation.
-        if !usesRemoteProcessNamespace, let processGeneration {
+        if let panelId, !usesRemoteProcessNamespace, let processGeneration {
             guard AgentPIDProcessIdentity(
                 pid: processGeneration.pid
             ) == processGeneration else {
                 return nil
             }
         }
-        guard let token = owner.beginAgentFeedAttention(
-            key: statusKey,
-            panelId: panelId,
-            processGeneration: processGeneration
-        ) else {
-            return nil
+        let token: AgentFeedAttentionToken
+        if let panelId {
+            guard let panelToken = owner.beginAgentFeedAttention(
+                key: statusKey,
+                panelId: panelId,
+                processGeneration: processGeneration
+            ) else {
+                return nil
+            }
+            token = panelToken
+        } else {
+            guard case .workspace = owner else { return nil }
+            token = AgentFeedAttentionToken(
+                processGeneration: processGeneration
+            )
+            // Workspace status is shared and can still be shown when the
+            // event has no panel identity. There is no panel lifecycle slot
+            // to mutate in this case; keeping the ownership in the pending
+            // target avoids clearing an agent-owned lifecycle on conclusion.
         }
         let target = FeedAttentionTarget(
             workspaceId: owner.id,
@@ -1449,9 +1492,10 @@ extension FeedCoordinator {
         // checks Docks first, so a stale Dock copy of the same panel ID must
         // not steal conclusion cleanup from the live workspace owner.
         let owner = if let fallbackWorkspace,
+                        let panelId = target.panelId,
                         pendingState.statusOwnerId == fallbackWorkspace.id,
                         fallbackWorkspace.surfaceOwnershipTarget(
-                            for: target.panelId
+                            for: panelId
                         ) != nil {
             ControlSidebarPanelOwner.workspace(fallbackWorkspace)
         } else {
@@ -1464,18 +1508,20 @@ extension FeedCoordinator {
             ?? fallbackWorkspace.map(ControlSidebarPanelOwner.workspace) else {
             return
         }
-        if let processExitGeneration {
-            _ = resolvedOwner.recordAgentProcessExit(
-                key: target.statusKey,
-                panelId: target.panelId,
-                generation: processExitGeneration
-            )
-        } else {
-            _ = resolvedOwner.endAgentFeedAttention(
-                key: target.statusKey,
-                panelId: target.panelId,
-                token: target.token
-            )
+        if let panelId = target.panelId {
+            if let processExitGeneration {
+                _ = resolvedOwner.recordAgentProcessExit(
+                    key: target.statusKey,
+                    panelId: panelId,
+                    generation: processExitGeneration
+                )
+            } else {
+                _ = resolvedOwner.endAgentFeedAttention(
+                    key: target.statusKey,
+                    panelId: panelId,
+                    token: target.token
+                )
+            }
         }
 
         // Workspace status entries are shared across panels, while detached
@@ -1501,11 +1547,13 @@ extension FeedCoordinator {
             return
         }
         if let owner {
-            guard owner.agentLifecycleState(
-                key: target.statusKey,
-                panelId: target.panelId
-            ) != .needsInput else {
-                return
+            if let panelId = target.panelId {
+                guard owner.agentLifecycleState(
+                    key: target.statusKey,
+                    panelId: panelId
+                ) != .needsInput else {
+                    return
+                }
             }
             if processExitGeneration == nil,
                let previousStatusEntry = pendingState.previousStatusEntry {
@@ -1520,10 +1568,12 @@ extension FeedCoordinator {
                     panelId: target.panelId
                 )
             }
-        } else if let fallbackWorkspace,
-                  fallbackWorkspace.agentLifecycleStatesByPanelId[
-                    target.panelId
-                  ]?[target.statusKey] != .needsInput {
+        } else if let fallbackWorkspace {
+            if let panelId = target.panelId,
+               fallbackWorkspace.agentLifecycleStatesByPanelId[panelId]?[target.statusKey]
+                    == .needsInput {
+                return
+            }
             let workspaceOwner = ControlSidebarPanelOwner.workspace(
                 fallbackWorkspace
             )
