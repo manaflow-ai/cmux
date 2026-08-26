@@ -23,7 +23,6 @@ import {
   STACK_USER_ID_PROPERTY,
   PREVIOUS_EMAILS_PROPERTY,
   previousEmailsFromProperty,
-  previousEmailsPropertyValue,
   type NewsletterContact,
   mergeContactSources,
 } from "./contacts";
@@ -68,7 +67,10 @@ export type SegmentSyncSummary = {
   created: number;
   addedToSegment: number;
   nameBackfilled: number;
-  emailMigrated: number;
+  blockedIdentityChanges: number;
+  // Old segment memberships removed because a Stack identity changed email
+  // and no other active source still claimed the old address.
+  identityMembershipRemoved: number;
   alreadyPresent: number;
   skippedUnsubscribed: number;
   revokedFromSegment: number;
@@ -92,9 +94,12 @@ export async function syncSegment(options: {
   // Exact, server-authoritative consent revocations from a complete source
   // listing. Unknown/missing source data is never treated as a revocation.
   revokedEmails?: ReadonlySet<string>;
+  revokedStackUserIds?: ReadonlySet<string>;
   pruneRevoked?: boolean;
-  // Contact identity migration is planned from the stable Stack id stored in
-  // Resend properties, preserving unsubscribe state across email changes.
+  // Email changes are reported as blockedIdentityChanges because Resend does
+  // not support editing a contact address. The old segment membership is
+  // removed when no active source still claims it; no replacement contact is
+  // created.
 }): Promise<SegmentSyncSummary> {
   const {
     client,
@@ -185,8 +190,14 @@ export async function syncSegment(options: {
       const previousEmails = previousEmailsFromProperty(
         member.properties?.[PREVIOUS_EMAILS_PROPERTY],
       );
+      const memberStackUserId =
+        typeof member.properties?.[STACK_USER_ID_PROPERTY] === "string"
+          ? member.properties[STACK_USER_ID_PROPERTY]
+          : null;
       const wasRevoked =
         revokedEmails.has(email) ||
+        (memberStackUserId !== null &&
+          (options.revokedStackUserIds?.has(memberStackUserId) ?? false)) ||
         previousEmails.some((previous) =>
           revokedEmails.has(previous.trim().toLowerCase()),
         );
@@ -201,13 +212,26 @@ export async function syncSegment(options: {
   let createdCount = plan.toCreate.length;
   let addedToSegmentCount = plan.toAddToSegment.length;
   let nameBackfilledCount = plan.toBackfillName.length;
-  let emailMigratedCount = plan.toUpdateEmail.length;
+  let identityMembershipRemovedCount = plan.toRemoveForIdentityChange.length;
 
   if (apply && segment) {
     createdCount = 0;
     addedToSegmentCount = 0;
     nameBackfilledCount = 0;
-    emailMigratedCount = 0;
+    identityMembershipRemovedCount = 0;
+    for (const removal of plan.toRemoveForIdentityChange) {
+      if (!memberEmails.has(removal.email)) continue;
+      const latest = await client.getContactById(removal.contactId);
+      if (!latest || latest.unsubscribed) continue;
+      const latestEmail = latest.email.trim().toLowerCase();
+      // Resend addresses are immutable. If an operator has already completed
+      // a provider-side migration between the plan and this write, do not
+      // remove the newly assigned address by an old contact id.
+      if (latestEmail !== removal.email) continue;
+      await client.removeContactFromSegment(latest.id, segment.id);
+      memberEmails.delete(removal.email);
+      identityMembershipRemovedCount += 1;
+    }
     if (options.pruneRevoked) {
       const existingByEmail = new Map(
         existingContacts.map((contact) => [
@@ -231,27 +255,6 @@ export async function syncSegment(options: {
         ...(latest.properties ?? {}),
         ...propertyBackfill.properties,
       });
-    }
-    for (const update of plan.toUpdateEmail) {
-      const latest = await client.getContactById(update.contactId);
-      if (!latest || latest.unsubscribed) continue;
-      const previousEmails = new Set<string>([
-        ...update.previousEmails,
-        ...previousEmailsFromProperty(
-          latest.properties?.[PREVIOUS_EMAILS_PROPERTY],
-        ),
-      ]);
-      await client.updateContactEmail(latest.id, update.email, {
-        ...(latest.properties ?? {}),
-        [STACK_USER_ID_PROPERTY]: update.stackUserId,
-        [PREVIOUS_EMAILS_PROPERTY]: previousEmailsPropertyValue(
-          [...previousEmails],
-        ),
-      });
-      if (memberEmails.delete(update.previousEmail)) {
-        memberEmails.add(update.email);
-      }
-      emailMigratedCount += 1;
     }
     for (const create of plan.toCreate) {
       // Re-read immediately before creating. A contact can be unsubscribed or
@@ -329,7 +332,8 @@ export async function syncSegment(options: {
     created: createdCount,
     addedToSegment: addedToSegmentCount,
     nameBackfilled: nameBackfilledCount,
-    emailMigrated: emailMigratedCount,
+    blockedIdentityChanges: plan.blockedIdentityChanges,
+    identityMembershipRemoved: identityMembershipRemovedCount,
     alreadyPresent: plan.alreadyPresent,
     skippedUnsubscribed: plan.skippedUnsubscribed,
     revokedFromSegment,

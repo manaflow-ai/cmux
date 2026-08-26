@@ -84,15 +84,20 @@ current data flow):
   apply; other stale members (deleted account, changed primary email, or an
   incomplete source page) remain and are reported by `staleMembers` for manual
   review.
-- A user who unsubscribes and later changes their verified primary email
-  in Stack will be synced under the new address as a fresh subscribed
-  contact; the old address's opt-out does not follow them, because Resend
-  contacts carry no Stack identity today.
+- A user who changes their verified primary email in Stack is matched by the
+  stable Stack ID stamped in Resend contact properties. Because Resend contact
+  email addresses are immutable, the sync blocks the address migration,
+  removes the old address from the affected segment when no active source still
+  claims it, and reports the case for a human-reviewed provider migration.
 
 If either becomes a requirement, the follow-up is to stamp the Stack user
-id onto Resend contact `properties` at create time and hook the account
-deletion / email-change flows into removal and suppression-migration
-helpers.
+id onto Resend contact `properties` at create time (the sync does this for new
+and existing same-address contacts), and have an operator perform the
+provider-side address migration. Resend contact email addresses are immutable,
+so the sync reports `blockedIdentityChanges`, removes the old address from the
+affected segment when no active source still claims it, and never creates a
+replacement subscribed contact on an email change. The per-run summary exposes
+those cleanups as `identityMembershipRemoved`.
 
 ## (a) Sync the segments
 

@@ -17,7 +17,9 @@
 // Safety: additive and idempotent. Subscription state is never written (no
 // global unsubscribed flag, no topic preferences), globally-unsubscribed
 // contacts get no writes at all, names are only backfilled when missing,
-// contacts are never removed, and nothing is written without --apply.
+// contacts are never deleted, and segment membership is removed only for an
+// explicit revocation or a blocked identity change. Nothing is written
+// without --apply.
 // Requires a Resend API key with "Full access" (a sending-only restricted
 // key fails loudly with instructions). No email addresses are printed, only
 // counts.
@@ -25,16 +27,11 @@
 // Env (source scripts/load-dev-env.sh or `vercel env pull`): RESEND_API_KEY,
 // NEXT_PUBLIC_STACK_PROJECT_ID, STACK_SECRET_SERVER_KEY, STRIPE_SECRET_KEY.
 
+import { STACK_USER_ID_PROPERTY } from "../../services/newsletter/contacts";
 import {
   parseSyncArgs,
   requirePrivacyDisclosureConfirmation,
 } from "../../services/newsletter/cli";
-import {
-  PREVIOUS_EMAILS_PROPERTY,
-  STACK_USER_ID_PROPERTY,
-  previousEmailsFromProperty,
-  type NewsletterContact,
-} from "../../services/newsletter/contacts";
 import { ResendClient } from "../../services/newsletter/resend-client";
 import { listStackContacts } from "../../services/newsletter/stack-source";
 import { listFounderContacts } from "../../services/newsletter/stripe-source";
@@ -49,33 +46,6 @@ import {
 } from "../../services/newsletter/sync";
 
 import { requiredEnv } from "./script-env";
-
-function alignContactsToExistingIdentity(
-  desired: NewsletterContact[],
-  existing: Awaited<ReturnType<ResendClient["listContacts"]>>,
-): NewsletterContact[] {
-  const byEmail = new Map(
-    existing.map((contact) => [contact.email.trim().toLowerCase(), contact]),
-  );
-  const byPreviousEmail = new Map<string, (typeof existing)[number]>();
-  for (const contact of existing) {
-    const previous = contact.properties?.[PREVIOUS_EMAILS_PROPERTY];
-    for (const value of previousEmailsFromProperty(previous)) {
-      byPreviousEmail.set(value, contact);
-    }
-  }
-  return desired.map((candidate) => {
-    const email = candidate.email.trim().toLowerCase();
-    const match = byEmail.get(email) ?? byPreviousEmail.get(email);
-    const stackUserId = match?.properties?.[STACK_USER_ID_PROPERTY];
-    if (!match || typeof stackUserId !== "string") return candidate;
-    return {
-      ...candidate,
-      email: match.email.trim().toLowerCase(),
-      stackUserId,
-    };
-  });
-}
 
 const args = parseSyncArgs(process.argv.slice(2));
 
@@ -125,13 +95,9 @@ if (args.audience === "users" || args.audience === "all") {
   sourceCounts.stackSkippedNotOptedIn = stackResult.skippedNotOptedIn;
   sourceCounts.stackSkippedMissingIdentity = stackResult.skippedMissingIdentity;
 
-  const founderContacts = alignContactsToExistingIdentity(
-    stripeResult.contacts,
-    existingContacts,
-  );
   usersDesired = buildUsersSegmentContacts(
     stackResult.contacts,
-    founderContacts,
+    stripeResult.contacts,
   );
   summaries.push(
     await syncSegment({
@@ -147,6 +113,7 @@ if (args.audience === "users" || args.audience === "all") {
         ...stackResult.revokedEmails,
         ...stripeResult.revokedEmails,
       ]),
+      revokedStackUserIds: new Set(stackResult.revokedStackUserIds),
       pruneRevoked: args.apply,
     }),
   );
@@ -182,14 +149,15 @@ if (args.audience === "founders" || args.audience === "all") {
       );
       let planned = 0;
       for (const desired of usersDesired) {
+        const desiredEmail = desired.email.trim().toLowerCase();
         const current =
           (desired.stackUserId
             ? byStackUserId.get(desired.stackUserId)
-            : undefined) ?? byEmail.get(desired.email);
+            : undefined) ?? byEmail.get(desiredEmail);
         if (!current) {
           const plannedContact = {
             id: `planned_${planned++}`,
-            email: desired.email,
+            email: desiredEmail,
             first_name: desired.firstName ?? null,
             last_name: desired.lastName ?? null,
             unsubscribed: false,
@@ -202,7 +170,7 @@ if (args.audience === "founders" || args.audience === "all") {
               : {}),
           };
           projected.push(plannedContact);
-          byEmail.set(desired.email, plannedContact);
+          byEmail.set(desiredEmail, plannedContact);
           if (desired.stackUserId) {
             byStackUserId.set(desired.stackUserId, plannedContact);
           }
@@ -217,25 +185,16 @@ if (args.audience === "founders" || args.audience === "all") {
         if (!current.last_name && desired.lastName) {
           current.last_name = desired.lastName;
         }
-        if (current.email.trim().toLowerCase() !== desired.email) {
-          byEmail.delete(current.email.trim().toLowerCase());
-          current.email = desired.email;
-          byEmail.set(desired.email, current);
-        }
       }
       contactsForFounders = projected;
     }
   }
-  const founderDesired = alignContactsToExistingIdentity(
-    stripeResult.contacts,
-    contactsForFounders,
-  );
   summaries.push(
     await syncSegment({
       client,
       segmentName: FOUNDERS_SEGMENT_NAME,
       topic: FOUNDERS_TOPIC,
-      desired: founderDesired,
+      desired: stripeResult.contacts,
       existingContacts: contactsForFounders,
       apply: args.apply,
       revokedEmails: new Set(stripeResult.revokedEmails),
@@ -271,7 +230,8 @@ if (args.json) {
         `createContact=${summary.created} ` +
         `addToSegment=${summary.addedToSegment} ` +
         `backfillName=${summary.nameBackfilled} ` +
-        `emailMigrated=${summary.emailMigrated} ` +
+        `blockedIdentityChanges=${summary.blockedIdentityChanges} ` +
+        `identityMembershipRemoved=${summary.identityMembershipRemoved} ` +
         `alreadyPresent=${summary.alreadyPresent} ` +
         `skippedUnsubscribed=${summary.skippedUnsubscribed} ` +
         `revokedFromSegment=${summary.revokedFromSegment} ` +

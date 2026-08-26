@@ -46,14 +46,6 @@ export function previousEmailsFromProperty(value: unknown): string[] {
   ];
 }
 
-export function previousEmailsPropertyValue(
-  emails: readonly string[],
-): string {
-  return JSON.stringify([
-    ...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean)),
-  ]);
-}
-
 // Deliberately loose shape check: one local part, one @, a dot-bearing
 // domain. The sources (Stack, Stripe) have already validated deliverability;
 // this gate only rejects values malformed enough to make Resend's create

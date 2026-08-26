@@ -19,8 +19,9 @@
 //     makes re-running the sync a no-op.
 //   - Contacts present in Resend but absent from the sources are left alone.
 //     The sync never removes them based on an incomplete source. Explicit
-//     server-authoritative consent/refund revocations are handled by the
-//     orchestration layer with a separate, exact removal plan.
+//     server-authoritative consent/refund revocations and blocked identity
+//     changes are handled by the orchestration layer with separate, exact
+//     removal plans.
 
 import {
   PREVIOUS_EMAILS_PROPERTY,
@@ -72,12 +73,9 @@ export type ContactPropertiesBackfill = {
   properties: Record<string, ContactPropertyValue>;
 };
 
-export type ContactEmailUpdate = {
+export type IdentityMembershipRemoval = {
   contactId: string;
-  previousEmail: string;
   email: string;
-  stackUserId: string;
-  previousEmails: string[];
 };
 
 export type SegmentPlan = {
@@ -85,7 +83,11 @@ export type SegmentPlan = {
   toAddToSegment: SegmentAdd[];
   toBackfillName: ContactNameBackfill[];
   toBackfillProperties: ContactPropertiesBackfill[];
-  toUpdateEmail: ContactEmailUpdate[];
+  toRemoveForIdentityChange: IdentityMembershipRemoval[];
+  // Resend does not support editing a contact's email. These are reported so
+  // an operator can perform a reviewed provider-side migration without the
+  // sync creating a new subscribed contact or silently losing suppression.
+  blockedIdentityChanges: number;
   alreadyPresent: number;
   skippedUnsubscribed: number;
 };
@@ -97,6 +99,7 @@ export function planSegmentSync(options: {
 }): SegmentPlan {
   const existingByEmail = new Map<string, ExistingContact>();
   const existingByStackUserId = new Map<string, ExistingContact>();
+  const existingByPreviousEmail = new Map<string, ExistingContact>();
   for (const contact of options.existingContacts) {
     const email = contact.email.trim().toLowerCase();
     existingByEmail.set(email, contact);
@@ -109,11 +112,26 @@ export function planSegmentSync(options: {
       }
       existingByStackUserId.set(contact.stackUserId, contact);
     }
+    for (const previousEmail of previousEmailsFromProperty(
+      contact.properties?.[PREVIOUS_EMAILS_PROPERTY],
+    )) {
+      const prior = existingByPreviousEmail.get(previousEmail);
+      if (prior && prior.id !== contact.id) {
+        throw new Error(
+          "Multiple newsletter contacts claim the same previous email; " +
+            "refusing an ambiguous identity reconciliation.",
+        );
+      }
+      existingByPreviousEmail.set(previousEmail, contact);
+    }
   }
   const memberEmails = new Set(
     [...options.segmentMemberEmails].map((email) =>
       email.trim().toLowerCase(),
     ),
+  );
+  const desiredEmails = new Set(
+    options.desired.map((contact) => contact.email.trim().toLowerCase()),
   );
 
   const plan: SegmentPlan = {
@@ -121,7 +139,8 @@ export function planSegmentSync(options: {
     toAddToSegment: [],
     toBackfillName: [],
     toBackfillProperties: [],
-    toUpdateEmail: [],
+    toRemoveForIdentityChange: [],
+    blockedIdentityChanges: 0,
     alreadyPresent: 0,
     skippedUnsubscribed: 0,
   };
@@ -143,6 +162,14 @@ export function planSegmentSync(options: {
       );
     }
     if (!current) {
+      // A legacy migration may have recorded this address as an alias. Do not
+      // attach a new user (or an identity-less Stripe record) to that contact;
+      // Resend email addresses are immutable and alias ownership needs a
+      // human-reviewed provider migration.
+      if (existingByPreviousEmail.has(desiredEmail)) {
+        plan.blockedIdentityChanges += 1;
+        continue;
+      }
       plan.toCreate.push({
         email: desiredEmail,
         ...(contact.stackUserId ? { stackUserId: contact.stackUserId } : {}),
@@ -161,34 +188,39 @@ export function planSegmentSync(options: {
           "refusing to overwrite account identity.",
       );
     }
-    if (contact.stackUserId && !current.stackUserId) {
-      plan.toBackfillProperties.push({
-        contactId: current.id,
-        email: desiredEmail,
-        properties: { [STACK_USER_ID_PROPERTY]: contact.stackUserId },
-      });
+    // A global unsubscribe is a one-way door. Keep the plan completely empty
+    // for this contact, including identity-property backfills and membership
+    // cleanup. Apply mode performs the same check again before every write.
+    if (current.unsubscribed) {
+      plan.skippedUnsubscribed += 1;
+      continue;
     }
     if (
       contact.stackUserId &&
       current.stackUserId === contact.stackUserId &&
       current.email.trim().toLowerCase() !== desiredEmail
     ) {
-      plan.toUpdateEmail.push({
-        contactId: current.id,
-        previousEmail: current.email.trim().toLowerCase(),
-        email: desiredEmail,
-        stackUserId: contact.stackUserId,
-        previousEmails: [
-          current.email.trim().toLowerCase(),
-          ...previousEmailsFromProperty(
-            current.properties?.[PREVIOUS_EMAILS_PROPERTY],
-          ),
-        ],
-      });
-    }
-    if (current.unsubscribed) {
-      plan.skippedUnsubscribed += 1;
+      plan.blockedIdentityChanges += 1;
+      const currentEmail = current.email.trim().toLowerCase();
+      // Do not continue targeting the old mailbox after Stack has moved the
+      // identity. If another active source still claims that address (for
+      // example a founder purchase), leave it in place; otherwise remove only
+      // this segment membership and require a human-reviewed provider
+      // migration before adding the replacement address.
+      if (!desiredEmails.has(currentEmail) && memberEmails.has(currentEmail)) {
+        plan.toRemoveForIdentityChange.push({
+          contactId: current.id,
+          email: currentEmail,
+        });
+      }
       continue;
+    }
+    if (contact.stackUserId && !current.stackUserId) {
+      plan.toBackfillProperties.push({
+        contactId: current.id,
+        email: desiredEmail,
+        properties: { [STACK_USER_ID_PROPERTY]: contact.stackUserId },
+      });
     }
     const inSegment = memberEmails.has(desiredEmail);
     if (!inSegment) {

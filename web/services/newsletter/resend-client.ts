@@ -620,24 +620,6 @@ export class ResendClient {
     );
   }
 
-  async updateContactEmail(
-    contactId: string,
-    email: string,
-    properties?: Record<string, ContactPropertyValue>,
-  ): Promise<void> {
-    await this.throttledWrite(
-      "PATCH",
-      `/contacts/${encodeURIComponent(contactId)}`,
-      {
-        redactedLabel: "/contacts/<id> (email migration)",
-        body: {
-          email,
-          ...(properties ? { properties } : {}),
-        },
-      },
-    );
-  }
-
   async updateContactProperties(
     contactId: string,
     properties: Record<string, ContactPropertyValue>,

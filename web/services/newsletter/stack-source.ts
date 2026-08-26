@@ -31,7 +31,14 @@ type StackUser = {
 
 type StackUsersPage = {
   items?: StackUser[];
-  pagination?: { next_cursor?: string | null };
+  pagination?: {
+    // Stack's current server API follows the Relay-style names. Keep
+    // next_cursor as a compatibility fallback for older/test responses, but
+    // prefer has_next_page + end_cursor whenever they are present.
+    has_next_page?: boolean;
+    end_cursor?: string | null;
+    next_cursor?: string | null;
+  };
 };
 
 export function newsletterConsentState(user: {
@@ -63,6 +70,7 @@ export type StackSourceResult = {
   skippedNotOptedIn: number;
   skippedMissingIdentity: number;
   revokedEmails: string[];
+  revokedStackUserIds: string[];
 };
 
 export async function listStackContacts(options: {
@@ -80,6 +88,7 @@ export async function listStackContacts(options: {
   let skippedNotOptedIn = 0;
   let skippedMissingIdentity = 0;
   const revokedEmails = new Set<string>();
+  const revokedStackUserIds = new Set<string>();
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
   let pageCount = 0;
@@ -127,16 +136,21 @@ export async function listStackContacts(options: {
     for (const user of items) {
       totalUsers += 1;
       const email = normalizeEmail(user.primary_email);
+      const consent = options.requireNewsletterOptIn
+        ? newsletterConsentState(user)
+        : true;
+      // A revocation remains actionable by stable Stack ID even if a user has
+      // already changed or cleared the primary email before this run.
+      if (consent === false) {
+        if (email) revokedEmails.add(email);
+        if (user.id?.trim()) revokedStackUserIds.add(user.id.trim());
+        continue;
+      }
       if (!email || user.primary_email_verified !== true) {
         skipped += 1;
         continue;
       }
       if (options.requireNewsletterOptIn) {
-        const consent = newsletterConsentState(user);
-        if (consent === false) {
-          revokedEmails.add(email);
-          continue;
-        }
         if (consent !== true) {
           skippedNotOptedIn += 1;
           continue;
@@ -158,13 +172,20 @@ export async function listStackContacts(options: {
         sources: ["stack"],
       });
     }
-    const nextCursor = page.pagination?.next_cursor ?? null;
-    if (!nextCursor) {
+    const pagination = page.pagination;
+    const nextCursor =
+      pagination?.end_cursor ?? pagination?.next_cursor ?? null;
+    // `has_next_page` is authoritative when the current API supplies it. If
+    // an older response omits that field, infer continuation from a cursor so
+    // existing integrations remain compatible.
+    const hasNextPage =
+      pagination?.has_next_page ?? Boolean(nextCursor);
+    if (!hasNextPage) {
       break;
     }
     // Guard against cursor cycles of any length, not just an immediately
     // repeated cursor, so a misbehaving API cannot loop the sync forever.
-    if (seenCursors.has(nextCursor) || items.length === 0) {
+    if (!nextCursor || seenCursors.has(nextCursor) || items.length === 0) {
       throw new Error(
         "Stack Auth pagination made no progress; refusing to continue with " +
           "a truncated user listing.",
@@ -180,5 +201,6 @@ export async function listStackContacts(options: {
     skippedNotOptedIn,
     skippedMissingIdentity,
     revokedEmails: [...revokedEmails],
+    revokedStackUserIds: [...revokedStackUserIds],
   };
 }
