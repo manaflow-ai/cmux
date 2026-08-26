@@ -11,7 +11,6 @@ import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
 import type { IrohTrustBrokerConfigShape } from "../services/iroh/config";
-import { IrohRelayMintError } from "../services/iroh/errors";
 import type { IrohPathHint } from "../services/iroh/model";
 import {
   IrohRepository,
@@ -279,7 +278,7 @@ describe("phone discovery serves the attach-derived relay route", () => {
     await insertBinding();
     await applyRelayAttachReport(report());
 
-    const broker = makeIrohTrustBroker(repository, failingMinter(), brokerConfig());
+    const broker = makeIrohTrustBroker(repository, brokerConfig());
     const discovery = await Effect.runPromise(
       broker.discover(USER_ID, new Date(T0 + 10_000)),
     ) as {
@@ -312,13 +311,6 @@ describe("phone discovery serves the attach-derived relay route", () => {
   });
 });
 
-/** Discovery never mints; fail loudly if it tries. */
-function failingMinter() {
-  return {
-    mint: () => Effect.fail(new IrohRelayMintError({ code: "test_failure" })),
-  };
-}
-
 function brokerConfig(): IrohTrustBrokerConfigShape {
   const grantKeys = generateKeyPairSync("ed25519");
   return {
@@ -339,8 +331,5 @@ function brokerConfig(): IrohTrustBrokerConfigShape {
           .toString("base64"),
       }],
     }),
-    relayMinterInsecureLoopbackOptIn: false,
-    deploymentEnvironment: "test",
-    isVercelDeployment: false,
   };
 }
