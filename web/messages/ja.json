@@ -1,4 +1,10 @@
 {
+  "vmDesktop": {
+    "invalidTitle": "このデスクトップリンクは無効です",
+    "invalidBody": "リンクにセッションがないか、cmux が表示できない場所を指しています。cmux のマシンパネルで {machine} を右クリックし、「デスクトップを開く」からもう一度開いてください。",
+    "expiredTitle": "このデスクトップセッションは期限切れです",
+    "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",

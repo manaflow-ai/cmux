@@ -7,10 +7,10 @@ on:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
-      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -27,17 +27,19 @@ on:
       - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "web/public/tui/install-static.ps1"
   pull_request:
     paths:
       - "cmux-tui/**"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui.yml"
       - ".github/workflows/cmux-tui-nightly.yml"
-      - ".github/workflows/cmux-tui-build-package.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
@@ -54,9 +56,11 @@ on:
       - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
+      - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "web/public/tui/install-static.ps1"
   workflow_dispatch:
 
 concurrency:
@@ -89,6 +93,9 @@ jobs:
 
       - name: Test protocol inventory
         run: python3 cmux-tui/scripts/test_check_spec_inventory.py
+
+      - name: Test published artifact manifest verifier
+        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
 
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
