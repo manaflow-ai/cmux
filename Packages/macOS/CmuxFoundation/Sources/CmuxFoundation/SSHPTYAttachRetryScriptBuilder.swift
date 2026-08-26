@@ -75,7 +75,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
         let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
         var lines = [
-            "cmux_ssh_attach_restore_terminal() { if [ -n \"${cmux_ssh_attach_terminal_state:-}\" ]; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null; cmux_ssh_attach_restore_status=$?; if [ \"$cmux_ssh_attach_restore_status\" -ne 0 ]; then cmux_ssh_attach_terminal_control_failed=1; fi; fi; cmux_ssh_attach_input_paused=0; }",
+            "cmux_ssh_attach_restore_terminal() { cmux_ssh_attach_flush_status=0; if [ \"${cmux_ssh_attach_input_paused:-0}\" = 1 ] && [ -n \"${cmux_ssh_attach_cli:-}\" ]; then \"$cmux_ssh_attach_cli\" __ssh-pty-flush-input <&0 >/dev/null 2>&1; cmux_ssh_attach_flush_status=$?; fi; cmux_ssh_attach_restore_status=0; if [ -n \"${cmux_ssh_attach_terminal_state:-}\" ]; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null; cmux_ssh_attach_restore_status=$?; fi; cmux_ssh_attach_input_paused=0; if [ \"$cmux_ssh_attach_flush_status\" -ne 0 ] || [ \"$cmux_ssh_attach_restore_status\" -ne 0 ]; then cmux_ssh_attach_terminal_control_failed=1; fi; }",
             // Persisted launchers may predate the retry policy.  A missing or
             // malformed limit must fail closed to the same finite supervisor
             // used by newly generated SSH startup scripts.

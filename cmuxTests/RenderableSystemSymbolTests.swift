@@ -111,7 +111,24 @@ struct RenderableSystemSymbolTests {
         #expect(image.isTemplate)
         #expect(image.representations.count == 2)
         #expect(image.representations.allSatisfy { $0 is NSBitmapImageRep })
+        #expect(image.representations
+            .compactMap { $0 as? NSBitmapImageRep }
+            .allSatisfy { PixelFootprint(bitmap: $0) != nil })
         #expect(image.tiffRepresentation != nil)
+    }
+
+    /// Blank materializations are rejected instead of becoming reusable cache entries.
+    @Test @MainActor func transparentBitmapIsNotConsideredRenderable() throws {
+        let bitmap = try #require(Self.bitmap(pixels: 8))
+        #expect(PixelFootprint(bitmap: bitmap) == nil)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        NSColor.systemBlue.setFill()
+        NSRect(origin: .zero, size: bitmap.size).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        #expect(PixelFootprint(bitmap: bitmap) != nil)
     }
 
     @MainActor
@@ -232,6 +249,29 @@ struct RenderableSystemSymbolTests {
         #expect(resolveCount == 2)
     }
 
+    @Test func blankAppKitImageRetryCacheCoalescesRepeatedAttempts() {
+        var now = Date(timeIntervalSince1970: 2_000)
+        var cache = RenderableSystemSymbol.AppKitImageRetryCache(
+            limit: 8,
+            retryInterval: 60,
+            now: { now }
+        )
+        let key = RenderableSystemSymbol.AppKitImageCacheKey(
+            systemName: "folder.fill",
+            rasterSize: 14,
+            weightRawValue: NSFont.Weight.regular.rawValue
+        )
+
+        #expect(cache.shouldAttempt(key))
+        cache.recordFailure(for: key)
+        #expect(cache.shouldAttempt(key) == false)
+
+        now = now.addingTimeInterval(61)
+        #expect(cache.shouldAttempt(key))
+        cache.recordSuccess(for: key)
+        #expect(cache.shouldAttempt(key))
+    }
+
     @MainActor
     private static func renderedBitmap(
         _ image: NSImage,
@@ -274,6 +314,26 @@ struct RenderableSystemSymbolTests {
             respectFlipped: true,
             hints: nil
         )
+        return bitmap
+    }
+
+    @MainActor
+    private static func bitmap(pixels: Int) -> NSBitmapImageRep? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixels,
+            pixelsHigh: pixels,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+        bitmap.size = NSSize(width: pixels, height: pixels)
         return bitmap
     }
 }

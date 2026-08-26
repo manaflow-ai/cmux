@@ -1008,6 +1008,611 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    // https://github.com/manaflow-ai/cmux/issues/9315
+    //
+    // Cursor's beforeShellExecution hook runs before Cursor evaluates its own
+    // allowlist and exposes no native "approval required" field. The one
+    // reliable candidate in the shipped protocol is whether the command is
+    // already sandboxed. cmux asks Cursor to show its native approval prompt
+    // for an unsandboxed command unless the local Run Everything/allowlist
+    // configuration proves that Cursor will auto-approve it, then surfaces
+    // that wait through the shared generic-agent notification path. Sandboxed
+    // commands remain telemetry.
+    func testCursorShellApprovalDistinguishesUnsandboxedAndSandboxedPayloads() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("cursor-shell-approval")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cursor-shell-approval-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "cursor-session-9315"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let cursorConfigDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: cursorConfigDirectory,
+            withIntermediateDirectories: true
+        )
+        let cursorConfigURL = cursorConfigDirectory.appendingPathComponent(
+            "cli-config.json",
+            isDirectory: false
+        )
+        let allowlistConfig: [String: Any] = [
+            "version": 1,
+            "approvalMode": "allowlist",
+        ]
+        try JSONSerialization.data(
+            withJSONObject: allowlistConfig,
+            options: [.sortedKeys]
+        ).write(to: cursorConfigURL, options: .atomic)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runCursorHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                surfaceId: surfaceId
+            )
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "cursor", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func isCursorSurfaceClear(_ command: String) -> Bool {
+            command.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+        }
+
+        func isTargetedCursorSurfaceClear(_ command: String) -> Bool {
+            guard isCursorSurfaceClear(command),
+                  let rawKey = command.components(separatedBy: "--correlation-key=").last,
+                  let key = rawKey.split(whereSeparator: { $0.isWhitespace }).first else {
+                return false
+            }
+            return UUID(uuidString: String(key)) != nil
+        }
+
+        func isBroadCursorSurfaceClear(_ command: String) -> Bool {
+            isCursorSurfaceClear(command) && !command.contains("--correlation-key=")
+        }
+
+        let start = runCursorHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeSubmitPrompt"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let approvalCommand = "rm -rf build-output"
+        let approvalCommandStart = state.snapshot().count
+        let approval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(approvalCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(approval.timedOut, approval.stderr)
+        XCTAssertEqual(approval.status, 0, approval.stderr)
+        XCTAssertEqual(approval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let approvalCommands = Array(state.snapshot().dropFirst(approvalCommandStart))
+        XCTAssertEqual(
+            approvalCommands.filter {
+                $0.contains(
+                    "notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed"
+                )
+            }.count,
+            1,
+            "Expected exactly one Cursor approval notification for the owning surface, saw \(approvalCommands)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                approvalCommands,
+                kind: "agent.approval.requested",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Expected Cursor approval to mark the owning pane Needs input, saw \(approvalCommands)"
+        )
+        XCTAssertTrue(
+            approvalCommands.contains {
+                $0.hasPrefix("set_status cursor ")
+                    && $0.contains("--icon=bell.fill")
+                    && $0.contains("--panel=\(surfaceId)")
+            },
+            "Expected Cursor approval to publish the notification-ring status, saw \(approvalCommands)"
+        )
+
+        let responseCommandStart = state.snapshot().count
+        let response = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(approvalCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(response.timedOut, response.stderr)
+        XCTAssertEqual(response.status, 0, response.stderr)
+        XCTAssertEqual(response.stdout, "{}\n")
+
+        let responseCommands = Array(state.snapshot().dropFirst(responseCommandStart))
+        XCTAssertTrue(
+            responseCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "Expected Cursor's paired completion hook to clear the approval notification, saw \(responseCommands)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                responseCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Expected Cursor's paired completion hook to restore Running, saw \(responseCommands)"
+        )
+
+        let secondCommand = "npm run build"
+        let secondApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(secondCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(secondApproval.timedOut, secondApproval.stderr)
+        XCTAssertEqual(secondApproval.status, 0, secondApproval.stderr)
+        XCTAssertEqual(secondApproval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let thirdCommand = "python -c print('third')"
+        let thirdApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(thirdCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(thirdApproval.timedOut, thirdApproval.stderr)
+        XCTAssertEqual(thirdApproval.status, 0, thirdApproval.stderr)
+        XCTAssertEqual(thirdApproval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let remainingCompletionStart = state.snapshot().count
+        let remainingCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(secondCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(remainingCompletion.timedOut, remainingCompletion.stderr)
+        XCTAssertEqual(remainingCompletion.status, 0, remainingCompletion.stderr)
+        XCTAssertEqual(remainingCompletion.stdout, "{}\n")
+        let remainingCompletionCommands = Array(state.snapshot().dropFirst(remainingCompletionStart))
+        XCTAssertFalse(
+            remainingCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "Refreshing a remaining Cursor approval must not clear unrelated surface notifications, saw \(remainingCompletionCommands)"
+        )
+        XCTAssertTrue(
+            remainingCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
+            },
+            "Resolving one of two approvals must refresh the remaining command notice, saw \(remainingCompletionCommands)"
+        )
+
+        let mismatchedCompletionStart = state.snapshot().count
+        let mismatchedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"echo unrelated","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(mismatchedCompletion.timedOut, mismatchedCompletion.stderr)
+        XCTAssertEqual(mismatchedCompletion.status, 0, mismatchedCompletion.stderr)
+        let mismatchedCompletionCommands = Array(state.snapshot().dropFirst(mismatchedCompletionStart))
+        XCTAssertFalse(
+            mismatchedCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "An unrelated Cursor shell completion must not clear a pending approval, saw \(mismatchedCompletionCommands)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                mismatchedCompletionCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "An unrelated Cursor shell completion must not restore Running, saw \(mismatchedCompletionCommands)"
+        )
+
+        let sandboxedCompletionStart = state.snapshot().count
+        let sandboxedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(thirdCommand)","output":"","duration":1,"sandbox":true}"#
+        )
+        XCTAssertFalse(sandboxedCompletion.timedOut, sandboxedCompletion.stderr)
+        XCTAssertEqual(sandboxedCompletion.status, 0, sandboxedCompletion.stderr)
+        let sandboxedCompletionCommands = Array(state.snapshot().dropFirst(sandboxedCompletionStart))
+        XCTAssertFalse(
+            sandboxedCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "A sandboxed completion must not consume an unsandboxed pending approval, saw \(sandboxedCompletionCommands)"
+        )
+
+        let nonShellFailureStart = state.snapshot().count
+        let nonShellFailure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Read","tool_input":{"command":"\#(thirdCommand)","file_path":"README.md"},"error_message":"Read failed","failure_type":"error"}"#
+        )
+        XCTAssertFalse(nonShellFailure.timedOut, nonShellFailure.stderr)
+        XCTAssertEqual(nonShellFailure.status, 0, nonShellFailure.stderr)
+        let nonShellFailureCommands = Array(state.snapshot().dropFirst(nonShellFailureStart))
+        XCTAssertFalse(
+            nonShellFailureCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "A non-Shell failure must not resolve a pending Cursor shell approval, saw \(nonShellFailureCommands)"
+        )
+
+        let ordinaryShellFailureStart = state.snapshot().count
+        let ordinaryShellFailure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(thirdCommand)","cwd":"\#(root.path)"},"error_message":"Command exited 1","failure_type":"error"}"#
+        )
+        XCTAssertFalse(ordinaryShellFailure.timedOut, ordinaryShellFailure.stderr)
+        XCTAssertEqual(ordinaryShellFailure.status, 0, ordinaryShellFailure.stderr)
+        let ordinaryShellFailureCommands = Array(state.snapshot().dropFirst(ordinaryShellFailureStart))
+        XCTAssertFalse(
+            ordinaryShellFailureCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "An ordinary Shell failure must not consume a pending approval, saw \(ordinaryShellFailureCommands)"
+        )
+
+        let failureStart = state.snapshot().count
+        let failure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(thirdCommand)","cwd":"\#(root.path)"},"error_message":"User rejected","failure_type":"permission_denied","is_interrupt":true}"#
+        )
+        XCTAssertFalse(failure.timedOut, failure.stderr)
+        XCTAssertEqual(failure.status, 0, failure.stderr)
+        XCTAssertEqual(failure.stdout, "{}\n")
+        let failureCommands = Array(state.snapshot().dropFirst(failureStart))
+        let failureFeedEvents = failureCommands.compactMap { command -> [String: Any]? in
+            guard let request = jsonObject(command),
+                  request["method"] as? String == "feed.push",
+                  let params = request["params"] as? [String: Any] else {
+                return nil
+            }
+            return params["event"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            failureFeedEvents.contains { ($0["is_error"] as? Bool) == true },
+            "Cursor shell failures must mark feed events as errors, saw \(failureFeedEvents)"
+        )
+        XCTAssertTrue(
+            failureCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "Cursor's failure hook must clear a denied approval, saw \(failureCommands)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                failureCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Cursor's failure hook must restore Running after denial, saw \(failureCommands)"
+        )
+
+        let duplicateCommand = "echo duplicate"
+        for _ in 0..<2 {
+            let duplicateApproval = runCursorHook(
+                "shell-exec",
+                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(duplicateCommand)","tool_use_id":"duplicate-id","sandbox":false}"#
+            )
+            XCTAssertFalse(duplicateApproval.timedOut, duplicateApproval.stderr)
+            XCTAssertEqual(duplicateApproval.status, 0, duplicateApproval.stderr)
+            XCTAssertEqual(duplicateApproval.stdout, #"{"permission":"ask"}"# + "\n")
+        }
+        let duplicateCompletionStart = state.snapshot().count
+        let duplicateCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(duplicateCommand)","tool_use_id":"duplicate-id","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        let duplicateCompletionCommands = Array(state.snapshot().dropFirst(duplicateCompletionStart))
+        XCTAssertTrue(
+            duplicateCompletionCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "A retried Cursor shell hook must not leave a duplicate approval pending, saw \(duplicateCompletionCommands)"
+        )
+        XCTAssertFalse(
+            duplicateCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
+            },
+            "A retried Cursor shell hook must resolve as one approval, saw \(duplicateCompletionCommands)"
+        )
+
+        let quotedSpacingCommands = ["printf 'a  b'", "printf 'a b'"]
+        for quotedCommand in quotedSpacingCommands {
+            let quotedApproval = runCursorHook(
+                "shell-exec",
+                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(quotedCommand)","sandbox":false}"#
+            )
+            XCTAssertFalse(quotedApproval.timedOut, quotedApproval.stderr)
+            XCTAssertEqual(quotedApproval.status, 0, quotedApproval.stderr)
+            XCTAssertEqual(quotedApproval.stdout, #"{"permission":"ask"}"# + "\n")
+        }
+        let firstQuotedCompletionStart = state.snapshot().count
+        let firstQuotedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"printf 'a  b'","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(firstQuotedCompletion.timedOut, firstQuotedCompletion.stderr)
+        XCTAssertEqual(firstQuotedCompletion.status, 0, firstQuotedCompletion.stderr)
+        let firstQuotedCompletionCommands = Array(state.snapshot().dropFirst(firstQuotedCompletionStart))
+        XCTAssertTrue(
+            firstQuotedCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
+            },
+            "Quoted whitespace must remain part of Cursor command identity, saw \(firstQuotedCompletionCommands)"
+        )
+        let secondQuotedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"printf 'a b'","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(secondQuotedCompletion.timedOut, secondQuotedCompletion.stderr)
+        XCTAssertEqual(secondQuotedCompletion.status, 0, secondQuotedCompletion.stderr)
+
+        let reusedCommand = "echo reused-after-turn"
+        let firstReusedApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(reusedCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(firstReusedApproval.timedOut, firstReusedApproval.stderr)
+        XCTAssertEqual(firstReusedApproval.status, 0, firstReusedApproval.stderr)
+        let turnBoundary = runCursorHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeSubmitPrompt"}"#
+        )
+        XCTAssertFalse(turnBoundary.timedOut, turnBoundary.stderr)
+        XCTAssertEqual(turnBoundary.status, 0, turnBoundary.stderr)
+        let reusedApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(reusedCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(reusedApproval.timedOut, reusedApproval.stderr)
+        XCTAssertEqual(reusedApproval.status, 0, reusedApproval.stderr)
+        let delayedReusedCompletionStart = state.snapshot().count
+        let delayedReusedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(reusedCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(delayedReusedCompletion.timedOut, delayedReusedCompletion.stderr)
+        XCTAssertEqual(delayedReusedCompletion.status, 0, delayedReusedCompletion.stderr)
+        let delayedReusedCompletionCommands = Array(state.snapshot().dropFirst(delayedReusedCompletionStart))
+        XCTAssertFalse(
+            delayedReusedCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "A command-only completion after a turn reuse must fail closed, saw \(delayedReusedCompletionCommands)"
+        )
+
+        let cancelledCommand = "rm -rf cancelled-output"
+        let cancelledApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(cancelledCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(cancelledApproval.timedOut, cancelledApproval.stderr)
+        XCTAssertEqual(cancelledApproval.status, 0, cancelledApproval.stderr)
+        let stopStart = state.snapshot().count
+        let stop = runCursorHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"stop","reason":"cancelled"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        let stopCommands = Array(state.snapshot().dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "Cursor stop/cancellation must clear a pending approval, saw \(stopCommands)"
+        )
+
+        let unrestrictedConfig: [String: Any] = [
+            "version": 1,
+            "approvalMode": "unrestricted",
+        ]
+        try JSONSerialization.data(
+            withJSONObject: unrestrictedConfig,
+            options: [.sortedKeys]
+        ).write(to: cursorConfigURL, options: .atomic)
+        let unrestrictedStart = state.snapshot().count
+        let unrestricted = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"rm -rf unrestricted-output","sandbox":false}"#
+        )
+        XCTAssertFalse(unrestricted.timedOut, unrestricted.stderr)
+        XCTAssertEqual(unrestricted.status, 0, unrestricted.stderr)
+        XCTAssertEqual(unrestricted.stdout, "{}\n")
+        let unrestrictedCommands = Array(state.snapshot().dropFirst(unrestrictedStart))
+        XCTAssertFalse(
+            unrestrictedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Run Everything must not be converted into a forced cmux approval, saw \(unrestrictedCommands)"
+        )
+
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let projectConfigURL = cursorConfigDirectory.appendingPathComponent(
+            "cli.json",
+            isDirectory: false
+        )
+        let projectAllowlistConfig: [String: Any] = [
+            "approvalMode": "allowlist",
+            "permissions": ["allow": ["Shell(git)"]],
+        ]
+        try JSONSerialization.data(
+            withJSONObject: projectAllowlistConfig,
+            options: [.sortedKeys]
+        ).write(to: projectConfigURL, options: .atomic)
+        let projectAllowlistStart = state.snapshot().count
+        let projectAllowlisted = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"git status --short","sandbox":false}"#
+        )
+        XCTAssertFalse(projectAllowlisted.timedOut, projectAllowlisted.stderr)
+        XCTAssertEqual(projectAllowlisted.status, 0, projectAllowlisted.stderr)
+        XCTAssertEqual(projectAllowlisted.stdout, "{}\n")
+        let projectAllowlistCommands = Array(state.snapshot().dropFirst(projectAllowlistStart))
+        XCTAssertFalse(
+            projectAllowlistCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "A project Shell(git) allowlist must suppress the forced approval fallback, saw \(projectAllowlistCommands)"
+        )
+
+        let malformedStart = state.snapshot().count
+        let malformed = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","sandbox":false}"#
+        )
+        XCTAssertFalse(malformed.timedOut, malformed.stderr)
+        XCTAssertEqual(malformed.status, 0, malformed.stderr)
+        XCTAssertEqual(malformed.stdout, "{}\n")
+        let malformedCommands = Array(state.snapshot().dropFirst(malformedStart))
+        XCTAssertFalse(
+            malformedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "An incomplete Cursor shell payload must remain telemetry-only, saw \(malformedCommands)"
+        )
+
+        let sandboxedCommandStart = state.snapshot().count
+        let sandboxed = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"rm -rf sandboxed-output","sandbox":true}"#
+        )
+        XCTAssertFalse(sandboxed.timedOut, sandboxed.stderr)
+        XCTAssertEqual(sandboxed.status, 0, sandboxed.stderr)
+        XCTAssertEqual(sandboxed.stdout, "{}\n")
+
+        let sandboxedCommands = Array(state.snapshot().dropFirst(sandboxedCommandStart))
+        XCTAssertFalse(
+            sandboxedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Sandboxed Cursor shell starts must not generate approval notifications, saw \(sandboxedCommands)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                sandboxedCommands,
+                kind: "agent.approval.requested",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Sandboxed Cursor shell starts must remain non-actionable, saw \(sandboxedCommands)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                sandboxedCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Sandboxed Cursor shell starts must not enter the visible turn lifecycle, saw \(sandboxedCommands)"
+        )
+    }
+
+    func testCursorHookInstallIsIdempotentAndPreservesUserEntries() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cursor-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let cursorDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
+        let hookURL = cursorDirectory.appendingPathComponent("hooks.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: cursorDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let userBeforeCommand = "/usr/local/bin/user-before-shell-hook"
+        let userAfterCommand = "/usr/local/bin/user-after-shell-hook"
+        let userCustomCommand = "/usr/local/bin/user-custom-hook"
+        let existing: [String: Any] = [
+            "version": 1,
+            "userSetting": "preserve-me",
+            "hooks": [
+                "beforeShellExecution": [
+                    ["command": userBeforeCommand],
+                    ["command": "cmux hooks feed --source cursor --event beforeShellExecution"],
+                ],
+                "afterShellExecution": [
+                    ["command": userAfterCommand],
+                ],
+                "userCustomEvent": [
+                    ["command": userCustomCommand],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hookURL, options: .atomic)
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        for _ in 0..<2 {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "cursor", "install", "--yes"],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any]
+        )
+        XCTAssertEqual(json["userSetting"] as? String, "preserve-me")
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let beforeEntries = try XCTUnwrap(hooks["beforeShellExecution"] as? [[String: Any]])
+        let beforeCommands = beforeEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(beforeCommands.filter { $0 == userBeforeCommand }.count, 1)
+        XCTAssertEqual(
+            beforeCommands.filter { $0.contains("hooks cursor shell-exec") }.count,
+            1,
+            "Expected one cmux Cursor approval hook after repeated setup, saw \(beforeCommands)"
+        )
+        XCTAssertFalse(
+            beforeCommands.contains { $0.contains("hooks feed --source cursor") },
+            "Expected setup to replace the stale Cursor Feed bridge, saw \(beforeCommands)"
+        )
+
+        let afterEntries = try XCTUnwrap(hooks["afterShellExecution"] as? [[String: Any]])
+        let afterCommands = afterEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(afterCommands.filter { $0 == userAfterCommand }.count, 1)
+        XCTAssertEqual(afterCommands.filter { $0.contains("hooks cursor shell-done") }.count, 1)
+
+        let failureEntries = try XCTUnwrap(hooks["postToolUseFailure"] as? [[String: Any]])
+        let failureCommands = failureEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(failureCommands.filter { $0.contains("hooks cursor shell-failed") }.count, 1)
+        XCTAssertEqual(failureEntries.first?["matcher"] as? String, "Shell")
+
+        let customEntries = try XCTUnwrap(hooks["userCustomEvent"] as? [[String: Any]])
+        XCTAssertEqual(customEntries.compactMap { $0["command"] as? String }, [userCustomCommand])
+    }
+
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a

@@ -92,7 +92,7 @@ png = "0.17"
 libc = "0.2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 regex = "1"
 # reqwest and time are already in the dependency graph via iroh; declaring
 # them here adds no new transitive code. chatmux-relay uses reqwest for the
@@ -136,6 +136,7 @@ socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["timeout"] }
 url = "2"

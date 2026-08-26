@@ -922,7 +922,8 @@ struct WorkspaceListView: View {
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: store?.workspaceListHasLiveTransportPath ?? false
         )
     }
 
@@ -954,7 +955,7 @@ struct WorkspaceListView: View {
         } label: {
             Image(systemName: "desktopcomputer")
         }
-        .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+        .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif
@@ -980,21 +981,25 @@ struct WorkspaceListView: View {
         ForEach(items, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
-                let anchorCapabilities = workspacesByID[group.anchorWorkspaceID]?.actionCapabilities ?? .none
+                let anchorCapabilities = groupCapabilities(
+                    group,
+                    workspacesByID: workspacesByID
+                )
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
                         hasUnread: hasUnread,
                         navigationStyle: navigationStyle,
                         isAnchorSelected: navigationStyle == .sidebar
-                            && selectedWorkspaceID == group.anchorWorkspaceID,
+                            && selectedWorkspaceID == group.liveAnchorWorkspaceID,
                         canCreateWorkspaceInGroup: canCreateWorkspaceInGroups
                             && createWorkspaceInGroup != nil,
                         canRenameGroup: anchorCapabilities.supportsGroupActions
                             && renameWorkspaceGroup != nil,
                         canSetGroupPinned: anchorCapabilities.supportsGroupActions
                             && setGroupPinned != nil,
-                        canUngroupWorkspaceGroup: anchorCapabilities.supportsGroupActions
+                        canUngroupWorkspaceGroup: !group.isPinned
+                            && anchorCapabilities.supportsGroupActions
                             && ungroupWorkspaceGroup != nil,
                         canDeleteWorkspaceGroup: anchorCapabilities.supportsGroupActions
                             && deleteWorkspaceGroup != nil,
@@ -1016,7 +1021,9 @@ struct WorkspaceListView: View {
                 // invisible end-of-group spacer; interactive rows keep the
                 // 44pt tap target (32 content + 6/6 insets) explicitly.
                 .frame(minHeight: 32)
-                .moveDisabled(!(enablesReorder && anchorCapabilities.supportsMoveActions))
+                .moveDisabled(
+                    group.isEmpty || !(enablesReorder && anchorCapabilities.supportsMoveActions)
+                )
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .groupFooter(let groupID):
@@ -1090,6 +1097,22 @@ struct WorkspaceListView: View {
                 workspaceTitle: workspace.name
             )
         }
+    }
+
+    private func groupCapabilities(
+        _ group: MobileWorkspaceGroupPreview,
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
+    ) -> MobileWorkspaceActionCapabilities {
+        if let capabilities = group.actionCapabilities {
+            // Group actions are Mac-scoped and remain available for a
+            // header-only group without a live workspace row.
+            return capabilities
+        }
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID,
+           let capabilities = workspacesByID[anchorWorkspaceID]?.actionCapabilities {
+            return capabilities
+        }
+        return .none
     }
 
     var settingsMenu: some View {

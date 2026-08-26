@@ -8713,7 +8713,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
-        scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = true
@@ -11942,14 +11941,13 @@ final class GhosttySurfaceScrollView: NSView {
         let shouldShowScrollBar = shouldShowTerminalScrollBar()
         let didChange =
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
-            scrollView.autohidesScrollers != false ||
-            scrollView.scrollerStyle != .overlay
+            scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // Mirror upstream Ghostty: keep overlay scrollers even when the
-        // system preference is legacy so terminal content never sits beneath a
-        // permanently reserved scrollbar gutter.
+        // Keep the scroller visible whenever terminal scrollback exists. The
+        // scroller style itself is intentionally left to AppKit, which follows
+        // the user's Appearance > Show scroll bars preference and updates this
+        // scroll view when NSScroller.preferredScrollerStyle changes.
         scrollView.autohidesScrollers = false
-        scrollView.scrollerStyle = .overlay
         updateTrackingAreas()
         return didChange
     }
@@ -11965,8 +11963,25 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scroller preference without perturbing hosted terminal geometry.
+        // scroller preference. Update the hosted surface/document frames through
+        // the same narrow path instead of running the full pane reconciliation,
+        // which can perturb split-layout overlays during a system preference
+        // change.
         scrollView.tile()
+        synchronizeTerminalGeometryAfterScrollerStyleChange()
+    }
+
+    private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
+        scrollView.layoutSubtreeIfNeeded()
+        let targetSize = scrollView.contentView.bounds.size
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        synchronizeSurfaceView()
         _ = synchronizeCoreSurface()
     }
 
