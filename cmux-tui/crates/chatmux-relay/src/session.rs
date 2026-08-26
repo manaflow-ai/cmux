@@ -604,15 +604,16 @@ fn make_context(
     let overflow_manager = manager.clone();
     FrameContext {
         send: Arc::new(move |frame: Value| {
-            let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
+            // Own the type tag: the frame moves into the sink below while the
+            // tag is still needed for the overflow report.
+            let frame_type =
+                frame.get("type").and_then(Value::as_str).unwrap_or_default().to_owned();
             let pty_id = frame.get("ptyId").and_then(Value::as_str).map(str::to_owned);
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
             let pending_frame = PendingBytes::new(Arc::clone(&pending_send), size);
             let critical = matches!(
-                Some(frame_type),
-                Some(
-                    "pty_opened" | "pty_error" | "pty_exit" | "pty_closed" | "surface_list_result"
-                )
+                frame_type.as_str(),
+                "pty_opened" | "pty_error" | "pty_exit" | "pty_closed" | "surface_list_result"
             );
             let result = if critical {
                 sender.try_critical_value_with_token_pending(frame, None, pending_frame)

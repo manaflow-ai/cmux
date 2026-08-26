@@ -2803,11 +2803,11 @@ impl TerminalSizing {
             && !target.queue.closing_running.load(Ordering::Acquire)
             && !target.queue.wire_running.load(Ordering::Acquire)
             && wire_pending_empty
-            && state.closing.is_empty()
-            && state.closing_waiters.is_empty()
-            && state.closing_inflight.is_empty()
-            && state.abort_pending.is_empty()
-            && state.dispatching.is_none()
+            && queue_state.closing.is_empty()
+            && queue_state.closing_waiters.is_empty()
+            && queue_state.closing_inflight.is_empty()
+            && queue_state.abort_pending.is_empty()
+            && queue_state.dispatching.is_none()
         {
             target.queue.close_locked(&mut queue_state);
             targets.remove(&target.key);
@@ -8775,8 +8775,8 @@ mod tests {
                 && fence.endpoint_ptr == endpoint_ptr(&endpoint)
         }));
         drop(state);
-        let commands: Vec<&str> =
-            control.sends().iter().map(|(command, _)| command.as_str()).collect();
+        let sends = control.sends();
+        let commands: Vec<&str> = sends.iter().map(|(command, _)| command.as_str()).collect();
         assert_eq!(commands, vec!["resize-surface", "set-client-sizing", "send"]);
     }
 
