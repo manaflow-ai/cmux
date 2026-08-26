@@ -131,6 +131,10 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
+        // The artifact chip joins the dock in this host's keyboard-invariant
+        // chrome space: the render wrapper slides under a keyboard, the
+        // chrome must not.
+        surfaceView.moveArtifactChip(to: self)
         if usesKeyboardGuideSeat {
             keyboardLayoutGuide.followsUndockedKeyboard = true
             keyboardLayoutGuide.usesBottomSafeArea = true

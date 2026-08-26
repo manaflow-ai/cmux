@@ -1854,7 +1854,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - animated: Whether visibility changes should fade and slide.
     public func mountArtifactChipView(_ view: UIView?, animated: Bool) {
         artifactChipHost.setContent(view)
-        layoutArtifactChip(using: viewportSnapshot())
         updateArtifactChipVisibility(animated: animated)
     }
 
@@ -1890,54 +1889,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
-        artifactChipHost.layout(in: bounds, topInset: artifactChipVisibleTopInset)
+    /// Re-homes the artifact chip container into the host's keyboard-invariant
+    /// chrome coordinate space — the same adoption ``moveBottomDock(to:)``
+    /// performs for the dock. The keyboard slides the render wrapper (and this
+    /// surface with it), never the host, so a chip anchored in host space
+    /// stays at the terminal's visible top edge through every keyboard leg
+    /// with no keyboard math of its own.
+    func moveArtifactChip(to host: UIView) {
+        artifactChipHost.install(in: host, zPosition: Self.artifactChipZPosition)
     }
 
-    /// The top inset that keeps the chip inside the terminal's VISIBLE region.
-    ///
-    /// While the keyboard is up the host slides the full-height render wrapper
-    /// — and this surface with it — so the render bottom rides the composer
-    /// bar (see `GhosttySurfaceHostView`). The surface's own top edge, and a
-    /// chip anchored to it, then sit above the clipped-visible area, so
-    /// `safeAreaInsets.top` alone put the chip off screen for exactly the
-    /// keyboard-up sessions that need to tap it. Pin below the highest
-    /// clipping ancestor's visible top instead, preferring presentation
-    /// layers (same pattern as ``presentationFrameInSurface(of:)``) so the
-    /// display-link follow tracks the keyboard animation itself rather than
-    /// the already-final model frames.
-    private var artifactChipVisibleTopInset: CGFloat {
-        var topInset = safeAreaInsets.top
-        let surfaceLayer = layer.presentation() ?? layer
-        var ancestor = superview
-        while let view = ancestor {
-            if view.clipsToBounds || view is UIWindow {
-                let ancestorLayer = view.layer.presentation() ?? view.layer
-                let visibleTop = ancestorLayer.convert(
-                    ancestorLayer.bounds.origin,
-                    to: surfaceLayer
-                ).y
-                topInset = max(topInset, visibleTop)
-            }
-            ancestor = view.superview
-        }
-        return topInset
-    }
-
-    /// Keeps a mounted chip pinned to the visible top edge while the host
-    /// slides the render wrapper for the keyboard. Runs once per display-link
-    /// frame, like the dock's absorption follow; the rest guard skips the
-    /// presentation-layer walk entirely while nothing can be sliding, and the
-    /// drift guard makes the follow a no-op within half a point.
-    private func followArtifactChipPresentationIfNeeded() {
-        guard artifactChipHost.isRequestedVisible else { return }
-        if keyboardHeight <= 0,
-           abs(artifactChipHost.appliedTopInset - safeAreaInsets.top) <= 0.5 {
-            return
-        }
-        let topInset = artifactChipVisibleTopInset
-        guard abs(topInset - artifactChipHost.appliedTopInset) > 0.5 else { return }
-        artifactChipHost.layout(in: bounds, topInset: topInset)
+    /// The view whose bounds match the SwiftUI representable that presents
+    /// the artifact-files popover: the adopting host once the chrome is
+    /// re-homed, else this surface. Popover anchors normalized against the
+    /// sliding surface would drift downward by the keyboard slide.
+    public var artifactChipAnchorReferenceView: UIView {
+        bottomDockHostView ?? self
     }
 
     private var artifactChipShouldBeVisible: Bool {
@@ -2155,7 +2122,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             reservedToolbarHeight,
             snapshot.toolbarFrame.height
         )
-        layoutArtifactChip(using: snapshot)
     }
 
     /// Lays out the hierarchy that owns the dock constraints. Once the dock moves
@@ -3849,7 +3815,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         sampleHostedKeyboardPresentation()
-        followArtifactChipPresentationIfNeeded()
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of

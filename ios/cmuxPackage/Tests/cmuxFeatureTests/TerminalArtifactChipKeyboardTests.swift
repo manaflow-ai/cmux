@@ -9,12 +9,13 @@ import UIKit
 
 @testable import CmuxMobileTerminal
 
-/// The files-chip keyboard contract: the chip anchors to the top of the
-/// terminal's VISIBLE region. While the keyboard is up the host slides the
-/// full-height render wrapper — and the surface with it — so the render
-/// bottom rides the composer bar (#10594); the chip must counter that slide
-/// and stay inside the clipped-visible area instead of riding the surface's
-/// top edge off screen.
+/// The files-chip keyboard contract: the chip is chrome, not render. The host
+/// slides the full-height render wrapper so the render bottom rides the
+/// composer bar while the keyboard is up (#10594); the chip is adopted into
+/// the host's keyboard-invariant chrome space (like the dock), so its frame
+/// in host coordinates must not move at all across keyboard toggles — before
+/// this contract it rode the surface's top edge off screen whenever the
+/// keyboard was shown.
 @MainActor
 private final class ArtifactChipKeyboardDelegate: NSObject, GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
@@ -38,74 +39,43 @@ struct TerminalArtifactChipKeyboardTests {
         return (view, delegate)
     }
 
-    @Test("chip keeps its resting top anchor while nothing above clips the surface")
+    @Test("chip keeps its resting top anchor on a hostless surface")
     func chipRestsAtSurfaceTop() async throws {
         let (view, delegate) = try makeSurface()
         _ = delegate
         let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
         let window = UIWindow(frame: bounds)
-        let clipView = UIView(frame: bounds)
-        clipView.clipsToBounds = true
-        window.addSubview(clipView)
+        window.addSubview(view)
         window.isHidden = false
         defer {
             view.prepareForDismantle()
-            clipView.removeFromSuperview()
+            view.removeFromSuperview()
             window.isHidden = true
         }
         view.frame = bounds
-        clipView.addSubview(view)
         view.layoutIfNeeded()
 
         let chipContent = UIView()
         view.mountArtifactChipView(chipContent, animated: false)
+        view.layoutIfNeeded()
         let container = try #require(chipContent.superview)
-        let restingY = max(8, view.safeAreaInsets.top + 8)
+        let restingY = view.safeAreaInsets.top + 8
         #expect(
             abs(container.frame.minY - restingY) <= 1,
             "resting chip must keep its top anchor; minY=\(container.frame.minY) expected=\(restingY)"
         )
+        #expect(container.frame.height >= 44)
+        #expect(container.frame.width >= 88)
     }
 
-    @Test("chip stays inside the visible region while the surface is slid for the keyboard")
-    func chipPinsToVisibleTopWhileSlid() async throws {
-        let (view, delegate) = try makeSurface()
-        _ = delegate
-        let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
-        let window = UIWindow(frame: bounds)
-        let clipView = UIView(frame: bounds)
-        clipView.clipsToBounds = true
-        window.addSubview(clipView)
-        window.isHidden = false
-        defer {
-            view.prepareForDismantle()
-            clipView.removeFromSuperview()
-            window.isHidden = true
-        }
-        // The keyboard-up placement the host produces: the full-height surface
-        // slid up inside a clipping wrapper so its bottom rides the composer
-        // bar and its top sits above the visible area.
-        let slide: CGFloat = 300
-        view.frame = bounds.offsetBy(dx: 0, dy: -slide)
-        clipView.addSubview(view)
-        view.layoutIfNeeded()
-
-        let chipContent = UIView()
-        view.mountArtifactChipView(chipContent, animated: false)
-        let container = try #require(chipContent.superview)
-        #expect(
-            container.frame.minY >= slide,
-            "chip must stay inside the clipped-visible region; minY=\(container.frame.minY) visibleTop=\(slide)"
-        )
-    }
-
-    /// End-to-end through the real host: ride a keyboard seat and require the
-    /// chip to sit at or below the host's visible top edge in surface
-    /// coordinates, in both keyboard states. The slide magnitude depends on
-    /// how much blank render absorbs the intrusion (harness-dependent), so
-    /// the assertion is the visibility contract rather than a fixed offset.
-    @Test("host keeps the chip visible across keyboard toggles")
-    func hostKeepsChipVisibleAcrossKeyboardToggles() async throws {
+    /// End-to-end through the real host: the chip's frame in HOST coordinates
+    /// is identical before, during, and after a keyboard seat ride, because
+    /// the chip is constraint-anchored in the host's chrome space and the
+    /// keyboard moves only the render wrapper. The pre-contract failure mode
+    /// (chip riding the slid wrapper above the visible region) shows up here
+    /// as a keyboard-up frame shifted by the slide.
+    @Test("host keeps the chip frame keyboard-invariant")
+    func hostKeepsChipFrameKeyboardInvariant() async throws {
         let (view, delegate) = try makeSurface()
         _ = delegate
         let host = GhosttySurfaceHostView(
@@ -130,17 +100,19 @@ struct TerminalArtifactChipKeyboardTests {
                 try? await Task.sleep(nanoseconds: 20_000_000)
             }
         }
-        func visibleTop() -> CGFloat {
-            view.convert(CGPoint.zero, from: host).y
-        }
 
         let chipContent = UIView()
         view.mountArtifactChipView(chipContent, animated: false)
+        host.layoutIfNeeded()
         let container = try #require(chipContent.superview)
+        func chipFrameInHost() -> CGRect {
+            container.convert(container.bounds, to: host)
+        }
         await settle()
+        let restingFrame = chipFrameInHost()
         #expect(
-            container.frame.minY + 1 >= visibleTop(),
-            "chip below visible top before keyboard; minY=\(container.frame.minY) visibleTop=\(visibleTop())"
+            abs(restingFrame.minY - (host.safeAreaInsets.top + 8)) <= 1,
+            "chip must rest 8pt below the host's safe top; frame=\(restingFrame)"
         )
 
         // Hand the dock seat to the plain bottom constraint (the system
@@ -154,29 +126,23 @@ struct TerminalArtifactChipKeyboardTests {
         host.setNeedsLayout()
         host.layoutIfNeeded()
         await settle()
-        // The live app re-pins the chip from the surface's display link as the
-        // wrapper animates; the harness forces one settled layout pass instead
-        // of depending on display-link timing inside xctest.
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
+        host.layoutIfNeeded()
+        let keyboardUpFrame = chipFrameInHost()
         #expect(
-            container.frame.minY + 1 >= visibleTop(),
-            "chip slid off the visible region with the keyboard up; minY=\(container.frame.minY) visibleTop=\(visibleTop())"
+            abs(keyboardUpFrame.minY - restingFrame.minY) <= 1
+                && abs(keyboardUpFrame.height - restingFrame.height) <= 1,
+            "chip frame must not move with the keyboard; resting=\(restingFrame) up=\(keyboardUpFrame)"
         )
 
         view.setKeyboardHeightForTesting(0)
         host.setNeedsLayout()
         host.layoutIfNeeded()
         await settle()
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
+        host.layoutIfNeeded()
+        let keyboardDownFrame = chipFrameInHost()
         #expect(
-            container.frame.minY + 1 >= visibleTop(),
-            "chip stuck offset after the keyboard dropped; minY=\(container.frame.minY) visibleTop=\(visibleTop())"
-        )
-        #expect(
-            abs(container.frame.minY - max(8, view.safeAreaInsets.top + 8)) <= 1,
-            "chip must return to its resting anchor after the keyboard drops; minY=\(container.frame.minY)"
+            abs(keyboardDownFrame.minY - restingFrame.minY) <= 1,
+            "chip frame must return unchanged after the keyboard drops; resting=\(restingFrame) down=\(keyboardDownFrame)"
         )
     }
 }
