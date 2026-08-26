@@ -66,6 +66,10 @@ struct WorkspaceUnreadDot: View {
                     .opacity(unread.isUnread ? 1 : 0)
             }
         }
+        // One fixed badge-sized box for every indicator kind: the dot centers
+        // in it, so dot rows and badge rows share the same indicator center
+        // while the box's leading edge pins the margin.
+        .frame(width: Self.badgeDiameter, height: Self.badgeDiameter)
         .frame(width: Self.gutterWidth, alignment: .leading)
         .offset(x: -CGFloat(leftShift))
         // The indicator is decorative here; rows fold the unread state into
