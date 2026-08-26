@@ -82,9 +82,19 @@ extension Workspace {
         hasher.combine(linksState.persistenceRevision)
     }
 
-    func restoreLinksState(from snapshot: SessionWorkspaceSnapshot) {
+    func restoreLinksState(
+        from snapshot: SessionWorkspaceSnapshot,
+        panelIDMap: [UUID: UUID]
+    ) {
+        let restoredEntries = snapshot
+            .restoredLinks(limit: linksState.retentionLimit)
+            .map { entry in
+                var entry = entry
+                entry.sourcePanelId = entry.sourcePanelId.flatMap { panelIDMap[$0] }
+                return entry
+            }
         linksState.restore(
-            snapshot.restoredLinks,
+            restoredEntries,
             retentionLimit: linksState.retentionLimit
         )
     }

@@ -1,4 +1,6 @@
 struct WorkspaceLinksIngestConfiguration: Equatable, Sendable {
+    static let maximumRetentionLimit = 10_000
+
     var includeFilePaths: Bool
     var ignoreHosts: [String]
     var retentionLimit: Int
@@ -14,6 +16,6 @@ struct WorkspaceLinksIngestConfiguration: Equatable, Sendable {
     }
 
     static func clampedRetentionLimit(_ value: Int) -> Int {
-        min(max(value, 10), 10_000)
+        min(max(value, 10), maximumRetentionLimit)
     }
 }

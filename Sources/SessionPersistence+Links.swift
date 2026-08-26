@@ -1,6 +1,12 @@
 import Foundation
 
 struct SessionWorkspaceLinkSnapshot: Codable, Equatable, Sendable {
+    private static let maximumURLUTF8Bytes = 4_096
+    private static let maximumHostUTF8Bytes = 512
+    private static let maximumSourceTitleUTF8Bytes = 512
+    private static let maximumFetchedTitleUTF8Bytes = 2_048
+    private static let maximumOriginUTF8Bytes = 64
+
     var id: UUID
     var url: String
     var hostKey: String?
@@ -26,6 +32,19 @@ struct SessionWorkspaceLinkSnapshot: Codable, Equatable, Sendable {
     }
 
     var linkEntry: WorkspaceCapturedLink? {
+        guard Self.isWithinUTF8Limit(url, maximumBytes: Self.maximumURLUTF8Bytes),
+              Self.isWithinUTF8Limit(hostKey, maximumBytes: Self.maximumHostUTF8Bytes),
+              Self.isWithinUTF8Limit(
+                  sourceSurfaceTitle,
+                  maximumBytes: Self.maximumSourceTitleUTF8Bytes
+              ),
+              Self.isWithinUTF8Limit(
+                  fetchedTitle,
+                  maximumBytes: Self.maximumFetchedTitleUTF8Bytes
+              ),
+              Self.isWithinUTF8Limit(origin, maximumBytes: Self.maximumOriginUTF8Bytes) else {
+            return nil
+        }
         let normalizedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedURL.isEmpty else { return nil }
         return WorkspaceCapturedLink(
@@ -41,16 +60,29 @@ struct SessionWorkspaceLinkSnapshot: Codable, Equatable, Sendable {
             fetchedTitle: fetchedTitle
         )
     }
+
+    private static func isWithinUTF8Limit(
+        _ value: String?,
+        maximumBytes: Int
+    ) -> Bool {
+        guard let value else { return true }
+        return value.utf8.prefix(maximumBytes + 1).count <= maximumBytes
+    }
 }
 
 extension SessionWorkspaceSnapshot {
     @MainActor
     mutating func captureLinksState(from workspace: Workspace) {
         let entries = workspace.linksState.entries
-        links = entries.isEmpty ? nil : entries.map(SessionWorkspaceLinkSnapshot.init(entry:))
+        links = entries.isEmpty
+            ? nil
+            : SessionWorkspaceLinksSnapshotCollection(
+                entries.map(SessionWorkspaceLinkSnapshot.init(entry:))
+            )
     }
 
-    var restoredLinks: [WorkspaceCapturedLink] {
-        (links ?? []).compactMap(\.linkEntry)
+    func restoredLinks(limit: Int) -> [WorkspaceCapturedLink] {
+        let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(limit)
+        return (links?.snapshots ?? []).prefix(cap).compactMap(\.linkEntry)
     }
 }

@@ -1904,7 +1904,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
-    var links: [SessionWorkspaceLinkSnapshot]? = nil
+    var links: SessionWorkspaceLinksSnapshotCollection? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}

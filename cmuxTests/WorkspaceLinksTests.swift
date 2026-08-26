@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 import Testing
 
@@ -129,7 +130,7 @@ struct WorkspaceLinksTests {
         #expect(object["links"] == nil)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
         #expect(decoded.links == nil)
-        #expect(decoded.restoredLinks.isEmpty)
+        #expect(decoded.restoredLinks(limit: 500).isEmpty)
     }
 
     @MainActor

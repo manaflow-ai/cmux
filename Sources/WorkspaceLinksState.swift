@@ -167,7 +167,7 @@ final class WorkspaceLinksState {
     func restore(_ restoredEntries: [WorkspaceCapturedLink], retentionLimit: Int) {
         let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(retentionLimit)
         clearStorage()
-        for restoredEntry in restoredEntries.sorted(by: { $0.lastSeen > $1.lastSeen }).prefix(cap) {
+        for restoredEntry in restoredEntries.prefix(cap).sorted(by: { $0.lastSeen > $1.lastSeen }) {
             guard entriesByURL[restoredEntry.url] == nil else { continue }
             var entry = restoredEntry
             entry.titleFetchState = .idle
@@ -244,9 +244,12 @@ final class WorkspaceLinksState {
     }
 
     func applyRetentionLimit(_ limit: Int) {
-        retentionLimit = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(limit)
+        let clampedLimit = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(limit)
+        if retentionLimit != clampedLimit {
+            retentionLimit = clampedLimit
+        }
         let previousCount = entriesByURL.count
-        enforceRetention(retentionLimit)
+        enforceRetention(clampedLimit)
         if entriesByURL.count != previousCount {
             markStructuralChange()
         }
