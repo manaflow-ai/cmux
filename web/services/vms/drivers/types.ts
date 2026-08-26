@@ -90,6 +90,50 @@ export type WebSocketPtyEndpoint = {
 
 export type AttachEndpoint = SSHEndpoint | WebSocketPtyEndpoint;
 
+/**
+ * Attach through the cmux-tui remote daemon running in the VM (Phase 1 of the
+ * cmuxd-remote → cmux-tui migration, docs/cloud-cmux-tui-daemon.md). The route
+ * is the provider's tokenized ingress to the daemon's `/v1/link` listener; the
+ * token only gates reachability — session auth is the daemon's Noise device
+ * enrollment. `invitation` is present when the caller's device is not yet
+ * enrolled: the client connects with `remote connect --invite-file`, then asks
+ * the control plane to approve the pending enrollment it minted.
+ */
+export type CmuxRemoteEndpoint = {
+  transport: "cmux-remote";
+  /** `wss://<host>/v1/link?<provider-token>` — carries the ingress token, so it is never embedded in an invitation. */
+  route: string;
+  /** Ingress token (hashed into the lease ledger, never persisted raw). */
+  token: string;
+  expiresAtUnix: number;
+  /** Daemon session name inside the VM (`server start --session`). */
+  session: string;
+  invitation?: {
+    /** Single-use `cmux://enroll/...` URI; the client must pass it via `--invite-file`, never argv. */
+    uri: string;
+    /** Identifier the client returns to the approve endpoint. */
+    invitationId: string;
+    expiresAtUnix: number;
+  };
+};
+
+export type CmuxRemoteAttachOptions = {
+  /**
+   * The caller's cmux-tui device fingerprint, when it already enrolled with this
+   * VM's daemon. Lets the provider skip minting an invitation.
+   */
+  deviceFingerprint?: string;
+  providerMetadata?: Record<string, unknown>;
+};
+
+export type CmuxRemoteApprovalResult = {
+  approved: boolean;
+  /** Fingerprint of the device that claimed the invitation, when approved. */
+  deviceFingerprint?: string;
+  /** `pending` when the client has not connected yet — the caller should retry. */
+  state: "approved" | "pending" | "already_enrolled";
+};
+
 export type AttachOptions = {
   /**
    * Workspace attaches need a cmuxd RPC endpoint so browser panels can proxy remote
@@ -153,6 +197,12 @@ export interface VMProvider {
   // Returns a live attach endpoint the client can dial into. Providers prefer cmuxd-remote
   // WebSocket PTY with a short-lived one-use lease, with provider-specific fallbacks.
   openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
+
+  // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).
+  // Providers that have not been migrated leave this undefined.
+  openCmuxRemote?(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint>;
+  // Optional: approve the pending enrollment a previous openCmuxRemote invited.
+  approveCmuxRemoteEnrollment?(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult>;
 
   // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
   // sshd is running (some providers need an explicit start step).

@@ -6,7 +6,7 @@ import {
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { openAttachEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { openAttachEndpoint, openVmCmuxRemote, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 
 export async function POST(
@@ -37,6 +37,40 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
+      // Opt-in transport: the cmux-tui remote daemon (Phase 1 of the cmuxd-remote
+      // migration). Clients that do not ask keep the WebSocket PTY/RPC endpoint.
+      const transport = optionalString(body.transport);
+      if (transport === "cmux-remote") {
+        let deviceFingerprint: string | undefined;
+        try {
+          deviceFingerprint = optionalClientIdentifier(body.deviceFingerprint ?? body.device_fingerprint, "deviceFingerprint");
+        } catch (err) {
+          return jsonResponse({
+            error: "invalid_request",
+            message: err instanceof Error ? err.message : "Invalid Cloud VM attach request.",
+          }, 400);
+        }
+        setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
+        try {
+          const endpoint = await runVmWorkflow(openVmCmuxRemote({
+            userId: user.id,
+            billingTeamId: account.entitlements.billingTeamId,
+            teamIds: user.teamIds,
+            providerVmId: id,
+            deviceFingerprint,
+          }));
+          return jsonResponse(endpoint);
+        } catch (err) {
+          if (isVmNotFoundError(err)) return notFoundVm(id);
+          throw err;
+        }
+      }
+      if (transport && transport !== "websocket") {
+        return jsonResponse({
+          error: "invalid_request",
+          message: `Unknown attach transport "${transport}". Use "websocket" or "cmux-remote".`,
+        }, 400);
+      }
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
       try {

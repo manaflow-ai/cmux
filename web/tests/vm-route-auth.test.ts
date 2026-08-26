@@ -13,6 +13,8 @@ const destroyVm = mock(() => ({ workflow: "destroy" }));
 const execVm = mock(() => ({ workflow: "exec" }));
 const forkVm = mock(() => ({ workflow: "fork" }));
 const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
+const openVmCmuxRemote = mock(() => ({ workflow: "cmux-remote" }));
+const approveVmCmuxRemoteEnrollment = mock(() => ({ workflow: "cmux-remote-approve" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
@@ -54,6 +56,8 @@ const realGetVm = workflowsModule.getVm;
 const realListUserVms = workflowsModule.listUserVms;
 const realOpenBaseVm = workflowsModule.openBaseVm;
 const realOpenAttachEndpoint = workflowsModule.openAttachEndpoint;
+const realOpenVmCmuxRemote = workflowsModule.openVmCmuxRemote;
+const realApproveVmCmuxRemoteEnrollment = workflowsModule.approveVmCmuxRemoteEnrollment;
 const realOpenSshEndpoint = workflowsModule.openSshEndpoint;
 const realResetBaseVm = workflowsModule.resetBaseVm;
 const realRestoreVm = workflowsModule.restoreVm;
@@ -105,6 +109,10 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs ? callMock(openBaseVm, args) : realOpenBaseVm(...args)) as typeof realOpenBaseVm,
   openAttachEndpoint: ((...args: Parameters<typeof realOpenAttachEndpoint>) =>
     useWorkflowStubs ? callMock(openAttachEndpoint, args) : realOpenAttachEndpoint(...args)) as typeof realOpenAttachEndpoint,
+  openVmCmuxRemote: ((...args: Parameters<typeof realOpenVmCmuxRemote>) =>
+    useWorkflowStubs ? callMock(openVmCmuxRemote, args) : realOpenVmCmuxRemote(...args)) as typeof realOpenVmCmuxRemote,
+  approveVmCmuxRemoteEnrollment: ((...args: Parameters<typeof realApproveVmCmuxRemoteEnrollment>) =>
+    useWorkflowStubs ? callMock(approveVmCmuxRemoteEnrollment, args) : realApproveVmCmuxRemoteEnrollment(...args)) as typeof realApproveVmCmuxRemoteEnrollment,
   openSshEndpoint: ((...args: Parameters<typeof realOpenSshEndpoint>) =>
     useWorkflowStubs ? callMock(openSshEndpoint, args) : realOpenSshEndpoint(...args)) as typeof realOpenSshEndpoint,
   resetBaseVm: ((...args: Parameters<typeof realResetBaseVm>) =>
@@ -151,6 +159,7 @@ const baseResetRoute = await import("../app/api/vm/base/reset/route");
 const vmIdRoute = await import("../app/api/vm/[id]/route");
 const { DELETE } = vmIdRoute;
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
+const cmuxRemoteApproveRoute = await import("../app/api/vm/[id]/cmux-remote/approve/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const _forkRoute = await import("../app/api/vm/[id]/fork/route");
 const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
@@ -194,6 +203,9 @@ beforeEach(() => {
   openBaseVm.mockClear();
   resetBaseVm.mockClear();
   destroyVm.mockClear();
+  openVmCmuxRemote.mockClear();
+  approveVmCmuxRemoteEnrollment.mockClear();
+  openAttachEndpoint.mockClear();
   execVm.mockClear();
   forkVm.mockClear();
   getVm.mockClear();
@@ -942,6 +954,88 @@ describe("VM REST auth", () => {
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(await response.json()).toMatchObject({
       vms: [{ id: "provider-vm-team-2", provider: "e2b", status: "paused" }],
+    });
+  });
+
+  test("attach-endpoint routes transport=cmux-remote to the cmux-tui workflow with the caller's device", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
+    runVmWorkflow.mockResolvedValue({
+      transport: "cmux-remote",
+      route: "wss://machine.vm.cmux.sh/v1/link?bl_preview_token=t",
+      token: "t",
+      expiresAtUnix: 1_777_000_300,
+      session: "cloud",
+      invitation: { uri: "cmux://enroll/abc", invitationId: "inv-1", expiresAtUnix: 1_777_000_200 },
+    });
+    const response = await attachRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/attach-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ transport: "cmux-remote", deviceFingerprint: "fp-device-1" }),
+      }),
+      context,
+    );
+    expect(response.status).toBe(200);
+    expect(openVmCmuxRemote).toHaveBeenCalledWith({
+      userId: "user-1",
+      billingTeamId: "team-1",
+      teamIds: ["team-1"],
+      providerVmId: "provider-vm-team-1",
+      deviceFingerprint: "fp-device-1",
+    });
+    expect(openAttachEndpoint).not.toHaveBeenCalled();
+    const payload = await response.json();
+    expect(payload.transport).toBe("cmux-remote");
+    expect(payload.invitation.invitationId).toBe("inv-1");
+  });
+
+  test("attach-endpoint rejects an unknown transport before any workflow runs", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
+    const response = await attachRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/attach-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ transport: "carrier-pigeon" }),
+      }),
+      context,
+    );
+    expect(response.status).toBe(400);
+    expect(openVmCmuxRemote).not.toHaveBeenCalled();
+    expect(openAttachEndpoint).not.toHaveBeenCalled();
+  });
+
+  test("cmux-remote/approve validates the invitation id and passes the account scope through", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
+    const bad = await cmuxRemoteApproveRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/cmux-remote/approve", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ invitationId: "not valid; rm -rf /" }),
+      }),
+      context,
+    );
+    expect(bad.status).toBe(400);
+    expect(approveVmCmuxRemoteEnrollment).not.toHaveBeenCalled();
+
+    runVmWorkflow.mockResolvedValue({ approved: true, state: "approved", deviceFingerprint: "fp-device-1" });
+    const ok = await cmuxRemoteApproveRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/cmux-remote/approve", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ invitationId: "inv_abc-123" }),
+      }),
+      context,
+    );
+    expect(ok.status).toBe(200);
+    expect(approveVmCmuxRemoteEnrollment).toHaveBeenCalledWith({
+      userId: "user-1",
+      billingTeamId: "team-1",
+      teamIds: ["team-1"],
+      providerVmId: "provider-vm-team-1",
+      invitationId: "inv_abc-123",
     });
   });
 

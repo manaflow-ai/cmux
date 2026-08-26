@@ -1573,6 +1573,97 @@ export function openVmPort(input: {
   });
 }
 
+/**
+ * Attach through the cmux-tui remote daemon (Phase 1: opt-in transport beside the
+ * cmuxd-remote PTY/RPC endpoints). The ingress token lands in the same lease ledger
+ * as previews so sign-out revokes it; session auth is the daemon's device
+ * enrollment, which the client completes with approveVmCmuxRemoteEnrollment.
+ */
+export function openVmCmuxRemote(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly deviceFingerprint?: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    if (!providers.openCmuxRemote) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "openCmuxRemote",
+          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+        }),
+      );
+    }
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "attach",
+      providers.openCmuxRemote(vm.provider, input.providerVmId, {
+        deviceFingerprint: input.deviceFingerprint,
+        providerMetadata: vm.providerMetadata,
+      }),
+    );
+    yield* repo.recordLease({
+      vmId: vm.id,
+      userId: input.userId,
+      kind: "preview",
+      tokenHash: hashToken(endpoint.token),
+      expiresAt: new Date(endpoint.expiresAtUnix * 1000),
+      transport: "cmux-remote",
+      metadata: { session: endpoint.session, invited: !!endpoint.invitation },
+    }).pipe(
+      Effect.catchAll((err) => {
+        const cleanup = providers.revokeEndpointLeases
+          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+          : Effect.void;
+        return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+      }),
+    );
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.attach",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
+  });
+}
+
+export function approveVmCmuxRemoteEnrollment(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly invitationId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    if (!providers.approveCmuxRemoteEnrollment) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "approveCmuxRemoteEnrollment",
+          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+        }),
+      );
+    }
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
+  });
+}
+
 export type VmAccessRevocationResult = {
   readonly revoked: number;
   readonly cleanupFailures: number;
