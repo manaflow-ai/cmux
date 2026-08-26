@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CoreGraphics
 import Foundation
 import IOSurface
+import QuartzCore
 import Testing
 @testable import CmuxMobileTerminal
 

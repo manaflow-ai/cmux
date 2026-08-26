@@ -45,12 +45,13 @@ pub struct PairedOutcome {
 /// New pairing id, W100 shape: `pair_<24 base36>`. Mirrors the chatmux id
 /// registry (`packages/protocol/src/ids.ts`); rejection sampling keeps the
 /// 36-symbol alphabet uniform (216 = 36 * 6).
-pub fn mint_pair_id() -> String {
+pub fn mint_pair_id() -> Result<String, RelayError> {
     let alphabet = b"0123456789abcdefghijklmnopqrstuvwxyz";
     let mut tail = String::with_capacity(24);
     while tail.len() < 24 {
         let mut bytes = [0_u8; 48];
-        getrandom::fill(&mut bytes).expect("system randomness is available");
+        getrandom::fill(&mut bytes)
+            .map_err(|error| RelayError::fatal(format!("pairing id randomness failed: {error}")))?;
         for byte in bytes {
             if byte >= 216 {
                 continue;
@@ -61,29 +62,31 @@ pub fn mint_pair_id() -> String {
             }
         }
     }
-    format!("pair_{tail}")
+    Ok(format!("pair_{tail}"))
 }
 
-fn random_secret() -> String {
+fn random_secret() -> Result<String, RelayError> {
     let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes).expect("system randomness is available");
-    URL_SAFE_NO_PAD.encode(bytes)
+    getrandom::fill(&mut bytes)
+        .map_err(|error| RelayError::fatal(format!("pairing secret randomness failed: {error}")))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 /// Fresh X25519 public key as base64url SPKI DER — the exact byte layout
 /// Node's `generateKeyPairSync("x25519")` SPKI export produces (12-byte
 /// RFC 8410 prefix + 32 raw key bytes).
-fn mint_relay_public_key() -> String {
+fn mint_relay_public_key() -> Result<String, RelayError> {
     const SPKI_X25519_PREFIX: [u8; 12] =
         [0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00];
     let mut seed = [0_u8; 32];
-    getrandom::fill(&mut seed).expect("system randomness is available");
+    getrandom::fill(&mut seed)
+        .map_err(|error| RelayError::fatal(format!("relay key randomness failed: {error}")))?;
     let secret = x25519_dalek::StaticSecret::from(seed);
     let public = x25519_dalek::PublicKey::from(&secret);
     let mut der = Vec::with_capacity(44);
     der.extend_from_slice(&SPKI_X25519_PREFIX);
     der.extend_from_slice(public.as_bytes());
-    URL_SAFE_NO_PAD.encode(der)
+    Ok(URL_SAFE_NO_PAD.encode(der))
 }
 
 fn hash_base64url(value: &str) -> String {
@@ -107,9 +110,9 @@ pub async fn start_pairing(
     name: &str,
     platform: &str,
 ) -> Result<StartedPairing, RelayError> {
-    let pair_id = mint_pair_id();
-    let secret = random_secret();
-    let relay_public_key = mint_relay_public_key();
+    let pair_id = mint_pair_id()?;
+    let secret = random_secret()?;
+    let relay_public_key = mint_relay_public_key()?;
     let cute_code = derive_cute_code(&relay_public_key);
     let response = client
         .post(format!("{backend}/v2/pairing/start"))
@@ -310,17 +313,17 @@ mod tests {
     #[test]
     fn pair_ids_have_the_w100_shape() {
         for _ in 0..16 {
-            let id = mint_pair_id();
+            let id = mint_pair_id().expect("OS randomness available in test");
             assert_eq!(id.len(), "pair_".len() + 24);
             let tail = id.strip_prefix("pair_").expect("prefix");
             assert!(tail.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
         }
-        assert_ne!(mint_pair_id(), mint_pair_id());
+        assert_ne!(mint_pair_id().unwrap(), mint_pair_id().unwrap());
     }
 
     #[test]
     fn relay_public_keys_are_x25519_spki_der_base64url() {
-        let key = mint_relay_public_key();
+        let key = mint_relay_public_key().expect("OS randomness available in test");
         // 44 DER bytes -> 59 unpadded base64url characters.
         assert_eq!(key.len(), 59);
         let der = URL_SAFE_NO_PAD.decode(&key).expect("decodes");
@@ -329,14 +332,14 @@ mod tests {
             &der[..12],
             &[0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00]
         );
-        assert_ne!(mint_relay_public_key(), mint_relay_public_key());
+        assert_ne!(mint_relay_public_key().unwrap(), mint_relay_public_key().unwrap());
     }
 
     #[test]
     fn secrets_are_43_base64url_characters() {
         // The Worker's pairing URL regex pins #<secret> to exactly 43
         // [A-Za-z0-9_-] characters (32 bytes, unpadded).
-        let secret = random_secret();
+        let secret = random_secret().expect("OS randomness available in test");
         assert_eq!(secret.len(), 43);
         assert!(secret.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
     }
