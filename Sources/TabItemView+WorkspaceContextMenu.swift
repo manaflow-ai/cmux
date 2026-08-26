@@ -141,6 +141,9 @@ extension TabItemView {
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             let tabColorPalette = WorkspaceTabColorSettings.palette()
+            let currentColorHex = workspaceSnapshot.customColorHex.flatMap {
+                WorkspaceTabColorSettings.normalizedHex($0)
+            }
 
             if workspaceSnapshot.customColorHex != nil {
                 Button {
@@ -161,13 +164,19 @@ extension TabItemView {
             }
 
             ForEach(tabColorPalette, id: \.id) { entry in
+                let isSelected = WorkspaceTabColorSettings.paletteEntryMatches(
+                    currentHex: currentColorHex,
+                    entryHex: entry.hex
+                )
                 Button {
                     applyTabColor(entry.hex, targetIds: targetIds)
                 } label: {
-                    Label {
-                        Text(entry.name)
-                    } icon: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark")
+                            .opacity(isSelected ? 1 : 0)
+                            .frame(width: 12)
                         Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
+                        Text(entry.name)
                     }
                 }
             }

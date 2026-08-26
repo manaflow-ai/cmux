@@ -9,6 +9,13 @@ extension CLIError {
 }
 
 extension CMUXCLI {
+    /// Whether the generated reconnect wrapper owns presentation for this attach.
+    /// Direct CLI invocations keep their detailed diagnostics for troubleshooting.
+    func sshPTYAttachManagedReconnectPresentation() -> Bool {
+        (ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+    }
+
     /// Persistent attach launchers own the retry UX.  A retryable bridge
     /// establishment error is expected while the management supervisor is
     /// bringing the daemon/proxy back; printing it before the bounded retry
