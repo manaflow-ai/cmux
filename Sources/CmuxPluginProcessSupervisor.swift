@@ -314,7 +314,8 @@ final class CmuxPluginProcessSupervisor {
         let authorizationIdentity = runtime.registerProcess(
             processID,
             for: pluginID,
-            generation: processGeneration
+            generation: processGeneration,
+            processGroupID: processID
         )
         processes[pluginID] = RunningProcess(
             process: process,
@@ -450,6 +451,10 @@ final class CmuxPluginProcessSupervisor {
             return
         }
         processes.removeValue(forKey: pluginID)
+        runtime.revokeProcess(
+            processID,
+            identity: running.authorizationIdentity
+        )
         runtime.processDidExit(processID, generation: processGeneration)
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()

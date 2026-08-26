@@ -17,10 +17,7 @@ struct CmuxPluginInterpreterSecurityTests {
         }
 
         let interpreterURL = interpreterRoot.appendingPathComponent("interpreter")
-        try writeInterpreter(
-            "#!/bin/sh\nprintf original > \"$CMUX_TEST_INTERPRETER_MARKER\"\n",
-            to: interpreterURL
-        )
+        try writeBinaryInterpreter(to: interpreterURL)
         let manifest = CmuxExtensionManifest.plugin(
             id: "dev.example.mutable-interpreter",
             displayName: "Mutable Interpreter",
@@ -62,7 +59,7 @@ struct CmuxPluginInterpreterSecurityTests {
         }
 
         let interpreterURL = interpreterRoot.appendingPathComponent("interpreter")
-        try writeInterpreter("#!/bin/sh\nexit 0\n", to: interpreterURL)
+        try writeBinaryInterpreter(to: interpreterURL)
         let manifest = CmuxExtensionManifest.plugin(
             id: "dev.example.interpreter-approval",
             displayName: "Interpreter Approval",
@@ -193,6 +190,15 @@ struct CmuxPluginInterpreterSecurityTests {
             try handle.write(contentsOf: Data(contents.utf8))
             try handle.close()
         }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: url.path
+        )
+    }
+
+    private func writeBinaryInterpreter(to url: URL) throws {
+        try Data(contentsOf: URL(fileURLWithPath: "/bin/sh"))
+            .write(to: url, options: .atomic)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
             ofItemAtPath: url.path

@@ -9,15 +9,18 @@ extension CmuxPluginRuntime {
     func registerProcess(
         _ processID: pid_t,
         for pluginID: String,
-        generation: UUID = UUID()
+        generation: UUID = UUID(),
+        processGroupID: pid_t? = nil
     ) -> CmuxPluginProcessIdentity {
         let identity = CmuxPluginProcessIdentity(
             generation: generation,
-            startMicroseconds: Self.processStartMicroseconds(processID)
+            startMicroseconds: Self.processStartMicroseconds(processID),
+            processGroupID: processGroupID ?? processID
         )
         lock.lock()
         processAuthorizations[processID] = .active(pluginID: pluginID)
         processAuthorizationIdentities[processID] = identity
+        revokedPluginProcessGroups.remove(identity.processGroupID)
         lock.unlock()
         return identity
     }
@@ -36,6 +39,12 @@ extension CmuxPluginRuntime {
             processAuthorizations[processID] = .revoked
         } else {
             pluginID = nil
+        }
+        if let storedIdentity = processAuthorizationIdentities[processID] {
+            if revokedPluginProcessGroups.count >= 512 {
+                revokedPluginProcessGroups.remove(revokedPluginProcessGroups.first!)
+            }
+            revokedPluginProcessGroups.insert(storedIdentity.processGroupID)
         }
         let detached = detachSubscriptionsLocked(pluginID: pluginID)
         lock.unlock()
@@ -77,7 +86,17 @@ extension CmuxPluginRuntime {
         guard let resolved = processAuthorizationResolver.resolve(
             processID: processID,
             authorizations: authorizationSnapshot
-        ) else { return nil }
+        ) else {
+            lock.lock()
+            let knownGroup = Self.processGroupID(processID).map { groupID in
+                revokedPluginProcessGroups.contains(groupID)
+                    || processAuthorizationIdentities.values.contains { identity in
+                        identity.processGroupID == groupID
+                    }
+            } ?? false
+            lock.unlock()
+            return knownGroup ? .revoked : nil
+        }
         lock.lock()
         defer { lock.unlock() }
         guard processAuthorizations[resolved.rootProcessID] == resolved.authorization else {
@@ -153,5 +172,10 @@ extension CmuxPluginRuntime {
         guard let info = processBSDInfo(processID) else { return nil }
         return Int64(info.pbi_start_tvsec) * 1_000_000
             + Int64(info.pbi_start_tvusec)
+    }
+
+    private static func processGroupID(_ processID: Int32) -> pid_t? {
+        let group = getpgid(processID)
+        return group > 1 ? group : nil
     }
 }

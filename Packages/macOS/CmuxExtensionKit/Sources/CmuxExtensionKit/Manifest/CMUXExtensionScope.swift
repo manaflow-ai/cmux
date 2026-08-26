@@ -220,7 +220,12 @@ public enum CmuxExtensionEvent: String, Codable, CaseIterable, Equatable, Hashab
         case .notificationPosted:
             return [rawValue, "notification.posted"]
         case .agentSessionStateChanged:
-            return [rawValue, "agent.session.state-changed", "agent.session.stateChanged"]
+            return [
+                rawValue,
+                "agent.session.state-changed",
+                "agent.session.stateChanged",
+                "agent.session.state.changed",
+            ]
         default:
             return [rawValue]
         }
@@ -233,8 +238,8 @@ public enum CmuxExtensionEvent: String, Codable, CaseIterable, Equatable, Hashab
 
     private static func normalize(_ value: String) -> String {
         value
-            .replacingOccurrences(of: "-", with: "_")
-            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: ".")
+            .replacingOccurrences(of: "_", with: ".")
             .lowercased()
     }
 

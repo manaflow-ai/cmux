@@ -90,6 +90,8 @@ public struct CmuxPluginLoadReport: Equatable, Sendable {
 public actor CmuxPluginDirectoryLoader {
     /// Maximum manifest size accepted from disk.
     public static let maximumManifestBytes = 256 * 1024
+    /// Maximum number of plugin directories scanned in one root reload.
+    public static let maximumPluginCount = 64
 
     /// Default user plugin directory (`~/Library/Application Support/cmux/plugins`).
     public static var defaultDirectoryURL: URL {
@@ -150,6 +152,23 @@ public actor CmuxPluginDirectoryLoader {
                     directoryURL: directoryURL,
                     code: .unreadableDirectory,
                     detail: error.localizedDescription
+                )]
+            )
+        }
+
+        let pluginDirectoryCount = entries.reduce(into: 0) { count, entry in
+            if let values = try? entry.resourceValues(forKeys: [.isDirectoryKey]),
+               values.isDirectory == true {
+                count += 1
+            }
+        }
+        guard pluginDirectoryCount <= Self.maximumPluginCount else {
+            return CmuxPluginLoadReport(
+                plugins: [],
+                failures: [CmuxPluginLoadFailure(
+                    directoryURL: directoryURL,
+                    code: .unreadableDirectory,
+                    detail: "plugin root exceeds the supported directory count"
                 )]
             )
         }

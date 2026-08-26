@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Binds a supervised PID to one process instance, not just its numeric PID.
@@ -6,4 +7,5 @@ import Foundation
 struct CmuxPluginProcessIdentity: Equatable, Sendable {
     let generation: UUID
     let startMicroseconds: Int64?
+    let processGroupID: pid_t
 }
