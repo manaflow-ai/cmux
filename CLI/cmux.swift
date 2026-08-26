@@ -3847,7 +3847,11 @@ final class ClaudeHookSessionStore {
                 in: &state
             )
         }
-        let taskStoreIdentity = ClaudeTaskStoreIdentity(rawValue: rawStoreIdentity)
+        guard let taskStoreIdentity = ClaudeTaskStoreIdentity(
+            persistedRawValue: rawStoreIdentity
+        ) else {
+            return false
+        }
         let storageKey = claudeTaskListStorageKey(
             taskListID: directoryName,
             taskStoreIdentity: taskStoreIdentity

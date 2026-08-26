@@ -15,9 +15,12 @@ public struct ClaudeTaskStoreIdentity: Codable, Hashable, Sendable {
     /// The raw value is intentionally opaque: callers should pass values read
     /// from durable ownership records rather than constructing new namespaces.
     ///
-    /// - Parameter rawValue: The persisted URL-safe identity digest.
-    public init(rawValue: String) {
-        self.rawValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// - Parameter persistedRawValue: The persisted URL-safe identity digest.
+    /// - Returns: `nil` when the persisted value is empty or unreasonably large.
+    public init?(persistedRawValue: String) {
+        let normalized = persistedRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, normalized.utf8.count <= 128 else { return nil }
+        self.rawValue = normalized
     }
 
     /// Creates the stable namespace for a resolved Claude tasks directory.
