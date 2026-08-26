@@ -101,7 +101,17 @@ Install one from a cmux checkout:
 Then validate and open it as a Bonsplit pane:
 
     cmux sidebar validate status-board
+    cmux sidebar render status-board --width 320 --height 900 --output /tmp/status-board.png
     cmux sidebar open status-board
+
+`cmux sidebar validate` checks evaluation and schema only; it does not mount
+SwiftUI/AppKit or prove that pixels were produced. `cmux sidebar render` runs
+the same mounted `CustomSidebarContentView`/`RenderNodeView` path used by the
+production sidebar and writes a deterministic PNG. It exits nonzero when
+evaluation, mounting, layout, or artifact generation fails, and reports the
+visible-pixel count in its result. The render artifact is a smoke-test output,
+not a live-data snapshot. For data inspection, use
+`extension.sidebar.snapshot`; that command does not mount or render pixels.
 
 `cmux sidebar select <name>` still previews a custom sidebar in the left
 sidebar picker. Use `cmux sidebar open <name>` when you want the sidebar as a

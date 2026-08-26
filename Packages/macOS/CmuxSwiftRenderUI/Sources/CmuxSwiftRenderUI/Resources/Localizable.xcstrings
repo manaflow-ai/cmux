@@ -51,6 +51,159 @@
           }
         }
       }
+    },
+    "sidebar.custom.render.invalidSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Render width and height must be between 1 and 4096."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダーの幅と高さは 1 から 4096 の範囲である必要があります。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.fileMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar file is missing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーファイルが見つかりません。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.unsupportedFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar file has an unsupported format."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーファイルの形式に対応していません。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.noView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No supported SwiftUI view found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応するSwiftUIビューが見つかりません。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read sidebar file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーファイルの読み取りに失敗しました: %@"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.mountFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sidebar could not be mounted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーをマウントできませんでした。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.bitmapFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The mounted sidebar could not produce a PNG."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウントしたサイドバーからPNGを生成できませんでした。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.blankOutput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The mounted sidebar produced no visible pixels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウントしたサイドバーに表示可能なピクセルがありません。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.render.writeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to write the render artifact: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダーアーティファクトの書き込みに失敗しました: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

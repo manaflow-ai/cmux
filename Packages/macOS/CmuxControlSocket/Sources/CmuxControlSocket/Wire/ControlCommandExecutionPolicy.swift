@@ -156,6 +156,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "sidebar.custom.reload",
         "sidebar.custom.select",
         "sidebar.custom.open",
+        "sidebar.custom.render",
         // Window screenshot capture waits for ScreenCaptureKit's async
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.

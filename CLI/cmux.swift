@@ -18384,13 +18384,23 @@ struct CMUXCLI {
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
-            Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
-            Validate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
+            Usage: cmux sidebar <validate|render|reload|select|open> [name|--all] [flags]
+            Inspect, render, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
             Commands:
               validate [name]   Validate all custom sidebars, or one named sidebar
+              render <name>     Mount one sidebar and write a PNG smoke-test artifact
               reload [name]     Validate all sidebars, then reload every valid one
               select <name>     Activate one custom sidebar
               open <name>       Open one custom sidebar as a Bonsplit pane
+
+            Render flags:
+              --width <n>       Artifact width in pixels
+              --height <n>      Artifact height in pixels
+              --output <path>   PNG output path
+
+            `validate` evaluates a sidebar but does not mount SwiftUI. `render` mounts
+            the production content view and fails if it cannot produce visible pixels.
+            This is separate from `extension.sidebar.snapshot`, which only inspects data.
             """)
         case "set-app-focus":
             return """
@@ -18860,181 +18870,6 @@ struct CMUXCLI {
         if parsed.positional.first?.lowercased() == "mode" {
             print(response)
         }
-    }
-
-    private func runSidebarCommand(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput inheritedJSONOutput: Bool,
-        windowOverride: String?
-    ) throws {
-        var args = commandArgs
-        var jsonOutput = inheritedJSONOutput
-        var explicitAll = false
-        args.removeAll { arg in
-            if arg == "--json" {
-                jsonOutput = true
-                return true
-            }
-            if arg == "--all" {
-                explicitAll = true
-                return true
-            }
-            return false
-        }
-
-        guard let action = args.first?.lowercased() else {
-            throw CLIError(
-                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open")
-            )
-        }
-
-        let remaining = Array(args.dropFirst())
-        let method: String
-        var params: [String: Any] = [:]
-
-        switch action {
-        case "validate", "reload":
-            guard remaining.count <= 1 else {
-                throw CLIError(
-                    message: String(
-                        format: String(
-                            localized: "cli.sidebar.error.unexpectedArguments",
-                            defaultValue: "sidebar %@ accepts at most one sidebar name"
-                        ),
-                        action
-                    )
-                )
-            }
-            guard !(explicitAll && !remaining.isEmpty) else {
-                throw CLIError(
-                    message: String(
-                        format: String(
-                            localized: "cli.sidebar.error.allWithName",
-                            defaultValue: "sidebar %@: use either --all or a sidebar name, not both"
-                        ),
-                        action
-                    )
-                )
-            }
-            if let name = remaining.first { params["name"] = name }
-            method = action == "validate" ? "sidebar.custom.validate" : "sidebar.custom.reload"
-
-        case "select", "open":
-            guard !explicitAll else {
-                throw CLIError(
-                    message: String(format: String(localized: "cli.sidebar.error.namedActionAll", defaultValue: "sidebar %@ does not support --all"), action)
-                )
-            }
-            let nameArgs = action == "open" ? parseOption(parseOption(remaining, name: "--workspace").1, name: "--window").1 : remaining
-            guard nameArgs.count == 1 else {
-                throw CLIError(
-                    message: String(format: String(localized: "cli.sidebar.error.namedActionRequiresName", defaultValue: "sidebar %@ requires one sidebar name"), action)
-                )
-            }
-            params["name"] = nameArgs[0]
-            if action == "open" {
-                params["focus"] = true
-                let winId = try normalizeWindowHandle(windowFromArgsOrOverride(remaining, windowOverride: windowOverride), client: client)
-                if let winId { params["window_id"] = winId }
-                let wsId = try normalizeWorkspaceHandle(workspaceFromArgsOrEnv(remaining, windowOverride: windowOverride), client: client, windowHandle: winId)
-                if let wsId { params["workspace_id"] = wsId }
-            }
-            method = action == "select" ? "sidebar.custom.select" : "sidebar.custom.open"
-
-        default:
-            throw CLIError(
-                message: String(
-                    format: String(
-                        localized: "cli.sidebar.error.unknownCommand",
-                        defaultValue: "Unknown sidebar command '%@'"
-                    ),
-                    action
-                )
-            )
-        }
-
-        let payload = try client.sendV2(method: method, params: params)
-        if jsonOutput {
-            print(jsonString(payload))
-        } else {
-            printSidebarReport(payload, action: action)
-        }
-
-        let errorCount = intValue(payload["error_count"])
-        if errorCount > 0 {
-            exit(1)
-        }
-    }
-
-    private func printSidebarReport(_ payload: [String: Any], action: String) {
-        let sidebars = payload["sidebars"] as? [[String: Any]] ?? []
-        if sidebars.isEmpty {
-            print(String(localized: "cli.sidebar.noSidebars", defaultValue: "No custom sidebars found."))
-        }
-        for sidebar in sidebars {
-            let name = (sidebar["name"] as? String) ?? "(unknown)"
-            let path = (sidebar["path"] as? String) ?? ""
-            let kind = (sidebar["kind"] as? String) ?? ""
-            let ok = boolValue(sidebar["ok"])
-            if ok {
-                print(String(
-                    format: String(localized: "cli.sidebar.report.ok", defaultValue: "OK %@ [%@] %@"),
-                    name,
-                    kind,
-                    path
-                ))
-            } else {
-                let error = (sidebar["error"] as? String) ?? String(localized: "cli.sidebar.unknownError", defaultValue: "Unknown error")
-                print(String(
-                    format: String(localized: "cli.sidebar.report.error", defaultValue: "ERROR %@ [%@] %@: %@"),
-                    name,
-                    kind,
-                    path,
-                    error
-                ))
-            }
-        }
-
-        let validCount = intValue(payload["valid_count"])
-        let errorCount = intValue(payload["error_count"])
-        if action == "reload" {
-            let reloadedCount = intValue(payload["reloaded_count"])
-            print(String(
-                format: String(localized: "cli.sidebar.report.reloadSummary", defaultValue: "Reloaded %d valid sidebars. %d valid, %d invalid."),
-                reloadedCount,
-                validCount,
-                errorCount
-            ))
-        } else if action == "select", let selectedName = payload["selected_name"] as? String {
-            print(String(
-                format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@."),
-                selectedName
-            ))
-        } else if action == "open", let openedName = payload["opened_name"] as? String {
-            let surface = (payload["surface_ref"] as? String) ?? (payload["surface_id"] as? String) ?? ""
-            print(String(
-                format: String(localized: "cli.sidebar.report.opened", defaultValue: "Opened %@ as pane %@."),
-                openedName,
-                surface
-            ))
-        } else {
-            print(String(
-                format: String(localized: "cli.sidebar.report.summary", defaultValue: "%d valid, %d invalid."),
-                validCount,
-                errorCount
-            ))
-        }
-    }
-
-    private func intValue(_ raw: Any?) -> Int {
-        if let value = Self.intValue(raw) { return value }
-        if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0 }
-        return 0
-    }
-
-    private func boolValue(_ raw: Any?) -> Bool {
-        Self.boolValue(raw)
     }
 
     private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
@@ -37408,7 +37243,7 @@ export default CMUXSessionRestore;
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-          sidebar <validate|reload|select|open> [name]
+          sidebar <validate|render|reload|select|open> [name] [flags]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
