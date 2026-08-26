@@ -611,15 +611,15 @@ extension DockSplitStore {
         // context-management publication suppressed. Publish only after the
         // destination tab exists, so preserved pressure can never authorize a
         // PTY write during a failed or partially-created transfer.
+        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
+            panelId: panel.id
+        )
         if let terminal = panel as? TerminalPanel {
             AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(
                 panelId: terminal.id,
                 state: terminal.shellActivity.state
             )
         }
-        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
-            panelId: panel.id
-        )
         installSubscription(for: panel)
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)

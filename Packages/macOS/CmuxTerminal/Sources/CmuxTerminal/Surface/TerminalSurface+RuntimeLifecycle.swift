@@ -800,7 +800,8 @@ extension TerminalSurface {
             on: createdSurface,
             workspaceID: tabId,
             surfaceID: id,
-            contextPressureDetectorGeneration: contextPressureDetectorGeneration
+            contextPressureDetectorGeneration: contextPressureDetectorGeneration,
+            contextPressureMonitoringEnabled: contextPressureMonitoringEnabled
         )
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil

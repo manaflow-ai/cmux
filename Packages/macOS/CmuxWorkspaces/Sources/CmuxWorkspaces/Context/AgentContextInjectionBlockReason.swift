@@ -4,6 +4,9 @@ public enum AgentContextInjectionBlockReason: String, Codable, Equatable, Sendab
     case disabled
     /// No pressure event has been observed.
     case noPressure
+    /// Terminal text was observed, but a fresh provider running-to-idle
+    /// boundary has not confirmed the pressure episode yet.
+    case pressureUnconfirmed
     /// The pane no longer has a managed provider binding.
     case unmanagedSession
     /// The agent lifecycle has not proved idle.

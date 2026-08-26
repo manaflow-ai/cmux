@@ -9,6 +9,7 @@ struct AgentContextInjectionPolicyTests {
         lifecycle: AgentContextLifecycleState = .idle,
         shell: PanelShellActivityState = .commandRunning,
         action: AgentContextInjectionAction = .compact,
+        pressureConfirmed: Bool = true,
         preserveState: Bool = false,
         dialogOpen: Bool = false,
         userInputObserved: Bool = false,
@@ -19,6 +20,7 @@ struct AgentContextInjectionPolicyTests {
         AgentContextInjectionInput(
             enabled: true,
             pressureDetected: true,
+            pressureConfirmed: pressureConfirmed,
             managedSessionBound: true,
             provider: .claudeCode,
             lifecycle: lifecycle,
@@ -38,6 +40,18 @@ struct AgentContextInjectionPolicyTests {
         let decision = policy.decide(input())
 
         #expect(decision == .inject(.compact))
+    }
+
+    @Test("Textual pressure waits for a fresh lifecycle boundary")
+    func pressureNeedsLifecycleConfirmation() {
+        #expect(
+            policy.decide(input(pressureConfirmed: false))
+                == .wait(.pressureUnconfirmed)
+        )
+        #expect(
+            policy.decide(input(action: .clear, pressureConfirmed: false))
+                == .unsafe(.pressureUnconfirmed)
+        )
     }
 
     @Test("A running turn fails closed")
@@ -81,6 +95,10 @@ struct AgentContextInjectionPolicyTests {
         #expect(decision == .inject(.preserveState))
         #expect(
             policy.decide(input(action: .clear, preserveState: true, preservationCompleted: true))
+                == .inject(.clear)
+        )
+        #expect(
+            policy.decide(input(action: .clear, preserveState: false))
                 == .inject(.clear)
         )
     }

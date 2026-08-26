@@ -82,6 +82,10 @@ extension AgentContextManagementCoordinator {
             terminal(panelId: panelId)?.shellActivity.state ?? .unknown
         }
 
+        func setContextPressureMonitoringEnabled(panelId: UUID, enabled: Bool) {
+            terminal(panelId: panelId)?.surface.setContextPressureMonitoringEnabled(enabled)
+        }
+
         @discardableResult
         func resetContextPressureDetector(panelId: UUID) -> UInt64 {
             terminal(panelId: panelId)?.surface.resetContextPressureDetectors() ?? 0
@@ -156,6 +160,8 @@ extension AgentContextManagementCoordinator {
     struct PanelState {
         var provider: AgentContextProvider
         var pressure: AgentContextPressureSnapshot
+        /// Ordered lifecycle evidence that confirms the pressure episode.
+        var pressureConfirmation = AgentContextPressureLifecycleConfirmation()
         var detectorGeneration: UInt64
         /// The exact managed-session binding that produced this state. A
         /// panel id can be reused during respawn/transfer, so pressure must

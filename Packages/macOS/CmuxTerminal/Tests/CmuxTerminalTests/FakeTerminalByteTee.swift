@@ -8,7 +8,8 @@ final class FakeTerminalByteTee: TerminalByteTeeBinding {
         on surface: ghostty_surface_t,
         workspaceID: UUID,
         surfaceID: UUID,
-        contextPressureDetectorGeneration: UInt64
+        contextPressureDetectorGeneration: UInt64,
+        contextPressureMonitoringEnabled: Bool
     ) -> any TerminalByteTeeLease {
         FakeTerminalByteTeeLease()
     }

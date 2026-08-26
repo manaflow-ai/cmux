@@ -44,6 +44,10 @@ extension AgentContextManagementCoordinator {
             resetForUnboundSession(panelId: panelId)
             return
         }
+        owner.setContextPressureMonitoringEnabled(
+            panelId: panelId,
+            enabled: settings.isEnabled
+        )
         guard AgentContextProvider(managedAgentKind: key) == provider else {
             structuredLog(
                 "lifecycle.ignored",
@@ -71,6 +75,9 @@ extension AgentContextManagementCoordinator {
         state.lifecycleByKey[key] = lifecycle
         state.lifecycle = Self.effectiveLifecycle(from: state.lifecycleByKey.values)
         state.dialogOpen = state.lifecycle == .needsInput
+        if state.pressure.isUnderPressure {
+            state.pressureConfirmation.observeLifecycle(state.lifecycle)
+        }
         var preservationVerificationRequest: (URL, Date)?
         var preservationVerificationUnavailable = false
         if state.preservationAwaitingAcknowledgement, state.lifecycle == .running {
@@ -119,6 +126,7 @@ extension AgentContextManagementCoordinator {
             // during it and reset the serialized tee before considering new
             // pressure at the fresh prompt.
             state.pressure = AgentContextPressureSnapshot()
+            state.pressureConfirmation.reset()
             let resetGeneration = owner.resetContextPressureDetector(panelId: panelId)
             state.detectorGeneration = max(state.detectorGeneration, resetGeneration)
             state.userInputObserved = false
@@ -158,6 +166,10 @@ extension AgentContextManagementCoordinator {
             resetForUnboundSession(panelId: panelId)
             return
         }
+        owner.setContextPressureMonitoringEnabled(
+            panelId: panelId,
+            enabled: settings.isEnabled
+        )
         var state = resolvedPanelState(
             panelId: panelId,
             provider: provider,
@@ -193,6 +205,7 @@ extension AgentContextManagementCoordinator {
         state.lifecycle = Self.effectiveLifecycle(from: state.lifecycleByKey.values)
         state.dialogOpen = state.lifecycle == .needsInput
         if state.lifecycle == .unknown {
+            state.pressureConfirmation.reset()
             cancelPreservationVerification(panelId: panelId)
             state.preservationAwaitingAcknowledgement = false
             state.preservationObservedRunning = false
@@ -246,8 +259,9 @@ extension AgentContextManagementCoordinator {
                 detectorGeneration: stateGeneration,
                 seedLifecycleEvidence: existingState == nil
             )
-        state.userInputObserved = state.userInputObserved
-            || userInputObservedBeforePressure.contains(panelId)
+        if userInputObservedBeforePressure.remove(panelId) != nil {
+            _ = cancelPendingRecovery(panelId: panelId, state: &state, owner: owner)
+        }
         return state
     }
 }

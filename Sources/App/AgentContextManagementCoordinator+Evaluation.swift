@@ -14,6 +14,7 @@ extension AgentContextManagementCoordinator {
         let input = AgentContextInjectionInput(
             enabled: settings.isEnabled,
             pressureDetected: state.pressure.isUnderPressure,
+            pressureConfirmed: state.pressureConfirmation.isConfirmed,
             managedSessionBound: owner.binding(panelId: surfaceID)?.isAgentHookBinding == true,
             provider: state.provider,
             lifecycle: state.lifecycle,
@@ -167,6 +168,7 @@ extension AgentContextManagementCoordinator {
         state.preservationRequestedAt = nil
         state.preservationVerificationInFlight = false
         state.pressure = AgentContextPressureSnapshot()
+        state.pressureConfirmation.reset()
         userInputObservedBeforePressure.remove(surfaceID)
         state.userInputObserved = false
         states[surfaceID] = state

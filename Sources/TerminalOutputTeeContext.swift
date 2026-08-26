@@ -36,6 +36,12 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private struct ForwardQueue {
         var pending: [AgentForward] = []
         var draining = false
+        var contextPressurePending: TerminalContextPressureForward?
+        var contextPressureDraining = false
+        var contextPressureResetGeneration: UInt64?
+        var contextPressureDetectorResetRequested = false
+        var contextPressureMonitoringEnabled = false
+        var contextPressureMonitoringGeneration: UInt64 = 0
     }
 
     /// Confirmed turns arrive at most once per confirmation delay, so this
@@ -50,19 +56,19 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private var detectors: [DetectorBinding]
     private var contextPressureDetectors: [AgentContextProvider: AgentContextPressureDetector]
     private var contextPressureGeneration: UInt64
-    private let contextPressureHandler: (@Sendable (UUID, UUID, UInt64, [AgentContextPressureEvent]) -> Void)?
+    private let contextPressureHandler: (@MainActor @Sendable (UUID, UUID, UInt64, [AgentContextPressureEvent]) -> Void)?
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
     // Lock carve-out: the PTY callback is synchronous and cannot await an
-    // actor, so this bounded generation edge is the smallest safe handoff;
+    // actor, so these bounded control edges are the smallest safe handoff;
     // the serialized callback remains the sole owner of detector mutation.
-    private let contextPressureResetRequest = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
 
     init(
         workspaceID: UUID,
         surfaceID: UUID,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
         contextPressureGeneration: UInt64 = 0,
-        contextPressureHandler: (@Sendable (UUID, UUID, UInt64, [AgentContextPressureEvent]) -> Void)? = nil
+        contextPressureMonitoringEnabled: Bool = false,
+        contextPressureHandler: (@MainActor @Sendable (UUID, UUID, UInt64, [AgentContextPressureEvent]) -> Void)? = nil
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
@@ -80,6 +86,9 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
         self.contextPressureHandler = contextPressureHandler
         self.contextPressureGeneration = contextPressureGeneration
+        if contextPressureMonitoringEnabled {
+            forwardQueue.withLock { $0.contextPressureMonitoringEnabled = true }
+        }
         self.contextPressureDetectors = Dictionary(uniqueKeysWithValues: AgentContextProvider.allCases.map { provider in
             (provider, AgentContextPressureDetector(provider: provider))
         })
@@ -91,23 +100,32 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     /// recovery coordinator runs on the main actor, so parser state is reset
     /// at the next callback boundary rather than being mutated concurrently.
     func requestContextPressureReset(to generation: UInt64) {
-        contextPressureResetRequest.withLock { requested in
-            requested = max(requested ?? 0, generation)
+        forwardQueue.withLock { queue in
+            queue.contextPressureResetGeneration = max(
+                queue.contextPressureResetGeneration ?? 0,
+                generation
+            )
+            // Do not coalesce pre-reset evidence into a newer detector generation.
+            queue.contextPressurePending = nil
+        }
+    }
+
+    /// Updates the eligibility gate read by the serialized PTY callback.
+    func setContextPressureMonitoringEnabled(_ enabled: Bool) {
+        forwardQueue.withLock { state in
+            guard state.contextPressureMonitoringEnabled != enabled else { return }
+            state.contextPressureMonitoringEnabled = enabled
+            state.contextPressureMonitoringGeneration &+= 1
+            // The serialized callback performs the reset before it parses the
+            // first byte from the new eligibility interval.
+            state.contextPressureDetectorResetRequested = true
+            // A queued event belongs to the previous eligibility interval and
+            // must not cross disable, re-enable, or binding replacement.
+            state.contextPressurePending = nil
         }
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
-        let requestedContextPressureGeneration = contextPressureResetRequest.withLock { requested in
-            defer { requested = nil }
-            return requested
-        }
-        if let requestedContextPressureGeneration,
-           requestedContextPressureGeneration > contextPressureGeneration {
-            for provider in AgentContextProvider.allCases {
-                contextPressureDetectors[provider]?.reset()
-            }
-            contextPressureGeneration = requestedContextPressureGeneration
-        }
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,
@@ -122,7 +140,30 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             detectors[index].detector.consume(bytes)
             forwardDetectorChangeIfNeeded(at: index, now: now)
         }
-        guard let contextPressureHandler else { return }
+        let control = forwardQueue.withLock { state in
+            let snapshot = (
+                resetGeneration: state.contextPressureResetGeneration,
+                detectorResetRequested: state.contextPressureDetectorResetRequested,
+                monitoringEnabled: state.contextPressureMonitoringEnabled,
+                monitoringGeneration: state.contextPressureMonitoringGeneration
+            )
+            state.contextPressureResetGeneration = nil
+            state.contextPressureDetectorResetRequested = false
+            return snapshot
+        }
+        let advancesDetectorGeneration = control.resetGeneration.map {
+            $0 > contextPressureGeneration
+        } ?? false
+        if control.detectorResetRequested || advancesDetectorGeneration {
+            for provider in AgentContextProvider.allCases {
+                contextPressureDetectors[provider]?.reset()
+            }
+        }
+        if let requestedGeneration = control.resetGeneration,
+           requestedGeneration > contextPressureGeneration {
+            contextPressureGeneration = requestedGeneration
+        }
+        guard control.monitoringEnabled, contextPressureHandler != nil else { return }
         let output = String(decoding: bytes, as: UTF8.self)
         guard !output.isEmpty else { return }
         var eventsToDeliver: [AgentContextPressureEvent] = []
@@ -133,10 +174,11 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             eventsToDeliver.append(contentsOf: events)
         }
         if !eventsToDeliver.isEmpty {
-            contextPressureHandler(
+            enqueueContextPressure(
                 workspaceID,
                 surfaceID,
                 contextPressureGeneration,
+                control.monitoringGeneration,
                 eventsToDeliver
             )
         }
@@ -222,5 +264,106 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                 )
             }
         }
+    }
+
+    /// Coalesces pressure events and keeps one async delivery task per surface.
+    /// The PTY callback can outpace the main actor, so the pending payload is
+    /// replaced by the newest bounded set of provider/signal observations.
+    private func enqueueContextPressure(
+        _ workspaceID: UUID,
+        _ surfaceID: UUID,
+        _ generation: UInt64,
+        _ monitoringGeneration: UInt64,
+        _ events: [AgentContextPressureEvent]
+    ) {
+        guard let contextPressureHandler else { return }
+        let forward = TerminalContextPressureForward(
+            generation: generation,
+            monitoringGeneration: monitoringGeneration,
+            events: events
+        )
+        guard forwardQueue.withLock({ state in
+            state.contextPressureMonitoringEnabled
+                && state.contextPressureMonitoringGeneration == monitoringGeneration
+        }) else {
+            return
+        }
+        let startDrain = forwardQueue.withLock { state in
+            if let pending = state.contextPressurePending,
+               pending.generation == forward.generation,
+               pending.monitoringGeneration == forward.monitoringGeneration {
+                state.contextPressurePending = TerminalContextPressureForward(
+                    generation: forward.generation,
+                    monitoringGeneration: monitoringGeneration,
+                    events: Self.mergeContextPressureEvents(
+                        pending.events,
+                        forward.events
+                    )
+                )
+            } else {
+                state.contextPressurePending = TerminalContextPressureForward(
+                    generation: forward.generation,
+                    monitoringGeneration: monitoringGeneration,
+                    events: forward.events
+                )
+            }
+            guard !state.contextPressureDraining else { return false }
+            state.contextPressureDraining = true
+            return true
+        }
+        guard startDrain else { return }
+        let forwardQueue = forwardQueue
+        Task {
+            while true {
+                let next: TerminalContextPressureForward? = forwardQueue.withLock { state in
+                    guard state.contextPressurePending != nil else {
+                        state.contextPressureDraining = false
+                        return nil
+                    }
+                    let next = state.contextPressurePending
+                    state.contextPressurePending = nil
+                    return next
+                }
+                guard let next else { return }
+                await MainActor.run {
+                    // Eligibility updates are MainActor-owned. Validate inside
+                    // the same actor turn as the synchronous coordinator call
+                    // so disable/rebind/re-enable cannot interleave at the hop.
+                    let isCurrent = forwardQueue.withLock { state in
+                        state.contextPressureMonitoringEnabled
+                            && state.contextPressureMonitoringGeneration == next.monitoringGeneration
+                    }
+                    guard isCurrent else { return }
+                    contextPressureHandler(
+                        workspaceID,
+                        surfaceID,
+                        next.generation,
+                        next.events
+                    )
+                }
+            }
+        }
+    }
+
+    private static func mergeContextPressureEvents(
+        _ existing: [AgentContextPressureEvent],
+        _ incoming: [AgentContextPressureEvent]
+    ) -> [AgentContextPressureEvent] {
+        var merged = existing
+        for event in incoming {
+            if let index = merged.firstIndex(where: {
+                $0.provider == event.provider && $0.signal == event.signal
+            }) {
+                let previous = merged[index]
+                merged[index] = AgentContextPressureEvent(
+                    provider: event.provider,
+                    signal: event.signal,
+                    occurrence: max(previous.occurrence, event.occurrence)
+                )
+            } else {
+                merged.append(event)
+            }
+        }
+        return merged
     }
 }

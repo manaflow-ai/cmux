@@ -107,6 +107,20 @@ final class AgentContextManagementCoordinator {
             return
         }
 
+        owner.setContextPressureMonitoringEnabled(
+            panelId: surfaceID,
+            enabled: settings.isEnabled
+        )
+        guard settings.isEnabled else {
+            structuredLog(
+                "detection.ignored",
+                workspaceID: owner.workspaceID,
+                surfaceID: surfaceID,
+                detail: "reason=disabled"
+            )
+            return
+        }
+
         let matchingEvents = events.filter { event in
             guard provider == event.provider else {
                 structuredLog(
@@ -246,6 +260,10 @@ final class AgentContextManagementCoordinator {
             detectedSignals: signals,
             occurrences: occurrences
         )
+        state.pressureConfirmation.observePressure(
+            isNewEpisode: !pressureWasActive,
+            lifecycle: state.lifecycle
+        )
         states[surfaceID] = state
         owner.setPressureStatus(SidebarStatusEntry(
             key: Self.statusKey(for: surfaceID),
@@ -265,14 +283,30 @@ final class AgentContextManagementCoordinator {
     /// entry; the destination reattaches that entry after publishing its
     /// binding.
     func remove(panelId: UUID, workspace: Workspace?, preserveState: Bool = false) {
-        if !preserveState {
+        let currentOwner = owner(
+            for: panelId,
+            preferredWorkspaceID: workspace?.id
+        )
+        currentOwner?.setContextPressureMonitoringEnabled(
+            panelId: panelId,
+            enabled: false
+        )
+        if preserveState {
+            // Transfer keeps the pressure snapshot, but destination shell
+            // callbacks must not reuse source-owner lifecycle confirmation
+            // before the destination binding fence is published.
+            if var state = states[panelId] {
+                state.pressureConfirmation.reset()
+                states[panelId] = state
+            }
+        } else {
             cancelPreservationVerification(panelId: panelId)
             states.removeValue(forKey: panelId)
             userInputObservedBeforePressure.remove(panelId)
         }
         if let workspace {
             workspace.statusEntries.removeValue(forKey: Self.statusKey(for: panelId))
-        } else if let owner = owner(for: panelId, preferredWorkspaceID: nil) {
+        } else if let owner = currentOwner {
             owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
         }
     }
@@ -300,6 +334,10 @@ final class AgentContextManagementCoordinator {
         // traversed.
         for panelId in Array(states.keys) {
             guard let owner = owner(for: panelId, preferredWorkspaceID: nil) else { continue }
+            owner.setContextPressureMonitoringEnabled(
+                panelId: panelId,
+                enabled: settings.isEnabled
+            )
             evaluate(surfaceID: panelId, owner: owner)
         }
     }

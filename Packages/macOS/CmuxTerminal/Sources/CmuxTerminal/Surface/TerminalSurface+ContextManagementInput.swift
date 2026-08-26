@@ -14,6 +14,18 @@ extension TerminalSurface {
         contextPressureDetectorGeneration
     }
 
+    /// Enables pressure parsing only while this surface has an eligible,
+    /// authoritative managed-agent binding.
+    ///
+    /// The flag is consumed by the serialized PTY tee callback and avoids
+    /// decoding and scanning output from ordinary or unmanaged terminals.
+    /// - Parameter enabled: Whether this surface is eligible for detection.
+    @MainActor
+    public func setContextPressureMonitoringEnabled(_ enabled: Bool) {
+        contextPressureMonitoringEnabled = enabled
+        mobileByteTeeLease?.setContextPressureMonitoringEnabled(enabled)
+    }
+
     /// Notifies the pane host that explicit terminal input is about to be sent.
     ///
     /// `isUserInitiated` is reserved for input that originated in an actual

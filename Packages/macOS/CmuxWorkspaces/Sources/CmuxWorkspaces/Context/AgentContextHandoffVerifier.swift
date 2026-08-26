@@ -3,6 +3,7 @@ public import Foundation
 /// Verifies that a requested context handoff was durably written before clear.
 public actor AgentContextHandoffVerifier {
     private static let maximumHandoffBytes = 1_048_576
+    private let fileSystem: any AgentContextHandoffFileSystem
 
     /// The outcome of checking one handoff-file request.
     public enum Result: String, Equatable, Sendable {
@@ -20,8 +21,20 @@ public actor AgentContextHandoffVerifier {
         case unreadable
     }
 
-    /// Creates a handoff verifier.
-    public init() {}
+    /// Creates a verifier backed by the live local filesystem.
+    public init() {
+        self.fileSystem = LiveAgentContextHandoffFileSystem(
+            fileManager: FileManager()
+        )
+    }
+
+    /// Creates a verifier with an injected filesystem boundary.
+    ///
+    /// - Parameter fileSystem: Metadata and bounded-read implementation used
+    ///   by verification. Tests can provide deterministic failures and races.
+    init(fileSystem: any AgentContextHandoffFileSystem) {
+        self.fileSystem = fileSystem
+    }
 
     /// Checks one handoff path without polling or sleeping.
     ///
@@ -34,31 +47,41 @@ public actor AgentContextHandoffVerifier {
     ///   - path: Local handoff path requested from the managed agent.
     ///   - requestedAt: Main-actor timestamp captured immediately before input.
     /// - Returns: The evidence classification for the requested handoff.
-    public func verify(path: URL, requestedAt: Date) -> Result {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: path.path) else { return .missing }
-        guard let attributes = try? fileManager.attributesOfItem(atPath: path.path) else {
+    public func verify(path: URL, requestedAt: Date) async -> Result {
+        let metadata: AgentContextHandoffFileMetadata
+        do {
+            guard let value = try await fileSystem.metadata(for: path) else {
+                return .missing
+            }
+            metadata = value
+        } catch {
             return .unreadable
         }
-        guard let type = attributes[.type] as? FileAttributeType,
-              type == .typeRegular else {
-            return .notRegularFile
-        }
-        guard let modificationDate = attributes[.modificationDate] as? Date else {
+        guard metadata.isRegularFile else { return .notRegularFile }
+        guard let modificationDate = metadata.modificationDate else {
             return .unreadable
         }
         guard modificationDate > requestedAt else { return .stale }
-        guard let size = attributes[.size] as? NSNumber,
-              size.intValue > 0,
-              size.intValue <= Self.maximumHandoffBytes else {
+        guard metadata.size > 0,
+              metadata.size <= Self.maximumHandoffBytes else {
             return .unreadable
         }
-        guard let data = try? Data(contentsOf: path) else { return .unreadable }
-        guard !data.isEmpty,
-              let text = String(data: data, encoding: .utf8),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .empty
+        let data: Data
+        do {
+            data = try await fileSystem.readData(
+                at: path,
+                maximumBytes: Self.maximumHandoffBytes
+            )
+        } catch {
+            return .unreadable
         }
-        return .written
+        guard data.count <= Self.maximumHandoffBytes else { return .unreadable }
+        guard !data.isEmpty else { return .empty }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return .unreadable
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? .empty
+            : .written
     }
 }

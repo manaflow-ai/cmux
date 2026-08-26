@@ -4,6 +4,9 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     public let enabled: Bool
     /// Whether the detector has observed pressure since recovery.
     public let pressureDetected: Bool
+    /// Whether a fresh provider running-to-idle boundary confirmed the
+    /// pressure episode.
+    public let pressureConfirmed: Bool
     /// Whether the pane still has an authoritative managed-session binding.
     public let managedSessionBound: Bool
     /// Provider identity for this pane.
@@ -33,6 +36,8 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     /// - Parameters:
     ///   - enabled: Whether terminal-side recovery is enabled.
     ///   - pressureDetected: Whether provider pressure output has been observed.
+    ///   - pressureConfirmed: Whether a fresh provider running-to-idle boundary
+    ///     confirmed the pressure episode.
     ///   - managedSessionBound: Whether the pane still has a complete managed-session binding.
     ///   - provider: The managed provider that owns the pane.
     ///   - lifecycle: Authoritative provider lifecycle evidence.
@@ -47,6 +52,7 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     public init(
         enabled: Bool,
         pressureDetected: Bool,
+        pressureConfirmed: Bool = false,
         managedSessionBound: Bool,
         provider: AgentContextProvider,
         lifecycle: AgentContextLifecycleState,
@@ -61,6 +67,7 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     ) {
         self.enabled = enabled
         self.pressureDetected = pressureDetected
+        self.pressureConfirmed = pressureConfirmed
         self.managedSessionBound = managedSessionBound
         self.provider = provider
         self.lifecycle = lifecycle

@@ -326,6 +326,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Monotonic across runtime replacement so queued detector events from an
     /// older tee lifetime can never authorize input in a newer one.
     @MainActor var contextPressureDetectorGeneration: UInt64 = 0
+    /// Desired pressure-monitoring eligibility. This survives a cold or
+    /// replaced runtime so a newly installed tee starts with the authoritative
+    /// managed-session state instead of waiting for another lifecycle event.
+    @MainActor var contextPressureMonitoringEnabled = false
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it

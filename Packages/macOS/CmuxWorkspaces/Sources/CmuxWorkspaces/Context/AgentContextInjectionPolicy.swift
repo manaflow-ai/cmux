@@ -10,6 +10,11 @@ public struct AgentContextInjectionPolicy: Sendable {
     public func decide(_ input: AgentContextInjectionInput) -> AgentContextInjectionDecision {
         guard input.enabled else { return .wait(.disabled) }
         guard input.pressureDetected else { return .wait(.noPressure) }
+        guard input.pressureConfirmed else {
+            return input.action == .clear
+                ? .unsafe(.pressureUnconfirmed)
+                : .wait(.pressureUnconfirmed)
+        }
         guard input.managedSessionBound else { return .wait(.unmanagedSession) }
         // Explicit input is the strongest signal in the policy. It must win
         // even when an automation sequence or dialog state was already

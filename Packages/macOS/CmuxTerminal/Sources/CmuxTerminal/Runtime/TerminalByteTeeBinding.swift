@@ -20,12 +20,25 @@ public protocol TerminalByteTeeLease: AnyObject, Sendable {
     /// - Parameter generation: Monotonic generation allocated by the owning
     ///   ``TerminalSurface``.
     func resetContextPressureDetectors(to generation: UInt64)
+
+    /// Enables or disables provider-pressure parsing for this runtime surface.
+    ///
+    /// The flag is consumed synchronously by the serialized PTY callback. The
+    /// caller should enable it only after an authoritative managed-session
+    /// binding exists, and disable it before that binding is removed.
+    /// - Parameter enabled: Whether this surface is currently eligible for
+    ///   context-pressure detection.
+    func setContextPressureMonitoringEnabled(_ enabled: Bool)
 }
 
 public extension TerminalByteTeeLease {
     /// Default no-op for tee leases that do not install context-pressure
     /// detectors.
     func resetContextPressureDetectors(to _: UInt64) {}
+
+    /// Default no-op for tee leases that do not install context-pressure
+    /// detectors.
+    func setContextPressureMonitoringEnabled(_: Bool) {}
 }
 
 /// Installs and tears down the shared PTY output tee for runtime surfaces.
@@ -41,13 +54,16 @@ public protocol TerminalByteTeeBinding: AnyObject, Sendable {
     ///   - surfaceID: The owning surface id used to key tee state.
     ///   - contextPressureDetectorGeneration: The initial parser generation for
     ///     this runtime-surface lifetime.
+    ///   - contextPressureMonitoringEnabled: Whether provider-pressure parsing
+    ///     is eligible when the callback is installed.
     /// - Returns: The retained lease the caller releases on teardown.
     @MainActor
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
         surfaceID: UUID,
-        contextPressureDetectorGeneration: UInt64
+        contextPressureDetectorGeneration: UInt64,
+        contextPressureMonitoringEnabled: Bool
     ) -> any TerminalByteTeeLease
 
     /// Drops all tee/replay state keyed by a surface id.
