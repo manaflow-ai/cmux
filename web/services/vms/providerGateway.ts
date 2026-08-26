@@ -39,7 +39,7 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     port: number,
-  ) => Effect.Effect<{ url: string; token: string; openUrl: string }, VmProviderOperationError>;
+  ) => Effect.Effect<{ url: string; token: string; openUrl: string; expiresAtMs?: number }, VmProviderOperationError>;
   readonly getStats?: (
     provider: ProviderId,
     vmId: string,

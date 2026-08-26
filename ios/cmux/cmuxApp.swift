@@ -24,7 +24,13 @@ struct cmuxApp: App {
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
-        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current()
+        // Per-tag isolation by default: this build pairs only with its own
+        // Mac tag plus the runtime grant set its anchor Mac advertises
+        // (`cmux mobile compatible-tags`), persisted across launches.
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current(),
+            additionalInstanceTags: MobileMacTagAllowlist.persisted()
+        )
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can

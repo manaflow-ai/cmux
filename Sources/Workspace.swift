@@ -105,7 +105,16 @@ extension Workspace {
                 sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgentObservation: restorableAgentIndex?.entry(workspaceId: id, panelId: panelId),
+                    restorableAgentObservation: restorableAgentIndex?.entryForStablePanel(
+                        workspaceId: id,
+                        panelId: panelId,
+                        processIdentityProvider: currentAgentProcessIdentity,
+                        processPresenceProvider: agentProcessPresence,
+                        // Snapshot projection already consumes one index result;
+                        // avoid synchronous sysctl/kill probes on the main actor
+                        // while autosaving or closing a workspace.
+                        revalidateProcessEvidence: false
+                    ),
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -217,6 +226,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
         terminalStartupRestoreCoordinator.removeAllRestores()
+        clearDeferredAgentResumeRestores(startRuntime: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         pendingPlainSSHRestorePanelIds.removeAll(keepingCapacity: false)
         observedPlainSSHPanelIds.removeAll(keepingCapacity: false)
@@ -252,6 +262,7 @@ extension Workspace {
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
             snapshot.panels.filter { $0.type == .terminal }.count == 1
@@ -270,6 +281,7 @@ extension Workspace {
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
+                restorableAgentIndex: restorableAgentIndex,
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
@@ -921,7 +933,8 @@ extension Workspace {
             from: entry.snapshot,
             inPane: pane,
             snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
         ) else { return nil }
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -960,7 +973,8 @@ extension Workspace {
             from: entry.snapshot,
             inPane: pane,
             snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
             return nil
@@ -1252,12 +1266,29 @@ extension Workspace {
         }
     }
 
+    private func restoreAgentIndex(
+        for panels: [SessionPanelSnapshot]
+    ) -> RestorableAgentSessionIndex? {
+        // Load at most once for this restore pass; every panel reuses the same snapshot.
+        guard AgentSessionAutoResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        ), panels.contains(where: { panel in
+            panel.terminal?.agent != nil || panel.terminal?.resumeBinding?.isAgentHookBinding == true
+        }) else {
+            return nil
+        }
+        // Ownership-sensitive restore decisions use an injected authoritative
+        // index, or request a fresh off-main scan and defer launch otherwise.
+        return restorableAgentIndexProvider()
+    }
+
     private func restorePane(
         _ paneId: PaneID,
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex?,
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
         let existingPanelIds = bonsplitController
@@ -1273,7 +1304,8 @@ extension Workspace {
                 from: panelSnapshot,
                 inPane: paneId,
                 snapshotWorkspaceId: snapshotWorkspaceId,
-                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal
+                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
+                restorableAgentIndex: restorableAgentIndex
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1314,6 +1346,11 @@ extension Workspace {
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+            if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId), detectedBinding == nil {
+                // A missing panel-only winner is uncertainty, not proof that a
+                // process-backed binding exited; preserve the existing binding.
+                continue
+            }
 
             if let detectedBinding, detectedBinding.isPlainSSHProcessDetectedBinding {
                 // A fresh process observation is authoritative evidence that
@@ -1395,6 +1432,11 @@ extension Workspace {
         }
 
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+        if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId), detectedBinding == nil {
+            // Keep an uncertain binding available for explicit manual resume,
+            // but never carry process-detected auto-launch through ambiguity.
+            return storedBinding?.disablingAutomaticResume()
+        }
         guard let storedBinding else { return detectedBinding }
         guard let detectedBinding else {
             if storedBinding.isPlainSSHProcessDetectedBinding {
@@ -1415,7 +1457,8 @@ extension Workspace {
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?,
-        shouldRestoreSingleDefaultCloudTerminal: Bool
+        shouldRestoreSingleDefaultCloudTerminal: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> UUID? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(
@@ -1473,8 +1516,42 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+                (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+            let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
+            let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
+            let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
+            let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
+            let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
+                workspaceId: id,
+                panelId: snapshot.id,
+                revalidateProcessEvidence: false
+            ) == true
+            let stablePanelHasConflictingLiveProcess = restoreAgentIndex?.hasConflictingLiveStablePanelEntry(
+                workspaceId: id,
+                panelId: snapshot.id,
+                expectedKind: expectedAgentKind,
+                expectedSessionId: expectedSessionId,
+                revalidateProcessEvidence: false
+            ) == true
+            let stablePanelHasUncertainProcess = restoreAgentIndex?.hasUncertainStablePanelEntry(
+                panelId: snapshot.id,
+                revalidateProcessEvidence: false
+            ) == true
+            let restoreOwnershipAmbiguous = shouldCheckAgentOwnership && (
+                stablePanelHasConflictingLiveProcess ||
+                restoreAgentIndex?.hasAmbiguousPanel(snapshot.id) == true ||
+                (restoreAgentIndex?.hasCurrentAmbiguousPanel(
+                    snapshot.id,
+                    revalidateProcessEvidence: false
+                ) == true)
+            )
+            let restoreStartupBlocked = restoreIndexUnavailable || restoreOwnershipAmbiguous ||
+                stablePanelHasUncertainProcess
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
+                restoreStartupBlocked ||
+                stablePanelHasLiveProcess ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
@@ -1494,11 +1571,38 @@ extension Workspace {
             } else {
                 nil
             }
+            let deferredPersistentSSHResumeCommand: String? = if restoreIndexUnavailable,
+                restoresRemoteWorkspaceTerminalSnapshot,
+                restorableAgent == nil,
+                let restoredRemotePTYSessionID {
+                sessionRestorePolicy
+                    .approvedSurfaceResumeBinding(
+                        resumeBinding,
+                        autoResumeAgentSessions: shouldAutoResumeAgent,
+                        promptForApproval: true,
+                        approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                    )
+                    .flatMap { deferredBinding in
+                        persistentSSHResumeCommand(
+                            for: deferredBinding,
+                            expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
+                            expectedSurfaceID: snapshot.id,
+                            persistentPTYSessionID: restoredRemotePTYSessionID
+                        )
+                    }
+            } else {
+                nil
+            }
+            let effectivePersistentSSHResumeCommand =
+                restoredPersistentSSHResumeCommand ?? deferredPersistentSSHResumeCommand
             let canAttemptLocalBindingResume =
                 effectiveResumeBindingForStartup?.launchFlavor == .local &&
                 !restoresRemoteWorkspaceTerminalSnapshot
             let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
-                if canAttemptLocalBindingResume, let effectiveResumeBindingForStartup {
+                if !restoreStartupBlocked,
+                   !stablePanelHasLiveProcess,
+                   canAttemptLocalBindingResume,
+                   let effectiveResumeBindingForStartup {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
                         forApprovedBinding: effectiveResumeBindingForStartup
                     )
@@ -1533,7 +1637,9 @@ extension Workspace {
                     ?? workingDirectory
             }()
             let restoredBindingLaunch = unresolvedBindingLaunch
-            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
+            let restorableTmuxStartCommand = !restoreStartupBlocked &&
+                !stablePanelHasLiveProcess &&
+                restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
@@ -1557,13 +1663,30 @@ extension Workspace {
                       let restorableAgent else {
                     return false
                 }
-                let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
-                let liveEntry = liveIndex.entry(workspaceId: id, panelId: snapshot.id)
-                if AgentResumeLiveness.hasLiveProcess(
-                    for: liveEntry,
-                    kind: restorableAgent.kind.rawValue,
-                    sessionId: restorableAgent.sessionId
+                if restoreIndexUnavailable {
+                    // The off-main index refresh will resolve this staged panel.
+                    return true
+                }
+                guard let restoreAgentIndex else { return true }
+                if restoreStartupBlocked {
+                    // A conflicting live owner must suppress this launch even
+                    // when the persisted session is not the selected entry.
+                    return true
+                }
+                if restoreAgentIndex.hasCurrentAmbiguousPanel(
+                    snapshot.id,
+                    revalidateProcessEvidence: false
+                ) {
+                    // Do not launch while panel ownership is ambiguous; a live process
+                    // may still be attached to another owner record.
+                    return true
+                }
+                if restoreAgentIndex.hasCurrentLiveProcessForStablePanel(
+                    workspaceId: id,
+                    panelId: snapshot.id,
+                    expectedKind: restorableAgent.kind.rawValue,
+                    expectedSessionId: restorableAgent.sessionId,
+                    revalidateProcessEvidence: false
                 ) {
                     return true
                 }
@@ -1589,27 +1712,72 @@ extension Workspace {
                 } else {
                     nil
                 }
+            // Build the candidate before arming the gate. A binding that is
+            // disabled, unapproved, or cannot render a command must start as an
+            // ordinary shell instead of waiting behind deferred admission.
+            let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
+                restoredHibernation == nil,
+                restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
+                if let restorableAgent {
+                    if restoresRemoteWorkspaceTerminalSnapshot {
+                        restorableAgent.resumeStartupInput(
+                            useLocalRestoreVerb: false,
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        )
+                    } else {
+                        restorableAgent.resumeStartupInput(
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        )
+                    }
+                } else {
+                    sessionRestorePolicy
+                        .approvedSurfaceResumeBinding(
+                            resumeBinding,
+                            autoResumeAgentSessions: shouldAutoResumeAgent,
+                            promptForApproval: true,
+                            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                        )
+                        .flatMap {
+                            if restoresRemoteWorkspaceTerminalSnapshot {
+                                return $0.remoteStartupInput()
+                            }
+                            return sessionRestorePolicy
+                                .surfaceResumeStartupLaunch(forApprovedBinding: $0)?
+                                .initialInput
+                        }
+                }
+            } else {
+                nil
+            }
+            let deferredAgentResumeStartupInput = deferredAgentResumeCandidateInput?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
+            let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
+                hasResumeStartupWork: restoredBindingLaunch != nil ||
+                    restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(
                     sessionID: $0,
-                    remoteCommand: restoredPersistentSSHResumeCommand
+                    remoteCommand: effectivePersistentSSHResumeCommand
                 )
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
-                ? (restoredBindingLaunch?.initialInput ?? restoredAgentResumeLaunch?.initialInput)
+                ? (restoredBindingLaunch?.initialInput ??
+                    restoredAgentResumeLaunch?.initialInput ??
+                    deferredAgentResumeStartupInput)
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
                 restoredAgentResumeLaunch != nil ||
-                restoredBindingLaunch != nil
+                restoredBindingLaunch != nil ||
+                deferredAgentResumeStartupInput != nil
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
             let suppressWorkspaceRemoteStartupCommand =
@@ -1639,11 +1807,12 @@ extension Workspace {
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory
             let restoredAgentWillRunStartupCommand =
-                restoredPersistentSSHResumeCommand != nil &&
+                effectivePersistentSSHResumeCommand != nil &&
                 resumeBinding?.isAgentHookBinding == true
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
-                (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
+                (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
+                (deferredAgentResumeStartupInput != nil && deferredPersistentSSHResumeCommand == nil)
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1690,7 +1859,8 @@ extension Workspace {
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .pacedSessionRestore,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
-                    willRunStartupInput: restoredAgentWillRunStartupInput
+                    willRunStartupInput: restoredAgentWillRunStartupInput,
+                    awaitsDeferredAgentResume: deferredAgentResumeAdmission
                 ),
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
@@ -1714,6 +1884,22 @@ extension Workspace {
                 }
                 return nil
             }
+            let deferredAdmissionFallbackCommand = deferredAgentResumeAdmission
+                ? restoredRemotePTYSessionID.flatMap { sessionID in
+                    effectivePersistentSSHResumeCommand.map { _ in
+                        // Keep a deferred persistent-SSH restore attached to its
+                        // PTY after cancellation, but leave its agent-resume
+                        // payload out of the first runtime command.
+                        remotePTYAttachStartupCommand(
+                            sessionID: sessionID,
+                            remoteCommand: nil
+                        )
+                    }
+                }
+                : nil
+            terminalPanel.surface.setStartupRestoreAdmissionFallbackCommand(
+                deferredAdmissionFallbackCommand
+            )
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -1785,9 +1971,27 @@ extension Workspace {
                     ? resumeSessionWorkingDirectory
                     : nil,
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
-                agentSessionAlreadyActive: agentSessionAlreadyActive,
-                ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil
+                agentSessionAlreadyActive: deferredAgentResumeAdmission
+                    ? true
+                    : (restoreIndexUnavailable ? false : agentSessionAlreadyActive),
+                ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil,
+                defersStartupRestoreAdmission: deferredAgentResumeAdmission
             )
+            if deferredAgentResumeAdmission {
+                deferAgentResumeRestore(
+                    panelId: terminalPanel.id,
+                    restore: DeferredAgentResumeRestore(
+                        stablePanelID: snapshot.id,
+                        restorableAgent: restorableAgent,
+                        resumeBinding: resumeBinding,
+                        restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
+                        remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
+                        remoteResumeCommandEmbedded: deferredPersistentSSHResumeCommand != nil,
+                        workingDirectory: workingDirectory,
+                        resumeWorkingDirectory: resumeSessionWorkingDirectory
+                    )
+                )
+            }
             if let restorableAgent {
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -2252,6 +2456,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
     let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
+    /// Supplies one authoritative agent index for a restore pass. Production
+    /// restores request a fresh off-main scan; tests and composed restore flows
+    /// may inject a prepared snapshot.
+    let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
     private let settings: any SettingsReading
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -2289,7 +2497,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
-            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
+            restorableAgentIndexProvider: restorableAgentIndexProvider
         )
         store.terminalFontSizeChangeCoordinator =
             terminalFontSizeChangeCoordinator
@@ -2715,6 +2924,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId }
         set { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId = newValue }
     }
+    var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] = [:]
+    var deferredAgentResumeClaimsByPanelId: [UUID: (kind: String, sessionId: String)] = [:]
+    var deferredAgentResumeIndexTask: Task<Void, Never>?
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
@@ -3422,11 +3634,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         let resolvedID = id ?? UUID()
         let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+        let resolvedRestorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex? =
+            restorableAgentIndexProvider ?? {
+                SharedLiveAgentIndex.shared.currentIndexForOwnershipSensitiveRestore()
+            }
         self.id = resolvedID
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
@@ -3435,6 +3652,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
+        self.restorableAgentIndexProvider = resolvedRestorableAgentIndexProvider
         self.tabDragTransferRegistry = tabDragTransferRegistry
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: resolvedID,
@@ -3762,6 +3980,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
         }
+        deferredAgentResumeIndexTask?.cancel()
         activeRemoteSessionControllerID = nil
         remoteSessionTransitionTask?.cancel()
         remoteSessionController?.stop(cleanupScope: .persistentSlot)
@@ -5762,6 +5981,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         observedPlainSSHPanelIds = observedPlainSSHPanelIds.intersection(validSurfaceIds)
         plainSSHDetectionMissesByPanelId = plainSSHDetectionMissesByPanelId.filter {
             validSurfaceIds.contains($0.key)
+        }
+        for panelId in Array(deferredAgentResumeRestoresByPanelId.keys)
+        where !validSurfaceIds.contains(panelId) {
+            removeDeferredAgentResumeRestore(panelId: panelId)
+        }
+        for panelId in Array(deferredAgentResumeClaimsByPanelId.keys)
+        where !validSurfaceIds.contains(panelId) {
+            removeDeferredAgentResumeRestore(panelId: panelId)
         }
         restoredAgentLifecycle.retainSessionRestores(for: validSurfaceIds)
         restoredResumeSessionWorkingDirectoriesByPanelId = restoredResumeSessionWorkingDirectoriesByPanelId.filter {
@@ -10269,7 +10496,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             toTabId: id,
             surfaceId: detached.panelId
         )
-        seedDetachedRestoredAgentState(from: detached)
         let transferredResumeBinding: SurfaceResumeBindingSnapshot? = {
             if let resumeBinding = detached.resumeBinding,
                !resumeBinding.isProcessDetected {
@@ -10333,6 +10559,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 )
             }
         }
+        // Seed deferred restore work only after the destination binding and
+        // persistent-SSH context have been retargeted. The resolver starts an
+        // asynchronous ownership scan, so publishing it earlier can race the
+        // adoption and reject a valid moved session.
+        seedDetachedRestoredAgentState(from: detached)
         if detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended {
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[detached.panelId] =
                 didAdoptWorkspaceRemoteTracking ? id : detached.sessionRestoreWorkspaceId
@@ -13078,6 +13309,9 @@ extension Workspace: BonsplitDelegate {
                 restoredPanelTitleBoundary: restoredPanelTitleBoundariesByPanelId[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
+                deferredAgentResumeRestore: deferredAgentResumeRestoresByPanelId.removeValue(
+                    forKey: panelId
+                ),
                 managedAgentResumeBinding: resumeBinding.flatMap {
                     $0.hasCompleteManagedSessionIdentity ? $0 : nil
                 },

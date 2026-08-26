@@ -136,12 +136,38 @@ struct MobileHostIdentityTests {
         #expect(payload["mac_instance_tag"] as? String == "future-one")
         #expect((payload["mac_client_namespace"] as? String)?.hasPrefix("mac:") == true)
         #expect(!(payload["terminal_theme_revision_epoch"] as? String ?? "").isEmpty)
+        #expect(payload["mac_compatible_mac_tags"] as? [String] != nil)
+    }
+
+    @Test func authenticatedStatusAdvertisesGrantedCompatibleMacTags() throws {
+        let suiteName = "mobile-host-compatible-tags-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Reserved release lanes and duplicates never make it into the grant
+        // set; what is stored is exactly what authenticated status advertises.
+        let stored = MobileCompatibleMacTags.set(
+            [" IRPLY ", "hello", "irply", "default", "nightly", "rc", "staging", ""],
+            in: defaults
+        )
+        #expect(stored == ["hello", "irply"])
+        #expect(MobileCompatibleMacTags.tags(in: defaults) == ["hello", "irply"])
+        #expect(MobileCompatibleMacTags.rejectedTags(
+            from: ["default", "hello", "RC"]
+        ) == ["default", "rc"])
+
+        let payload = MobileHostService.identityStatusPayload(
+            routes: [],
+            phonePushDefaults: defaults
+        )
+        #expect(payload["mac_compatible_mac_tags"] as? [String] == ["hello", "irply"])
     }
 
     @Test func publicStatusOmitsInstanceTag() {
         let payload = MobileHostService.publicStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] == nil)
         #expect(payload["terminal_theme_revision_epoch"] == nil)
+        #expect(payload["mac_compatible_mac_tags"] == nil)
     }
 
     @Test func authenticatedStatusReportsLivePhoneForwardingGateAndOrigin() throws {
