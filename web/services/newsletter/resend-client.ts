@@ -134,15 +134,27 @@ type RequestOptions = {
 };
 
 // Resend rate limits are account-wide, while webhook handlers construct short-
-// lived clients. Keep one process-wide write lane so those clients cannot
-// each believe they are the first writer during a purchase burst.
-const accountWriteLane: {
+// lived clients. Share a lane by API key so clients for the same account cannot
+// each believe they are the first writer during a purchase burst. The cap
+// prevents a future multi-account tool from retaining an unbounded key map.
+type WriteLane = {
   queue: Promise<void>;
   lastWriteAt: number;
-} = {
-  queue: Promise.resolve(),
-  lastWriteAt: 0,
 };
+const accountWriteLanes = new Map<string, WriteLane>();
+const MAX_WRITE_LANES = 16;
+
+function writeLaneFor(apiKey: string): WriteLane {
+  const existing = accountWriteLanes.get(apiKey);
+  if (existing) return existing;
+  if (accountWriteLanes.size >= MAX_WRITE_LANES) {
+    const oldest = accountWriteLanes.keys().next().value;
+    if (oldest) accountWriteLanes.delete(oldest);
+  }
+  const lane: WriteLane = { queue: Promise.resolve(), lastWriteAt: 0 };
+  accountWriteLanes.set(apiKey, lane);
+  return lane;
+}
 
 export class ResendClient {
   private readonly apiKey: string;
@@ -151,6 +163,7 @@ export class ResendClient {
   private readonly requestTimeoutMs: number;
   private readonly maxRetryAfterMs: number;
   private readonly cancelSignal: AbortSignal | undefined;
+  private readonly writeLane: WriteLane;
 
   constructor(options: {
     apiKey: string;
@@ -170,6 +183,7 @@ export class ResendClient {
     this.requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
     this.maxRetryAfterMs = options.maxRetryAfterMs ?? MAX_RETRY_AFTER_MS;
     this.cancelSignal = options.cancelSignal;
+    this.writeLane = writeLaneFor(this.apiKey);
   }
 
   private async request<T>(
@@ -296,18 +310,18 @@ export class ResendClient {
     // all observe the same lastWriteAt and wake together, defeating the rate
     // limit this throttle is meant to enforce.
     let release!: () => void;
-    const previous = accountWriteLane.queue;
-    accountWriteLane.queue = new Promise<void>((resolve) => {
+    const previous = this.writeLane.queue;
+    this.writeLane.queue = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previous;
     try {
       const now = Date.now();
-      const waitMs = accountWriteLane.lastWriteAt + this.writeSpacingMs - now;
+      const waitMs = this.writeLane.lastWriteAt + this.writeSpacingMs - now;
       if (waitMs > 0) {
         await sleep(waitMs, this.cancelSignal);
       }
-      accountWriteLane.lastWriteAt = Date.now();
+      this.writeLane.lastWriteAt = Date.now();
       return await this.request<T>(method, path, options);
     } finally {
       release();
@@ -527,6 +541,17 @@ export class ResendClient {
       "POST",
       `/contacts/${encodeURIComponent(contactId)}/segments/${encodeURIComponent(segmentId)}`,
       { redactedLabel: "/contacts/<id>/segments/<segment>" },
+    );
+  }
+
+  async removeContactFromSegment(
+    contactId: string,
+    segmentId: string,
+  ): Promise<void> {
+    await this.throttledWrite(
+      "DELETE",
+      `/contacts/${encodeURIComponent(contactId)}/segments/${encodeURIComponent(segmentId)}`,
+      { redactedLabel: "/contacts/<id>/segments/<segment> (revocation)" },
     );
   }
 

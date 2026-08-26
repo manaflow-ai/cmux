@@ -78,9 +78,12 @@ empty and the run is safe to repeat after the consent source is ready.
 Related known limitations (identity is by email address, by design of the
 current data flow):
 
-- The sync is additive and account deletion does not propagate to Resend.
-  A deleted account's contact stays in the segment until pruned by hand
-  (the `staleMembers` count in the sync summary is the signal).
+- The sync is conservative about source failures: unknown or missing consent
+  data never removes a member. An explicit server-metadata revocation, or a
+  fully refunded Founder purchase, is removed from its segment during an
+  apply; other stale members (deleted account, changed primary email, or an
+  incomplete source page) remain and are reported by `staleMembers` for manual
+  review.
 - A user who unsubscribes and later changes their verified primary email
   in Stack will be synced under the new address as a fresh subscribed
   contact; the old address's opt-out does not follow them, because Resend
@@ -178,8 +181,7 @@ draft in the dashboard editor and send the copy from there. Do not add a
 send flag to the tooling; the human-review-then-click design is
 deliberate.
 
-Note on removals: the sync is additive by design and never removes
-contacts or segment memberships (an upstream source glitch must not be
-able to evacuate an audience). The per-segment summary reports
-`staleMembers`, the count of members whose email no longer appears in the
-sources; prune them by hand in the Resend dashboard when it matters.
+Note on removals: an upstream source glitch must not evacuate an audience.
+The per-segment summary reports `revokedFromSegment` for explicit consent or
+refund revocations and `staleMembers` for other members whose email no longer
+appears in the sources; review the latter manually in the Resend dashboard.

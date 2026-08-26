@@ -158,7 +158,7 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
     }
 
     const segmentAdd = pathname.match(/^\/contacts\/([^/]+)\/segments\/([^/]+)$/);
-    if (segmentAdd && method === "POST") {
+    if (segmentAdd && (method === "POST" || method === "DELETE")) {
       const key = decodeURIComponent(segmentAdd[1]);
       const segmentId = decodeURIComponent(segmentAdd[2]);
       const found = state.contacts.find(
@@ -167,8 +167,13 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
       if (!found) {
         return respond(404, { name: "not_found", message: "Contact not found" });
       }
-      found.segmentIds.add(segmentId);
-      state.writes.push(`add-to-segment:${found.email}:${segmentId}`);
+      if (method === "POST") {
+        found.segmentIds.add(segmentId);
+        state.writes.push(`add-to-segment:${found.email}:${segmentId}`);
+      } else {
+        found.segmentIds.delete(segmentId);
+        state.writes.push(`remove-from-segment:${found.email}:${segmentId}`);
+      }
       return respond(200, { id: found.id });
     }
 
@@ -404,6 +409,42 @@ describe("syncSegment", () => {
       fake.contacts.find((c) => c.email === "left@example.com")?.segmentIds
         .size,
     ).toBe(1);
+  });
+
+  test("removes only explicitly revoked contacts during an apply", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
+    fake.contacts.push({
+      id: "con_revoked",
+      email: "revoked@example.com",
+      unsubscribed: false,
+      segmentIds: new Set(["seg_users"]),
+    });
+
+    const summary = await syncSegment({
+      client: client(fake),
+      segmentName: USERS_SEGMENT_NAME,
+      topic: USERS_TOPIC,
+      desired: [],
+      existingContacts: await listContactsOf(fake),
+      apply: true,
+      revokedEmails: new Set(["revoked@example.com"]),
+      pruneRevoked: true,
+    });
+
+    expect(summary.revokedFromSegment).toBe(1);
+    expect(fake.writes).toEqual([
+      "remove-from-segment:revoked@example.com:seg_users",
+    ]);
+    expect(
+      fake.contacts.find((contact) => contact.email === "revoked@example.com")
+        ?.segmentIds.size,
+    ).toBe(0);
   });
 
   test("fails closed on a same-name topic whose immutable default is opt_out", async () => {

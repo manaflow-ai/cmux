@@ -33,24 +33,26 @@ type StackUsersPage = {
   pagination?: { next_cursor?: string | null };
 };
 
+export function newsletterConsentState(user: {
+  client_metadata?: Record<string, unknown> | null;
+  client_read_only_metadata?: Record<string, unknown> | null;
+  server_metadata?: Record<string, unknown> | null;
+}): boolean | null {
+  // Only server_metadata is authoritative. Client-writable metadata and
+  // aliases are intentionally ignored so a stale client value cannot bypass
+  // a server-side revocation. Missing means unknown, not opted out.
+  const value = user.server_metadata?.cmuxNewsletterOptIn;
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return null;
+}
+
 export function hasNewsletterOptIn(user: {
   client_metadata?: Record<string, unknown> | null;
   client_read_only_metadata?: Record<string, unknown> | null;
   server_metadata?: Record<string, unknown> | null;
 }): boolean {
-  return [
-    user.server_metadata,
-    user.client_read_only_metadata,
-    user.client_metadata,
-  ].some((metadata) => {
-    if (!metadata) return false;
-    return [
-      metadata.cmuxNewsletterOptIn,
-      metadata.newsletterOptIn,
-      metadata.cmux_newsletter_opt_in,
-      metadata.newsletter_opt_in,
-    ].some((value) => value === true || value === "true");
-  });
+  return newsletterConsentState(user) === true;
 }
 
 export type StackSourceResult = {
@@ -58,6 +60,7 @@ export type StackSourceResult = {
   totalUsers: number;
   skippedMissingOrUnverifiedEmail: number;
   skippedNotOptedIn: number;
+  revokedEmails: string[];
 };
 
 export async function listStackContacts(options: {
@@ -73,6 +76,7 @@ export async function listStackContacts(options: {
   let totalUsers = 0;
   let skipped = 0;
   let skippedNotOptedIn = 0;
+  const revokedEmails = new Set<string>();
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
   let pageCount = 0;
@@ -124,9 +128,16 @@ export async function listStackContacts(options: {
         skipped += 1;
         continue;
       }
-      if (options.requireNewsletterOptIn && !hasNewsletterOptIn(user)) {
-        skippedNotOptedIn += 1;
-        continue;
+      if (options.requireNewsletterOptIn) {
+        const consent = newsletterConsentState(user);
+        if (consent === false) {
+          revokedEmails.add(email);
+          continue;
+        }
+        if (consent !== true) {
+          skippedNotOptedIn += 1;
+          continue;
+        }
       }
       if (byEmail.has(email)) {
         continue;
@@ -157,5 +168,6 @@ export async function listStackContacts(options: {
     totalUsers,
     skippedMissingOrUnverifiedEmail: skipped,
     skippedNotOptedIn,
+    revokedEmails: [...revokedEmails],
   };
 }

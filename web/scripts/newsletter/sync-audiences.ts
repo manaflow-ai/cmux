@@ -68,6 +68,8 @@ const summaries: SegmentSyncSummary[] = [];
 const sourceCounts: Record<string, number> = {
   stripeSessionsScanned: stripeResult.totalSessions,
   founderPurchases: stripeResult.founderSessions,
+  refundedFounderSessions: stripeResult.refundedSessions,
+  refundedFounderContacts: stripeResult.revokedEmails.length,
   founderContacts: stripeResult.contacts.length,
   foundersSkippedMissingEmail: stripeResult.skippedMissingEmail,
   existingResendContacts: existingContacts.length,
@@ -101,6 +103,8 @@ if (args.audience === "users" || args.audience === "all") {
       desired: usersDesired,
       existingContacts,
       apply: args.apply,
+      revokedEmails: new Set(stackResult.revokedEmails),
+      pruneRevoked: args.apply,
     }),
   );
 }
@@ -158,6 +162,8 @@ if (args.audience === "founders" || args.audience === "all") {
       desired: stripeResult.contacts,
       existingContacts: contactsForFounders,
       apply: args.apply,
+      revokedEmails: new Set(stripeResult.revokedEmails),
+      pruneRevoked: args.apply,
     }),
   );
 }
@@ -191,6 +197,7 @@ if (args.json) {
         `backfillName=${summary.nameBackfilled} ` +
         `alreadyPresent=${summary.alreadyPresent} ` +
         `skippedUnsubscribed=${summary.skippedUnsubscribed} ` +
+        `revokedFromSegment=${summary.revokedFromSegment} ` +
         `staleMembers=${summary.staleSegmentMembers}` +
         (summary.segmentCreated ? " (segment created)" : ""),
     );

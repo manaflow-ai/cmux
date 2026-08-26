@@ -63,12 +63,12 @@ export type SegmentSyncSummary = {
   nameBackfilled: number;
   alreadyPresent: number;
   skippedUnsubscribed: number;
+  revokedFromSegment: number;
   // Members of the segment whose email no longer appears in the sources
-  // (deleted account, changed primary email, lost verification). Reported
-  // for visibility only: the sync is deliberately additive and never
-  // removes memberships, because an upstream source glitch must not be
-  // able to evacuate an audience. Stale members are pruned by hand in the
-  // Resend dashboard when it matters.
+  // (deleted account, changed primary email, lost verification). Reported for
+  // visibility only: an untrusted/missing source never evacuates an audience.
+  // Explicit server-authoritative consent revocations are tracked separately
+  // and removed safely when apply mode is enabled.
   staleSegmentMembers: number;
 };
 
@@ -81,9 +81,19 @@ export async function syncSegment(options: {
   // (potentially large) account-wide listing happens once.
   existingContacts: Awaited<ReturnType<ResendClient["listContacts"]>>;
   apply: boolean;
+  // Exact, server-authoritative consent revocations from a complete source
+  // listing. Unknown/missing source data is never treated as a revocation.
+  revokedEmails?: ReadonlySet<string>;
+  pruneRevoked?: boolean;
 }): Promise<SegmentSyncSummary> {
-  const { client, segmentName, topic, desired, existingContacts, apply } =
-    options;
+  const {
+    client,
+    segmentName,
+    topic,
+    desired,
+    existingContacts,
+    apply,
+  } = options;
 
   // Resolve both resources before provisioning either one. In particular, a
   // duplicate segment name must fail before an apply run creates a topic as a
@@ -147,11 +157,37 @@ export async function syncSegment(options: {
     segmentMemberEmails: memberEmails,
   });
   const initialSegmentMemberCount = memberEmails.size;
+  const desiredEmails = new Set(
+    desired.map((contact) => contact.email.trim().toLowerCase()),
+  );
+  const revokedEmails = new Set(
+    [...(options.revokedEmails ?? [])].map((email) =>
+      email.trim().toLowerCase(),
+    ),
+  );
+  const revokedToRemove = [...memberEmails].filter(
+    (email) => revokedEmails.has(email) && !desiredEmails.has(email),
+  );
+  const revokedFromSegment = options.pruneRevoked ? revokedToRemove.length : 0;
   let createdCount = plan.toCreate.length;
   let addedToSegmentCount = plan.toAddToSegment.length;
   let nameBackfilledCount = plan.toBackfillName.length;
 
   if (apply && segment) {
+    if (options.pruneRevoked) {
+      const existingByEmail = new Map(
+        existingContacts.map((contact) => [
+          contact.email.trim().toLowerCase(),
+          contact,
+        ]),
+      );
+      for (const email of revokedToRemove) {
+        const contact = existingByEmail.get(email);
+        if (!contact || !memberEmails.has(email)) continue;
+        await client.removeContactFromSegment(contact.id, segment.id);
+        memberEmails.delete(email);
+      }
+    }
     createdCount = 0;
     addedToSegmentCount = 0;
     nameBackfilledCount = 0;
@@ -208,9 +244,6 @@ export async function syncSegment(options: {
     }
   }
 
-  const desiredEmails = new Set(
-    desired.map((contact) => contact.email.trim().toLowerCase()),
-  );
   let staleSegmentMembers = 0;
   for (const memberEmail of memberEmails) {
     if (!desiredEmails.has(memberEmail)) {
@@ -229,6 +262,7 @@ export async function syncSegment(options: {
     nameBackfilled: nameBackfilledCount,
     alreadyPresent: plan.alreadyPresent,
     skippedUnsubscribed: plan.skippedUnsubscribed,
+    revokedFromSegment,
     staleSegmentMembers,
   };
 }

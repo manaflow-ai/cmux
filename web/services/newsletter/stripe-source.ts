@@ -31,6 +31,18 @@ type StripeCheckoutSession = {
   status?: string | null;
   payment_status?: string | null;
   amount_total?: number | null;
+  refunded?: boolean;
+  payment_intent?:
+    | string
+    | {
+        latest_charge?: {
+          refunded?: boolean;
+          disputed?: boolean;
+          amount?: number | null;
+          amount_refunded?: number | null;
+        } | null;
+      }
+    | null;
   metadata?: Record<string, string> | null;
   customer_details?: {
     email?: string | null;
@@ -48,6 +60,8 @@ export type StripeSourceResult = {
   totalSessions: number;
   founderSessions: number;
   skippedMissingEmail: number;
+  refundedSessions: number;
+  revokedEmails: string[];
 };
 
 function isSettledFounderSession(session: StripeCheckoutSession): boolean {
@@ -56,6 +70,23 @@ function isSettledFounderSession(session: StripeCheckoutSession): boolean {
   // but the status alone is not proof that money is settled (it can represent
   // deferred/setup flows). Require the explicit zero-total invariant.
   return session.payment_status === "no_payment_required" && session.amount_total === 0;
+}
+
+export function isRefundedFounderSession(session: StripeCheckoutSession): boolean {
+  if (session.refunded === true) return true;
+  const charge =
+    typeof session.payment_intent === "object"
+      ? session.payment_intent?.latest_charge
+      : null;
+  return Boolean(
+    charge?.refunded ||
+      charge?.disputed ||
+      (charge?.amount !== null &&
+        charge?.amount !== undefined &&
+        charge.amount_refunded !== null &&
+        charge.amount_refunded !== undefined &&
+        charge.amount_refunded >= charge.amount),
+  );
 }
 
 export async function listFounderContacts(options: {
@@ -69,6 +100,9 @@ export async function listFounderContacts(options: {
   let totalSessions = 0;
   let founderSessions = 0;
   let skippedMissingEmail = 0;
+  let refundedSessions = 0;
+  const revokedEmails = new Set<string>();
+  const activeEmails = new Set<string>();
   let startingAfter: string | null = null;
   const seenCursors = new Set<string>();
   let pageCount = 0;
@@ -95,6 +129,7 @@ export async function listFounderContacts(options: {
       limit: String(PAGE_LIMIT),
       status: "complete",
     });
+    query.append("expand[]", "data.payment_intent.latest_charge");
     if (startingAfter) {
       query.set("starting_after", startingAfter);
     }
@@ -114,15 +149,22 @@ export async function listFounderContacts(options: {
       if (session.status !== "complete") {
         continue;
       }
+      const email = normalizeEmail(session.customer_details?.email);
       if (!isSettledFounderSession(session)) {
         continue;
       }
+      if (isRefundedFounderSession(session)) {
+        refundedSessions += 1;
+        if (email && !activeEmails.has(email)) revokedEmails.add(email);
+        continue;
+      }
       founderSessions += 1;
-      const email = normalizeEmail(session.customer_details?.email);
       if (!email) {
         skippedMissingEmail += 1;
         continue;
       }
+      activeEmails.add(email);
+      revokedEmails.delete(email);
       const name = splitDisplayName(session.customer_details?.name);
       const existing = byEmail.get(email);
       if (!existing) {
@@ -156,5 +198,7 @@ export async function listFounderContacts(options: {
     totalSessions,
     founderSessions,
     skippedMissingEmail,
+    refundedSessions,
+    revokedEmails: [...revokedEmails],
   };
 }

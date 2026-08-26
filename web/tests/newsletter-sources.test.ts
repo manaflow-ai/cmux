@@ -137,6 +137,31 @@ describe("listStackContacts", () => {
     expect(result.skippedNotOptedIn).toBe(1);
   });
 
+  test("treats a server revocation as authoritative over client metadata", async () => {
+    const { fetchImpl } = fetchScript(() => ({
+      body: {
+        items: [
+          {
+            primary_email: "revoked@example.com",
+            primary_email_verified: true,
+            server_metadata: { cmuxNewsletterOptIn: false },
+            client_metadata: { cmuxNewsletterOptIn: true },
+          },
+        ],
+        pagination: { next_cursor: null },
+      },
+    }));
+    const result = await listStackContacts({
+      projectId: "proj",
+      secretServerKey: "secret",
+      fetchImpl,
+      requireNewsletterOptIn: true,
+    });
+    expect(result.contacts).toEqual([]);
+    expect(result.revokedEmails).toEqual(["revoked@example.com"]);
+    expect(result.skippedNotOptedIn).toBe(0);
+  });
+
   test("surfaces permanent API errors with status, without retrying", async () => {
     const { fetchImpl, calls } = fetchScript(() => ({
       status: 401,
@@ -359,5 +384,31 @@ describe("listFounderContacts", () => {
     });
     expect(result.contacts).toEqual([]);
     expect(result.founderSessions).toBe(0);
+  });
+
+  test("marks fully refunded founder sessions for revocation", async () => {
+    const { fetchImpl } = fetchScript(() => ({
+      body: {
+        data: [
+          founderSession("cs_refunded", "refunded@example.com", {
+            payment_intent: {
+              latest_charge: {
+                amount: 1000,
+                amount_refunded: 1000,
+                refunded: true,
+              },
+            },
+          }),
+        ],
+        has_more: false,
+      },
+    }));
+    const result = await listFounderContacts({
+      stripeSecretKey: "sk_test",
+      fetchImpl,
+    });
+    expect(result.contacts).toEqual([]);
+    expect(result.refundedSessions).toBe(1);
+    expect(result.revokedEmails).toEqual(["refunded@example.com"]);
   });
 });
