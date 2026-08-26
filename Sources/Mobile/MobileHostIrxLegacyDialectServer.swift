@@ -82,9 +82,13 @@ enum MobileHostIrxLegacyDialectServer {
             .admissionSucceeded,
             a: DiagnosticTransportKind.iroh.rawValue
         ))
-        if let onlineLease = try? await session.admittedOnlineLease(), let onlineLease {
-            await onlineRegistry.monitor(onlineLease, connection: connection) { _ in
-                await session.close(failure: .admissionLeaseExpired)
+        if let onlineLease = try? await session.admittedOnlineLease() {
+            await onlineRegistry.monitor(onlineLease, connection: connection) { reason in
+                journal.record(
+                    "legacy-dialect", "lease-closed",
+                    ["reason": String(describing: reason)]
+                )
+                await session.close()
             }
         }
 
