@@ -44,9 +44,9 @@ extension ShortcutListModel {
         let generation = prefixWriteGeneration
         let previous = prefix
         prefix = normalized
-        pendingWriteGeneration += 1
         let rebasingGeneration: Int?
         if firstStroke != nil {
+            pendingWriteGeneration += 1
             rebasingGeneration = pendingWriteGeneration
         } else {
             rebasingGeneration = nil
@@ -132,7 +132,6 @@ extension ShortcutListModel {
         let generation = prefixWriteGeneration
         let previous = prefix
         prefix = .unbound
-        pendingWriteGeneration += 1
         let request = enqueueShortcutPersistence { [weak self] in
             await self?.persistResetPrefix(previous: previous, generation: generation)
         }
@@ -170,16 +169,19 @@ extension ShortcutListModel {
         // for a coalesced file-watch event, so it is not a safe rebase source.
         let persisted = await jsonStore.value(for: catalog.shortcuts.bindingSnapshot)
         var current = persisted.bindings
-        var migratedLegacyActionIDs = Set<String>()
+        var legacyChordActionIDs = Set<String>()
         for (actionID, shortcut) in legacyBindings where
             !persisted.managedActionIDs.contains(actionID) && shortcut.hasChord {
             current[actionID] = shortcut
-            migratedLegacyActionIDs.insert(actionID)
+            legacyChordActionIDs.insert(actionID)
         }
         var rebased = current
         for (actionID, shortcut) in current where shortcut.hasChord {
             guard let second = shortcut.second else { continue }
             rebased[actionID] = StoredShortcut(first: firstStroke, second: second)
+        }
+        let migratedLegacyActionIDs = legacyChordActionIDs.filter {
+            rebased[$0] != current[$0]
         }
         guard prefixWriteGeneration == prefixGeneration else { return nil }
         guard rebased != current else {
