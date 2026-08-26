@@ -3850,6 +3850,7 @@ struct CMUXCLI {
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "__ssh-terminal-exit-prompt" { runSSHTerminalExitPrompt(commandArgs: commandArgs); return }
+        if command == "__ssh-pty-flush-input" { try runSSHPTYFlushInput(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
@@ -13217,32 +13218,6 @@ struct CMUXCLI {
         }
     }
 
-    private final class TerminalRawMode {
-        private var original = termios()
-        private var restored = false
-
-        init?() {
-            guard tcgetattr(STDIN_FILENO, &original) == 0 else {
-                return nil
-            }
-            var raw = original
-            cfmakeraw(&raw)
-            guard tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0 else {
-                return nil
-            }
-        }
-
-        deinit {
-            restore()
-        }
-
-        func restore(flushInput: Bool = false) {
-            guard !restored else { return }
-            tcsetattr(STDIN_FILENO, flushInput ? TCSAFLUSH : TCSANOW, &original)
-            restored = true
-        }
-    }
-
     private func runSSHSessionList(
         commandArgs: [String],
         client: SocketClient,
@@ -13616,7 +13591,7 @@ struct CMUXCLI {
             "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
             "cmux_ssh_attach_lifecycle_ended=0",
             "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
-            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true; wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true; cmux_ssh_attach_backoff_pid=; elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true; wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true; cmux_ssh_attach_backoff_pid=; elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; cmux_ssh_attach_restore_terminal; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
             "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_attach_signal_exit 130 INT' INT",
@@ -13701,6 +13676,22 @@ struct CMUXCLI {
                 )
             return decoded
         }
+        let discardsReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
+        var terminalInputMode: SSHPTYTerminalInputMode?
+        if discardsReconnectInput {
+            guard let disconnectedMode = SSHPTYTerminalInputMode(phase: .disconnected) else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.sshPtyAttach.terminalInputGuardFailed",
+                        defaultValue: "SSH reattach stopped because queued terminal input could not be protected.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    ),
+                    exitCode: SSHPTYAttachExitCode.retryableTransient
+                )
+            }
+            terminalInputMode = disconnectedMode
+        }
+        defer { _ = terminalInputMode?.restore(flushInput: discardsReconnectInput) }
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
         var wrapperWillRetrySameSurface = false
@@ -13907,9 +13898,9 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
-        let rawMode = TerminalRawMode()
-        defer { rawMode?.restore(flushInput: filtersReconnectInput) }
+        if !discardsReconnectInput {
+            terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+        }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
             explicitPassword: explicitPassword,
@@ -13929,18 +13920,8 @@ struct CMUXCLI {
         // correction.
         resizeMonitor.requestCurrentResize()
 
-        let reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
-        do {
-            reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
-                fd: fd,
-                filterEnabled: filtersReconnectInput,
-                beforeForwardingInput: { [resizeMonitor] in
-                    await resizeMonitor.resizeBeforeInputIfNeeded()
-                }
-            )
-        } catch {
-            throw CLIError(message: "ssh-pty-attach: bridge write failed")
-        }
+        var reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
+        var inputPumpStarted = false
         var reconnectInputFilterStopRequested = false
         var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
         // A persistent reattach's initial bytes are historical remote PTY
@@ -13951,6 +13932,32 @@ struct CMUXCLI {
         var replayOutputFilter = SSHPTYReplayOutputFilter(
             replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
         )
+        func startInputForwardingAfterReplay() throws {
+            guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
+            if discardsReconnectInput, terminalInputMode?.beginForwarding() != true {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
+                        defaultValue: "SSH reattach stopped because queued terminal input could not be discarded safely.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    ),
+                    exitCode: SSHPTYAttachExitCode.retryableTransient
+                )
+            }
+            do {
+                reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+                    fd: fd,
+                    filterEnabled: discardsReconnectInput,
+                    beforeForwardingInput: { [resizeMonitor] in
+                        await resizeMonitor.resizeBeforeInputIfNeeded()
+                    }
+                )
+                inputPumpStarted = true
+            } catch {
+                throw CLIError(message: "ssh-pty-attach: bridge write failed")
+            }
+        }
+        try startInputForwardingAfterReplay()
         func finishBridgeClosedNormally() throws {
             resizeMonitor.cancel()
             readinessDelivery?.cancel()
@@ -13969,12 +13976,18 @@ struct CMUXCLI {
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
+                let wasForwardingInput = inputPumpStarted
                 outputProgress.recordOutput(byteCount: count)
-                reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
+                if wasForwardingInput {
+                    reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(
+                        unlessAlreadyRequested: &reconnectInputFilterStopRequested
+                    )
+                }
                 let output = replayOutputFilter.filter(Data(outputBuffer.prefix(count)))
                 if !output.isEmpty {
                     cliWriteStdout(output)
                 }
+                try startInputForwardingAfterReplay()
             } else if count == 0 {
                 let trailingReplay = replayOutputFilter.finish()
                 if !trailingReplay.isEmpty {
