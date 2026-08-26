@@ -367,6 +367,12 @@ struct WorkspaceContentView: View {
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
+            // A mounted workspace can stay portal-enabled while it is hidden.
+            // Its Bonsplit anchors may therefore have missed the layout pass
+            // that changed the surrounding workspace topology. Reconcile the
+            // terminal geometry at the activation boundary so Ghostty receives
+            // the current pane frames before the portal is revealed.
+            workspace.scheduleTerminalGeometryReconcile()
             flushDeferredThemeRefreshIfNeeded()
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
