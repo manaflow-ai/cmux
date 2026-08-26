@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 const gzipAsync = promisify(gzip);
 import { readFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
+import type { z } from "zod";
 import {
   NotImplementedError,
   ProviderError,
@@ -15,20 +16,37 @@ import {
   type WebSocketPtyEndpoint,
   type SnapshotRef,
   type VMHandle,
-  type VMProvider,
+  type VmProviderDriver,
   type VMStats,
   type VMStatus,
 } from "./types";
 import { withVmSpan } from "../telemetry";
+import { shellQuote } from "./wsLease";
 import {
-  isReusableRpcLease,
-  ensurePrivateDirectoryCommand,
-  leaseClientMetadata,
-  makeWebSocketAttachmentId,
-  makeWebSocketLease,
-  shellQuote,
-  type ReusableRpcLease,
-} from "./wsLease";
+  installCmuxdAttachLeases,
+  waitForCmuxdHealthy,
+  type ProviderTransport,
+} from "./cmuxdAttach";
+import {
+  clampExecTimeoutMs,
+  CMUXD_WS_PORT,
+  CMUXD_WS_PTY_LEASE_PATH,
+  CMUXD_WS_RPC_CLIENT_PATH,
+  CMUXD_WS_RPC_LEASE_PATH,
+  EXEC_DEFAULT_TIMEOUT_MS,
+} from "./cmuxdConstants";
+import {
+  BlaxelCustomDomainSchema,
+  BlaxelPreviewListSchema,
+  BlaxelPreviewSchema,
+  BlaxelPreviewTokenSchema,
+  BlaxelProcessSchema,
+  BlaxelSandboxSchema,
+  IgnoredResponseSchema,
+  parseProviderJson,
+  type BlaxelPreview,
+  type BlaxelSandbox,
+} from "./schemas";
 
 // Blaxel sandboxes are name-addressed micro-VMs reached over HTTPS only: a per-sandbox
 // "sandbox API" (process exec + filesystem) on the control side, and per-port preview URLs
@@ -43,15 +61,8 @@ import {
 // connection otherwise, which would pause user workloads the moment the client disconnects.
 // Standby time is free on Blaxel, so the cost lever ("smart sleep" while every PTY sits at
 // an idle prompt) is a later optimization on top of the same bootstrap.
-const CMUXD_WS_PORT = 7777;
 // 8080 is the Blaxel sandbox-api (control channel); never expose it through a preview.
 const CMUX_SANDBOX_API_PORT = 8080;
-const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
-const CMUXD_WS_RPC_LEASE_PATH = "/tmp/cmux/attach-rpc-lease.json";
-const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
-const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
-const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
-const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const CMUXD_BINARY_PATH = "/usr/local/bin/cmuxd-remote";
 const CMUXD_PROCESS_NAME = "cmuxd-ws";
 const SMART_SLEEP_PATH = "/usr/local/bin/cmux-smart-sleep";
@@ -130,47 +141,18 @@ export const DESKTOP_VNC_HEAL_COMMAND = [
 
 const CMUXD_PREVIEW_NAME = "cmuxd";
 const PREVIEW_TOKEN_TTL_SECONDS = 12 * 60 * 60;
-// Desktop/port panes are long-lived surfaces a person leaves open for days; a
-// 12h token turned every long-lived pane into a silent white screen at hour
-// twelve. The wrapper page shows an honest expiry screen when this lapses.
-const PREVIEW_OPEN_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
-const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
-const HEALTH_RETRY_ATTEMPTS = 12;
-const HEALTH_RETRY_INTERVAL_MS = 1_000;
+// Desktop/port tokens ride in the wrapper URL (`/vm/desktop/<id>?cmux_token=…`), which lands
+// in browser history and edge logs and keeps working after sign-out until it expires, so the
+// TTL is a real exposure window: the previous 7-day value meant a shared or logged URL granted
+// desktop control for a week. 24h keeps a pane alive across a workday; the wrapper page shows
+// an honest "reopen from cmux" expiry screen when it lapses, and reopening mints a fresh token.
+const PREVIEW_OPEN_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 const CONTROL_PLANE_BASE = "https://api.blaxel.ai/v0";
 const DEFAULT_MEMORY_MB = 4096;
 // The persistent-home volume mounts over root's home so dotfiles, repos, and agent state
 // survive sandbox destruction. The sandbox is disposable compute; the volume is the machine.
 const HOME_VOLUME_MOUNT_PATH = "/root";
 const DEFAULT_HOME_VOLUME_MB = 5120;
-
-type BlaxelSandbox = {
-  metadata?: { name?: string; url?: string; createdAt?: string };
-  spec?: { runtime?: { image?: string; memory?: number } };
-  state?: string;
-  status?: string;
-};
-
-type BlaxelProcess = {
-  pid?: string;
-  name?: string;
-  status?: string;
-  exitCode?: number;
-  stdout?: string;
-  stderr?: string;
-  logs?: string;
-};
-
-type BlaxelPreview = {
-  metadata?: { name?: string };
-  spec?: {
-    url?: string;
-    public?: boolean;
-    prefixUrl?: string;
-    customDomain?: string;
-  };
-};
 
 // The preview URL is the only ingress to cmuxd, and it must stay token-gated: a preview that
 // is (or has been flipped) public would expose the daemon's WebSocket endpoints to anyone
@@ -217,9 +199,13 @@ function controlHeaders(): Record<string, string> {
   };
 }
 
+// Every Blaxel response is schema-validated at this boundary (no `as T` casts): a payload that
+// doesn't match the operation's schema raises a tagged ProviderError here instead of letting
+// undefined fields propagate into workflows.
 async function blaxelFetch<T>(
   method: string,
   url: string,
+  schema: z.ZodType<T>,
   body?: unknown,
   opts?: { timeoutMs?: number },
 ): Promise<T> {
@@ -233,7 +219,13 @@ async function blaxelFetch<T>(
   if (!response.ok) {
     throw new ProviderError("blaxel", `${method} ${url} -> ${response.status}: ${text.slice(0, 500)}`);
   }
-  return (text ? JSON.parse(text) : undefined) as T;
+  let payload: unknown;
+  try {
+    payload = text ? JSON.parse(text) : undefined;
+  } catch {
+    throw new ProviderError("blaxel", `${method} ${url} returned invalid JSON: ${text.slice(0, 200)}`);
+  }
+  return parseProviderJson("blaxel", `${method} ${url}`, schema, payload);
 }
 
 // The cmuxd-remote linux/amd64 binary this driver injects at create time. Local dev points
@@ -326,7 +318,7 @@ function daemonBinaryBase64Gzip(): Promise<string> {
 // cache empty here; create() surfaces the real configuration error to the caller.
 void daemonBinaryBase64Gzip().catch(() => undefined);
 
-export class BlaxelProvider implements VMProvider {
+export class BlaxelProvider implements VmProviderDriver {
   readonly id = "blaxel" as const;
 
   async create(options: CreateOptions): Promise<VMHandle> {
@@ -356,7 +348,7 @@ export class BlaxelProvider implements VMProvider {
               await timedStep("ensure_home_volume", () => this.ensureHomeVolume(volume));
             }
             try {
-              created = await timedStep("create_sandbox", () => blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
+              created = await timedStep("create_sandbox", () => blaxelFetch("POST", `${CONTROL_PLANE_BASE}/sandboxes`, BlaxelSandboxSchema, {
                 metadata: { name },
                 spec: {
                   runtime: {
@@ -439,12 +431,14 @@ export class BlaxelProvider implements VMProvider {
         // Leading slash after /filesystem: relative paths root at /blaxel, absolute paths need
         // the extra separator (`/filesystem//tmp/...`).
         `${sandboxUrl}/filesystem//tmp/cmuxd.b64`,
+        IgnoredResponseSchema,
         { content: b64, permissions: "0600" },
         { timeoutMs: 180_000 },
       )),
       blaxelFetch(
         "PUT",
         `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`,
+        IgnoredResponseSchema,
         { content: SMART_SLEEP_SCRIPT, permissions: "0755" },
       ),
     ]);
@@ -468,7 +462,7 @@ export class BlaxelProvider implements VMProvider {
         await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
         await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
       })(),
-      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+      blaxelFetch("POST", `${sandboxUrl}/process`, IgnoredResponseSchema, {
         name: "cmux-provision",
         command: CMUX_PROVISION_COMMAND,
         waitForCompletion: false,
@@ -480,7 +474,7 @@ export class BlaxelProvider implements VMProvider {
   // nothing pins the sandbox and Blaxel freezes it (processes preserved in the memory
   // snapshot). The smart-sleep watcher is the only keepAlive process, and it exits when idle.
   private async startDaemonProcess(sandboxUrl: string): Promise<void> {
-    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+    await blaxelFetch("POST", `${sandboxUrl}/process`, IgnoredResponseSchema, {
       name: CMUXD_PROCESS_NAME,
       command:
         `${CMUXD_BINARY_PATH} serve --ws --listen 0.0.0.0:${CMUXD_WS_PORT} ` +
@@ -494,7 +488,7 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async startWatcherProcess(sandboxUrl: string): Promise<void> {
-    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+    await blaxelFetch("POST", `${sandboxUrl}/process`, IgnoredResponseSchema, {
       name: SMART_SLEEP_PROCESS_NAME,
       command: SMART_SLEEP_PATH,
       waitForCompletion: false,
@@ -506,7 +500,7 @@ export class BlaxelProvider implements VMProvider {
   // start-vnc.sh and the command self-exits, so this is safe to run on every bootstrap. Not
   // keepAlive — a live desktop is pinned by the attached client, not by this starter.
   private async startDesktopVncHeal(sandboxUrl: string): Promise<void> {
-    await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+    await blaxelFetch("POST", `${sandboxUrl}/process`, IgnoredResponseSchema, {
       name: DESKTOP_VNC_HEAL_PROCESS_NAME,
       command: DESKTOP_VNC_HEAL_COMMAND,
       waitForCompletion: false,
@@ -520,7 +514,7 @@ export class BlaxelProvider implements VMProvider {
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "destroy", "cmux.vm.id": vmId },
       async () => {
         try {
-          await blaxelFetch("DELETE", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`);
+          await blaxelFetch("DELETE", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`, IgnoredResponseSchema);
         } catch (err) {
           // Cleanup paths retry destroy after partial create failures; a sandbox
           // that is already gone is this operation's success state, not an error.
@@ -555,7 +549,7 @@ export class BlaxelProvider implements VMProvider {
   }
 
   async exec(vmId: string, command: string, opts?: { timeoutMs?: number }): Promise<ExecResult> {
-    const timeoutMs = Math.min(opts?.timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS, MAX_EXEC_TIMEOUT_MS);
+    const timeoutMs = clampExecTimeoutMs(opts?.timeoutMs);
     return withVmSpan(
       "cmux.vm.provider.exec",
       {
@@ -646,41 +640,21 @@ export class BlaxelProvider implements VMProvider {
           }
           await this.ensureDaemonRunning(vmId, sandboxUrl);
 
-          const pty = makeWebSocketLease("blaxel", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
-          const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("blaxel");
-          const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
-          const commands = [
-            ensurePrivateDirectoryCommand(CMUXD_WS_PTY_LEASE_PATH),
-            `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(CMUXD_WS_PTY_LEASE_PATH)}`,
-            `chmod 600 ${shellQuote(CMUXD_WS_PTY_LEASE_PATH)}`,
-          ];
-
-          let daemon: ReusableRpcLease | null = null;
-          const existingDaemon = await this.readReusableRpcLease(sandboxUrl);
-          const newDaemon = existingDaemon
-            ? null
-            : makeWebSocketLease("blaxel", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
-          daemon = existingDaemon ?? newDaemon!;
-          if (newDaemon) {
-            const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
-            const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
-            commands.push(
-              ensurePrivateDirectoryCommand(CMUXD_WS_RPC_LEASE_PATH),
-              `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)}`,
-              `chmod 600 ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)}`,
-              `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-              `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-            );
-          }
-          const leaseWrite = await this.sandboxExec(sandboxUrl, commands.join(" && "));
-          if (leaseWrite.exitCode !== 0) {
-            throw new Error(`lease write failed: ${leaseWrite.stderr || leaseWrite.stdout}`);
+          // The driver starts the daemon itself (startDaemonProcess), so the lease paths are
+          // known statically — no process-table discovery round-trip needed.
+          const { pty, attachmentId, daemon } = await installCmuxdAttachLeases(
+            this.sandboxTransport(sandboxUrl),
+            { ptyLeasePath: CMUXD_WS_PTY_LEASE_PATH, rpcLeasePath: CMUXD_WS_RPC_LEASE_PATH },
+            { sessionId: options?.sessionId, attachmentId: options?.attachmentId },
+          );
+          if (!daemon) {
+            throw new Error("blaxel attach always provisions an RPC lease; got none back");
           }
 
           const preview = await this.ensurePreview(vmId);
           const previewToken = await this.mintPreviewToken(vmId);
           const headers = { "X-Blaxel-Preview-Token": previewToken };
-          await ensureWebSocketHealthy(preview, headers);
+          await waitForCmuxdHealthy(preview, { label: "Blaxel", headers });
 
           const wsBase = preview.replace(/^https:/, "wss:").replace(/\/+$/, "");
           span.setAttribute("cmux.vm.attach.transport", "websocket");
@@ -755,28 +729,19 @@ export class BlaxelProvider implements VMProvider {
 
     // Preview deletion is control-plane-only, so it also works when the
     // sandbox is asleep and has no live sandbox API URL.
-    let listed: unknown;
+    let listed: BlaxelPreview[];
     try {
-      listed = await blaxelFetch<unknown>("GET", previewsBase);
+      listed = await blaxelFetch("GET", previewsBase, BlaxelPreviewListSchema);
     } catch (err) {
       if (err instanceof ProviderError && /-> 404/.test(err.message)) return;
       throw err;
     }
-    const rawItems = Array.isArray(listed)
-      ? listed
-      : listed && typeof listed === "object" && Array.isArray((listed as { items?: unknown }).items)
-      ? (listed as { items: unknown[] }).items
-      : [];
-    const names = rawItems
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const candidate = item as BlaxelPreview;
-        return candidate.metadata?.name?.trim() || null;
-      })
+    const names = listed
+      .map((preview) => preview.metadata?.name?.trim() || null)
       .filter((name): name is string => !!name);
     await Promise.all(names.map(async (name) => {
       try {
-        await blaxelFetch("DELETE", `${previewsBase}/${encodeURIComponent(name)}`);
+        await blaxelFetch("DELETE", `${previewsBase}/${encodeURIComponent(name)}`, IgnoredResponseSchema);
       } catch (err) {
         if (!(err instanceof ProviderError && /-> 404/.test(err.message))) throw err;
       }
@@ -784,13 +749,13 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async getSandbox(vmId: string): Promise<BlaxelSandbox> {
-    return blaxelFetch<BlaxelSandbox>("GET", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`);
+    return blaxelFetch("GET", `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}`, BlaxelSandboxSchema);
   }
 
   private async ensureHomeVolume(name: string): Promise<void> {
     const sizeMb = positiveIntEnv("CMUX_VM_BLAXEL_HOME_VOLUME_MB", DEFAULT_HOME_VOLUME_MB);
     try {
-      await blaxelFetch("POST", `${CONTROL_PLANE_BASE}/volumes`, {
+      await blaxelFetch("POST", `${CONTROL_PLANE_BASE}/volumes`, IgnoredResponseSchema, {
         metadata: { name },
         spec: { size: sizeMb },
       });
@@ -818,7 +783,7 @@ export class BlaxelProvider implements VMProvider {
     const memoryMb = resolveMemoryMb(
       typeof metadata.memoryMb === "number" ? metadata.memoryMb : undefined,
     );
-    const created = await blaxelFetch<BlaxelSandbox>("POST", `${CONTROL_PLANE_BASE}/sandboxes`, {
+    const created = await blaxelFetch("POST", `${CONTROL_PLANE_BASE}/sandboxes`, BlaxelSandboxSchema, {
       metadata: { name: vmId },
       spec: {
         runtime: {
@@ -859,9 +824,10 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async sandboxExec(sandboxUrl: string, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
-    const result = await blaxelFetch<BlaxelProcess>(
+    const result = await blaxelFetch(
       "POST",
       `${sandboxUrl}/process`,
+      BlaxelProcessSchema,
       { command, waitForCompletion: true, timeout: Math.ceil(timeoutMs / 1000) },
       { timeoutMs: timeoutMs + 30_000 },
     );
@@ -873,9 +839,10 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async ensureDaemonRunning(vmId: string, sandboxUrl: string): Promise<void> {
-    const proc = await blaxelFetch<BlaxelProcess>(
+    const proc = await blaxelFetch(
       "GET",
       `${sandboxUrl}/process/${CMUXD_PROCESS_NAME}`,
+      BlaxelProcessSchema,
     ).catch(() => null);
     if (proc?.status !== "running") {
       // A sandbox can exist without the daemon binary (a create/resurrect that died between
@@ -891,35 +858,22 @@ export class BlaxelProvider implements VMProvider {
     }
     // Attach = user activity: re-arm the smart-sleep watcher so the sandbox stays awake while
     // this session works, and can freeze again once it goes idle.
-    const watcher = await blaxelFetch<BlaxelProcess>(
+    const watcher = await blaxelFetch(
       "GET",
       `${sandboxUrl}/process/${SMART_SLEEP_PROCESS_NAME}`,
+      BlaxelProcessSchema,
     ).catch(() => null);
     if (watcher?.status !== "running") {
       await this.startWatcherProcess(sandboxUrl);
     }
   }
 
-  private async readReusableRpcLease(sandboxUrl: string): Promise<ReusableRpcLease | null> {
-    const result = await this.sandboxExec(
-      sandboxUrl,
-      [
-        `test -s ${shellQuote(CMUXD_WS_RPC_LEASE_PATH)}`,
-        `test -s ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-        `cat ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-      ].join(" && "),
-    ).catch(() => null);
-    const raw = result?.exitCode === 0 ? result.stdout.trim() : "";
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (!isReusableRpcLease(parsed)) return null;
-      const nowUnix = Math.floor(Date.now() / 1000);
-      if (parsed.expiresAtUnix <= nowUnix + CMUXD_WS_RPC_RENEW_BEFORE_SECONDS) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
+  /** The provider transport the shared attach ritual runs over: exec via the sandbox API. */
+  private sandboxTransport(sandboxUrl: string): ProviderTransport {
+    return {
+      providerId: "blaxel",
+      exec: (command, timeoutMs) => this.sandboxExec(sandboxUrl, command, timeoutMs),
+    };
   }
 
   // One in-flight ensure per (machine, preview): a create that races the attach it triggers
@@ -941,7 +895,7 @@ export class BlaxelProvider implements VMProvider {
   private async ensurePreviewUncoalesced(vmId: string, previewName: string, port: number): Promise<string> {
     const base = `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews`;
     const readExisting = () =>
-      blaxelFetch<BlaxelPreview>("GET", `${base}/${previewName}`).catch(() => null);
+      blaxelFetch("GET", `${base}/${previewName}`, BlaxelPreviewSchema).catch(() => null);
     const prefixUrl = brandedPreviewPrefix(vmId, previewName, port);
     const customDomain = prefixUrl ? await verifiedCustomDomain() : null;
     const existing = await readExisting();
@@ -963,11 +917,11 @@ export class BlaxelProvider implements VMProvider {
       // The custom domain became verified after this preview was created. Rotate only the
       // ingress record (never the sandbox or its files) so existing machines converge to
       // the cmux-owned hostname on their next attach/open-port request.
-      await blaxelFetch("DELETE", `${base}/${previewName}`).catch(() => undefined);
+      await blaxelFetch("DELETE", `${base}/${previewName}`, IgnoredResponseSchema).catch(() => undefined);
     }
     if (existing?.spec?.url && !existingUrl) {
       // The preview exists but is public; drop it and recreate private below.
-      await blaxelFetch("DELETE", `${base}/${previewName}`);
+      await blaxelFetch("DELETE", `${base}/${previewName}`, IgnoredResponseSchema);
     }
     // Branded subdomains: Blaxel renders prefixUrl as https://<prefix>-<workspace>.preview.bl.run,
     // so with the cmux workspace the daemon preview reads noble-wren-cmux.preview.bl.run and a
@@ -986,7 +940,7 @@ export class BlaxelProvider implements VMProvider {
     }
     for (const attempt of brandedSpecs) {
       try {
-        const created = await blaxelFetch<BlaxelPreview>("POST", base, {
+        const created = await blaxelFetch("POST", base, BlaxelPreviewSchema, {
           metadata: { name: previewName },
           spec: attempt.spec,
         });
@@ -1005,7 +959,7 @@ export class BlaxelProvider implements VMProvider {
         );
       }
     }
-    const created = await blaxelFetch<BlaxelPreview>("POST", base, {
+    const created = await blaxelFetch("POST", base, BlaxelPreviewSchema, {
       metadata: { name: previewName },
       spec: { port, public: false },
     });
@@ -1022,9 +976,10 @@ export class BlaxelProvider implements VMProvider {
     ttlSeconds = PREVIEW_TOKEN_TTL_SECONDS,
   ): Promise<string> {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-    const created = await blaxelFetch<{ spec?: { token?: string } }>(
+    const created = await blaxelFetch(
       "POST",
       `${CONTROL_PLANE_BASE}/sandboxes/${encodeURIComponent(vmId)}/previews/${previewName}/tokens`,
+      BlaxelPreviewTokenSchema,
       { spec: { expiresAt } },
     );
     const token = created.spec?.token;
@@ -1096,9 +1051,10 @@ async function verifiedCustomDomain(): Promise<string | null> {
   }
   let value: string | null = null;
   try {
-    const record = await blaxelFetch<{ spec?: { status?: string } }>(
+    const record = await blaxelFetch(
       "GET",
       `${CONTROL_PLANE_BASE}/customdomains/${encodeURIComponent(domain)}`,
+      BlaxelCustomDomainSchema,
     );
     value = record.spec?.status === "verified" ? domain : null;
   } catch {
@@ -1183,22 +1139,6 @@ function mapStatus(sandbox: BlaxelSandbox): VMStatus {
       // next request, so callers can treat it as running.
       return "running";
   }
-}
-
-async function ensureWebSocketHealthy(previewUrl: string, headers: Record<string, string>): Promise<void> {
-  const url = `${previewUrl.replace(/\/+$/, "")}/healthz`;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < HEALTH_RETRY_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-      if (response.ok) return;
-      lastError = new Error(`healthz returned ${response.status}`);
-    } catch (err) {
-      lastError = err;
-    }
-    await new Promise((resolve) => setTimeout(resolve, HEALTH_RETRY_INTERVAL_MS));
-  }
-  throw new ProviderError("blaxel", "cmuxd websocket health check failed", lastError);
 }
 
 // Machines are addressed by name everywhere (`cmux vm ssh brave-otter`), so names are

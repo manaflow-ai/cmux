@@ -13,23 +13,12 @@ import {
 } from "./types";
 import { withVmSpan } from "../telemetry";
 import {
-  isReusableRpcLease,
-  ensurePrivateDirectoryCommand,
-  leaseClientMetadata,
-  makeWebSocketAttachmentId,
-  makeWebSocketLease,
-  shellArgValue,
-  shellQuote,
-  type ReusableRpcLease,
-} from "./wsLease";
+  discoverCmuxdService,
+  installCmuxdAttachLeases,
+  type ProviderTransport,
+} from "./cmuxdAttach";
+import { CMUXD_WS_PORT } from "./cmuxdConstants";
 
-const CMUXD_WS_PORT = 7777;
-const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
-const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
-const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
-const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
-const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
-const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
 
 export class E2BProvider implements VMProvider {
@@ -214,37 +203,12 @@ export class E2BProvider implements VMProvider {
           if (!trafficAccessToken) {
             throw new Error("sandbox is missing a traffic access token; recreate it with the cmuxd WebSocket image");
           }
-          const service = await readWebSocketService(sandbox);
-          const pty = makeWebSocketLease("e2b", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
-          const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("e2b");
-          const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
-          const commands = [
-            ensurePrivateDirectoryCommand(service.ptyLeasePath),
-            `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(service.ptyLeasePath)}`,
-            `chmod 600 ${shellQuote(service.ptyLeasePath)}`,
-          ];
-          let daemon: ReusableRpcLease | null = null;
-          let daemonReused = false;
-          if (service.rpcLeasePath) {
-            const existingDaemon = await readReusableRpcLease(sandbox, service.rpcLeasePath);
-            const newDaemon = existingDaemon
-              ? null
-              : makeWebSocketLease("e2b", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
-            daemon = existingDaemon ?? newDaemon!;
-            daemonReused = !!existingDaemon;
-            if (newDaemon) {
-              const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
-              const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
-              commands.push(
-                ensurePrivateDirectoryCommand(service.rpcLeasePath),
-                `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(service.rpcLeasePath)}`,
-                `chmod 600 ${shellQuote(service.rpcLeasePath)}`,
-                `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-                `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-              );
-            }
-          }
-          await sandbox.commands.run(commands.join(" && "), { timeoutMs: 30_000 });
+          const transport = e2bTransport(sandbox);
+          const service = await discoverCmuxdService(transport);
+          const { pty, attachmentId, daemon, daemonReused } = await installCmuxdAttachLeases(transport, service, {
+            sessionId: options?.sessionId,
+            attachmentId: options?.attachmentId,
+          });
           span.setAttribute("cmux.vm.attach.transport", "websocket");
           span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
           span.setAttribute("cmux.vm.attach.daemon_available", !!daemon);
@@ -282,46 +246,14 @@ export class E2BProvider implements VMProvider {
   }
 }
 
-async function readWebSocketService(sandbox: Sandbox): Promise<{
-  ptyLeasePath: string;
-  rpcLeasePath: string | null;
-}> {
-  const result = await sandbox.commands.run(
-    "ps auxww | grep cmuxd-remote | grep -v grep || true",
-    { timeoutMs: 30_000 },
-  );
-  const stdout = result.stdout ?? "";
+// The E2B SDK throws on non-zero exit codes; the shared attach module handles both that style
+// and exit-code returns.
+function e2bTransport(sandbox: Sandbox): ProviderTransport {
   return {
-    ptyLeasePath:
-      shellArgValue(stdout, "--auth-lease-file")
-      ?? (stdout.includes(CMUXD_WS_LEGACY_PTY_LEASE_PATH)
-        ? CMUXD_WS_LEGACY_PTY_LEASE_PATH
-        : CMUXD_WS_PTY_LEASE_PATH),
-    rpcLeasePath: shellArgValue(stdout, "--rpc-auth-lease-file"),
+    providerId: "e2b",
+    exec: async (command, timeoutMs = 30_000) => {
+      const result = await sandbox.commands.run(command, { timeoutMs });
+      return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+    },
   };
-}
-
-async function readReusableRpcLease(
-  sandbox: Sandbox,
-  rpcLeasePath: string,
-): Promise<ReusableRpcLease | null> {
-  const result = await sandbox.commands.run(
-    [
-      `test -s ${shellQuote(rpcLeasePath)}`,
-      `test -s ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-      `cat ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-    ].join(" && "),
-    { timeoutMs: 30_000 },
-  ).catch(() => null);
-  const raw = result?.stdout.trim();
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isReusableRpcLease(parsed)) return null;
-    const nowUnix = Math.floor(Date.now() / 1000);
-    if (parsed.expiresAtUnix <= nowUnix + CMUXD_WS_RPC_RENEW_BEFORE_SECONDS) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
 }
