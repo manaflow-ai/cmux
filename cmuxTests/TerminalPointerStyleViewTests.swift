@@ -78,8 +78,8 @@ struct TerminalPointerStyleViewTests {
         #expect(view.effectiveTerminalPointerCursor == NSCursor.crosshair)
     }
 
-    @Test("stale runtime teardown preserves replacement suppression")
-    func staleRuntimeTeardownPreservesReplacementSuppression() {
+    @Test("stale runtime teardown preserves replacement pointer state")
+    func staleRuntimeTeardownPreservesReplacementPointerState() {
         let view = GhosttyNSView(frame: .zero)
         let oldRuntimeLifetimeId = UUID()
         view.prepareForRuntimeSurfaceCreation(
@@ -114,7 +114,7 @@ struct TerminalPointerStyleViewTests {
         view.runtimeSurfaceDidEnd(runtimeLifetimeId: oldRuntimeLifetimeId)
         view.applyTerminalPointerStyle(.focusChanged(true))
 
-        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
 
         let didInvalidateCursorRects = view.applyTerminalPointerStyle(
             .ghosttyShape(
@@ -126,7 +126,7 @@ struct TerminalPointerStyleViewTests {
         #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
     }
 
-    @Test("focus regain keeps suppression until a fresh pointer shape")
+    @Test("focus regain restores the cached base while awaiting fresh shape")
     func focusRegainRestoresStationaryLinkBasePointer() {
         let view = GhosttyNSView(frame: .zero)
         let runtimeLifetimeId = UUID()
@@ -154,7 +154,7 @@ struct TerminalPointerStyleViewTests {
         )
 
         #expect(didInvalidateCursorRects)
-        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.pointingHand)
 
         view.applyTerminalPointerStyle(
             .ghosttyShape(
@@ -191,7 +191,7 @@ struct TerminalPointerStyleViewTests {
         )
 
         #expect(!didApplyDelayedShape)
-        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.crosshair)
 
         let didApplyFreshShape = view.applyTerminalPointerStyle(
             .ghosttyShape(

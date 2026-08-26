@@ -3682,6 +3682,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate var pointerStyleIngress: GhosttyPointerStyleIngress?
     private var pointerStyleRuntimeLifetimeId: UUID?
     private var suppressGhosttyPointerUntilFreshShape = false
+    private var rejectStaleGhosttyPointerShapes = false
     private var pointerStyleFocusGeneration: UInt64 = 0
     private var pointerStyleRefreshFocusGeneration: UInt64?
 
@@ -3689,8 +3690,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// stationary OSC 8 link can restore its hover cursor without waiting for
     /// another mouse-move event.
     private func reconcileGhosttyPointerStyleAfterFocus() -> Bool {
-        guard suppressGhosttyPointerUntilFreshShape,
-              terminalPointerStyle.focused,
+        guard terminalPointerStyle.focused,
+              rejectStaleGhosttyPointerShapes,
               pointerStyleRefreshFocusGeneration != pointerStyleFocusGeneration,
               let surface else {
             return false
@@ -3728,7 +3729,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if case .ghosttyShape = event,
            let focusGeneration,
            focusGeneration != pointerStyleFocusGeneration,
-           suppressGhosttyPointerUntilFreshShape {
+           rejectStaleGhosttyPointerShapes {
             return false
         }
         if case .ghosttyLinkHoverChanged = event,
@@ -3747,6 +3748,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             if !focused {
                 suppressGhosttyPointerUntilFreshShape = true
+                rejectStaleGhosttyPointerShapes = true
             }
             if didChangeFocus {
                 pointerStyleIngress?.focusChanged(focused)
@@ -3755,6 +3757,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if case .ghosttyShape(_, let runtimeLifetimeId) = event,
            runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
             suppressGhosttyPointerUntilFreshShape = false
+            rejectStaleGhosttyPointerShapes = false
+        }
+        if case .ghosttyLinkHoverChanged(_, let runtimeLifetimeId) = event,
+           runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
+            suppressGhosttyPointerUntilFreshShape = false
+            rejectStaleGhosttyPointerShapes = false
         }
         let didClearGhosttyPointerSuppression =
             wasSuppressingGhosttyPointer &&
@@ -3762,6 +3770,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let didApplyPointerStyle = terminalPointerStyle.apply(event)
         let didReconcilePointerStyle =
             didGainFocus && reconcileGhosttyPointerStyleAfterFocus()
+        if didGainFocus {
+            // The cached OSC 22 base is authoritative when Ghostty emits no
+            // shape for a stationary non-link pointer; stale callbacks remain
+            // fenced by `rejectStaleGhosttyPointerShapes` until fresh input.
+            suppressGhosttyPointerUntilFreshShape = false
+        }
         guard didApplyPointerStyle ||
               didClearGhosttyPointerSuppression ||
               didReconcilePointerStyle else { return false }
@@ -4784,6 +4798,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func prepareForRuntimeSurfaceCreation(runtimeLifetimeId: UUID) -> UInt64 {
         pointerStyleRuntimeLifetimeId = runtimeLifetimeId
         suppressGhosttyPointerUntilFreshShape = false
+        rejectStaleGhosttyPointerShapes = false
         pointerStyleRefreshFocusGeneration = nil
         let runtimeGeneration = pointerStyleIngress?.activate(
             runtimeLifetimeId: runtimeLifetimeId,
@@ -4806,6 +4821,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         if endsCurrentRuntime {
             suppressGhosttyPointerUntilFreshShape = false
+            rejectStaleGhosttyPointerShapes = false
         }
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
