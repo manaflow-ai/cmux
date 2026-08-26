@@ -3238,12 +3238,20 @@ class GhosttyApp {
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
             let terminalSurface = surfaceView.terminalSurface
-            DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }; terminalSurface?.hostedView.setLinkHoverURL(url) }
             if let actionSurfaceId = callbackSurfaceId,
                let callbackContext {
+                let runtimeLifetimeId = callbackContext.runtimeLifetimeId
+                DispatchQueue.main.async {
+                    guard surfaceView.terminalSurface === terminalSurface,
+                          surfaceView.isVisibleInUI,
+                          terminalSurface?.isActiveRuntimeLifetime(runtimeLifetimeId) == true else {
+                        return
+                    }
+                    terminalSurface?.hostedView.setLinkHoverURL(url)
+                }
                 enqueueTerminalPointerStyleEvent(
                     .linkHover(action.action.mouse_over_link.len > 0),
-                    runtimeLifetimeId: callbackContext.runtimeLifetimeId,
+                    runtimeLifetimeId: runtimeLifetimeId,
                     runtimeGeneration: callbackContext.runtimeGeneration,
                     surfaceView: surfaceView,
                     surfaceId: actionSurfaceId
@@ -3755,12 +3763,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
         if case .ghosttyShape(_, let runtimeLifetimeId) = event,
-           runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
+           runtimeLifetimeId == pointerStyleRuntimeLifetimeId,
+           terminalPointerStyle.focused,
+           (focusGeneration == nil || focusGeneration == pointerStyleFocusGeneration) {
             suppressGhosttyPointerUntilFreshShape = false
             rejectStaleGhosttyPointerShapes = false
         }
         if case .ghosttyLinkHoverChanged(_, let runtimeLifetimeId) = event,
-           runtimeLifetimeId == pointerStyleRuntimeLifetimeId {
+           runtimeLifetimeId == pointerStyleRuntimeLifetimeId,
+           terminalPointerStyle.focused,
+           (focusGeneration == nil || focusGeneration == pointerStyleFocusGeneration) {
             suppressGhosttyPointerUntilFreshShape = false
             rejectStaleGhosttyPointerShapes = false
         }
@@ -4822,6 +4834,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if endsCurrentRuntime {
             suppressGhosttyPointerUntilFreshShape = false
             rejectStaleGhosttyPointerShapes = false
+            terminalSurface?.hostedView.setLinkHoverURL(nil)
         }
         applyTerminalPointerStyle(.runtimeEnded(runtimeLifetimeId))
     }
