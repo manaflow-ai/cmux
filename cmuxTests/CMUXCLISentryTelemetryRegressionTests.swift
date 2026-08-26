@@ -215,7 +215,11 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         environmentOverrides["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
 
         return try runMockSocketProcess(
-            arguments: ["hooks", "codex", "stop"],
+            arguments: [
+                "hooks", "codex", "stop",
+                "--workspace", workspaceID,
+                "--surface", surfaceID,
+            ],
             probePath: probePath,
             root: root,
             stdinText: input,
