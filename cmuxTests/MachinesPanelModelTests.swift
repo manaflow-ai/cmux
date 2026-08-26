@@ -1,4 +1,5 @@
 import Foundation
+import Bonsplit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -626,5 +627,45 @@ final class MachinesPanelModelTests: XCTestCase {
         let terminal = try XCTUnwrap(((encoded["workspaces"] as? [[String: Any]])?.first?["terminals"] as? [[String: Any]])?.first)
         XCTAssertEqual(terminal["open_surface_id"] as? String, "ABC")
         XCTAssertEqual(terminal["lifecycle"] as? String, "running")
+    }
+
+    // MARK: - Cloud tree drop target
+
+    func testCloudTreeDropTargetMapsEverySplitSideAndInserts() {
+        let pane = PaneID()
+        let surface = UUID()
+        func target(_ destination: BonsplitController.ExternalTabDropRequest.Destination) -> CloudTreeOpenTarget {
+            CloudTreeOpenTarget.dropTarget(destination: destination, surfaceID: surface)
+        }
+        // Left/top are the "insert first" sides of a horizontal/vertical split — the
+        // same reading Workspace.handleSessionDrop gives a Vault drop.
+        XCTAssertEqual(target(.split(targetPane: pane, orientation: .horizontal, insertFirst: true)).direction, .left)
+        XCTAssertEqual(target(.split(targetPane: pane, orientation: .horizontal, insertFirst: false)).direction, .right)
+        XCTAssertEqual(target(.split(targetPane: pane, orientation: .vertical, insertFirst: true)).direction, .up)
+        XCTAssertEqual(target(.split(targetPane: pane, orientation: .vertical, insertFirst: false)).direction, .down)
+        let split = target(.split(targetPane: pane, orientation: .horizontal, insertFirst: true))
+        XCTAssertEqual(split.paneID, pane.id.uuidString)
+        XCTAssertEqual(split.surfaceID, surface.uuidString)
+        XCTAssertNil(split.tabIndex)
+        XCTAssertEqual(split.placement, .split)
+        XCTAssertFalse(split.isEmpty)
+
+        let insert = target(.insert(targetPane: pane, targetIndex: 2))
+        XCTAssertNil(insert.direction)
+        XCTAssertEqual(insert.tabIndex, 2)
+        XCTAssertEqual(insert.paneID, pane.id.uuidString)
+        XCTAssertEqual(insert.placement, .tab)
+
+        XCTAssertTrue(CloudTreeOpenTarget().isEmpty)
+        XCTAssertEqual(CloudTreeOpenTarget().placement, .tab)
+    }
+
+    func testCloudTreeDropTargetEncodesSocketParamNames() throws {
+        let target = CloudTreeOpenTarget(paneID: "p", surfaceID: "s", direction: .up, tabIndex: 1)
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) as? [String: Any]
+        XCTAssertEqual(object?["pane_id"] as? String, "p")
+        XCTAssertEqual(object?["surface_id"] as? String, "s")
+        XCTAssertEqual(object?["direction"] as? String, "up")
+        XCTAssertEqual(object?["tab_index"] as? Int, 1)
     }
 }

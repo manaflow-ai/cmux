@@ -286,13 +286,15 @@ extension TerminalController {
             let workspaceId = Self.socketWorkerString(params["workspace_id"])
             let placement = Self.socketWorkerString(params["placement"]).flatMap { CloudTreePlacement(rawValue: $0) }
             let focus = Self.socketWorkerBool(params["focus"]) ?? true
+            let target = Self.socketWorkerOpenTarget(params)
             return v2VmCall(id: id, timeoutSeconds: 120) {
                 let result = try await CloudTreeService.shared.openTerminal(
                     machineID: vmId,
                     terminalID: terminalId,
                     workspaceID: workspaceId,
                     placement: placement,
-                    focus: focus
+                    focus: focus,
+                    target: target
                 )
                 return try Self.socketWorkerEncode(result)
             }
@@ -326,8 +328,9 @@ extension TerminalController {
             }
             let workspaceId = Self.socketWorkerString(params["workspace_id"])
             let focus = Self.socketWorkerBool(params["focus"]) ?? false
+            let target = Self.socketWorkerOpenTarget(params)
             return v2VmCall(id: id, timeoutSeconds: 120) {
-                let result = try await CloudTreeService.shared.openDesktop(machineID: vmId, workspaceID: workspaceId, focus: focus)
+                let result = try await CloudTreeService.shared.openDesktop(machineID: vmId, workspaceID: workspaceId, focus: focus, target: target)
                 var payload = try Self.socketWorkerEncode(result)
                 payload["open_url"] = result.url
                 return payload
@@ -340,8 +343,9 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.port_open requires `port` between 1 and 65535. From the CLI, use `cmux vm open <id> <port>`.")
             }
             let workspaceId = Self.socketWorkerString(params["workspace_id"])
+            let target = Self.socketWorkerOpenTarget(params)
             return v2VmCall(id: id, timeoutSeconds: 120) {
-                let result = try await CloudTreeService.shared.openPort(machineID: vmId, port: port, workspaceID: workspaceId)
+                let result = try await CloudTreeService.shared.openPort(machineID: vmId, port: port, workspaceID: workspaceId, target: target)
                 var payload = try Self.socketWorkerEncode(result)
                 payload["open_url"] = result.url
                 return payload
@@ -442,6 +446,19 @@ extension TerminalController {
             throw VMClientError.malformedResponse("Cloud tree payload did not encode to an object.")
         }
         return object
+    }
+
+    /// Optional drop-position params shared by `vm.terminal_open` / `vm.desktop_open` /
+    /// `vm.port_open`: `pane_id`, `surface_id`, `direction` (left|right|up|down), `tab_index`.
+    /// Returns nil when none is present so the service opens relative to the focused pane.
+    private nonisolated static func socketWorkerOpenTarget(_ params: [String: Any]) -> CloudTreeOpenTarget? {
+        let target = CloudTreeOpenTarget(
+            paneID: socketWorkerString(params["pane_id"]),
+            surfaceID: socketWorkerString(params["surface_id"]),
+            direction: socketWorkerString(params["direction"]).flatMap { CloudTreeSplitDirection(rawValue: $0.lowercased()) },
+            tabIndex: socketWorkerInt(params["tab_index"])
+        )
+        return target.isEmpty ? nil : target
     }
 
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {

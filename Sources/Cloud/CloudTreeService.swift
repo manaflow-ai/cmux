@@ -124,7 +124,8 @@ final class CloudTreeService: CloudTreeServicing {
         terminalID: String,
         workspaceID: String?,
         placement: CloudTreePlacement?,
-        focus: Bool
+        focus: Bool,
+        target: CloudTreeOpenTarget?
     ) async throws -> CloudTreeOpenResult {
         pruneBindings()
         if let (surfaceID, workspace) = openSurface(machineID: machineID, terminalID: terminalID) {
@@ -146,7 +147,10 @@ final class CloudTreeService: CloudTreeServicing {
             socketPath: connected.socketPath,
             terminalID: terminalID
         )
-        let surfaceID = try createTerminalSurface(in: workspace, initialCommand: command, placement: placement ?? .split, focus: focus)
+        // A drop target decides the placement (a side means a split, else a tab); the
+        // caller's placement only applies when nothing is being aimed at.
+        let effectivePlacement = (target?.isEmpty == false ? target?.placement : nil) ?? placement ?? .split
+        let surfaceID = try createTerminalSurface(in: workspace, initialCommand: command, placement: effectivePlacement, focus: focus, target: target)
         bindings[surfaceID] = CloudTerminalSurfaceBinding(machineID: machineID, terminalID: terminalID)
         markTerminalOpen(machineID: machineID, terminalID: terminalID, surfaceID: surfaceID)
         return CloudTreeOpenResult(surfaceID: surfaceID.uuidString, workspaceID: workspace.id.uuidString, reused: false)
@@ -229,7 +233,8 @@ final class CloudTreeService: CloudTreeServicing {
                 terminalID: created.terminalID,
                 workspaceID: localWorkspaceID,
                 placement: .split,
-                focus: focus
+                focus: focus,
+                target: nil
             )
             surfaceID = opened.surfaceID
         }
@@ -240,19 +245,19 @@ final class CloudTreeService: CloudTreeServicing {
         )
     }
 
-    func openDesktop(machineID: String, workspaceID: String?, focus: Bool) async throws -> CloudTreeOpenURLResult {
+    func openDesktop(machineID: String, workspaceID: String?, focus: Bool, target: CloudTreeOpenTarget?) async throws -> CloudTreeOpenURLResult {
         let client = try requireClient()
         let endpoint = try await client.openPort(id: machineID, port: Self.desktopPort)
         // Same recipe as `cmux vm desktop`: the noVNC page auto-connects, follows the
         // pane's size, and reconnects after a sleep.
         let url = endpoint.openUrl + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
-        return try openBrowserSplit(url: url, machineID: machineID, localWorkspaceID: workspaceID, focus: focus)
+        return try openBrowserPane(url: url, machineID: machineID, localWorkspaceID: workspaceID, focus: focus, target: target)
     }
 
-    func openPort(machineID: String, port: Int, workspaceID: String?) async throws -> CloudTreeOpenURLResult {
+    func openPort(machineID: String, port: Int, workspaceID: String?, target: CloudTreeOpenTarget?) async throws -> CloudTreeOpenURLResult {
         let client = try requireClient()
         let endpoint = try await client.openPort(id: machineID, port: port)
-        return try openBrowserSplit(url: endpoint.openUrl, machineID: machineID, localWorkspaceID: workspaceID, focus: false)
+        return try openBrowserPane(url: endpoint.openUrl, machineID: machineID, localWorkspaceID: workspaceID, focus: false, target: target)
     }
 
     func linkSocket(machineID: String) async throws -> CloudTreeLinkSocket {
@@ -416,7 +421,44 @@ final class CloudTreeService: CloudTreeServicing {
         return workspace
     }
 
-    private func createTerminalSurface(in workspace: Workspace, initialCommand: String, placement: CloudTreePlacement, focus: Bool) throws -> UUID {
+    private func createTerminalSurface(in workspace: Workspace, initialCommand: String, placement: CloudTreePlacement, focus: Bool, target: CloudTreeOpenTarget?) throws -> UUID {
+        let resolution = createSurface(
+            in: workspace,
+            typeRaw: "terminal",
+            url: nil,
+            initialCommand: initialCommand,
+            placement: placement,
+            focus: focus,
+            target: target
+        )
+        switch resolution {
+        case .created(let surfaceID):
+            return surfaceID
+        case .failed(let detail):
+            throw ServiceError.openFailed(placement == .tab
+                ? "Could not open a terminal tab for the remote terminal (\(detail))."
+                : "Could not split a pane for the remote terminal (\(detail)).")
+        }
+    }
+
+    private enum SurfaceCreation {
+        case created(UUID)
+        case failed(String)
+    }
+
+    /// One pane-creation path for terminals and browser panes. A target pins the
+    /// pane (tab insert) or the surface + side (split) exactly like `surface.create`
+    /// / `surface.split` do for the CLI, so a drop from the Cloud tree lands where a
+    /// drop of anything else would; without one the workspace's focused pane is used.
+    private func createSurface(
+        in workspace: Workspace,
+        typeRaw: String,
+        url: String?,
+        initialCommand: String?,
+        placement: CloudTreePlacement,
+        focus: Bool,
+        target: CloudTreeOpenTarget?
+    ) -> SurfaceCreation {
         let controller = TerminalController.shared
         let routing = Self.routing(workspaceID: workspace.id)
         switch placement {
@@ -424,30 +466,32 @@ final class CloudTreeService: CloudTreeServicing {
             let resolution = controller.controlSurfaceCreate(
                 routing: routing,
                 inputs: ControlSurfaceCreateInputs(
-                    typeRaw: "terminal",
+                    typeRaw: typeRaw,
                     providerRaw: nil,
                     rendererRaw: nil,
-                    urlRaw: nil,
+                    urlRaw: url,
                     workingDirectory: nil,
                     initialCommand: initialCommand,
                     tmuxStartCommand: nil,
                     remotePTYSessionID: nil,
                     remoteContextRaw: nil,
                     startupEnvironment: [:],
-                    requestedPaneID: nil,
+                    // Bonsplit appends a dropped tab to the pane; `tabIndex` is kept on
+                    // the target for parity with the drop request, as the Vault drop does.
+                    requestedPaneID: target?.paneID.flatMap(UUID.init(uuidString:)),
                     requestedFocus: focus
                 )
             )
-            if case .created(_, _, _, let surfaceID, _) = resolution { return surfaceID }
-            throw ServiceError.openFailed("Could not open a terminal tab for the remote terminal (\(resolution)).")
+            if case .created(_, _, _, let surfaceID, _) = resolution { return .created(surfaceID) }
+            return .failed("\(resolution)")
         case .split, .pane:
             let resolution = controller.controlSurfaceSplit(
                 routing: routing,
                 inputs: ControlSurfaceSplitInputs(
-                    directionRaw: "right",
-                    typeRaw: "terminal",
-                    urlRaw: nil,
-                    requestedSourceSurfaceID: nil,
+                    directionRaw: (target?.direction ?? .right).rawValue,
+                    typeRaw: typeRaw,
+                    urlRaw: url,
+                    requestedSourceSurfaceID: target?.surfaceID.flatMap(UUID.init(uuidString:)),
                     workingDirectory: nil,
                     initialCommand: initialCommand,
                     tmuxStartCommand: nil,
@@ -459,13 +503,34 @@ final class CloudTreeService: CloudTreeServicing {
                     initialDividerPosition: nil
                 )
             )
-            if case .created(_, _, _, let surfaceID, _) = resolution { return surfaceID }
-            throw ServiceError.openFailed("Could not split a pane for the remote terminal (\(resolution)).")
+            if case .created(_, _, _, let surfaceID, _) = resolution { return .created(surfaceID) }
+            return .failed("\(resolution)")
         }
     }
 
-    private func openBrowserSplit(url: String, machineID: String, localWorkspaceID: String?, focus: Bool) throws -> CloudTreeOpenURLResult {
+    /// Browser panes (desktop, forwarded ports). With a drop target the pane is
+    /// created through the same split/create path as terminals, in the dropped
+    /// direction; without one it goes through `browser.open_split`, which reuses a
+    /// browser pane to the right of the focused one like `cmux vm desktop` does.
+    private func openBrowserPane(url: String, machineID: String, localWorkspaceID: String?, focus: Bool, target: CloudTreeOpenTarget?) throws -> CloudTreeOpenURLResult {
         let workspace = try targetWorkspace(localWorkspaceID: localWorkspaceID, machineID: machineID)
+        if let target, !target.isEmpty {
+            let resolution = createSurface(
+                in: workspace,
+                typeRaw: "browser",
+                url: url,
+                initialCommand: nil,
+                placement: target.placement,
+                focus: focus,
+                target: target
+            )
+            switch resolution {
+            case .created(let surfaceID):
+                return CloudTreeOpenURLResult(surfaceID: surfaceID.uuidString, url: url)
+            case .failed(let detail):
+                throw ServiceError.openFailed("Could not open a browser pane (\(detail)).")
+            }
+        }
         var params: [String: Any] = ["url": url, "workspace_id": workspace.id.uuidString, "focus": focus]
         if let surfaceID = workspace.focusedPanelId {
             params["surface_id"] = surfaceID.uuidString

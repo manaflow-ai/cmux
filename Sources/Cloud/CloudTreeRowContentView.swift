@@ -18,18 +18,18 @@ struct CloudTreeRowContentView: View {
             )
         case .workspace(_, let workspace):
             HStack(spacing: 6) {
-                Image(systemName: workspace.focused ? "rectangle.split.2x1.fill" : "rectangle.split.2x1")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.8))
+                Image(systemName: "rectangle.split.2x1")
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(.secondary)
                     .frame(width: 14)
                 Text(workspace.name)
-                    .cmuxFont(size: 12)
-                    .foregroundColor(.primary.opacity(0.9))
+                    .cmuxFont(size: 12, weight: workspace.focused ? .medium : .regular)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text(Self.count(workspace.terminals.count))
                     .cmuxFont(size: 10.5, monospacedDigit: true)
-                    .foregroundColor(.secondary.opacity(0.6))
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .fixedSize()
                 Spacer(minLength: 0)
@@ -39,15 +39,15 @@ struct CloudTreeRowContentView: View {
         case .desktop:
             HStack(spacing: 6) {
                 Image(systemName: "display")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.8))
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(.secondary)
                     .frame(width: 14)
                 Text(String(localized: "cloudTree.node.desktop", defaultValue: "Desktop"))
                     .cmuxFont(size: 12)
-                    .foregroundColor(.primary.opacity(0.9))
+                    .foregroundStyle(.primary)
                 Text(String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC screen"))
                     .cmuxFont(size: 10.5)
-                    .foregroundColor(.secondary.opacity(0.6))
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -58,17 +58,17 @@ struct CloudTreeRowContentView: View {
             )
         case .port(_, let port):
             HStack(spacing: 6) {
-                Image(systemName: "globe")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.8))
+                Image(systemName: "network")
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(.secondary)
                     .frame(width: 14)
                 Text(String(port.port))
                     .cmuxFont(size: 12, monospacedDigit: true)
-                    .foregroundColor(.primary.opacity(0.9))
+                    .foregroundStyle(.primary)
                 if let label = port.label, !label.isEmpty {
                     Text(label)
                         .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary.opacity(0.6))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -81,16 +81,16 @@ struct CloudTreeRowContentView: View {
                     ProgressView().controlSize(.mini)
                 case .error:
                     Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.orange.opacity(0.9))
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(.secondary)
                 case .dimmed:
                     Image(systemName: "moon.zzz")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.5))
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(.tertiary)
                 }
                 Text(placeholder.text)
                     .cmuxFont(size: 11.5)
-                    .foregroundColor(placeholder.style == .error ? .orange.opacity(0.9) : .secondary.opacity(0.7))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -98,15 +98,13 @@ struct CloudTreeRowContentView: View {
         }
     }
 
+    /// A section label ("Workspaces", "Ports"): dim text only, hierarchy comes
+    /// from the indentation and weight, not from color or an icon.
     private func groupRow(symbol: String, title: String) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary.opacity(0.7))
-                .frame(width: 14)
             Text(title)
-                .cmuxFont(size: 11, weight: .semibold)
-                .foregroundColor(.secondary.opacity(0.85))
+                .cmuxFont(size: 11, weight: .medium)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
@@ -119,45 +117,42 @@ struct CloudTreeRowContentView: View {
     }
 }
 
-/// A cmux-tui terminal row: lifecycle glyph, title, dimmed cwd, agent badge,
-/// and an "open" mark when a local pane is already showing it.
+/// A cmux-tui terminal row: lifecycle glyph, title (a dim sparkle prefix when an
+/// agent is running in it), dimmed cwd, and a dim "open" mark at the trailing
+/// edge when a local pane is already showing it. Monochrome like the Files tree:
+/// the lifecycle reads from the glyph shape and text weight, not from color.
 struct CloudTreeTerminalRowContent: View {
     let terminal: CloudTreeTerminal
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: glyph)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(glyphColor)
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(terminal.lifecycle == .exited ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
                 .frame(width: 14)
+            if let agent = agentLabel {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 9, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .help(agent)
+            }
             Text(terminal.title.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : terminal.title)
                 .cmuxFont(size: 12)
-                .foregroundColor(terminal.lifecycle == .exited ? .secondary.opacity(0.7) : .primary.opacity(0.9))
+                .foregroundStyle(terminal.lifecycle == .exited ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .lineLimit(1)
                 .truncationMode(.tail)
             if let cwd = terminal.cwd, !cwd.isEmpty {
                 Text(Self.abbreviated(cwd))
                     .cmuxFont(size: 10.5)
-                    .foregroundColor(.secondary.opacity(0.55))
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
-            if let agent = terminal.agentSource ?? terminal.agentState, !agent.isEmpty {
-                Text(agentBadge)
-                    .cmuxFont(size: 9.5, weight: .semibold)
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.14)))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help(agent)
-            }
             if terminal.openSurfaceID != nil {
-                Image(systemName: "macwindow.on.rectangle")
-                    .font(.system(size: 9.5, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.7))
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 9.5, weight: .regular))
+                    .foregroundStyle(.tertiary)
                     .help(String(localized: "cloudTree.terminal.open", defaultValue: "Open in a pane"))
             }
         }
@@ -166,22 +161,16 @@ struct CloudTreeTerminalRowContent: View {
     private var glyph: String {
         switch terminal.lifecycle {
         case .launching: return "terminal"
-        case .running: return "terminal.fill"
+        case .running: return "terminal"
         case .exited: return "xmark.rectangle"
         }
     }
 
-    private var glyphColor: Color {
-        switch terminal.lifecycle {
-        case .launching: return .secondary.opacity(0.6)
-        case .running: return .green.opacity(0.85)
-        case .exited: return .secondary.opacity(0.5)
-        }
-    }
-
-    private var agentBadge: String {
+    /// "source · state" for the tooltip; nil when no agent is attached.
+    private var agentLabel: String? {
         let source = terminal.agentSource?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let state = terminal.agentState?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if source.isEmpty, state.isEmpty { return nil }
         if !source.isEmpty, !state.isEmpty { return "\(source) · \(state)" }
         return source.isEmpty ? state : source
     }
@@ -204,25 +193,23 @@ struct CloudTreeMachineRowContent: View {
             activityDot
             VStack(alignment: .leading, spacing: 1) {
                 Text(machine.displayName)
-                    .cmuxFont(size: 13)
-                    .foregroundColor(.primary.opacity(0.92))
+                    .cmuxFont(size: 12.5, weight: .medium)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                HStack(spacing: 4) {
-                    // A box's type at a glance: a desktop machine has its screen,
-                    // a base machine is shell-only.
-                    Image(systemName: machine.isDesktop ? "display" : "terminal")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.6))
-                    Text(subtitle)
-                        .cmuxFont(size: 11)
-                        .foregroundColor(.secondary.opacity(0.75))
+                Text(subtitle)
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let stats = machine.stats, let line = Self.statsLine(stats) {
+                    // One dim line instead of colored gauges: the numbers carry the
+                    // information; color would only compete with the status dot.
+                    Text(line)
+                        .cmuxFont(size: 10.5, monospacedDigit: true)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                }
-                if let stats = machine.stats {
-                    MachineStatsLine(stats: stats)
-                        .padding(.top, 2)
                 }
             }
             Spacer(minLength: 0)
@@ -236,7 +223,7 @@ struct CloudTreeMachineRowContent: View {
         if machine.freeAccess == .expired {
             Image(systemName: "lock.fill")
                 .font(.system(size: 8, weight: .semibold))
-                .foregroundColor(.secondary.opacity(0.8))
+                .foregroundStyle(.secondary)
                 .frame(width: 7)
         } else {
             Circle()
@@ -245,12 +232,42 @@ struct CloudTreeMachineRowContent: View {
         }
     }
 
+    /// The one colored element in the tree: the sidebar's semantic status colors
+    /// (running, pending, needs attention), so a glance still answers "is it up".
     private var dotColor: Color {
         switch machine.activity {
         case .ready: return Color.green.opacity(0.85)
         case .pending: return Color.orange.opacity(0.9)
         case .attention: return Color.red.opacity(0.85)
         }
+    }
+
+    /// "CPU 9% · Mem 3.4/3.8 GB · Disk 2.8/3.1 GB" for an awake machine, the
+    /// asleep line otherwise; nil when there is nothing to say yet.
+    static func statsLine(_ stats: VMStats) -> String? {
+        switch stats.state {
+        case .awake:
+            var parts: [String] = []
+            if let cpu = stats.cpuPercent {
+                parts.append(String(format: String(localized: "cloudTree.stats.cpu", defaultValue: "CPU %d%%"), Int(cpu.rounded())))
+            }
+            if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb, total > 0 {
+                parts.append(String(format: String(localized: "cloudTree.stats.memory", defaultValue: "Mem %@/%@ GB"), gb(used), gb(total)))
+            }
+            if let used = stats.diskUsedMb, let total = stats.diskTotalMb, total > 0 {
+                parts.append(String(format: String(localized: "cloudTree.stats.disk", defaultValue: "Disk %@/%@ GB"), gb(used), gb(total)))
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        case .asleep:
+            return String(localized: "machines.stats.asleep", defaultValue: "Asleep \u{00B7} free while it sleeps")
+        case .unknown:
+            return nil
+        }
+    }
+
+    private static func gb(_ mb: Int) -> String {
+        let value = Double(mb) / 1024
+        return value >= 10 ? String(format: "%.0f", value) : String(format: "%.1f", value)
     }
 
     private var subtitle: String {

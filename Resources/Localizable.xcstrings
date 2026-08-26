@@ -59494,6 +59494,57 @@
         }
       }
     },
+    "cloudTree.stats.cpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU %d%%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU %d%%"
+          }
+        }
+      }
+    },
+    "cloudTree.stats.disk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk %@/%@ GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク %@/%@ GB"
+          }
+        }
+      }
+    },
+    "cloudTree.stats.memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mem %@/%@ GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ %@/%@ GB"
+          }
+        }
+      }
+    },
     "cloudTree.terminal.open": {
       "extractionState": "manual",
       "localizations": {

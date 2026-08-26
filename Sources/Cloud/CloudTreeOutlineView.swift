@@ -152,7 +152,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(24) }
             switch node.kind {
             case .machine(let machine):
-                return GlobalFontMagnification.scaledSize(machine.stats == nil ? 40 : 54)
+                return GlobalFontMagnification.scaledSize(machine.stats == nil ? 38 : 50)
             case .workspacesGroup, .portsGroup:
                 return GlobalFontMagnification.scaledSize(22)
             case .workspace, .terminal, .desktop, .port, .placeholder:

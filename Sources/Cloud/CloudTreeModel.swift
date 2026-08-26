@@ -87,6 +87,47 @@ enum CloudTreePlacement: String, Codable, Sendable {
     case pane
 }
 
+/// The side of a pane a split lands on; the same tokens `surface.split` takes.
+enum CloudTreeSplitDirection: String, Codable, Sendable {
+    case left
+    case right
+    case up
+    case down
+}
+
+/// Exactly where a tree node opens: the pane it is dropped on, a surface in that
+/// pane (what `surface.split` splits from), and the side, or a tab index for an
+/// insert into the pane's tab strip. A drop carries the real Bonsplit destination
+/// through this so a Cloud terminal lands where a Vault session or a file would.
+/// Mirrors the optional `pane_id` / `surface_id` / `direction` / `tab_index`
+/// socket params.
+struct CloudTreeOpenTarget: Codable, Sendable, Equatable {
+    var paneID: String?
+    var surfaceID: String?
+    var direction: CloudTreeSplitDirection?
+    var tabIndex: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case paneID = "pane_id"
+        case surfaceID = "surface_id"
+        case direction
+        case tabIndex = "tab_index"
+    }
+
+    init(paneID: String? = nil, surfaceID: String? = nil, direction: CloudTreeSplitDirection? = nil, tabIndex: Int? = nil) {
+        self.paneID = paneID
+        self.surfaceID = surfaceID
+        self.direction = direction
+        self.tabIndex = tabIndex
+    }
+
+    /// A direction means a split; anything else adds a tab to the pane.
+    var placement: CloudTreePlacement { direction == nil ? .tab : .split }
+
+    /// Nothing to aim at: the service falls back to the workspace's focused pane.
+    var isEmpty: Bool { paneID == nil && surfaceID == nil && direction == nil && tabIndex == nil }
+}
+
 /// A node that can be dragged out of the tree into the main view. Names a daemon-side
 /// resource, not a VM, so the same payload can later serve ssh boxes and local sessions.
 enum CloudTreeDragItem: Codable, Sendable, Equatable {
@@ -102,13 +143,29 @@ protocol CloudTreeServicing: AnyObject {
     /// Current snapshot; `refresh` forces the machine list and every awake link to re-sync.
     func tree(machineID: String?, refresh: Bool) async throws -> CloudTreeSnapshot
     /// Opens (or focuses an already-open pane showing) a terminal of a machine's cmux-tui session.
-    func openTerminal(machineID: String, terminalID: String, workspaceID: String?, placement: CloudTreePlacement?, focus: Bool) async throws -> CloudTreeOpenResult
+    /// `target` pins the pane and side (a drop); nil opens relative to the workspace's focused pane.
+    func openTerminal(machineID: String, terminalID: String, workspaceID: String?, placement: CloudTreePlacement?, focus: Bool, target: CloudTreeOpenTarget?) async throws -> CloudTreeOpenResult
     /// Creates a terminal in the machine's cmux-tui session (optionally running a command), optionally opening it locally.
     func newTerminal(machineID: String, workspaceID: String?, command: [String]?, cwd: String?, name: String?, open: Bool) async throws -> CloudTreeNewTerminalResult
-    func openDesktop(machineID: String, workspaceID: String?, focus: Bool) async throws -> CloudTreeOpenURLResult
-    func openPort(machineID: String, port: Int, workspaceID: String?) async throws -> CloudTreeOpenURLResult
+    func openDesktop(machineID: String, workspaceID: String?, focus: Bool, target: CloudTreeOpenTarget?) async throws -> CloudTreeOpenURLResult
+    func openPort(machineID: String, port: Int, workspaceID: String?, target: CloudTreeOpenTarget?) async throws -> CloudTreeOpenURLResult
     /// The headless cmux-tui link's local mux socket for a machine (ensures the link exists).
     func linkSocket(machineID: String) async throws -> CloudTreeLinkSocket
+}
+
+extension CloudTreeServicing {
+    /// Opens relative to the workspace's focused pane (no drop target).
+    func openTerminal(machineID: String, terminalID: String, workspaceID: String?, placement: CloudTreePlacement?, focus: Bool) async throws -> CloudTreeOpenResult {
+        try await openTerminal(machineID: machineID, terminalID: terminalID, workspaceID: workspaceID, placement: placement, focus: focus, target: nil)
+    }
+
+    func openDesktop(machineID: String, workspaceID: String?, focus: Bool) async throws -> CloudTreeOpenURLResult {
+        try await openDesktop(machineID: machineID, workspaceID: workspaceID, focus: focus, target: nil)
+    }
+
+    func openPort(machineID: String, port: Int, workspaceID: String?) async throws -> CloudTreeOpenURLResult {
+        try await openPort(machineID: machineID, port: port, workspaceID: workspaceID, target: nil)
+    }
 }
 
 struct CloudTreeOpenResult: Codable, Sendable, Equatable {
