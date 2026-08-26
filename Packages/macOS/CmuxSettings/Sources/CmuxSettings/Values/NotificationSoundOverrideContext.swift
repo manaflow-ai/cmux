@@ -48,9 +48,13 @@ nonisolated public struct NotificationSoundOverrideContext: Codable, Equatable, 
 
     /// Returns whether a string is safe to use as a dynamic settings key.
     public static func isValidAgentID(_ value: String) -> Bool {
-        value != "." && value != ".." && !value.isEmpty && value.range(
-            of: #"^[A-Za-z0-9._-]+$"#,
-            options: .regularExpression
-        ) != nil
+        guard value != ".", value != "..", !value.isEmpty, value.count <= 64 else {
+            return false
+        }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
+        }
     }
 }

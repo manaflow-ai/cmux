@@ -1,18 +1,66 @@
+import Darwin
 import Foundation
+import os
 
-/// Gives a cancellation handler a Sendable way to terminate an `afconvert`
-/// process without capturing the Foundation process directly in a concurrent
+/// Gives a cancellation handler a Sendable way to terminate a spawned helper
+/// process without capturing Foundation's `Process` object in a concurrent
 /// closure.
-private final class NotificationSoundProcessCancellation: @unchecked Sendable {
-    private let process: Process
+final class NotificationSoundProcessCancellation: @unchecked Sendable {
+    private struct State: Sendable {
+        var processIdentifier: pid_t?
+        var cancellationRequested = false
+        var finished = false
+    }
 
-    init(process: Process) {
-        self.process = process
+    // Safety: this lock is only a short compare-and-set for the process handle
+    // shared by the synchronous spawn/cancellation callbacks. Process lifetime
+    // and all mutable staging state remain owned by the async caller/actor.
+    private let state = OSAllocatedUnfairLock(initialState: State(processIdentifier: nil))
+
+    /// Registers the child before it is resumed, returning whether it may run.
+    func register(processIdentifier: pid_t) -> Bool {
+        let shouldResume = state.withLock { state in
+            state.processIdentifier = processIdentifier
+            return !state.cancellationRequested && !state.finished
+        }
+        if !shouldResume {
+            terminate(processIdentifier: processIdentifier)
+        }
+        return shouldResume
+    }
+
+    /// Marks a reaped child so a late cancellation cannot signal a recycled PID.
+    func markFinished() {
+        state.withLock { state in
+            state.finished = true
+            state.processIdentifier = nil
+        }
     }
 
     func cancel() {
-        guard process.isRunning else { return }
-        process.terminate()
+        let processID = state.withLock { state -> pid_t? in
+            state.cancellationRequested = true
+            guard !state.finished else { return nil }
+            return state.processIdentifier
+        }
+        if let processID {
+            terminate(processIdentifier: processID)
+        }
+    }
+
+    private func terminate(processIdentifier: pid_t) {
+        guard processIdentifier > 1 else { return }
+        let groupResult = Darwin.kill(-processIdentifier, SIGTERM)
+        let groupError = errno
+        // The child was spawned with POSIX_SPAWN_SETPGROUP, so descendants
+        // inherit this group before they can execute. Escalate immediately to
+        // keep cancellation bounded even when a shell ignores SIGTERM.
+        _ = Darwin.kill(-processIdentifier, SIGKILL)
+        if groupResult == -1, groupError == ESRCH {
+            // Defensive fallback for a platform/runtime that reaped the group
+            // before the signal arrived; never leave the leader un-reaped.
+            _ = Darwin.kill(processIdentifier, SIGKILL)
+        }
     }
 }
 
@@ -43,70 +91,364 @@ private final class NotificationSoundErrorPipeReader: @unchecked Sendable {
 /// Runs `afconvert` without blocking the caller's executor.
 struct NotificationSoundProcessRunner: Sendable {
     private static let maximumErrorOutputBytes = 64 * 1024
+    private static let defaultExecutableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+    private static let defaultTimeoutNanoseconds: UInt64 = 30_000_000_000
 
     struct Result: Sendable {
         let terminationStatus: Int32
         let errorOutput: String?
     }
 
+    private let executableURL: URL
+    private let timeoutNanoseconds: UInt64
+    private let argumentBuilder: @Sendable (URL, URL) -> [String]
+
+    init(
+        executableURL: URL = defaultExecutableURL,
+        timeoutNanoseconds: UInt64 = defaultTimeoutNanoseconds,
+        argumentBuilder: @escaping @Sendable (URL, URL) -> [String] = { sourceURL, destinationURL in
+            [
+                "-f", "caff",
+                "-d", "LEI16",
+                sourceURL.standardizedFileURL.path,
+                destinationURL.standardizedFileURL.path,
+            ]
+        }
+    ) {
+        self.executableURL = executableURL
+        self.timeoutNanoseconds = timeoutNanoseconds
+        self.argumentBuilder = argumentBuilder
+    }
+
     func run(
         from sourceURL: URL,
         to destinationURL: URL
     ) async throws -> Result {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
-        process.arguments = [
-            "-f", "caff",
-            "-d", "LEI16",
-            sourceURL.standardizedFileURL.path,
-            destinationURL.standardizedFileURL.path,
-        ]
-        process.standardOutput = FileHandle.nullDevice
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        let errorReader = NotificationSoundErrorPipeReader(
-            handle: errorPipe.fileHandleForReading
+        try await run(
+            arguments: argumentBuilder(sourceURL, destinationURL),
+            environment: nil
         )
-        let errorReaderTask = Task.detached {
-            errorReader.readCapped(maxBytes: Self.maximumErrorOutputBytes)
-        }
+    }
 
-        let cancellation = NotificationSoundProcessCancellation(process: process)
-        let terminationStatus: Int32
+    /// Runs an arbitrary command through the same process-group and deadline
+    /// machinery used by `afconvert`.
+    func run(
+        arguments: [String],
+        environment: [String: String]?
+    ) async throws -> Result {
+        let cancellation = NotificationSoundProcessCancellation()
         do {
-            terminationStatus = try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { continuation in
-                    // Install the handler before launching. A fast conversion
-                    // can otherwise exit before Foundation has a callback.
-                    process.terminationHandler = { terminatedProcess in
-                        continuation.resume(returning: terminatedProcess.terminationStatus)
-                    }
-                    do {
-                        try process.run()
-                        if Task.isCancelled {
+            return try await withThrowingTaskGroup(of: Result.self) { group in
+                group.addTask {
+                    try await withTaskCancellationHandler(
+                        operation: {
+                            try await runProcess(
+                                arguments: [executableURL.path] + arguments,
+                                environment: environment,
+                                cancellation: cancellation
+                            )
+                        },
+                        onCancel: {
                             cancellation.cancel()
                         }
-                    } catch {
-                        process.terminationHandler = nil
-                        errorPipe.fileHandleForReading.closeFile()
-                        errorPipe.fileHandleForWriting.closeFile()
-                        continuation.resume(throwing: error)
-                    }
+                    )
                 }
-            } onCancel: {
-                cancellation.cancel()
+                group.addTask {
+                    let boundedNanoseconds = min(
+                        timeoutNanoseconds,
+                        UInt64(Int64.max)
+                    )
+                    // Genuine external-process deadline; cancellation kills
+                    // the entire private process group and then reaps it.
+                    try await ContinuousClock().sleep(
+                        for: .nanoseconds(Int64(boundedNanoseconds))
+                    )
+                    throw CancellationError()
+                }
+                defer { group.cancelAll() }
+                guard let result = try await group.next() else {
+                    throw CancellationError()
+                }
+                try Task.checkCancellation()
+                return result
             }
         } catch {
             cancellation.cancel()
             throw error
         }
+    }
 
+    private func runProcess(
+        arguments: [String],
+        environment: [String: String]?,
+        cancellation: NotificationSoundProcessCancellation
+    ) async throws -> Result {
+        try Task.checkCancellation()
+
+        var pipeDescriptors: [Int32] = [-1, -1]
+        guard pipe(&pipeDescriptors) == 0 else {
+            throw processError(code: errno, operation: "pipe")
+        }
+        guard pipeDescriptors.allSatisfy({ $0 > STDERR_FILENO }) else {
+            pipeDescriptors.forEach { descriptor in
+                if descriptor >= 0 { Darwin.close(descriptor) }
+            }
+            throw processError(code: EINVAL, operation: "pipe descriptors")
+        }
+
+        let errorReader = NotificationSoundErrorPipeReader(
+            handle: FileHandle(
+                fileDescriptor: pipeDescriptors[0],
+                closeOnDealloc: false
+            )
+        )
+        let errorReaderTask = Task.detached(priority: .utility) {
+            errorReader.readCapped(maxBytes: Self.maximumErrorOutputBytes)
+        }
+
+        let processIdentifier: pid_t
+        do {
+            processIdentifier = try spawnProcess(
+                arguments: arguments,
+                environment: environment,
+                errorFileDescriptor: pipeDescriptors[1]
+            )
+        } catch {
+            Darwin.close(pipeDescriptors[1])
+            _ = await errorReaderTask.value
+            closeReadDescriptor(&pipeDescriptors)
+            throw error
+        }
+        // The parent must close its writer after spawn; otherwise the reader
+        // cannot observe EOF after the process group exits.
+        Darwin.close(pipeDescriptors[1])
+        pipeDescriptors[1] = -1
+
+        // Start waiting before registering/resuming. If cancellation was
+        // already requested, registration kills the still-suspended child and
+        // this single waiter still owns the required reap.
+        let terminationTask: Task<Int32, Error> = Task.detached(priority: .utility) {
+            var rawStatus: Int32 = 0
+            var waitResult: pid_t
+            repeat {
+                waitResult = waitpid(processIdentifier, &rawStatus, 0)
+            } while waitResult == -1 && errno == EINTR
+            guard waitResult == processIdentifier else {
+                let waitError = errno
+                throw processError(code: waitError, operation: "waitpid")
+            }
+            guard (rawStatus & 0x7f) == 0 else {
+                return rawStatus & 0x7f
+            }
+            return (rawStatus >> 8) & 0xff
+        }
+
+        guard cancellation.register(processIdentifier: processIdentifier) else {
+            cancellation.cancel()
+            _ = await terminationTask.result
+            _ = await errorReaderTask.value
+            closeReadDescriptor(&pipeDescriptors)
+            throw CancellationError()
+        }
+
+        let continueResult = Darwin.kill(processIdentifier, SIGCONT)
+        if continueResult != 0 {
+            let continueError = errno
+            cancellation.cancel()
+            _ = await terminationTask.result
+            _ = await errorReaderTask.value
+            closeReadDescriptor(&pipeDescriptors)
+            if Task.isCancelled { throw CancellationError() }
+            throw processError(code: continueError, operation: "SIGCONT")
+        }
+
+        let terminationStatus: Int32
+        do {
+            terminationStatus = try await terminationTask.value
+        } catch {
+            cancellation.cancel()
+            _ = await errorReaderTask.value
+            closeReadDescriptor(&pipeDescriptors)
+            throw error
+        }
+        cancellation.markFinished()
         let errorData = await errorReaderTask.value
+        closeReadDescriptor(&pipeDescriptors)
+        try Task.checkCancellation()
         let errorOutput = String(data: errorData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return Result(
             terminationStatus: terminationStatus,
             errorOutput: errorOutput.flatMap { $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private func spawnProcess(
+        arguments: [String],
+        environment: [String: String]?,
+        errorFileDescriptor: Int32
+    ) throws -> pid_t {
+        guard !arguments.isEmpty,
+              arguments.allSatisfy({ !$0.utf8.contains(0) }) else {
+            throw processError(code: EINVAL, operation: "arguments")
+        }
+        guard errorFileDescriptor > STDERR_FILENO else {
+            throw processError(code: EINVAL, operation: "stderr descriptor")
+        }
+
+        var fileActions: posix_spawn_file_actions_t?
+        var setupStatus = posix_spawn_file_actions_init(&fileActions)
+        guard setupStatus == 0 else {
+            throw processError(code: setupStatus, operation: "file actions")
+        }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        setupStatus = "/dev/null".withCString {
+            posix_spawn_file_actions_addopen(
+                &fileActions,
+                STDIN_FILENO,
+                $0,
+                O_RDONLY,
+                0
+            )
+        }
+        if setupStatus == 0 {
+            setupStatus = "/dev/null".withCString {
+                posix_spawn_file_actions_addopen(
+                    &fileActions,
+                    STDOUT_FILENO,
+                    $0,
+                    O_WRONLY,
+                    0
+                )
+            }
+        }
+        if setupStatus == 0 {
+            setupStatus = posix_spawn_file_actions_adddup2(
+                &fileActions,
+                errorFileDescriptor,
+                STDERR_FILENO
+            )
+        }
+        if setupStatus == 0 {
+            setupStatus = posix_spawn_file_actions_addclose(
+                &fileActions,
+                errorFileDescriptor
+            )
+        }
+        guard setupStatus == 0 else {
+            throw processError(code: setupStatus, operation: "file actions")
+        }
+
+        var attributes: posix_spawnattr_t?
+        setupStatus = posix_spawnattr_init(&attributes)
+        guard setupStatus == 0 else {
+            throw processError(code: setupStatus, operation: "spawn attributes")
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        // The child starts stopped with its own process group already assigned;
+        // this closes the fork/exec window in which shell descendants could
+        // escape a post-launch setpgid call. The caller sends SIGCONT only after
+        // installing cancellation ownership and the waitpid owner.
+        let spawnFlags = Int16(
+            POSIX_SPAWN_CLOEXEC_DEFAULT
+                | POSIX_SPAWN_SETPGROUP
+                | POSIX_SPAWN_START_SUSPENDED
+        )
+        setupStatus = posix_spawnattr_setpgroup(&attributes, 0)
+        if setupStatus == 0 {
+            setupStatus = posix_spawnattr_setflags(&attributes, spawnFlags)
+        }
+        guard setupStatus == 0 else {
+            throw processError(code: setupStatus, operation: "spawn attributes")
+        }
+
+        var argumentPointers = arguments.map { strdup($0) }
+        defer {
+            for pointer in argumentPointers where pointer != nil {
+                free(pointer)
+            }
+        }
+        guard argumentPointers.allSatisfy({ $0 != nil }) else {
+            throw processError(code: ENOMEM, operation: "argv allocation")
+        }
+        argumentPointers.append(nil)
+
+        var environmentPointers: [UnsafeMutablePointer<CChar>?] = []
+        if let environment {
+            let entries = environment
+                .map { "\($0.key)=\($0.value)" }
+                .sorted()
+            guard entries.allSatisfy({ !$0.utf8.contains(0) }) else {
+                throw processError(code: EINVAL, operation: "environment")
+            }
+            environmentPointers = entries.map { strdup($0) }
+            guard environmentPointers.allSatisfy({ $0 != nil }) else {
+                throw processError(code: ENOMEM, operation: "environment allocation")
+            }
+            environmentPointers.append(nil)
+        }
+        defer {
+            for pointer in environmentPointers where pointer != nil {
+                free(pointer)
+            }
+        }
+
+        var processIdentifier: pid_t = 0
+        let spawnStatus = arguments[0].withCString { executablePointer in
+            argumentPointers.withUnsafeMutableBufferPointer { argumentBuffer in
+                if environment == nil {
+                    guard let argumentBase = argumentBuffer.baseAddress else {
+                        return Int32(EINVAL)
+                    }
+                    return posix_spawn(
+                        &processIdentifier,
+                        executablePointer,
+                        &fileActions,
+                        &attributes,
+                        argumentBase,
+                        environ
+                    )
+                }
+                return environmentPointers.withUnsafeMutableBufferPointer { environmentBuffer in
+                    guard let argumentBase = argumentBuffer.baseAddress,
+                          let environmentBase = environmentBuffer.baseAddress else {
+                        return Int32(EINVAL)
+                    }
+                    return posix_spawn(
+                        &processIdentifier,
+                        executablePointer,
+                        &fileActions,
+                        &attributes,
+                        argumentBase,
+                        environmentBase
+                    )
+                }
+            }
+        }
+        guard spawnStatus == 0, processIdentifier > 1 else {
+            throw processError(
+                code: spawnStatus == 0 ? ECHILD : spawnStatus,
+                operation: "posix_spawn"
+            )
+        }
+        return processIdentifier
+    }
+
+    private func closeReadDescriptor(_ descriptors: inout [Int32]) {
+        guard let index = descriptors.firstIndex(where: { $0 >= 0 }) else { return }
+        Darwin.close(descriptors[index])
+        descriptors[index] = -1
+    }
+
+    private func processError(code: Int32, operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(code),
+            userInfo: [
+                NSLocalizedDescriptionKey: operation + " failed (" + String(code) + ")"
+            ]
         )
     }
 }
@@ -219,12 +561,22 @@ extension NotificationSoundSettings {
     /// actor, returning only a playback-ready value to the caller.
     static func prepareNotificationSound(
         snapshot: NotificationSoundResolutionSnapshot,
-        stagingDirectory: URL? = nil
+        stagingDirectory: URL? = nil,
+        pendingReferenceID: String? = nil
     ) async -> PreparedNotificationSound {
         await soundStager.prepareNotificationSound(
             snapshot: snapshot,
-            stagingDirectory: stagingDirectory
+            stagingDirectory: stagingDirectory,
+            pendingReferenceID: pendingReferenceID
         )
+    }
+
+    static func releasePendingNotificationSound(referenceID: String) async {
+        await soundStager.releasePendingArtifactReference(referenceID)
+    }
+
+    static func deferPendingNotificationSound(referenceID: String) async {
+        await soundStager.deferPendingArtifactReference(referenceID)
     }
 
     static func stageSystemSound(

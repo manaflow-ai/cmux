@@ -431,6 +431,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private var nativeNotificationDeliveryHooks: NativeNotificationDeliveryHooks
     /// Owns admitted local sound/feedback operations until they finish.
+    private static let maxNotificationFeedbackTasks = 32
     private var notificationFeedbackTasks: [UUID: Task<Void, Never>] = [:]
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
@@ -487,30 +488,46 @@ final class TerminalNotificationStore: ObservableObject {
     private func enqueueNotificationFeedback(
         _ operation: @escaping @MainActor @Sendable () async -> Void
     ) {
+        // Sound preparation is serialized by NotificationSoundStager. Bound
+        // the retained backlog so a burst cannot keep every title/body alive
+        // for the lifetime of a slow conversion.
+        while notificationFeedbackTasks.count >= Self.maxNotificationFeedbackTasks,
+              let evictedID = notificationFeedbackTasks.keys.first {
+            notificationFeedbackTasks.removeValue(forKey: evictedID)?.cancel()
+        }
         let taskID = UUID()
         let task = Task { @MainActor [weak self] in
+            defer { self?.notificationFeedbackTasks.removeValue(forKey: taskID) }
+            guard !Task.isCancelled else { return }
             await operation()
-            guard let self else { return }
-            self.notificationFeedbackTasks.removeValue(forKey: taskID)
         }
         notificationFeedbackTasks[taskID] = task
     }
 
-    private func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+    private func removeNotificationRequestsAndReleaseSoundReferences(
+        withIdentifiers identifiers: [String]
+    ) {
         guard !identifiers.isEmpty else { return }
         Task { [userNotificationCenter] in
-            _ = await userNotificationCenter.removeDeliveredNotifications(
+            let deliveredResult = await userNotificationCenter.removeDeliveredNotifications(
                 withIdentifiers: identifiers
             )
-        }
-    }
-
-    private func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
-        guard !identifiers.isEmpty else { return }
-        Task { [userNotificationCenter] in
-            _ = await userNotificationCenter.removePendingNotificationRequests(
+            let pendingResult = await userNotificationCenter.removePendingNotificationRequests(
                 withIdentifiers: identifiers
             )
+            guard case .success = deliveredResult, case .success = pendingResult else {
+                for identifier in identifiers {
+                    await NotificationSoundSettings.deferPendingNotificationSound(
+                        referenceID: identifier
+                    )
+                }
+                return
+            }
+            for identifier in identifiers {
+                await NotificationSoundSettings.releasePendingNotificationSound(
+                    referenceID: identifier
+                )
+            }
         }
     }
 
@@ -1577,8 +1594,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
 #endif
         if !idsToClear.isEmpty {
-            removeDeliveredNotifications(withIdentifiers: idsToClear)
-            removePendingNotificationRequests(withIdentifiers: idsToClear)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: idsToClear)
             // Decide replacement admission exactly once in the side-effect
             // chokepoint below. Until then, retain the superseded ids so the
             // actual queue result determines whether dismissal is immediate or
@@ -1732,7 +1748,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if !activeIDs.isEmpty {
             notifications = updated
-            removeDeliveredNotifications(withIdentifiers: activeIDs)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: activeIDs)
             emitNotificationsDismissed(
                 ids: activeIDs,
                 drainedSuperseded: drainedSuperseded
@@ -1799,7 +1815,7 @@ final class TerminalNotificationStore: ObservableObject {
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
-            removeDeliveredNotifications(withIdentifiers: idsToClear)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
                 ids: idsToClear,
                 drainedSuperseded: supersededPhoneDismissBuffer.flush(matchingTabId: tabId)
@@ -1849,8 +1865,7 @@ final class TerminalNotificationStore: ObservableObject {
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         if !idsToClear.isEmpty {
-            removeDeliveredNotifications(withIdentifiers: idsToClear)
-            removePendingNotificationRequests(withIdentifiers: idsToClear)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: idsToClear)
             emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
         }
     }
@@ -1972,8 +1987,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
-            removeDeliveredNotifications(withIdentifiers: idsToClear)
-            removePendingNotificationRequests(withIdentifiers: idsToClear)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
                 ids: idsToClear,
                 drainedSuperseded: supersededPhoneDismissBuffer.flushAll()
@@ -1992,7 +2006,7 @@ final class TerminalNotificationStore: ObservableObject {
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
-        removeDeliveredNotifications(withIdentifiers: [id.uuidString])
+        removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: [id.uuidString])
         let supersededDrained = removed.map { removedNotification in
             supersededPhoneDismissBuffer.flush(
                 forKey: SupersededPhoneDismissBuffer.key(
@@ -2010,7 +2024,8 @@ final class TerminalNotificationStore: ObservableObject {
             $0.tabId == tabId && $0.correlationKey == correlationKey ? $0.id : nil
         }
         ids.forEach(remove)
-        removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
+        // `remove(id:)` already performs the combined UserNotifications clear
+        // for each active record; do not issue a second pending-removal batch.
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
@@ -2039,8 +2054,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearFocusedReadIndicator(forTabId: tabId)
 
         if didChangeNotifications, !removedIds.isEmpty {
-            removeDeliveredNotifications(withIdentifiers: removedIds)
-            removePendingNotificationRequests(withIdentifiers: removedIds)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: removedIds)
         }
     }
 
@@ -2071,7 +2085,8 @@ final class TerminalNotificationStore: ObservableObject {
             paneFlash: notification.paneFlash,
             scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction,
-            replyShape: notification.replyShape
+            replyShape: notification.replyShape,
+            soundContext: notification.soundContext
         )
     }
 
@@ -2098,8 +2113,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
-        removeDeliveredNotifications(withIdentifiers: ids)
-        removePendingNotificationRequests(withIdentifiers: ids)
+        removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: ids)
         emitNotificationsDismissed(ids: ids, drainedSuperseded: supersededPhoneDismissBuffer.flushAll())
     }
 
@@ -2160,8 +2174,7 @@ final class TerminalNotificationStore: ObservableObject {
         indicatorTabIds.forEach { clearFocusedReadIndicator(forTabId: $0, surfaceId: surfaceId) }
         if !idsToClear.isEmpty {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabIds.count == 1 ? tabId : nil, surfaceId: surfaceId)
-            removeDeliveredNotifications(withIdentifiers: idsToClear)
-            removePendingNotificationRequests(withIdentifiers: idsToClear)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: idsToClear)
             emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
         }
     }
@@ -2186,6 +2199,7 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
                 panelId: notification.panelId,
+                retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
                 correlationKey: notification.correlationKey,
                 title: notification.title,
                 subtitle: notification.subtitle,
@@ -2195,7 +2209,8 @@ final class TerminalNotificationStore: ObservableObject {
                 paneFlash: notification.paneFlash,
                 scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction,
-                replyShape: notification.replyShape
+                replyShape: notification.replyShape,
+                soundContext: notification.soundContext
             )
         }
         if didMoveNotification {
@@ -2237,8 +2252,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearFocusedReadIndicator(forTabId: tabId)
         if !idsToClear.isEmpty {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
-            removeDeliveredNotifications(withIdentifiers: idsToClear)
-            removePendingNotificationRequests(withIdentifiers: idsToClear)
+            removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
                 ids: idsToClear,
                 drainedSuperseded: supersededPhoneDismissBuffer.flush(matchingTabId: tabId)
@@ -2295,14 +2309,39 @@ final class TerminalNotificationStore: ObservableObject {
                 return
             }
             Task { @MainActor in
+                guard let self else { return }
+                if effects.record,
+                   !self.notifications.contains(where: { $0.id == notificationId }) {
+                    await NotificationSoundSettings.releasePendingNotificationSound(
+                        referenceID: notificationId.uuidString
+                    )
+                    return
+                }
                 let content = UNMutableNotificationContent()
                 content.title = notificationTitle
                 content.subtitle = notificationSubtitle
                 content.body = notificationBody
                 if effects.sound {
                     content.sound = await NotificationSoundSettings.nativeNotificationSound(
-                        context: notificationSoundContext
+                        context: notificationSoundContext,
+                        // Effects-only desktop requests are not retained in
+                        // `notifications`, so they cannot be released by a
+                        // later clear path. Give them the same finite
+                        // reference and downgrade it to a short lease below.
+                        pendingReferenceID: notificationId.uuidString
                     )
+                }
+                if !effects.record {
+                    await NotificationSoundSettings.deferPendingNotificationSound(
+                        referenceID: notificationId.uuidString
+                    )
+                }
+                if effects.record,
+                   !self.notifications.contains(where: { $0.id == notificationId }) {
+                    await NotificationSoundSettings.releasePendingNotificationSound(
+                        referenceID: notificationId.uuidString
+                    )
+                    return
                 }
                 content.categoryIdentifier = categoryIdentifier
                 content.userInfo = [
@@ -2334,6 +2373,11 @@ final class TerminalNotificationStore: ObservableObject {
                         terminalNotificationLogger.error(
                             "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
                         )
+                        Task {
+                            await NotificationSoundSettings.deferPendingNotificationSound(
+                                referenceID: notificationId.uuidString
+                            )
+                        }
                         Task { @MainActor [weak self] in
                             self?.enqueueNotificationFeedback {
                                 await nativeDeliveryHooks.playUnavailableFeedback(
@@ -2378,12 +2422,18 @@ final class TerminalNotificationStore: ObservableObject {
         soundContext: NotificationSoundOverrideContext? = nil
     ) {
         let hooks = nativeNotificationDeliveryHooks
+        if effects.command {
+            hooks.runCommand(title: title, subtitle: subtitle, body: body)
+        }
+        guard effects.sound else { return }
+        var soundEffects = effects
+        soundEffects.command = false
         enqueueNotificationFeedback {
             await hooks.runLocalFeedback(
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                effects: effects,
+                effects: soundEffects,
                 soundContext: soundContext
             )
         }

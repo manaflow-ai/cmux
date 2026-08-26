@@ -1327,10 +1327,16 @@ private extension FeedCoordinator {
 
             if effectiveEffects.sound {
                 content.sound = await NotificationSoundSettings.nativeNotificationSound(
-                    context: soundContext
+                    context: soundContext,
+                    pendingReferenceID: "feed.\(requestId)"
                 )
             }
-            guard self.isAwaitingDecision(requestId: requestId) else { return }
+            guard self.isAwaitingDecision(requestId: requestId) else {
+                await NotificationSoundSettings.releasePendingNotificationSound(
+                    referenceID: "feed.\(requestId)"
+                )
+                return
+            }
             let request = UNNotificationRequest(
                 identifier: "feed.\(requestId)",
                 content: content,
@@ -1519,8 +1525,21 @@ private extension FeedCoordinator {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let center = self.resolvedUserNotificationCenter
-            _ = await center.removePendingNotificationRequests(withIdentifiers: [identifier])
-            _ = await center.removeDeliveredNotifications(withIdentifiers: [identifier])
+            let pendingResult = await center.removePendingNotificationRequests(
+                withIdentifiers: [identifier]
+            )
+            let deliveredResult = await center.removeDeliveredNotifications(
+                withIdentifiers: [identifier]
+            )
+            if case .success = pendingResult, case .success = deliveredResult {
+                await NotificationSoundSettings.releasePendingNotificationSound(
+                    referenceID: identifier
+                )
+            } else {
+                await NotificationSoundSettings.deferPendingNotificationSound(
+                    referenceID: identifier
+                )
+            }
             let categoryId = "CMUXFeedQuestion.\(requestId)"
             self.enqueueQuestionCategoryUpdate {
                 guard case .success(let current) = await center.notificationCategories() else { return }

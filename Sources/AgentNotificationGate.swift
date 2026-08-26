@@ -107,12 +107,7 @@ struct AgentNotificationMeta {
     /// grammar: 1-64 characters of `[a-z0-9._-]`. Both sides must agree
     /// exactly or the meta folds back into the notification body.
     static func isValidAgentKindTag(_ value: String) -> Bool {
-        guard !value.isEmpty, value.count <= 64 else { return false }
-        return value.allSatisfy { character in
-            character.isASCII
-                && (character.isLowercase || character.isNumber
-                    || character == "." || character == "_" || character == "-")
-        }
+        NotificationSoundOverrideContext.isValidAgentID(value)
     }
 }
 

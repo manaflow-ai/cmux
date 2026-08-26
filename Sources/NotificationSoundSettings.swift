@@ -28,6 +28,7 @@ nonisolated enum NotificationSoundSettings {
 
     private static let activePlaybackSoundsLock = NSLock()
     private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
+    private static var activeCustomCommandCount = 0
     private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
     private static let dndAssertionQueue = DispatchQueue(
         label: "com.cmuxterm.notification-dnd-assertion",
@@ -35,8 +36,11 @@ nonisolated enum NotificationSoundSettings {
     )
     private static let customCommandQueue = DispatchQueue(
         label: "com.cmuxterm.notification-custom-command",
-        qos: .utility
+        qos: .utility,
+        attributes: .concurrent
     )
+    private static let maximumCustomCommandProcesses = 32
+    private static let maximumCustomCommandTimeoutNanoseconds: UInt64 = 300_000_000_000
 
     /// NSSound may invoke its delegate after playback on a non-main thread.
     /// The delegate therefore only calls the lock-protected release helper;
@@ -197,19 +201,22 @@ nonisolated enum NotificationSoundSettings {
         assertionsFileURL: URL = defaultAssertionsFileURL,
         context: NotificationSoundOverrideContext? = nil
     ) async -> Bool {
+        guard !Task.isCancelled else { return false }
         let snapshot = resolutionSnapshot(context: context, defaults: defaults)
         let suppressedAtAdmission = await activeFocusSuppression(
             assertionsFileURL: assertionsFileURL
         )
-        guard !suppressedAtAdmission else { return false }
+        guard !Task.isCancelled, !suppressedAtAdmission else { return false }
 
         let prepared = await prepareNotificationSound(snapshot: snapshot)
         // Custom transcoding can take long enough for Focus to change.
         // Re-read the live assertion immediately before direct playback so
         // preparation cannot punch a stale decision through DND.
-        guard !(await activeFocusSuppression(assertionsFileURL: assertionsFileURL)) else {
+        guard !Task.isCancelled,
+              !(await activeFocusSuppression(assertionsFileURL: assertionsFileURL)) else {
             return false
         }
+        guard !Task.isCancelled else { return false }
         return await MainActor.run { playPreparedSound(prepared) }
     }
 
@@ -364,24 +371,48 @@ nonisolated enum NotificationSoundSettings {
         let command = (defaults.string(forKey: customCommandKey) ?? defaultCustomCommand)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
+        // Reuse the existing short-lived sound-state lock for command
+        // admission. It is held only while incrementing a bounded counter;
+        // shell execution remains on the utility queue outside the lock.
+        activePlaybackSoundsLock.lock()
+        let admitted = activeCustomCommandCount < maximumCustomCommandProcesses
+        if admitted { activeCustomCommandCount += 1 }
+        activePlaybackSoundsLock.unlock()
+        guard admitted else {
+            notificationSoundLogger.error(
+                "Notification command dropped after reaching the in-flight limit"
+            )
+            return
+        }
         customCommandQueue.async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
-            var env = ProcessInfo.processInfo.environment
-            env["CMUX_NOTIFICATION_TITLE"] = title
-            env["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
-            env["CMUX_NOTIFICATION_BODY"] = body
-            process.environment = env
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            do {
-                try process.run()
-            } catch {
-                notificationSoundLogger.error(
-                    "Notification command failed to launch: \(String(describing: error), privacy: .private)"
-                )
+            let runner = NotificationSoundProcessRunner(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                timeoutNanoseconds: maximumCustomCommandTimeoutNanoseconds
+            )
+            var commandEnvironment = ProcessInfo.processInfo.environment
+            commandEnvironment["CMUX_NOTIFICATION_TITLE"] = title
+            commandEnvironment["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
+            commandEnvironment["CMUX_NOTIFICATION_BODY"] = body
+            let environment = commandEnvironment
+            Task.detached(priority: .utility) {
+                defer { releaseCustomCommandAdmission() }
+                do {
+                    _ = try await runner.run(
+                        arguments: ["-c", command],
+                        environment: environment
+                    )
+                } catch {
+                    notificationSoundLogger.error(
+                        "Notification command failed: \(String(describing: error), privacy: .private)"
+                    )
+                }
             }
         }
+    }
+
+    private static func releaseCustomCommandAdmission() {
+        activePlaybackSoundsLock.lock()
+        activeCustomCommandCount = max(0, activeCustomCommandCount - 1)
+        activePlaybackSoundsLock.unlock()
     }
 }

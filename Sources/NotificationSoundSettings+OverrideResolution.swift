@@ -37,12 +37,14 @@ extension NotificationSoundSettings {
     static func nativeNotificationSound(
         context: NotificationSoundOverrideContext?,
         defaults: UserDefaults = .standard,
-        stagingDirectory: URL? = nil
+        stagingDirectory: URL? = nil,
+        pendingReferenceID: String? = nil
     ) async -> UNNotificationSound? {
         let snapshot = resolutionSnapshot(context: context, defaults: defaults)
         let prepared = await prepareNotificationSound(
             snapshot: snapshot,
-            stagingDirectory: stagingDirectory
+            stagingDirectory: stagingDirectory,
+            pendingReferenceID: pendingReferenceID
         )
         switch prepared {
         case .systemDefault:

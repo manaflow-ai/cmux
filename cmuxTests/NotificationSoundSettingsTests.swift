@@ -498,6 +498,10 @@ import CmuxSettings
             #expect(result.successValueForTests != nil)
         }
 
+        NotificationSoundStagingArtifactCleaner().prune(
+            in: staging,
+            preserving: []
+        )
         let artifacts = try fileManager.contentsOfDirectory(atPath: staging.path)
             .filter {
                 $0.hasPrefix(NotificationSoundSettings.customSoundBaseName + "-")
@@ -514,6 +518,120 @@ import CmuxSettings
                 destinationExtension: "wav"
             ) == "cmux-custom-notification-sound-5e429f2d15385535.wav"
         )
+    }
+
+    @Test func customSoundConversionHasBoundedDeadline() async {
+        let runner = NotificationSoundProcessRunner(
+            executableURL: URL(fileURLWithPath: "/usr/bin/sleep"),
+            timeoutNanoseconds: 50_000_000,
+            argumentBuilder: { _, _ in ["1"] }
+        )
+        await #expect(throws: CancellationError.self) {
+            try await runner.run(
+                from: URL(fileURLWithPath: "/tmp/source.wav"),
+                to: URL(fileURLWithPath: "/tmp/destination.caf")
+            )
+        }
+    }
+
+    @Test func customSoundConversionDrainsErrorOutputBeforeReturning() async throws {
+        let runner = NotificationSoundProcessRunner(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            timeoutNanoseconds: 1_000_000_000,
+            argumentBuilder: { _, _ in
+                ["-c", "printf conversion-warning >&2"]
+            }
+        )
+        let result = try await runner.run(
+            from: URL(fileURLWithPath: "/tmp/source.wav"),
+            to: URL(fileURLWithPath: "/tmp/destination.caf")
+        )
+        #expect(result.terminationStatus == 0)
+        #expect(result.errorOutput == "conversion-warning")
+    }
+
+    @Test func customSoundPruningLeavesUserFilesWithReservedPrefix() throws {
+        let fileManager = FileManager.default
+        let staging = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-prune-ownership-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: staging) }
+
+        let userFile = staging.appendingPathComponent(
+            "cmux-custom-notification-sound-user.wav",
+            isDirectory: false
+        )
+        try Self.writeSilentWAV(to: userFile)
+        let managedSource = staging.appendingPathComponent(
+            "managed-source.wav",
+            isDirectory: false
+        )
+        try Self.writeSilentWAV(to: managedSource)
+        let generatedNamedSource = staging.appendingPathComponent(
+            NotificationSoundSettings.stagedFileName(
+                forSourceURL: managedSource,
+                destinationExtension: "wav"
+            ),
+            isDirectory: false
+        )
+        try Self.writeSilentWAV(to: generatedNamedSource)
+        let generatedSourceMetadata = try #require(
+            NotificationSoundSettings.currentMetadata(
+                for: managedSource,
+                fileManager: fileManager
+            )
+        )
+        try NotificationSoundSettings.saveMetadata(
+            generatedSourceMetadata,
+            for: generatedNamedSource
+        )
+        for index in 0..<65 {
+            let source = staging.appendingPathComponent(
+                "source-\(index).wav",
+                isDirectory: false
+            )
+            try Self.writeSilentWAV(to: source)
+            let artifact = staging.appendingPathComponent(
+                NotificationSoundSettings.stagedFileName(
+                    forSourceURL: source,
+                    destinationExtension: "wav"
+                ),
+                isDirectory: false
+            )
+            try Self.writeSilentWAV(to: artifact)
+            let metadata = try #require(
+                NotificationSoundSettings.currentMetadata(
+                    for: source,
+                    fileManager: fileManager
+                )
+            )
+            try NotificationSoundSettings.saveMetadata(metadata, for: artifact)
+            let staleDate = Date(timeIntervalSinceNow: -(31 * 24 * 60 * 60))
+            try fileManager.setAttributes(
+                [.modificationDate: staleDate],
+                ofItemAtPath: artifact.path
+            )
+            try fileManager.setAttributes(
+                [.modificationDate: staleDate],
+                ofItemAtPath: artifact.appendingPathExtension("source-metadata").path
+            )
+        }
+
+        NotificationSoundStagingArtifactCleaner().prune(
+            in: staging,
+            preserving: [generatedNamedSource]
+        )
+        #expect(fileManager.fileExists(atPath: userFile.path))
+        #expect(fileManager.fileExists(atPath: generatedNamedSource.path))
+        let remainingArtifacts = try fileManager.contentsOfDirectory(
+            at: staging,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter {
+            $0.lastPathComponent.hasPrefix(NotificationSoundSettings.customSoundBaseName + "-")
+                && !$0.lastPathComponent.hasSuffix(".source-metadata")
+        }
+        #expect(remainingArtifacts.count <= 3)
     }
 
     private static func writeSilentWAV(to url: URL) throws {

@@ -104,6 +104,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
         effects: TerminalNotificationPolicyEffects,
         soundContext: NotificationSoundOverrideContext? = nil
     ) async {
+        guard !Task.isCancelled else { return }
         if effects.sound {
             _ = await NotificationSoundSettings.playSelectedSound(context: soundContext)
         }
@@ -123,6 +124,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
             NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
         }
     ) async {
+        guard !Task.isCancelled else { return }
         if effects.sound {
             // Keep command hooks responsive while the sound is staged, but
             // retain the playback in this structured child task so callers
@@ -130,7 +132,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
             async let didPlay = NotificationSoundSettings.playSelectedSound(
                 context: soundContext
             )
-            if effects.command, runCommand {
+            if !Task.isCancelled, effects.command, runCommand {
                 commandRunner(title, subtitle, body)
             }
             _ = await didPlay

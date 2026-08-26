@@ -1186,7 +1186,10 @@ class TerminalController {
                         ) else {
                         return .err(
                             code: "method_not_found",
-                            message: "Unknown method",
+                            message: String(
+                                localized: "socket.error.unknownMethod",
+                                defaultValue: "Unknown method"
+                            ),
                             data: nil
                         )
                     }
