@@ -104,6 +104,9 @@ final class WindowVideoBackgroundController {
         observe(UserDefaults.didChangeNotification, object: nil) { $0.refreshIfSettingsChanged() }
         observe(NSWindow.didChangeOcclusionStateNotification, object: window) { $0.updatePlaybackState() }
         observe(NSWindow.didBecomeKeyNotification, object: window) { $0.windowDidBecomeKey() }
+        observe(NSWindow.didResignKeyNotification, object: window) { $0.updatePlaybackState() }
+        observe(NSWindow.didMiniaturizeNotification, object: window) { $0.updatePlaybackState() }
+        observe(NSWindow.didDeminiaturizeNotification, object: window) { $0.updatePlaybackState() }
         observe(NSWindow.willCloseNotification, object: window) { $0.tearDownForWindowClose() }
         // Performance guardrails: no point decoding video nobody can see.
         observe(NSWorkspace.willSleepNotification, object: nil, in: workspaceCenter) { $0.setSystemSleeping(true) }
@@ -114,6 +117,7 @@ final class WindowVideoBackgroundController {
     private func windowDidBecomeKey() {
         guard let window else { return }
         audioArbiter.windowDidBecomeKey(window)
+        updatePlaybackState()
     }
 
     private func setSystemSleeping(_ sleeping: Bool) {
@@ -259,10 +263,15 @@ final class WindowVideoBackgroundController {
     /// asleep or conserving power; every input is a real system signal.
     private func updatePlaybackState() {
         guard let window, let playerView else { return }
-        let isVisible = window.occlusionState.contains(.visible) && !window.isMiniaturized
+        // AppKit reports cmux's transparent main window as fully occluded even
+        // while it is frontmost and uncovered (observed on macOS 26; the debug
+        // render stats in `GhosttyTerminalView` apply the same key-window
+        // fallback), so the key window always counts as visible.
+        let occlusionVisible = window.occlusionState.contains(.visible) || window.isKeyWindow
+        let isVisible = occlusionVisible && !window.isMiniaturized && window.isVisible
         let isConservingPower = isSystemSleeping || ProcessInfo.processInfo.isLowPowerModeEnabled
         #if DEBUG
-        cmuxDebugLog("videoBackground.playback paused=\(!isVisible || isConservingPower) visible=\(isVisible) mini=\(window.isMiniaturized) sleeping=\(isSystemSleeping) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)")
+        cmuxDebugLog("videoBackground.playback paused=\(!isVisible || isConservingPower) visible=\(isVisible) occluded=\(!window.occlusionState.contains(.visible)) key=\(window.isKeyWindow) mini=\(window.isMiniaturized) sleeping=\(isSystemSleeping) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)")
         #endif
         playerView.setPaused(!isVisible || isConservingPower)
     }
