@@ -19,9 +19,18 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     private var pendingPresentation: (
         presentation: SessionIndexTablePopoverPresentation,
         anchorView: NSView,
+        anchorOwnerView: NSView?,
         anchorRect: NSRect
     )?
     private weak var anchorView: NSView?
+    /// The recycled table cell that owns the row being previewed. The table is
+    /// the positioning view, but the owner lets the controller dismiss the
+    /// popover when AppKit recycles that row.
+    private weak var anchorOwnerView: NSView?
+    /// The last row-local positioning rectangle handed to AppKit. Keeping it
+    /// separate from the presentation identity lets a scrolling table move an
+    /// already-visible popover without tearing down its hosted transcript.
+    private var positioningRect: NSRect?
     private var presentationCount = 0
     private var isClosingProgrammatically = false
 
@@ -36,13 +45,23 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     func reconcile(
         _ presentation: SessionIndexTablePopoverPresentation,
         relativeTo anchorRect: NSRect,
-        of anchorView: NSView
+        of anchorView: NSView,
+        ownedBy anchorOwnerView: NSView? = nil
     ) {
         guard anchorView.window != nil else { return }
 
         if isPopoverShown,
            currentPresentation?.identity == presentation.identity,
-           self.anchorView === anchorView {
+           self.anchorView === anchorView,
+           self.anchorOwnerView === anchorOwnerView {
+            if positioningRect != anchorRect {
+                positioningRect = anchorRect
+                // AppKit documents `positioningRect` as the live anchor for a
+                // shown popover. Updating it in place keeps the transcript
+                // aligned with its row while the table scrolls, without the
+                // close/reopen flicker caused by replacing the popover.
+                popover?.positioningRect = anchorRect
+            }
             let needsRefresh = currentPresentation?.hasEquivalentContent(to: presentation) != true
             currentPresentation = presentation
             if needsRefresh {
@@ -54,6 +73,7 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
         pendingPresentation = (
             presentation: presentation,
             anchorView: anchorView,
+            anchorOwnerView: anchorOwnerView,
             anchorRect: anchorRect
         )
 
@@ -83,6 +103,9 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
     }
 
     func isAnchored(in view: NSView) -> Bool {
+        if let anchorOwnerView {
+            return anchorOwnerView === view || anchorOwnerView.isDescendant(of: view)
+        }
         guard let anchorView else { return false }
         return anchorView === view || anchorView.isDescendant(of: view)
     }
@@ -109,6 +132,8 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
 
         currentPresentation = pendingPresentation.presentation
         anchorView = pendingPresentation.anchorView
+        anchorOwnerView = pendingPresentation.anchorOwnerView
+        positioningRect = pendingPresentation.anchorRect
         presentationCount += 1
         visibleUpdateScheduler.cancel()
 
@@ -209,6 +234,8 @@ final class SessionIndexTablePopoverPresenter: NSObject, NSPopoverDelegate {
         popover = nil
         currentPresentation = nil
         anchorView = nil
+        anchorOwnerView = nil
+        positioningRect = nil
         hostingController.rootView = AnyView(EmptyView())
     }
 

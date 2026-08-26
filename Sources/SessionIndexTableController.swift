@@ -59,6 +59,7 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     private var environment: SessionIndexTableEnvironmentSnapshot?
     private let rowHeightCalculator = SessionIndexTableRowHeightCalculator()
     private let popoverPresenter: SessionIndexTablePopoverPresenter
+    private var scrollBoundsObserver: NSObjectProtocol?
     private var isApplyingRows = false
     private lazy var mutationScheduler = SessionIndexTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) }
@@ -97,6 +98,15 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
 
         let scrollView = container.scrollView
         scrollView.documentView = table
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollBoundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self, weak table] _ in
+            guard let self, let table, !self.isApplyingRows else { return }
+            self.reconcilePresentation(in: table)
+        }
         table.frame = scrollView.contentView.bounds
         table.autoresizingMask = [.width]
         scrollView.drawsBackground = false
@@ -201,6 +211,10 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     func dismantle() {
+        if let scrollBoundsObserver {
+            NotificationCenter.default.removeObserver(scrollBoundsObserver)
+            self.scrollBoundsObserver = nil
+        }
         popoverPresenter.dismiss()
     }
 
@@ -312,13 +326,21 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         ) as? SessionIndexTableCellView else {
             return
         }
-        guard let anchorRect = cell.popoverAnchorRect(for: presentation.identity) else {
+        guard let anchorRectInCell = cell.popoverAnchorRect(for: presentation.identity) else {
             return
         }
+        // Section cells host the entire group, while the selected session may
+        // be many rows below its top edge. Use the table (a visible, flipped
+        // positioning view) and convert the row-local rectangle into table
+        // coordinates. Anchoring directly to the tall recycled cell makes
+        // AppKit see an offscreen positioning rect and fall back to centering
+        // the popover, which disconnects the transcript from its row.
+        let anchorRect = cell.convert(anchorRectInCell, to: table)
         popoverPresenter.reconcile(
             presentation,
             relativeTo: anchorRect,
-            of: cell
+            of: table,
+            ownedBy: cell
         )
     }
 

@@ -71,8 +71,14 @@ final class SessionIndexTableCellView: NSTableCellView {
         _ identity: SessionIndexTablePopoverIdentity,
         rect: CGRect?
     ) {
-        guard popoverAnchorRects[identity] != rect else { return }
-        popoverAnchorRects[identity] = rect
+        // SwiftUI's named coordinate spaces use a flipped (top-left) origin,
+        // while NSTableCellView is unflipped (bottom-left). Convert through the
+        // hosting view before handing the rectangle to NSPopover; passing the
+        // raw SwiftUI value mirrors the row vertically and makes the preview
+        // appear detached from the session that was clicked.
+        let convertedRect = rect.map { hostingView.convert($0, to: self) }
+        guard popoverAnchorRects[identity] != convertedRect else { return }
+        popoverAnchorRects[identity] = convertedRect
         onPopoverAnchorChange?()
     }
 }
