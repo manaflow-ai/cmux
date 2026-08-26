@@ -13615,7 +13615,9 @@ extension Workspace: BonsplitDelegate {
                     )
                 }
             case .newSimulator:
-                _ = newSimulatorSurface(inPane: pane, focus: true)
+                _ = withNewTabZoomPolicy(inPane: pane) {
+                    newSimulatorSurface(inPane: pane, focus: true)
+                }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

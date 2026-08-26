@@ -4650,12 +4650,14 @@ class TabManager: ObservableObject {
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return nil
         }
-        return workspace.newBrowserSurface(
-            inPane: focusedPane,
-            url: snapshot.url,
-            focus: true,
-            preferredProfileID: snapshot.profileID
-        )?.id
+        return workspace.withNewTabZoomPolicy(inPane: focusedPane) {
+            workspace.newBrowserSurface(
+                inPane: focusedPane,
+                url: snapshot.url,
+                focus: true,
+                preferredProfileID: snapshot.profileID
+            )
+        }?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
