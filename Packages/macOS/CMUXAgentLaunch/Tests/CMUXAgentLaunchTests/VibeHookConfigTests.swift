@@ -169,6 +169,34 @@ struct VibeHookConfigTests {
         """)
     }
 
+    @Test("Uninstall with orphaned begin marker preserves all following lines")
+    func uninstallWithOrphanedBeginMarkerPreservesAllFollowingLines() {
+        let existing = """
+        active_model = "mistral-medium-3.5"
+        # cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d begin
+        theme = "auto"
+        log_level = "DEBUG"
+
+        [[hooks]]
+        name = "my-hook"
+        type = "post_agent"
+        command = "echo hello"
+
+        """
+
+        #expect(VibeHookConfig().uninstalling(from: existing) == """
+        active_model = "mistral-medium-3.5"
+        theme = "auto"
+        log_level = "DEBUG"
+
+        [[hooks]]
+        name = "my-hook"
+        type = "post_agent"
+        command = "echo hello"
+
+        """)
+    }
+
     @Test("Escapes TOML basic string content")
     func escapesTOMLBasicStringContent() {
         let events = [

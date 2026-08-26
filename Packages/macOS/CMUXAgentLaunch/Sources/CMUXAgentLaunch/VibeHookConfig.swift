@@ -105,15 +105,20 @@ public struct VibeHookConfig: Sendable {
 
     /// Single-pass scan that appends non-cmux lines to an output array and
     /// skips owned content until the end marker. An unterminated begin marker
-    /// is dropped without affecting following content.
+    /// is dropped and its buffered lines are restored so user TOML after an
+    /// orphaned marker is never lost.
     private func removeCmuxVibeHooksBlock(from lines: inout [String]) {
         var result: [String] = []
+        var candidate: [String] = []
         var skipUntilEnd = false
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if skipUntilEnd {
                 if trimmed == endMarker {
                     skipUntilEnd = false
+                    candidate.removeAll(keepingCapacity: true)
+                } else {
+                    candidate.append(line)
                 }
                 continue
             }
@@ -122,6 +127,9 @@ public struct VibeHookConfig: Sendable {
                 continue
             }
             result.append(line)
+        }
+        if skipUntilEnd {
+            result.append(contentsOf: candidate)
         }
         lines = result
     }
