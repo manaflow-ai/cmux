@@ -15,15 +15,15 @@ extension FeedCoordinator {
               store.ownedTaskIds(forWorkstream: event.sessionId).isEmpty else {
             return
         }
-        guard markTodoRecoveryAttempt(
-            event.sessionId,
-            recoveryEpoch: store.taskToolRecoveryEpoch
-        ) else { return }
         // An accumulator can be empty after restart while persisted rows still
         // carry exact workstream/task ownership. Seed from every live workspace
         // before applying a status-only delta.
         let candidates = AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? []
         guard !candidates.isEmpty else { return }
+        guard markTodoRecoveryAttempt(
+            event.sessionId,
+            recoveryEpoch: store.taskToolRecoveryEpoch
+        ) else { return }
         var restored: [WorkstreamTaskTodo] = []
         var seen = Set<String>()
         for workspace in candidates {

@@ -4695,6 +4695,13 @@ struct CMUXCLI {
         if normalizedCommand == "restore" {
             return false
         }
+        if normalizedCommand == "todo",
+           let subcommand = commandArgs.first(where: { !$0.hasPrefix("--") })?.lowercased(),
+           ["queue", "all", "refresh", "dispatch", "reveal", "target"].contains(subcommand) {
+            // Queue operations are explicitly focus-safe, including when the
+            // caller supplies the global --window selector.
+            return false
+        }
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }

@@ -520,6 +520,11 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
             let boundWorkspace = app.allWorkspacesForAgentTodoRetirement.first {
                 $0.id == boundWorkspaceID
             }
+            let hasRegisteredDispatch = FeedCoordinator.shared
+                .dispatchedTaskOwners(for: boundWorkspaceID)
+                .contains { owner in
+                    owner.itemID == itemID && owner.sourceWorkspaceID == source.id
+                }
             if let boundWorkspace {
                 // A workspace can outlive the process it dispatched. Revalidate
                 // the structured PID identities before treating the binding as
@@ -541,9 +546,14 @@ extension TerminalController: ControlWorkspaceTaskQueueContext {
                     candidateStatusKeys.isEmpty
                         || candidateStatusKeys.contains(boundWorkspace.agentStatusKey(forAgentPIDKey: key))
                 }
-                if boundWorkspaceIsLive {
+                if boundWorkspaceIsLive || hasRegisteredDispatch {
                     return .notDispatchable
                 }
+            } else if hasRegisteredDispatch {
+                // Keep a just-created binding authoritative until its target
+                // emits a structured lifecycle/close signal; this prevents a
+                // second dispatch during agent startup.
+                return .notDispatchable
             }
             // The target is closed or its recorded process is gone. Keep the
             // source row and target configuration, but release the stale

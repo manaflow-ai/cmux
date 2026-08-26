@@ -275,6 +275,16 @@ struct WorkstreamTaskToolTodos: Sendable {
             )
         }
         var projected = projectedState()
+        if tool == .taskCreate,
+           let input = object(from: inputJSON),
+           taskID(in: input) == nil,
+           let content = content(in: input),
+           projected.hasAuthoritativeTask(withContent: content) {
+            // A completed post hook can arrive before its pre hook and carry a
+            // different generated request id. Do not mint a provisional
+            // duplicate when the authoritative row is already committed.
+            return .ignored
+        }
         let assignedProvisionalID = projected.preallocatedProvisionalID(tool: tool, inputJSON: inputJSON)
         let outcome = projected.applyPreMutation(
             tool: tool,
@@ -591,6 +601,10 @@ struct WorkstreamTaskToolTodos: Sendable {
         } else {
             todos.append(todo)
         }
+    }
+
+    private func hasAuthoritativeTask(withContent content: String) -> Bool {
+        todos.filter { !$0.id.hasPrefix("pending-") && $0.content == content }.count == 1
     }
 
     private mutating func claim(_ id: String) {
