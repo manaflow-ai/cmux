@@ -525,4 +525,25 @@ struct WorkstreamTaskToolTodoTests {
 
         #expect(latestTodos(store)?.map(\.content) == ["existing", "stale"])
     }
+
+    @Test("A raw PostToolUseFailure rolls back a provisional task")
+    func postToolUseFailureRollsBackProvisionalTask() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            tool: "TaskCreate",
+            input: #"{"subject":"will fail"}"#,
+            requestId: "create-1"
+        ))
+        store.ingest(toolEvent(
+            sessionId: "s1",
+            hook: .postToolUseFailure,
+            tool: "TaskCreate",
+            input: #"{"subject":"will fail"}"#,
+            requestId: "create-1"
+        ))
+
+        #expect(latestTodos(store)?.isEmpty == true)
+        #expect(store.ownedTaskIds(forWorkstream: "s1").isEmpty)
+    }
 }
