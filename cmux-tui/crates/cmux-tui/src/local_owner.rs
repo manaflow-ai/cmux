@@ -268,11 +268,15 @@ struct SpawnedOwner {
 impl SpawnedOwner {
     fn terminate(self) {
         self.state.terminate.store(true, std::sync::atomic::Ordering::Release);
-        self.state.wake.notify_all();
+        // Reap synchronously instead of waiting for the reaper thread: this
+        // must terminate the owner even when that thread could not be
+        // created. The reaper wakes to an empty slot and exits.
         let mut child = self.state.child.lock().expect("owner mutex poisoned");
-        while child.is_some() {
-            child = self.state.wake.wait(child).expect("owner condvar poisoned");
+        if let Some(mut process) = child.take() {
+            let _ = process.kill();
+            let _ = process.wait();
         }
+        self.state.wake.notify_all();
     }
 }
 
