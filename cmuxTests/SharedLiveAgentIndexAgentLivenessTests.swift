@@ -63,8 +63,24 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         #expect(baseScope.containsUnrelatedProcess == false)
         #expect(changedScope.containsUnrelatedProcess)
         #expect(
-            SharedLiveAgentIndexLoader.processScopeFingerprint(from: base) !=
-                SharedLiveAgentIndexLoader.processScopeFingerprint(from: withUnscopedSibling)
+            SharedLiveAgentIndexLoader.processScopeFingerprint(
+                from: base,
+                hibernationProcessScopes: [
+                    RestorableAgentSessionIndex.PanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): baseScope,
+                ]
+            ) !=
+                SharedLiveAgentIndexLoader.processScopeFingerprint(
+                    from: withUnscopedSibling,
+                    hibernationProcessScopes: [
+                        RestorableAgentSessionIndex.PanelKey(
+                            workspaceId: workspaceId,
+                            panelId: panelId
+                        ): changedScope,
+                    ]
+                )
         )
     }
 

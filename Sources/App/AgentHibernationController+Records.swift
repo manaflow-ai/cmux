@@ -16,7 +16,7 @@ extension AgentHibernationRecord {
         case .scheduled:
             return !hasLiveProcess || hasPressureSafeProcessEvidence
         case .systemMemoryPressure:
-            return hasPressureSafeProcessEvidence
+            return !hasLiveProcess || hasPressureSafeProcessEvidence
         }
     }
 }

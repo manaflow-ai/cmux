@@ -80,7 +80,10 @@ struct SharedLiveAgentIndexLoader {
         return (
             index: index,
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
-            processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
+            processScopeFingerprint: Self.processScopeFingerprint(
+                from: processSnapshot,
+                hibernationProcessScopes: hibernationProcessScopes
+            ),
             forkValidatedPanels: Self.forkValidatedPanels(
                 in: index,
                 processArgumentsProvider: processArgumentsProvider,
@@ -99,6 +102,30 @@ struct SharedLiveAgentIndexLoader {
                 String(process.parentPID)
             ].joined(separator: "|")
         })
+    }
+
+    /// Fingerprints the process scope and generation metadata consumed by
+    /// hibernation safety checks, so cache reloads publish scope changes even
+    /// when the cmux-attributed process set is unchanged.
+    static func processScopeFingerprint(
+        from snapshot: CmuxTopProcessSnapshot,
+        hibernationProcessScopes: [
+            RestorableAgentSessionIndex.PanelKey:
+                RestorableAgentSessionIndex.HibernationProcessScope
+        ]
+    ) -> Set<String> {
+        var fingerprint = processScopeFingerprint(from: snapshot)
+        fingerprint.formUnion(hibernationProcessScopes.map { key, scope in
+            [
+                "hibernation",
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                scope.panelProcessIDs.sorted().map(String.init).joined(separator: ","),
+                scope.terminationProcessIDs.sorted().map(String.init).joined(separator: ","),
+                scope.containsUnrelatedProcess ? "unrelated" : "exclusive"
+            ].joined(separator: "|")
+        })
+        return fingerprint
     }
 
     private static func forkValidatedPanels(
