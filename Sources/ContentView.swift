@@ -3074,7 +3074,8 @@ struct ContentView: View {
                   (notification.object as? NSWindow) === observedWindow else {
                 return
             }
-            tabManager.workspaceSwitchCoordinator.noteInteractionNoLongerRequired()
+            AppDelegate.shared?.tabManagerFor(windowId: windowId)?
+                .workspaceSwitchCoordinator.noteInteractionNoLongerRequired()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSText.didBeginEditingNotification)) { notification in

@@ -1596,7 +1596,7 @@ final class WindowTerminalPortal: NSObject {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
         }()
-        if didChangeAnchor || !visibleInUI {
+        if didChangeAnchor || !visibleInUI || previousEntry?.hostedView !== hostedView {
             presentedHostedIds.remove(hostedId)
         }
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
@@ -2249,8 +2249,9 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         guard presentedHostedIds.insert(hostedId).inserted else { return }
-        Task { @MainActor [weak hostedView] in
-            guard let hostedView else { return }
+        Task { @MainActor [weak self, weak hostedView] in
+            guard let self, let hostedView,
+                  self.isPresented(hostedView, hostedId: hostedId) else { return }
             NotificationCenter.default.post(
                 name: .terminalPortalDidBecomePresentable,
                 object: hostedView
