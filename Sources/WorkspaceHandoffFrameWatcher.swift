@@ -59,6 +59,9 @@ final class WorkspaceHandoffFrameWatcher {
                 "ws.handoff.frameWatch.arm surface=\(target.surface.id.uuidString.prefix(5)) armed=\(armed ? 1 : 0)"
             )
 #endif
+            // TEMP DIAGNOSTIC: fire the notice immediately to test the
+            // consume -> post -> observe chain without the renderer.
+            target.surface.debugFireRendererFrameNotice()
         }
         observers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidRenderFrame,
