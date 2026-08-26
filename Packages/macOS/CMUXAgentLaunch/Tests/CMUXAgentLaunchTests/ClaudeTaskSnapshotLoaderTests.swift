@@ -226,6 +226,35 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(snapshot.todos.map(\.content) == ["Team task"])
     }
 
+    @Test("Identity scans ignore deleted duplicates when proving a live directory")
+    func ignoresDeletedDuplicateDuringIdentityScan() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-deleted-duplicate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let liveDirectory = root.appendingPathComponent("live-team", isDirectory: true)
+        let deletedDirectory = root.appendingPathComponent("deleted-team", isDirectory: true)
+        try FileManager.default.createDirectory(at: liveDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: deletedDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Shared identity","status":"pending"}"#,
+            named: "1.json",
+            in: liveDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Shared identity","status":"deleted"}"#,
+            named: "1.json",
+            in: deletedDirectory
+        )
+
+        let snapshot = try #require(try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+            sessionID: "unrelated-session",
+            taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Shared identity")
+        ))
+
+        #expect(snapshot.directoryName == "live-team")
+        #expect(snapshot.todos.map(\.content) == ["Shared identity"])
+    }
+
     @Test("Identity scans ignore oversized fields in nonmatching neighboring tasks")
     func ignoresOversizedTextInNonmatchingNeighbors() throws {
         let root = FileManager.default.temporaryDirectory
