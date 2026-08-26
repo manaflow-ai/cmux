@@ -57,8 +57,7 @@ extension GitMetadataService {
                 cached
             } else {
                 gitIndexSnapshot(
-                    indexURL: URL(fileURLWithPath: indexPath),
-                    deadline: deadline
+                    indexURL: URL(fileURLWithPath: indexPath)
                 )
             }
         } else {

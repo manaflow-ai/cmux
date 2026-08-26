@@ -338,8 +338,7 @@ extension GitMetadataService {
                                 return nil
                             }
                             return Self.gitIndexSnapshot(
-                                indexURL: URL(fileURLWithPath: indexPath),
-                                deadline: deadline
+                                indexURL: URL(fileURLWithPath: indexPath)
                             )
                         }
                         return (header, snapshot)

@@ -247,19 +247,8 @@ extension GitMetadataService {
     /// Handles v3 extended flags, v4 path prefix-compression, assume-unchanged
     /// and skip-worktree exclusion, and entry padding. Returns `nil` for an
     /// absent, truncated, or unsupported-version index.
-    nonisolated static func gitIndexSnapshot(
-        indexURL: URL,
-        deadline: DispatchTime? = nil
-    ) -> GitIndexSnapshot? {
-        guard deadline.map({ $0 > DispatchTime.now() }) ?? true,
-              !WorkspaceChangesCancellationSignal.isCurrentCancelled else {
-            return nil
-        }
+    nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
         guard let data = try? Data(contentsOf: indexURL), data.count >= 32 else {
-            return nil
-        }
-        guard deadline.map({ $0 > DispatchTime.now() }) ?? true,
-              !WorkspaceChangesCancellationSignal.isCurrentCancelled else {
             return nil
         }
         let bytes = [UInt8](data)
@@ -280,10 +269,6 @@ extension GitMetadataService {
         var previousPathBytes: [UInt8] = []
 
         for _ in 0..<entryCount {
-            guard deadline.map({ $0 > DispatchTime.now() }) ?? true,
-                  !WorkspaceChangesCancellationSignal.isCurrentCancelled else {
-                return nil
-            }
             guard offset + 62 <= contentEnd else { return nil }
             let entryStart = offset
             let mtimeSeconds = readBigEndianUInt32(bytes, at: offset + 8)
