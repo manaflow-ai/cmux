@@ -11993,7 +11993,13 @@ final class GhosttySurfaceScrollView: NSView {
         let inWindow = (window != nil)
         let windowIsKey = window?.isKeyWindow ?? false
         let windowOcclusionVisible = window.map {
-            effectiveRendererWindowVisibility(for: $0)
+            GhosttyNSView.effectiveRendererWindowVisibility(
+                occlusionVisible: $0.occlusionState.contains(.visible),
+                isVisible: $0.isVisible,
+                displayUITestRenderingEnabled: ProcessInfo.processInfo.environment[
+                    "CMUX_UI_TEST_DISPLAY_RENDER_STATS"
+                ] == "1"
+            )
         } ?? false
         let appIsActive = NSApp.isActive
         let fr = window?.firstResponder as? NSView

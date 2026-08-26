@@ -61,6 +61,7 @@ struct ArtifactExactPathResolver {
             fileKind: ArtifactFileKind(fileURL: current),
             size: values.fileSize.map(Int64.init),
             modifiedAt: values.contentModificationDate,
+            fileIdentity: try? ArtifactFileIdentity.read(at: current),
             children: []
         )
     }

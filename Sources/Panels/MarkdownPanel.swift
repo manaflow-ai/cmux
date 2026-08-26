@@ -25,6 +25,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var artifactReadCopyURL: URL?
     private var artifactPreviewTask: Task<Void, Never>?
     private var artifactPreviewToken = UUID()
+    private var artifactContentTask: Task<Void, Never>?
+    private var artifactContentToken = UUID()
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
@@ -129,6 +131,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.artifactFile = artifactFile
         self.artifactReadCopyURL = nil
         self.artifactPreviewTask = nil
+        self.artifactContentTask = nil
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
@@ -152,6 +155,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             artifactPreviewToken = UUID()
             artifactPreviewTask?.cancel()
             artifactPreviewTask = nil
+            artifactContentToken = UUID()
+            artifactContentTask?.cancel()
+            artifactContentTask = nil
             if let artifactReadCopyURL {
                 try? FileManager.default.removeItem(at: artifactReadCopyURL)
                 self.artifactReadCopyURL = nil
@@ -184,20 +190,55 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 }
                 return
             }
-            self.artifactPreviewTask = nil
             guard !self.isClosed else {
                 if let temporaryURL {
                     try? FileManager.default.removeItem(at: temporaryURL)
                 }
                 return
             }
+            self.artifactPreviewTask = nil
             guard let temporaryURL else {
                 self.isFileUnavailable = true
                 return
             }
             self.artifactReadCopyURL = temporaryURL
-            self.loadFileContent()
+            _ = self.startArtifactContentLoad()
         }
+    }
+
+    /// Loads a materialized artifact copy through the concurrent text-loader
+    /// seam, then publishes the bounded result back on this main-actor panel.
+    @discardableResult
+    private func startArtifactContentLoad(
+        replacingDirtyContent: Bool = true
+    ) -> Task<Void, Never>? {
+        artifactContentTask?.cancel()
+        artifactContentTask = nil
+        artifactContentToken = UUID()
+        guard let artifactReadCopyURL else {
+            isFileUnavailable = true
+            return nil
+        }
+        let readURL = artifactReadCopyURL
+        let contentToken = artifactContentToken
+        let task = Task { @MainActor [weak self, readURL, contentToken, replacingDirtyContent] in
+            let result = await FilePreviewTextLoader.load(
+                url: readURL,
+                maximumBytes: 4 * 1024 * 1024
+            )
+            guard let self,
+                  !Task.isCancelled,
+                  !self.isClosed,
+                  self.artifactContentToken == contentToken,
+                  self.artifactReadCopyURL == readURL else { return }
+            self.artifactContentTask = nil
+            self.applyFileLoadResult(
+                result,
+                replacingDirtyContent: replacingDirtyContent
+            )
+        }
+        artifactContentTask = task
+        return task
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"
@@ -328,6 +369,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         artifactPreviewToken = UUID()
         artifactPreviewTask?.cancel()
         artifactPreviewTask = nil
+        artifactContentToken = UUID()
+        artifactContentTask?.cancel()
+        artifactContentTask = nil
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
@@ -392,7 +436,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     @discardableResult
     func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
         loadFileContent(replacingDirtyContent: replacingDirtyContent)
-        return nil
     }
 
     @discardableResult
@@ -439,18 +482,24 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - File I/O
 
-    private func loadFileContent(replacingDirtyContent: Bool = true) {
-        if artifactFile != nil, artifactReadCopyURL == nil {
-            isFileUnavailable = true
-            return
+    private func loadFileContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
+        if artifactFile != nil {
+            return startArtifactContentLoad(replacingDirtyContent: replacingDirtyContent)
         }
         let readPath = artifactReadCopyURL?.path ?? filePath
-        switch Self.loadMarkdownFile(
+        let result = Self.loadMarkdownFile(
             at: readPath,
-            maximumBytes: artifactFile == nil
-                ? FilePreviewTextLoader.maximumLoadedTextBytes
-                : 4 * 1024 * 1024
-        ) {
+            maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes
+        )
+        applyFileLoadResult(result, replacingDirtyContent: replacingDirtyContent)
+        return nil
+    }
+
+    private func applyFileLoadResult(
+        _ result: FilePreviewTextLoader.Result,
+        replacingDirtyContent: Bool
+    ) {
+        switch result {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
         case .unavailable:
@@ -550,6 +599,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     deinit {
         fileWatchTask?.cancel()
         artifactPreviewTask?.cancel()
+        artifactContentTask?.cancel()
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }

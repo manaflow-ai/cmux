@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// Stable device/inode identity for one ordinary filesystem entry.
-public struct ArtifactFileIdentity: Sendable, Equatable {
+public struct ArtifactFileIdentity: Sendable, Equatable, Hashable {
     /// Device number reported by `stat(2)`.
     public let device: UInt64
     /// Inode number reported by `stat(2)`.

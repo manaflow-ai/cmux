@@ -79,6 +79,12 @@ struct ArtifactTreeScanner {
                 nested = []
                 if isDirectory, depth >= maximumDepth { truncated = true }
             }
+            let fileIdentity: ArtifactFileIdentity?
+            if isDirectory {
+                fileIdentity = nil
+            } else {
+                fileIdentity = try? ArtifactFileIdentity.read(at: url)
+            }
             nodes.append(ArtifactNode(
                 id: relativePath,
                 name: url.lastPathComponent,
@@ -88,6 +94,7 @@ struct ArtifactTreeScanner {
                 fileKind: isDirectory ? nil : ArtifactFileKind(fileURL: url),
                 size: isDirectory ? nil : values.fileSize.map(Int64.init),
                 modifiedAt: values.contentModificationDate,
+                fileIdentity: fileIdentity,
                 children: nested
             ))
         }

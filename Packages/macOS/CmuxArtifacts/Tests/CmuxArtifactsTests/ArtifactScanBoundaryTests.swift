@@ -62,6 +62,38 @@ struct ArtifactScanBoundaryTests {
         }
     }
 
+    @Test("Tree snapshots retain identity across same-path replacements with preserved mtime")
+    func snapshotsDistinguishSamePathReplacement() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let file = paths.filesystemRoot.appendingPathComponent("preview.png", isDirectory: false)
+        let fixedDate = Date(timeIntervalSince1970: 1_234_567)
+        _ = try ArtifactTestSupport.write("first", named: "preview.png", under: paths.filesystemRoot)
+        try FileManager.default.setAttributes(
+            [.modificationDate: fixedDate],
+            ofItemAtPath: file.path
+        )
+        let scanner = ArtifactTreeScanner(
+            fileManager: .default,
+            maximumDepth: 4,
+            nodeBudget: 100
+        )
+        let firstNode = try #require(scanner.snapshot(paths: paths).nodes.first)
+
+        _ = try ArtifactTestSupport.write("second", named: "preview.png", under: paths.filesystemRoot)
+        try FileManager.default.setAttributes(
+            [.modificationDate: fixedDate],
+            ofItemAtPath: file.path
+        )
+        let secondNode = try #require(scanner.snapshot(paths: paths).nodes.first)
+
+        #expect(firstNode.modifiedAt == secondNode.modifiedAt)
+        #expect(firstNode.fileIdentity != nil)
+        #expect(secondNode.fileIdentity != nil)
+        #expect(firstNode.fileIdentity != secondNode.fileIdentity)
+    }
+
     @MainActor
     @Test("The sidebar reports a bounded partial tree as a load failure")
     func sidebarRejectsIncompleteTree() async throws {

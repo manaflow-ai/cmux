@@ -41,7 +41,8 @@ struct ArtifactTestSupport {
         root: URL,
         relativePath: String,
         kind: ArtifactFileKind,
-        modifiedAt: Date? = nil
+        modifiedAt: Date? = nil,
+        fileIdentity: ArtifactFileIdentity? = nil
     ) -> ArtifactNode {
         ArtifactNode(
             id: relativePath,
@@ -52,6 +53,7 @@ struct ArtifactTestSupport {
             fileKind: kind,
             size: 1,
             modifiedAt: modifiedAt,
+            fileIdentity: fileIdentity,
             children: []
         )
     }

@@ -389,7 +389,8 @@ public final class ArtifactSidebarModel {
             fileKind: node.fileKind,
             fileRevision: node.isDirectory ? nil : ArtifactSidebarFileRevision(
                 fileURL: URL(fileURLWithPath: node.absolutePath),
-                modifiedAt: node.modifiedAt
+                modifiedAt: node.modifiedAt,
+                fileIdentity: node.fileIdentity
             ),
             matchedContent: matchedContent,
             snippet: snippet

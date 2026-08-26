@@ -912,8 +912,11 @@ enum FilePreviewTextLoader {
     }
 
     @concurrent
-    static func load(url: URL) async -> Result {
-        loadSynchronously(url: url)
+    static func load(
+        url: URL,
+        maximumBytes: UInt64 = maximumLoadedTextBytes
+    ) async -> Result {
+        loadSynchronously(url: url, maximumBytes: maximumBytes)
     }
 
     static func loadSynchronously(

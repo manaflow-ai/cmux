@@ -87,4 +87,29 @@ struct ArtifactGitIgnoreSafetyTests {
 
         #expect(try String(contentsOf: outsideExclude, encoding: .utf8) == "preserve\n")
     }
+
+    @Test("A hard-linked Git exclude file cannot redirect writes to its other inode")
+    func rejectsHardLinkedExcludeFile() async throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let infoDirectory = root.appendingPathComponent(".git/info", isDirectory: true)
+        try FileManager.default.createDirectory(at: infoDirectory, withIntermediateDirectories: true)
+        let unrelated = try ArtifactTestSupport.write(
+            "preserve\n",
+            named: "unrelated",
+            under: root
+        )
+        let exclude = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
+        try FileManager.default.linkItem(at: unrelated, to: exclude)
+
+        await #expect(throws: (any Error).self) {
+            let repository = LocalArtifactRepository()
+            try await repository.prepareForMutation(
+                paths: ArtifactStorePaths(projectRoot: root)
+            )
+        }
+
+        #expect(try String(contentsOf: unrelated, encoding: .utf8) == "preserve\n")
+        #expect(try String(contentsOf: exclude, encoding: .utf8) == "preserve\n")
+    }
 }

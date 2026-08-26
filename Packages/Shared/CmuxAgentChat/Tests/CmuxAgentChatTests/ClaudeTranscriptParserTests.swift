@@ -227,8 +227,8 @@ struct ClaudeTranscriptParserTests {
     func standaloneFailureMarker() {
         let lines = [
             assistantLine(blocks: [
-                ["type": "tool_use", "id": "toolu_failed_marker", "name": "Write",
-                 "input": ["file_path": "/tmp/result.md", "content": "draft"]],
+                ["type": "tool_use", "id": "toolu_failed_marker", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
             ]),
             toolResultLine(
                 toolUseID: "toolu_failed_marker",
@@ -248,8 +248,8 @@ struct ClaudeTranscriptParserTests {
     func failureMarkerWithTrailingDetails() {
         let lines = [
             assistantLine(blocks: [
-                ["type": "tool_use", "id": "toolu_failed_details", "name": "Write",
-                 "input": ["file_path": "/tmp/result-with-details.md", "content": "draft"]],
+                ["type": "tool_use", "id": "toolu_failed_details", "name": "Grep",
+                 "input": ["pattern": "needle", "path": "/tmp"]],
             ]),
             toolResultLine(
                 toolUseID: "toolu_failed_details",

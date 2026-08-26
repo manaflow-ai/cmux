@@ -266,16 +266,22 @@ struct ArtifactGitIgnoreManager {
         }
         defer { Darwin.close(descriptor) }
 
+        // A descriptor can still point at an unrelated inode when the
+        // pathname was hard-linked or replaced between the preflight and
+        // open. Require an exclusive link and the same device/inode at the
+        // directory entry before inspecting or mutating its bytes.
+        guard descriptorMatchesExclusiveEntry(descriptor, at: url) else {
+            throw ArtifactStoreError.pathOutsideStore(url.path)
+        }
         var status = stat()
         guard fstat(descriptor, &status) == 0,
-              (status.st_mode & S_IFMT) == S_IFREG,
               status.st_size >= 0 else {
             throw ArtifactStoreError.gitPrivacyUnavailable(url.path)
         }
         let separator = status.st_size == 0 ? "" : "\n"
         let data = Data((separator + entries.joined(separator: "\n") + "\n").utf8)
-        guard fstat(descriptor, &status) == 0,
-              (status.st_mode & S_IFMT) == S_IFREG,
+        guard descriptorMatchesExclusiveEntry(descriptor, at: url),
+              fstat(descriptor, &status) == 0,
               status.st_size >= 0,
               status.st_size <= Self.maximumExcludeBytes - Int64(data.count) else {
             throw ArtifactStoreError.gitPrivacyUnavailable(url.path)
@@ -369,10 +375,38 @@ struct ArtifactGitIgnoreManager {
     }
 
     private func rejectUntrustedFileEntry(_ url: URL) throws {
-        guard let entryType = try filesystemEntryType(url) else { return }
-        guard entryType == S_IFREG else {
+        var status = stat()
+        guard lstat(url.path, &status) == 0 else {
+            guard errno == ENOENT else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            return
+        }
+        // `.git/info/exclude` is a mutable security boundary. A hard link
+        // would let this process append to a different user's inode, even
+        // though the final pathname itself is inside Git's metadata root.
+        guard (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_nlink == 1 else {
             throw ArtifactStoreError.pathOutsideStore(url.path)
         }
+    }
+
+    private func descriptorMatchesExclusiveEntry(_ descriptor: Int32, at url: URL) -> Bool {
+        var descriptorStatus = stat()
+        guard fstat(descriptor, &descriptorStatus) == 0,
+              (descriptorStatus.st_mode & S_IFMT) == S_IFREG,
+              descriptorStatus.st_nlink == 1 else {
+            return false
+        }
+
+        var entryStatus = stat()
+        guard lstat(url.path, &entryStatus) == 0,
+              (entryStatus.st_mode & S_IFMT) == S_IFREG,
+              entryStatus.st_nlink == 1 else {
+            return false
+        }
+        return descriptorStatus.st_dev == entryStatus.st_dev
+            && descriptorStatus.st_ino == entryStatus.st_ino
     }
 
     private func filesystemEntryType(_ url: URL) throws -> mode_t? {

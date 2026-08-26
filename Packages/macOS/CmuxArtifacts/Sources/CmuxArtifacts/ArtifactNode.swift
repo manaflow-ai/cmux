@@ -18,6 +18,8 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
     public let size: Int64?
     /// Filesystem modification time when available.
     public let modifiedAt: Date?
+    /// Device/inode identity observed for a regular file.
+    public let fileIdentity: ArtifactFileIdentity?
     /// Eager child snapshot for directories.
     public let children: [ArtifactNode]
 
@@ -32,6 +34,7 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
     ///   - fileKind: Preview classification for a file.
     ///   - size: File byte size when known.
     ///   - modifiedAt: Filesystem modification time when known.
+    ///   - fileIdentity: Device/inode identity when the file could be inspected.
     ///   - children: Eager child snapshot for a directory.
     public init(
         id: String,
@@ -42,6 +45,7 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
         fileKind: ArtifactFileKind?,
         size: Int64?,
         modifiedAt: Date?,
+        fileIdentity: ArtifactFileIdentity? = nil,
         children: [ArtifactNode]
     ) {
         self.id = id
@@ -52,6 +56,7 @@ public struct ArtifactNode: Identifiable, Equatable, Sendable {
         self.fileKind = fileKind
         self.size = size
         self.modifiedAt = modifiedAt
+        self.fileIdentity = fileIdentity
         self.children = children
     }
 }

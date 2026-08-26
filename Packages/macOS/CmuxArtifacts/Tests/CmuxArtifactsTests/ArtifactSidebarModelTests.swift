@@ -129,13 +129,15 @@ struct ArtifactSidebarModelTests {
             root: root,
             relativePath: "preview.png",
             kind: .image,
-            modifiedAt: Date(timeIntervalSince1970: 1)
+            modifiedAt: Date(timeIntervalSince1970: 1),
+            fileIdentity: ArtifactFileIdentity(device: 1, inode: 10)
         )
         let second = ArtifactTestSupport.artifactNode(
             root: root,
             relativePath: "preview.png",
             kind: .image,
-            modifiedAt: Date(timeIntervalSince1970: 2)
+            modifiedAt: Date(timeIntervalSince1970: 1),
+            fileIdentity: ArtifactFileIdentity(device: 1, inode: 11)
         )
         let store = SidebarArtifactStore(root: root, nodes: [first])
         let model = ArtifactSidebarModel(store: store, captureService: SidebarCaptureSpy())
@@ -154,11 +156,13 @@ struct ArtifactSidebarModelTests {
 
         #expect(
             ArtifactSidebarFileRevision(
-                fileURL: URL(fileURLWithPath: "/tmp/first.png"),
-                modifiedAt: modifiedAt
+                fileURL: URL(fileURLWithPath: "/tmp/preview.png"),
+                modifiedAt: modifiedAt,
+                fileIdentity: ArtifactFileIdentity(device: 1, inode: 10)
             ) != ArtifactSidebarFileRevision(
-                fileURL: URL(fileURLWithPath: "/tmp/second.png"),
-                modifiedAt: modifiedAt
+                fileURL: URL(fileURLWithPath: "/tmp/preview.png"),
+                modifiedAt: modifiedAt,
+                fileIdentity: ArtifactFileIdentity(device: 1, inode: 11)
             )
         )
     }
