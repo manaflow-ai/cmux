@@ -3928,6 +3928,17 @@
             "name": "string"
           }
         },
+        "foreground_cwd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails. All current servers emit this field. Protocol 2 SDK decoders accept it being absent from older servers and treat absence as null."
+        },
         "children": {
           "required": true,
           "type": {

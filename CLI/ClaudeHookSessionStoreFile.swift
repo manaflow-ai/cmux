@@ -52,6 +52,17 @@ struct ClaudeHookSessionStoreFile: Codable {
     // configured lists can span several, so deletion destinations are durable.
     var claudeTaskListDestinations: [String: ClaudeHookTaskListDestinationRecord] = [:]
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
+    /// Bounded lookup index for Cursor approvals, keyed by stable surface id.
+    var pendingCursorApprovalSessionsBySurface: [String: [String]] = [:]
+    /// Exact pending-session count for each stable surface identity. The ID
+    /// list is capped, so this count preserves sibling detection when the cap
+    /// is exceeded.
+    var pendingCursorApprovalSessionCountsBySurface: [String: Int] = [:]
+    /// Surfaces whose capped ID list has overflowed. The flag remains set until
+    /// the count reaches zero so an omitted session cannot be mistaken for the
+    /// current completion after the retained IDs drain.
+    var pendingCursorApprovalSurfaceOverflow: [String: Bool] = [:]
+    var pendingCursorApprovalIndexInitialized: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -72,6 +83,10 @@ struct ClaudeHookSessionStoreFile: Codable {
         case claudeTeamTaskBindings
         case claudeTaskListDestinations
         case agentHookFailureReportTimestamps
+        case pendingCursorApprovalSessionsBySurface
+        case pendingCursorApprovalSessionCountsBySurface
+        case pendingCursorApprovalSurfaceOverflow
+        case pendingCursorApprovalIndexInitialized
     }
 
     init() {}
@@ -161,6 +176,22 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: TimeInterval].self,
             forKey: .agentHookFailureReportTimestamps
         ) ?? [:]
+        pendingCursorApprovalSessionsBySurface = try container.decodeIfPresent(
+            [String: [String]].self,
+            forKey: .pendingCursorApprovalSessionsBySurface
+        ) ?? [:]
+        pendingCursorApprovalSessionCountsBySurface = try container.decodeIfPresent(
+            [String: Int].self,
+            forKey: .pendingCursorApprovalSessionCountsBySurface
+        ) ?? [:]
+        pendingCursorApprovalSurfaceOverflow = try container.decodeIfPresent(
+            [String: Bool].self,
+            forKey: .pendingCursorApprovalSurfaceOverflow
+        ) ?? [:]
+        pendingCursorApprovalIndexInitialized = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .pendingCursorApprovalIndexInitialized
+        ) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -232,6 +263,27 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !agentHookFailureReportTimestamps.isEmpty {
             try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)
+        }
+        if !pendingCursorApprovalSessionsBySurface.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSessionsBySurface,
+                forKey: .pendingCursorApprovalSessionsBySurface
+            )
+        }
+        if !pendingCursorApprovalSessionCountsBySurface.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSessionCountsBySurface,
+                forKey: .pendingCursorApprovalSessionCountsBySurface
+            )
+        }
+        if !pendingCursorApprovalSurfaceOverflow.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSurfaceOverflow,
+                forKey: .pendingCursorApprovalSurfaceOverflow
+            )
+        }
+        if pendingCursorApprovalIndexInitialized {
+            try container.encode(true, forKey: .pendingCursorApprovalIndexInitialized)
         }
     }
 }

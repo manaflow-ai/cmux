@@ -1867,15 +1867,20 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The group's anchor workspace (the group header). The loader prefers
-    /// `anchorMemberIndex` (restore-stable) and treats this field as a hint when
-    /// duplicate/corrupt snapshots force a workspace to mint a fresh UUID.
+    /// The group's anchor identity (the group header). For an empty pinned
+    /// group this is a stable placeholder rather than a live workspace. The
+    /// loader prefers `anchorMemberIndex` (restore-stable) for live groups and
+    /// treats this field as a hint when duplicate/corrupt snapshots force a
+    /// workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil
     /// 0-based index of the anchor among the group's members in tab order. Restore-stable:
     /// tab order is preserved across restore, so the same index resolves to the same
     /// logical anchor even when a workspace UUID cannot be reused. Older snapshots
     /// that omit this field fall back to "first member by tab order".
     var anchorMemberIndex: Int? = nil
+    /// `true` when the group intentionally has no live workspace anchor.
+    /// Optional for snapshots written before pinned empty groups were supported.
+    var anchorIsEmpty: Bool? = nil
     var isPinned: Bool? = nil
     var customColor: String? = nil
     var iconSymbol: String? = nil

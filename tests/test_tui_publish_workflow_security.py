@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import subprocess
 import tempfile
 import time
@@ -77,6 +78,15 @@ def test_sdk_ci_tracks_tui_verification_and_packaging_workflows() -> None:
         assert required_paths <= set(paths)
 
 
+def test_macos_tui_tests_use_a_short_temp_root_for_unix_sockets() -> None:
+    tui = workflow("cmux-tui.yml")
+    test_job = workflow_job(tui, "test")
+
+    assert "name: Use short temporary directory for macOS socket tests" in test_job
+    assert "if: runner.os == 'macOS'" in test_job
+    assert 'echo "TMPDIR=/tmp" >> "$GITHUB_ENV"' in test_job
+
+
 def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     bindings = ROOT / "cmux-tui" / "bindings"
     typescript = json.loads(
@@ -99,6 +109,16 @@ def test_sdk_registry_names_do_not_overlap_tui_cli_packages() -> None:
     assert 'DIST_NAME = "cmux"' in tui_pypi
     assert 'PACKAGE_NAME = "cmux_tui"' in tui_pypi
     assert "cmux = cmux_tui._main:main" in tui_pypi
+
+
+def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    releasing = (ROOT / "cmux-tui" / "bindings" / "RELEASING.md").read_text()
+    assert artifacts.count('"architecture":') >= 4
+    assert artifacts.count('"libc": "none"') >= 4
+    assert '"arch":' not in artifacts
+    assert "architecture: x86_64" in releasing
+    assert "libc: none" in releasing
 
 
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
@@ -1307,6 +1327,7 @@ def test_workflow_guard_runs_for_every_workflow_it_validates() -> None:
         "cmux-tui-release-cut.yml",
         "cmux-tui-release.yml",
         "cmux-tui-sdks.yml",
+        "relay-publish-npm.yml",
         "sdk-bootstrap-crates.yml",
         "sdk-publish-crates.yml",
         "sdk-publish-go.yml",
@@ -1450,6 +1471,123 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
 
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)
+
+
+def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
+    # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
+    # family. If the coordinated TUI publish or the nightly lane ever grows a
+    # cmux-relay npm publish back, a routine TUI release could silently take
+    # over cmux-relay@latest from the shipping relay (chatmux relay Rust
+    # cutover, chatmux docs/RELAY-RUST.md).
+    for name in ("tui-publish-npm.yml", "cmux-tui-nightly.yml"):
+        text = workflow(name)
+        assert "npm publish --provenance dist/npm-packages/cmux-relay" not in text
+        assert (
+            "npm publish --provenance --tag nightly dist/npm-packages/cmux-relay"
+            not in text
+        )
+        publish_lists = re.findall(r"packages=\((.*?)\)", text, flags=re.DOTALL)
+        assert publish_lists
+        for block in publish_lists:
+            assert "cmux-relay" not in block
+
+
+def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # Tag-only trigger: no workflow_dispatch bypass, tags pinned to the
+    # cmux-relay-v family, and the tag must be an ancestor of protected main.
+    triggers = workflow_triggers(text)
+    assert set(triggers) == {"push"}
+    assert triggers["push"] == {"tags": ["cmux-relay-v*"]}
+    assert (
+        '[[ "$GITHUB_REF_NAME" =~ ^cmux-relay-v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$ ]]'
+        in text
+    )
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in text
+
+    # Release candidates ride the next dist-tag; only stable versions take
+    # latest. Every publish passes the resolved tag explicitly.
+    assert 'dist_tag="next"' in text
+    assert 'dist_tag="latest"' in text
+    assert 'if [[ "$version" == *-rc.* ]]' in text
+    # --access public is required for the first publish of each new unscoped
+    # cmux-relay package name under --provenance and is a no-op afterwards.
+    assert text.count('npm publish --provenance --access public --tag "$DIST_TAG"') == 1
+    assert 'npm publish --provenance --tag "$DIST_TAG"' not in text.replace(
+        'npm publish --provenance --access public --tag "$DIST_TAG"', ""
+    )
+    assert "npm publish --provenance dist/npm-packages" not in text
+
+    # Same provenance posture as the TUI publisher: trusted-publisher
+    # environment, OIDC-capable npm, github-hosted publish runner, contract
+    # revalidation, and non-self-hosted attestation verification of every
+    # relay binary against the reusable build workflow at this exact ref.
+    assert "name: npm-tui" in text
+    assert "npm install -g npm@11.5.1" in text
+    assert "runs-on: ubuntu-latest" in text
+    assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
+    assert "attest_packages: true" in text
+    # The Rust machine relay has no Windows PTY backend yet. Its stable npm
+    # publisher must build and publish Unix packages only; Windows stays on
+    # the Node rollback lane until a tested backend exists.
+    assert "include_windows: false" in text
+    assert "cmux-relay-win32-x64" not in text
+    assert "package_pypi: false" in text
+    assert "validate_package_contract.py" in text
+    assert "--install-npm-relay-package cmux-relay-linux-x64" in text
+    assert "gh attestation verify" in text
+    assert "--deny-self-hosted-runners" in text
+    assert '--source-digest "$GITHUB_SHA"' in text
+    assert '--source-ref "$GITHUB_REF"' in text
+    assert "persist-credentials: false" in text
+
+
+def test_relay_launcher_rc_fallback_never_relaxes_stable() -> None:
+    text = workflow("relay-publish-npm.yml")
+
+    # The Rust cutover has one launcher plus four Unix target packages. Every
+    # package uses the same idempotent publish path for both `next` and
+    # `latest`; there is no local-tarball or failed-launcher fallback. A
+    # fallback could report a release as usable while the launcher is absent
+    # from the registry, so the workflow must fail closed instead.
+    publish_section = text.split(
+        "- name: Publish five Unix relay packages idempotently", 1
+    )[1].split("- name: Audit published npm signatures and provenance", 1)[0]
+    package_lines = re.findall(
+        r"^\s+(cmux-relay(?:-(?:darwin-arm64|darwin-x64|linux-x64|linux-arm64))?)\s*$",
+        publish_section,
+        re.MULTILINE,
+    )
+    assert package_lines == [
+        "cmux-relay-darwin-arm64",
+        "cmux-relay-darwin-x64",
+        "cmux-relay-linux-x64",
+        "cmux-relay-linux-arm64",
+        "cmux-relay",
+    ]
+    assert 'elif [[ "$DIST_TAG" == "next" ]]' not in text
+    assert "LAUNCHER_PUBLISHED" not in text
+    assert "npm install -g ./dist/npm-packages/cmux-relay" not in text
+    assert "cmux-relay-win32-x64" not in text
+    assert 'publish_if_missing "$package"' in publish_section
+    assert "version_exists" in publish_section
+    assert "registry_integrity" in publish_section
+    assert "Audit published npm signatures and provenance" in text
+    assert text.count("cmux-relay --version") == 1
+
+
+def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
+    builder = ROOT / "cmux-tui" / "dist" / "scripts" / "package_npm.py"
+    namespace = runpy.run_path(str(builder), run_name="cmux_tui_package_npm_test")
+    version_re = namespace["VERSION_RE"]
+    assert isinstance(version_re, re.Pattern)
+
+    assert version_re.fullmatch("0.12.1")
+    assert version_re.fullmatch("0.12.1-rc.1")
+    assert version_re.fullmatch("0.12.1-nightly.20260825.7")
+    assert not version_re.fullmatch("0.12.1-rc")
+    assert not version_re.fullmatch("0.12.1-rc.0.extra")
 
 
 if __name__ == "__main__":

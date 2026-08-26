@@ -269,17 +269,34 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         }
     }
 
-    @Test func reconnectBackoffPreservesQueuedTerminalInput() throws {
+    @Test func reconnectBackoffDiscardsQueuedTerminalInput() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-queued-input-\(UUID().uuidString)")
+        let backoffMarkerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-backoff-ready-\(UUID().uuidString)")
         let transcriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-queued-input-transcript-\(UUID().uuidString)")
+        let fakeCLIURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-input-flush-\(UUID().uuidString)")
         try Data().write(to: transcriptURL)
+        try """
+        #!/bin/sh
+        if [ "${1:-}" = "__ssh-pty-flush-input" ]; then
+          exec /usr/bin/python3 -c 'import sys, termios; termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)'
+        fi
+        exit 0
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: fakeCLIURL.path
+        )
         let transcriptHandle = try FileHandle(forWritingTo: transcriptURL)
         defer {
             try? transcriptHandle.close()
             try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: backoffMarkerURL)
             try? FileManager.default.removeItem(at: transcriptURL)
+            try? FileManager.default.removeItem(at: fakeCLIURL)
         }
 
         let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
@@ -288,12 +305,16 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         )
         let script = ([
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_ssh_attach_cli=\"$CMUX_TEST_FAKE_CLI\"",
+            "sleep() { printf 'ready\\n' > \"$CMUX_TEST_BACKOFF_MARKER\"; /bin/sleep \"$1\"; }",
             "cmux_test_attach() {",
             "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 255; fi",
-            "  IFS= read -r cmux_test_input || return 42",
-            "  printf 'input:%s\\n' \"$cmux_test_input\" >> \"$CMUX_TEST_LOG\"",
+            "  if IFS= read -r -t 1 cmux_test_input; then",
+            "    printf 'input:%s\\n' \"$cmux_test_input\" >> \"$CMUX_TEST_LOG\"",
+            "  fi",
+            "  printf '%s\\n' complete >> \"$CMUX_TEST_LOG\"",
             "  return 0",
             "}",
         ] + retryLines).joined(separator: "\n")
@@ -308,6 +329,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         ]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_LOG": logURL.path,
+            "CMUX_TEST_BACKOFF_MARKER": backoffMarkerURL.path,
+            "CMUX_TEST_FAKE_CLI": fakeCLIURL.path,
             "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
             "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
         ]) { _, override in override }
@@ -317,8 +340,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
 
         try process.run()
         let enteredBackoff = waitForFile(
-            at: transcriptURL,
-            containing: "remote PTY bridge closed; reattaching",
+            at: backoffMarkerURL,
+            containing: "ready",
             while: process,
             timeout: 3
         )
@@ -326,13 +349,15 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         if enteredBackoff {
             try standardInput.fileHandleForWriting.write(contentsOf: Data("queued-input\n".utf8))
         }
-        let queuedInputReachedAttach = waitForFile(
+        let secondAttachFinished = waitForFile(
             at: logURL,
-            containing: "input:queued-input",
+            containing: "complete\n",
             while: process,
             timeout: 3
         )
-        #expect(queuedInputReachedAttach)
+        #expect(secondAttachFinished)
+        // The attach fixture has its own bounded reader, so it exits whether
+        // the queued line was delivered or discarded.
         try? standardInput.fileHandleForWriting.close()
         if process.isRunning {
             process.terminate()
@@ -340,8 +365,13 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         process.waitUntilExit()
 
         let logContents = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<missing>"
-        if queuedInputReachedAttach {
-            #expect(logContents == "attach\nattach\ninput:queued-input\n")
+        let transcript = (try? String(contentsOf: transcriptURL, encoding: .utf8)) ?? "<missing>"
+        if secondAttachFinished {
+            #expect(logContents == "attach\nattach\ncomplete\n", Comment(rawValue: logContents))
+            #expect(
+                transcript.contains("Input typed while disconnected is discarded."),
+                Comment(rawValue: transcript)
+            )
         }
     }
 
