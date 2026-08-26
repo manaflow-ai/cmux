@@ -30,6 +30,12 @@ struct SurfaceSelectionTests {
         )
         #expect(oversizedText.utf8.count <= SurfaceSelectionSnapshot.maximumTextBytes)
         #expect(oversizedText.hasSuffix("…"))
+
+        let oversizedUnicode = SurfaceSelectionSnapshot.boundedText(
+            String(repeating: "😀", count: SurfaceSelectionSnapshot.maximumTextBytes / 4 + 32)
+        )
+        #expect(oversizedUnicode.utf8.count <= SurfaceSelectionSnapshot.maximumTextBytes)
+        #expect(!oversizedUnicode.contains("\u{FFFD}"))
     }
 
     @Test func paneRoutingSelectsItsSurfaceAndFailsClosed() throws {
@@ -426,6 +432,44 @@ struct SurfaceSelectionTests {
         let mutationSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(!mutationSnapshot.hasSelection)
         #expect(mutationSnapshot.text.isEmpty)
+
+        let preparedProgrammaticClear = try await panel.webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const node = document.getElementById('passage').firstChild;
+              node.nodeValue = 'before selected browser words';
+              const selectedText = 'selected browser words';
+              const start = node.textContent.indexOf(selectedText);
+              const range = document.createRange();
+              range.setStart(node, start);
+              range.setEnd(node, start + selectedText.length);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              document.addEventListener(
+                'selectionchange',
+                () => resolve(selection.toString()),
+                { once: true, capture: true }
+              );
+              selection.addRange(range);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        #expect(preparedProgrammaticClear as? String == "selected browser words")
+        _ = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              window.getSelection().removeAllRanges();
+              document.dispatchEvent(new Event('selectionchange'));
+              return true;
+            })()
+            """
+        )
+        let programmaticClearSnapshot = try snapshot(from: await panel.readSurfaceSelection())
+        #expect(!programmaticClearSnapshot.hasSelection)
+        #expect(programmaticClearSnapshot.text.isEmpty)
     }
 
     private func snapshot(

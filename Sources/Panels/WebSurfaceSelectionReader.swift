@@ -292,7 +292,11 @@ nonisolated struct WebSurfaceSelectionReader {
         trackedDocuments.add(targetDocument);
         const captureDocument = () => {
           const targetWindow = targetDocument.defaultView;
-          if (targetWindow) capture(targetWindow);
+          if (!targetWindow) return;
+          // A collapsed selectionchange while the document is unfocused is
+          // WebKit's native-focus handoff signal. When the page still owns
+          // focus, an empty range is an intentional page-side clear.
+          capture(targetWindow, targetDocument.hasFocus());
         };
         const reconcileInput = () => {
           const targetWindow = targetDocument.defaultView;

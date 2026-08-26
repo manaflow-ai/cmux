@@ -22,7 +22,14 @@ public nonisolated struct SurfaceSelectionSnapshot: Equatable, Sendable {
         guard text.utf8.count > maximumTextBytes else { return text }
         let marker = "…"
         let budget = max(0, maximumTextBytes - marker.utf8.count)
-        return String(decoding: text.utf8.prefix(budget), as: UTF8.self) + marker
+        var used = 0
+        let prefix = text.unicodeScalars.prefix(while: { scalar in
+            let scalarBytes = scalar.utf8.count
+            guard used + scalarBytes <= budget else { return false }
+            used += scalarBytes
+            return true
+        })
+        return String(prefix) + marker
     }
 
     /// Standardized source path when the selection belongs to a document.

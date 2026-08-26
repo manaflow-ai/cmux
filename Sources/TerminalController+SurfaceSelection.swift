@@ -80,6 +80,16 @@ extension TerminalController {
         // UUID selectors are self-contained. Refresh the registry only when a
         // caller supplied an opaque ref that needs resolving; a focused or
         // UUID-routed read should not sweep the entire app topology first.
+        let isOpaqueHandleReference: (String) -> Bool = { raw in
+            let pieces = raw.split(separator: ":", omittingEmptySubsequences: false)
+            guard pieces.count == 2,
+                  ControlHandleKind(rawValue: String(pieces[0]).lowercased()) != nil,
+                  let ordinal = Int(pieces[1]),
+                  ordinal > 0 else {
+                return false
+            }
+            return true
+        }
         let hasUnresolvedOpaqueSelector = selectorKeys.contains { key in
             guard v2HasNonNullParam(params, key),
                   let raw = params[key] as? String else {
@@ -89,6 +99,7 @@ extension TerminalController {
             guard !trimmed.isEmpty, UUID(uuidString: trimmed) == nil else {
                 return false
             }
+            guard isOpaqueHandleReference(trimmed) else { return false }
             return v2MainSync { v2ResolveHandleRef(trimmed) } == nil
         }
         if hasUnresolvedOpaqueSelector {
