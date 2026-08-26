@@ -16804,13 +16804,14 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
-    /// A machine resume reconnects every hosted terminal at once. When
-    /// checkpoint capture keeps losing its consistency race on a busy
-    /// session, the skip must surface as one status event, not one toast per
-    /// terminal per reconnect. A later successful checkpoint re-arms the
-    /// report.
+    /// A machine resume reconnects every hosted terminal at once. Checkpoint
+    /// capture can lose its consistency race while those reconnects append to
+    /// the journal, but the skipped optimization is recovered by replaying
+    /// from the previous boundary. It must stay out of the user-facing status
+    /// stream even when it repeats or a later successful checkpoint re-arms
+    /// diagnostic logging.
     #[test]
-    fn reconnect_checkpoint_skip_status_is_reported_once_until_recovery() {
+    fn reconnect_checkpoint_skip_does_not_emit_status() {
         let mux = test_mux();
         let events = mux.subscribe();
         let skip_statuses = |events: &MuxEventReceiver| {
@@ -16829,16 +16830,16 @@ mod tests {
         mux.report_skipped_reconnect_checkpoint("term_one", &error);
         assert_eq!(
             skip_statuses(&events),
-            1,
-            "repeated checkpoint skips must collapse into one status event"
+            0,
+            "recoverable checkpoint skips must not enter the status stream"
         );
 
         mux.note_reconnect_checkpoint_captured();
         mux.report_skipped_reconnect_checkpoint("term_three", &error);
         assert_eq!(
             skip_statuses(&events),
-            1,
-            "a skip after a successful checkpoint is a new condition and reports again"
+            0,
+            "re-armed diagnostic logging must remain out of the status stream"
         );
     }
 
