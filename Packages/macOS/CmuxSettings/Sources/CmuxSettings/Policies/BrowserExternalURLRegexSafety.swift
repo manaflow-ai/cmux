@@ -12,7 +12,7 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
     /// Returns whether `expression` has a bounded, supported shape.
     func accepts(_ expression: String) -> Bool {
         guard !expression.isEmpty,
-              expression.prefix(maximumExpressionLength + 1).count <= maximumExpressionLength else {
+              expression.utf8.prefix(maximumExpressionLength + 1).count <= maximumExpressionLength else {
             return false
         }
 
@@ -65,8 +65,8 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
                 previousAtom = 1
                 previousGroupIsComplex = false
             case "(":
-                // Non-capturing groups are harmless, but rejecting all `(?`
-                // forms avoids lookarounds and engine-specific extensions.
+                // Reject all `(?` forms to avoid lookarounds and
+                // engine-specific extensions on the synchronous path.
                 if nextIndex < expression.endIndex, expression[nextIndex] == "?" {
                     return false
                 }

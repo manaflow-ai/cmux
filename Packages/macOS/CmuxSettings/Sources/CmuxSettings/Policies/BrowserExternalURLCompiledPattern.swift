@@ -32,7 +32,7 @@ struct BrowserExternalURLCompiledPattern: Equatable, Sendable {
     }
 
     func matches(_ target: String) -> Bool {
-        guard target.prefix(maximumTargetLength + 1).count <= maximumTargetLength else {
+        guard target.utf8.prefix(maximumTargetLength + 1).count <= maximumTargetLength else {
             return false
         }
         if let literalPattern {

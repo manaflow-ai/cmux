@@ -65,7 +65,7 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
     }
 
     private func compile(_ pattern: String) -> BrowserExternalURLCompiledPattern {
-        guard pattern.prefix(maximumPatternLength + 1).count <= maximumPatternLength else {
+        guard pattern.utf8.prefix(maximumPatternLength + 1).count <= maximumPatternLength else {
             return BrowserExternalURLCompiledPattern(unmatchable: ())
         }
 
