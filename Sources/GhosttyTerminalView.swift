@@ -1923,9 +1923,11 @@ class GhosttyApp {
             completion()
             return
         }
+        var didCommitConfiguration = false
         performConfigurationReload(
             request,
             didCommit: {
+                didCommitConfiguration = true
                 request.commitCompletions.forEach { $0(true) }
             },
             didFailToCommit: {
@@ -1940,6 +1942,19 @@ class GhosttyApp {
             let shouldScheduleNext =
                 self.configurationReloadCoordinator
                     .finishReload()
+            // Keep the long-standing reload notification as a post-fanout
+            // boundary. Mobile render-grid observers treat it as permission
+            // to invalidate every cached theme; publishing it while the
+            // bounded scheduler is still applying surfaces can emit a newer
+            // revision for a surface that still has the previous native theme.
+            // A superseded transaction must not publish this event: its
+            // replacement owns the final notification after its own fanout.
+            if didCommitConfiguration, !shouldScheduleNext {
+                NotificationCenter.default.post(
+                    name: .ghosttyConfigDidReload,
+                    object: nil
+                )
+            }
             request.completions.forEach { $0() }
             self.drainPendingAppearanceSynchronization()
             if shouldScheduleNext {
@@ -2046,10 +2061,6 @@ class GhosttyApp {
                     globalFontMagnificationPercent:
                         reloadMagnificationPercent
                 )
-            )
-            NotificationCenter.default.post(
-                name: .ghosttyConfigDidReload,
-                object: nil
             )
 #if DEBUG
             cmuxDebugLog(
@@ -2191,10 +2202,6 @@ class GhosttyApp {
                 globalFontMagnificationPercent:
                     reloadMagnificationPercent
             )
-        )
-        NotificationCenter.default.post(
-            name: .ghosttyConfigDidReload,
-            object: nil
         )
 #if DEBUG
         cmuxDebugLog(
