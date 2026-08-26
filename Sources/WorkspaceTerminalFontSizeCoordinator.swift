@@ -172,6 +172,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
         windowDockSlot.pendingInheritanceContext = nil
     }
 
+    /// Releases this context's Dock slot without treating the surviving
+    /// workspaces as closed. A replacement context can attach the same store.
+    func detachWindowDock() {
+        guard let dock = windowDockSlot.value else { return }
+        arbiter.cancelWindowOwnedWork(
+            requestedBy: self,
+            closingManager: nil,
+            closingWindowDockSlot: windowDockSlot
+        )
+        windowDockSlot.value = nil
+        windowDockSlot.coordinator = nil
+        if dock.terminalFontSizeChangeCoordinator === self {
+            dock.terminalFontSizeChangeCoordinator = nil
+        }
+        windowDockResourceKeys.removeValue(forKey: ObjectIdentifier(dock))
+    }
+
     private func registerSnapshotProjectionTargets(
         workspace: Workspace,
         windowDockSlot: WindowDockSlot

@@ -26,12 +26,14 @@ extension CMUXCLI {
         event: String,
         error: Error? = nil,
         store: ClaudeHookSessionStore,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        deadline: Date? = nil
     ) {
         guard (try? store.claimAgentHookFailureReport(
             agentName: agentName,
             stage: stage.rawValue,
-            sessionId: sessionId
+            sessionId: sessionId,
+            deadline: deadline
         )) == true else {
             return
         }
