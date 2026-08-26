@@ -1,0 +1,459 @@
+import CMUXMobileCore
+import CmuxIrohTransport
+import CmuxIrxTransport
+import CmuxMobileRPC
+import Foundation
+
+/// iOS composition root for the irx transport (the from-scratch iroh rebuild
+/// in `CmuxIrxTransport`). DEBUG-only, default-off: when `cmux.irx.enabled`
+/// (or `CMUX_IRX_ENABLED=1`) is set, cmuxApp routes ALL `.iroh` traffic here
+/// and the legacy `MobileIrohRuntimeComposition` is never configured, so the
+/// two stacks cannot fight over the broker binding slot.
+public actor MobileIrxRuntimeComposition {
+    public static let enabledDefaultsKey = "cmux.irx.enabled"
+    public static let forceRelayDefaultsKey = "cmux.irx.force-relay"
+
+    public nonisolated static var isEnabled: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_IRX_ENABLED"] == "1" {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
+        #else
+        return false
+        #endif
+    }
+
+    public nonisolated static var forceRelayOnly: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
+        #else
+        return false
+        #endif
+    }
+
+    public enum CompositionError: Error, Sendable {
+        case notSignedIn
+        case unsupportedRoute
+        case peerNotDiscovered
+        case simulatorStreamingUnsupported
+    }
+
+    /// One journal for every irx component on the phone; the JSONL file lives
+    /// in the app container's Documents so the soak analyzer can pull it with
+    /// `simctl get_app_container`.
+    nonisolated static let journal: IrxJournal = {
+        let documents = FileManager.default.urls(
+            for: .documentDirectory, in: .userDomainMask
+        ).first
+        return IrxJournal(
+            subsystem: "dev.cmux.ios",
+            category: "irx-client",
+            journalFileURL: documents?.appendingPathComponent("irx-journal.jsonl")
+        )
+    }()
+
+    private let brokerBaseURL: URL?
+    private let clientNamespace: String
+    private let tag: String
+    private let stateDirectory: URL
+    private let durableDeviceID: @Sendable () async -> String?
+
+    private weak var auth: AuthCoordinator?
+    private var broker: IrxBrokerService?
+    private var endpointSupervisor: IrxEndpointSupervisor?
+    private var autopilot: IrxRelayCredentialAutopilot?
+    private var identity: IrxIdentity?
+    private var provisioningTask: Task<Void, Never>?
+    /// One reconnect owner per Mac endpoint (contract: the single dialer).
+    private var enginesByPeer: [String: IrxPeerEngine] = [:]
+    /// Route material per peer, refreshed on every transport request.
+    private var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
+    /// The control lane is single-consumer: one claim per admitted session.
+    private var claimedControlSessions: Set<String> = []
+    /// The events uni-lane accept is single-consumer per session too.
+    private var claimedEventSessions: Set<String> = []
+
+    public init(
+        apiBaseURL: String,
+        infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appNamespace injectedAppNamespace: MobileIOSAppNamespace? = nil,
+        keychainAccessGroup: String? = nil,
+        defaults: UserDefaults = .standard
+    ) {
+        let appNamespace = injectedAppNamespace
+            ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
+        clientNamespace = appNamespace?.bundleIdentifier ?? "legacy"
+        brokerBaseURL = MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: apiBaseURL,
+            infoDictionary: infoDictionary,
+            bundleIdentifier: bundleIdentifier
+        )
+        let rawTag = MobileIOSBuildScope.current(
+            infoDictionary: infoDictionary,
+            bundleIdentifier: bundleIdentifier
+        )?.value ?? "default"
+        tag = String(rawTag.prefix(64)).lowercased().map { character in
+            (character.isASCII && (character.isLetter || character.isNumber))
+                || ["-", ".", ":", "_"].contains(character)
+                ? String(character) : "-"
+        }.joined()
+        stateDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        )[0].appendingPathComponent("cmux-irx", isDirectory: true)
+        if let appNamespace {
+            let resolver = MobileIrohDurableDeviceIDResolver(
+                defaults: MobileIrohSendableDefaults(defaults),
+                appNamespace: appNamespace,
+                keychainAccessGroup: keychainAccessGroup
+            )
+            durableDeviceID = { await resolver.resolve() }
+        } else {
+            durableDeviceID = { nil }
+        }
+    }
+
+    // MARK: - Lifecycle
+
+    public func configure(auth: AuthCoordinator) {
+        self.auth = auth
+        Self.journal.record(
+            "client-runtime", "configured",
+            [
+                "tag": tag,
+                "namespace": clientNamespace,
+                "force_relay": String(Self.forceRelayOnly),
+                "broker": brokerBaseURL?.host() ?? "-",
+            ]
+        )
+        // Proactive provisioning so the user-visible connect is warm:
+        // identity, binding, discovery, relay credentials all resolve in the
+        // background at launch, never on the dial path.
+        provisioningTask?.cancel()
+        provisioningTask = Task { [weak self] in
+            while !Task.isCancelled {
+                if await self?.provisionIfPossible() == true {
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// Foreground kick: re-check credential freshness immediately (iOS
+    /// suspension pauses the autopilot's sleep).
+    public func didBecomeActive() async {
+        await autopilot?.kick()
+        for engine in enginesByPeer.values {
+            await engine.warmUp(trigger: "foreground")
+        }
+    }
+
+    private func provisionIfPossible() async -> Bool {
+        guard let auth else { return false }
+        guard let session = try? await auth.authenticatedSessionSnapshot() else {
+            return false
+        }
+        _ = session
+        do {
+            _ = try await provisionedBroker()
+            Self.journal.record("client-runtime", "provisioned")
+            return true
+        } catch {
+            Self.journal.record(
+                "client-runtime", "provisioning-retry",
+                ["error": String(describing: error)]
+            )
+            return false
+        }
+    }
+
+    private func provisionedBroker() async throws -> IrxBrokerService {
+        if let broker { return broker }
+        guard let auth, let brokerBaseURL else {
+            throw CompositionError.notSignedIn
+        }
+        guard let deviceID = await durableDeviceID() else {
+            throw CompositionError.notSignedIn
+        }
+        let identity = try IrxIdentityProvisioner.loadOrCreate(
+            store: IrxFileIdentityStore(
+                fileURL: stateDirectory.appendingPathComponent("identity.json")),
+            deviceID: cmxCanonicalDeviceID(deviceID)
+        )
+        self.identity = identity
+        let broker = try IrxBrokerService(
+            configuration: .init(
+                baseURL: brokerBaseURL,
+                clientNamespace: clientNamespace,
+                tag: tag,
+                platform: .ios,
+                displayName: nil,
+                cacheDirectory: stateDirectory
+            ),
+            identity: identity,
+            accessTokenPair: { [weak auth] in
+                guard let auth else { return nil }
+                let session = try await auth.authenticatedSessionSnapshot()
+                return (session.accessToken, session.refreshToken)
+            },
+            journal: Self.journal
+        )
+        self.broker = broker
+        let supervisor = IrxEndpointSupervisor(
+            configuration: .init(
+                identity: identity,
+                pathMode: Self.forceRelayOnly ? .relayOnly : .automatic,
+                preferredBindAddress: nil,
+                // The Mac opens no bidi streams toward the phone; the events
+                // lane is unidirectional and credited post-admission.
+                initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0
+            ),
+            journal: Self.journal
+        )
+        endpointSupervisor = supervisor
+        let pilot = IrxRelayCredentialAutopilot(
+            broker: broker, endpoint: supervisor, journal: Self.journal)
+        autopilot = pilot
+        // Warm everything off the dial path.
+        _ = try await pilot.usableCredentials()
+        _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
+        _ = try? await broker.discover()
+        await pilot.start()
+        return broker
+    }
+
+    // MARK: - Dialing
+
+    private func peerTarget(for request: CmxByteTransportRequest) throws -> String {
+        guard request.route.kind == .iroh,
+            case let .peer(identity, pathHints) = request.route.endpoint
+        else {
+            throw CompositionError.unsupportedRoute
+        }
+        let now = Date()
+        let relayURL = pathHints.first {
+            $0.kind == .relayURL && $0.isUsable(at: now)
+        }?.value
+        let directAddresses = Self.forceRelayOnly
+            ? []
+            : pathHints.filter { $0.kind == .directAddress && $0.isUsable(at: now) }
+                .map(\.value)
+        routesByPeer[identity.endpointID] = (relayURL, directAddresses)
+        return identity.endpointID
+    }
+
+    private func engine(forPeer peerHex: String) -> IrxPeerEngine {
+        if let existing = enginesByPeer[peerHex] { return existing }
+        let engine = IrxPeerEngine(journal: Self.journal) { [weak self] in
+            guard let self else { throw CompositionError.notSignedIn }
+            return try await self.dialOnce(peerHex: peerHex)
+        }
+        enginesByPeer[peerHex] = engine
+        return engine
+    }
+
+    /// One dial: cached grant + cached credentials + ready endpoint, then
+    /// connect + one-round-trip admission. Broker calls happen only on cache
+    /// misses (first pairing with this Mac, or a stale grant).
+    private func dialOnce(peerHex: String) async throws -> IrxClientSession {
+        let broker = try await provisionedBroker()
+        guard let supervisor = endpointSupervisor, let autopilot else {
+            throw CompositionError.notSignedIn
+        }
+        let grant = try await resolvedGrant(peerHex: peerHex, broker: broker)
+        let credentials = try await autopilot.usableCredentials()
+        let route = routesByPeer[peerHex]
+        let relayURL = route?.relayURL ?? credentials.first?.relayURL
+        let address = try supervisor.dialAddress(
+            peerEndpointIDHex: peerHex,
+            relayURL: relayURL,
+            directAddresses: route?.directAddresses ?? []
+        )
+        let connection = try await supervisor.dial(
+            address: address, credentials: credentials)
+        do {
+            let (admit, control) = try await IrxAdmission.performClient(
+                connection: connection,
+                grantJWS: grant.grantJWS,
+                journal: Self.journal
+            )
+            // Credit the server-opened events lane now that admission holds.
+            await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
+            return IrxClientSession(
+                connection: connection,
+                admit: admit,
+                control: control,
+                establishedAt: Date()
+            )
+        } catch let denial as IrxAdmissionDenied {
+            // A revoked/expired/mismatched grant can be stale cache: drop it
+            // so the NEXT dial re-mints instead of re-presenting the corpse.
+            if denial.code == .invalidGrant || denial.code == .grantExpired
+                || denial.code == .revoked
+            {
+                await broker.dropGrant(acceptorEndpointIDHex: peerHex)
+            }
+            throw denial
+        }
+    }
+
+    private func resolvedGrant(
+        peerHex: String,
+        broker: IrxBrokerService
+    ) async throws -> IrxGrantSnapshot {
+        if let cached = await broker.cachedGrant(acceptorEndpointIDHex: peerHex) {
+            return cached
+        }
+        // First contact with this Mac: find its binding, mint a grant.
+        let discovery = try await broker.discover()
+        guard
+            let acceptorBinding = discovery.bindings.first(where: {
+                $0.endpointID.endpointID == peerHex && $0.platform == .mac
+            })
+        else {
+            throw CompositionError.peerNotDiscovered
+        }
+        return try await broker.issuePairGrant(
+            acceptorBindingID: acceptorBinding.bindingID,
+            acceptorEndpointIDHex: peerHex
+        )
+    }
+
+    // MARK: - Seam surface consumed by cmuxApp
+
+    public func serverEventByteStream(
+        for request: CmxByteTransportRequest
+    ) async throws -> CmxIndependentEventByteStream {
+        let peerHex = try peerTarget(for: request)
+        let session = try await engine(forPeer: peerHex)
+            .ensureSession(trigger: "server-events")
+        guard !claimedEventSessions.contains(session.admit.session) else {
+            throw CompositionError.unsupportedRoute
+        }
+        claimedEventSessions.insert(session.admit.session)
+        let connection = session.connection
+        let journal = Self.journal
+        return AsyncThrowingStream { continuation in
+            let pump = Task {
+                guard
+                    let (descriptor, reader) = try await connection.acceptUniLane(),
+                    descriptor.lane == .events
+                else {
+                    journal.record("client-events", "lane-missing")
+                    continuation.finish(
+                        throwing: IrxConnectionError.closed(nil))
+                    return
+                }
+                journal.record("client-events", "lane-accepted")
+                do {
+                    while let chunk = try await reader.readRaw() {
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                pump.cancel()
+            }
+        }
+    }
+
+    public func openTerminalLane(
+        for request: CmxByteTransportRequest,
+        surfaceID: UUID,
+        cursor: UInt64? = nil
+    ) async throws -> MobileIrohTerminalLane {
+        let peerHex = try peerTarget(for: request)
+        let session = try await engine(forPeer: peerHex)
+            .ensureSession(trigger: "terminal-lane")
+        let lane = try await session.connection.openLane(
+            IrxLaneDescriptor(
+                lane: .terminal,
+                resource: "terminal:\(surfaceID.uuidString.lowercased())",
+                cursor: cursor
+            )
+        )
+        Self.journal.record(
+            "client-terminal", "lane-opened",
+            [
+                "surface": surfaceID.uuidString.lowercased(),
+                "cursor": cursor.map(String.init) ?? "-",
+            ]
+        )
+        return MobileIrohTerminalLane(stream: lane.bidirectional())
+    }
+
+    public func openArtifactLane(
+        for request: CmxByteTransportRequest,
+        resourceID: String,
+        offset: UInt64
+    ) async throws -> any MobileArtifactLaneConnection {
+        let peerHex = try peerTarget(for: request)
+        let session = try await engine(forPeer: peerHex)
+            .ensureSession(trigger: "artifact-lane")
+        let lane = try await session.connection.openLane(
+            IrxLaneDescriptor(lane: .artifact, resource: resourceID, offset: offset)
+        )
+        return IrxArtifactLane(lane: lane)
+    }
+
+    public func simulatorStreamLaneUnavailable() throws -> Never {
+        // Simulator streaming is not served by irx v1; the viewer surfaces
+        // its ordinary unavailable state.
+        throw CompositionError.simulatorStreamingUnsupported
+    }
+
+    /// The deferred transport the RPC layer connects through. Each RPC client
+    /// generation claims one admitted session's control lane; a replacement
+    /// client forces a fresh dial (superseding the old session Mac-side).
+    public func transport(
+        for request: CmxByteTransportRequest
+    ) async throws -> any CmxByteTransport {
+        let peerHex = try peerTarget(for: request)
+        return IrxControlByteTransport(closeCode: .explicitRedial) { [weak self] in
+            guard let self else {
+                throw CompositionError.notSignedIn
+            }
+            return try await self.claimControlLane(peerHex: peerHex)
+        }
+    }
+
+    private func claimControlLane(
+        peerHex: String
+    ) async throws -> (IrxConnection, IrxLaneStream) {
+        let engine = engine(forPeer: peerHex)
+        var session = try await engine.ensureSession(trigger: "control-transport")
+        if claimedControlSessions.contains(session.admit.session) {
+            // The live session's control lane already belongs to an earlier
+            // transport: this caller is a replacement client, so replace the
+            // session (one control owner per session, always).
+            session = try await engine.ensureSession(
+                explicit: true, trigger: "control-transport-replacement")
+        }
+        claimedControlSessions.insert(session.admit.session)
+        return (session.connection, session.control)
+    }
+}
+
+/// Artifact lane over irx: bounded reads down, no upstream bytes.
+struct IrxArtifactLane: MobileArtifactLaneConnection {
+    let lane: IrxLaneStream
+
+    func receive(maximumByteCount: Int) async throws -> Data? {
+        try await lane.reader.readRaw(maximumByteCount: maximumByteCount)
+    }
+
+    func close() async {
+        await lane.close()
+    }
+}
+
+extension MobileIrxRuntimeComposition: CmxIrohDeferredTransportProviding {}

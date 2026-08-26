@@ -3,19 +3,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "CmuxIrohTransport",
+    name: "CmuxIrxTransport",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxIrohTransport",
-            targets: ["CmuxIrohTransport"]
+            name: "CmuxIrxTransport",
+            targets: ["CmuxIrxTransport"]
         ),
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        // Grant claims/verifier and terminal-envelope codecs are consumed as
+        // stable data contracts; none of the legacy runtime machinery is used.
+        .package(path: "../CmuxIrohTransport"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
             exact: "1.0.2-cmux.8"
@@ -23,9 +26,10 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CmuxIrohTransport",
+            name: "CmuxIrxTransport",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
@@ -38,10 +42,11 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CmuxIrohTransportTests",
+            name: "CmuxIrxTransportTests",
             dependencies: [
-                "CmuxIrohTransport",
+                "CmuxIrxTransport",
                 "CMUXMobileCore",
+                "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
