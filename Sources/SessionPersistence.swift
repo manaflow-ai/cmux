@@ -1872,6 +1872,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// cmux-tui cloud machine binding; absent in manifests written before the Cloud tree and for
     /// workspaces that are not cloud machines.
     var cloudVM: SessionCloudVMBindingSnapshot? = nil
+    /// Remote surfaces this workspace's panes projected (`SurfaceCatalog`); absent for
+    /// workspaces that only ever showed local panes, so older manifests decode unchanged.
+    var surfaceProjections: [SurfaceProjectionRecord]? = nil
     /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default

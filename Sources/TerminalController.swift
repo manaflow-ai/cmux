@@ -1657,6 +1657,8 @@ class TerminalController {
                 ])
             }
 #endif
+        case "surface.catalog", "surface.project", "surface.new_terminal":
+            return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("remotes."):
@@ -2838,6 +2840,9 @@ class TerminalController {
             "vm.desktop_open",
             "vm.port_open",
             "vm.link_socket",
+            "surface.catalog",
+            "surface.project",
+            "surface.new_terminal",
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",

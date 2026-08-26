@@ -191,8 +191,8 @@ enum FileDropTextDropController {
 enum DragOverlayRoutingPolicy {
     static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
-    /// A Cloud tree row (a machine's terminal, desktop, or port) dragged into the main view.
-    static let cloudSurfaceTransferType = NSPasteboard.PasteboardType("com.cmux.cloud-surface.transfer")
+    /// A Cloud tree row (a catalog resource: terminal, screen, or browser) dragged into the main view.
+    static let surfaceResourceTransferType = NSPasteboard.PasteboardType("com.cmux.surface-resource")
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
 
     static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
@@ -205,9 +205,9 @@ enum DragOverlayRoutingPolicy {
         return pasteboardTypes.contains(filePreviewTransferType)
     }
 
-    static func hasCloudSurfaceTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+    static func hasSurfaceResourceTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(cloudSurfaceTransferType)
+        return pasteboardTypes.contains(surfaceResourceTransferType)
     }
 
     static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {

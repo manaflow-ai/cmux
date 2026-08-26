@@ -1335,16 +1335,19 @@ extension CMUXCLI {
         }
 
         let name = nameOption ?? Self.vmAgentTerminalName(agent: agent, args: agentArgs)
+        // The agent is a terminal resource on the machine (`surface.new_terminal`): it lives
+        // in the machine's cmux-tui session, shows up in `cmux vm tree`, and opens locally as a
+        // pane unless --no-open.
         let params: [String: Any] = [
-            "id": selection.id,
+            "machine": selection.id,
             "command": vmAgentShellCommand(argv: argv),
             "cwd": remoteCwd,
             "name": name,
             "open": !noOpen,
         ]
-        let response = try client.sendV2(method: "vm.terminal_new", params: params, responseTimeout: 240)
+        let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
         let terminalId = (response["terminal_id"] as? String) ?? "?"
-        let workspaceId = (response["workspace_id"] as? String) ?? "?"
+        let workspaceId = (response["remote_workspace_id"] as? String) ?? "?"
         let surfaceId = (response["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if jsonOutput {
             var payload: [String: Any] = [

@@ -45,22 +45,34 @@ struct CloudTreeRowContentView: View {
 
     var body: some View {
         switch kind {
-        case .machine(let machine):
+        case .machine(let machine, _):
             CloudTreeMachineRowContent(machine: machine)
+        case .localMachine(let row):
+            CloudTreeLocalMachineRowContent(row: row)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace):
+        case .workspace(_, let workspace, let terminalCount):
             leafRow(icon: CloudTreeRowIcon(systemName: "rectangle.split.2x1", style: AnyShapeStyle(.secondary))) {
                 Text(workspace.name)
                     .cmuxFont(size: 12, weight: workspace.focused ? .medium : .regular)
                     .foregroundStyle(.primary)
             } detail: {
-                Text(Self.count(workspace.terminals.count))
+                Text(Self.count(terminalCount))
                     .cmuxFont(size: 10.5, monospacedDigit: true)
                     .foregroundStyle(.tertiary)
             }
-        case .terminal(_, let terminal):
-            CloudTreeTerminalRowContent(terminal: terminal)
+        case .localWorkspace(let row):
+            leafRow(icon: CloudTreeRowIcon(systemName: "rectangle.split.2x1", style: AnyShapeStyle(.secondary))) {
+                Text(row.title)
+                    .cmuxFont(size: 12, weight: row.isSelected ? .medium : .regular)
+                    .foregroundStyle(.primary)
+            } detail: {
+                Text(Self.count(row.terminalCount))
+                    .cmuxFont(size: 10.5, monospacedDigit: true)
+                    .foregroundStyle(.tertiary)
+            }
+        case .terminal(let row):
+            CloudTreeTerminalRowContent(row: row)
         case .desktop:
             leafRow(icon: CloudTreeRowIcon(systemName: "display", style: AnyShapeStyle(.secondary))) {
                 Text(String(localized: "cloudTree.node.desktop", defaultValue: "Desktop"))
@@ -71,15 +83,19 @@ struct CloudTreeRowContentView: View {
                     .cmuxFont(size: 10.5)
                     .foregroundStyle(.tertiary)
             }
+        case .browsersGroup:
+            groupRow(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"))
+        case .browser(let row):
+            CloudTreeBrowserRowContent(row: row)
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
-        case .port(_, let port):
+        case .port(let resource):
             leafRow(icon: CloudTreeRowIcon(systemName: "network", style: AnyShapeStyle(.secondary))) {
-                Text(String(port.port))
+                Text(resource.port.map(String.init) ?? resource.title)
                     .cmuxFont(size: 12, monospacedDigit: true)
                     .foregroundStyle(.primary)
             } detail: {
-                if let label = port.label, !label.isEmpty {
+                if let label = resource.detail, !label.isEmpty {
                     Text(label)
                         .cmuxFont(size: 10.5)
                         .foregroundStyle(.tertiary)
@@ -149,7 +165,7 @@ struct CloudTreeRowContentView: View {
         .padding(.trailing, CloudTreeRowGrid.trailingPadding)
     }
 
-    private static func count(_ terminals: Int) -> String {
+    static func count(_ terminals: Int) -> String {
         terminals == 1
             ? String(localized: "cloudTree.workspace.terminalCount.one", defaultValue: "1 terminal")
             : String(format: String(localized: "cloudTree.workspace.terminalCount.other", defaultValue: "%d terminals"), terminals)
@@ -174,7 +190,9 @@ struct CloudTreeRowIcon: View {
 /// edge when a local pane is already showing it. Monochrome like the Files tree:
 /// the lifecycle reads from the glyph shape and text weight, not from color.
 struct CloudTreeTerminalRowContent: View {
-    let terminal: CloudTreeTerminal
+    let row: CloudTreeTerminalRow
+
+    private var terminal: SurfaceResource { row.resource }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.iconGap) {
@@ -194,7 +212,7 @@ struct CloudTreeTerminalRowContent: View {
                     .foregroundStyle(terminal.lifecycle == .exited ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if let cwd = terminal.cwd, !cwd.isEmpty {
+                if let cwd = terminal.detail, !cwd.isEmpty {
                     Text(Self.abbreviated(cwd))
                         .cmuxFont(size: 10.5)
                         .foregroundStyle(.tertiary)
@@ -203,7 +221,7 @@ struct CloudTreeTerminalRowContent: View {
                 }
             }
             Spacer(minLength: CloudTreeRowGrid.trailingGap)
-            if terminal.openSurfaceID != nil {
+            if row.isOpen {
                 Image(systemName: "rectangle.on.rectangle")
                     .font(.system(size: 9.5, weight: .regular))
                     .foregroundStyle(.tertiary)
@@ -216,16 +234,17 @@ struct CloudTreeTerminalRowContent: View {
 
     private var glyph: String {
         switch terminal.lifecycle {
-        case .launching: return "terminal"
-        case .running: return "terminal"
+        case .launching, .running: return "terminal"
         case .exited: return "xmark.rectangle"
+        case .unavailable: return "terminal"
         }
     }
 
     /// "source · state" for the tooltip; nil when no agent is attached.
     private var agentLabel: String? {
-        let source = terminal.agentSource?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let state = terminal.agentState?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let agent = terminal.agent else { return nil }
+        let source = agent.source?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let state = agent.state.trimmingCharacters(in: .whitespacesAndNewlines)
         if source.isEmpty, state.isEmpty { return nil }
         if !source.isEmpty, !state.isEmpty { return "\(source) · \(state)" }
         return source.isEmpty ? state : source
@@ -234,7 +253,98 @@ struct CloudTreeTerminalRowContent: View {
     static func abbreviated(_ path: String) -> String {
         if path == "/root" { return "~" }
         if path.hasPrefix("/root/") { return "~" + path.dropFirst("/root".count) }
+        if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
+            if path == home { return "~" }
+            if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        }
         return path
+    }
+}
+
+/// A browser row: globe glyph, page title, dim URL host, and the open mark.
+struct CloudTreeBrowserRowContent: View {
+    let row: CloudTreeBrowserRow
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.iconGap) {
+            CloudTreeRowIcon(systemName: "globe", style: AnyShapeStyle(.secondary))
+            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+                Text(row.resource.title.isEmpty ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser") : row.resource.title)
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let detail = Self.detail(for: row) {
+                    Text(detail)
+                        .cmuxFont(size: 10.5)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: CloudTreeRowGrid.trailingGap)
+            if row.isOpen {
+                Image(systemName: "rectangle.on.rectangle")
+                    .font(.system(size: 9.5, weight: .regular))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: CloudTreeRowGrid.trailingSlot, alignment: .center)
+                    .help(String(localized: "cloudTree.terminal.open", defaultValue: "Open in a pane"))
+            }
+        }
+        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+    }
+
+    /// The URL's host (or the local workspace showing it) as the dim detail.
+    static func detail(for row: CloudTreeBrowserRow) -> String? {
+        if let url = row.resource.url, let host = URL(string: url)?.host, !host.isEmpty { return host }
+        return row.workspaceTitle
+    }
+}
+
+/// This Mac's header row: name and a count line, no status dot (the local
+/// machine needs no link), laid out on the same grid as the cloud machine row.
+struct CloudTreeLocalMachineRowContent: View {
+    let row: CloudTreeLocalMachineRow
+
+    var body: some View {
+        HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
+            Image(systemName: "laptopcomputer")
+                .font(.system(size: 9, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: CloudTreeRowGrid.dotSlot, height: CloudTreeRowGrid.machineNameLineHeight, alignment: .center)
+            VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
+                Text(row.name)
+                    .cmuxFont(size: 12.5, weight: .medium)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(height: CloudTreeRowGrid.machineNameLineHeight)
+                Text(Self.summary(row))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(height: CloudTreeRowGrid.machineSubtitleLineHeight)
+            }
+            Spacer(minLength: CloudTreeRowGrid.trailingGap)
+        }
+        .padding(.vertical, CloudTreeRowGrid.machineVerticalPadding)
+        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(row.name)
+    }
+
+    /// "3 terminals · 1 browser"
+    static func summary(_ row: CloudTreeLocalMachineRow) -> String {
+        var parts = [CloudTreeRowContentView.count(row.terminalCount)]
+        if row.browserCount > 0 {
+            parts.append(
+                row.browserCount == 1
+                    ? String(localized: "cloudTree.local.browserCount.one", defaultValue: "1 browser")
+                    : String(format: String(localized: "cloudTree.local.browserCount.other", defaultValue: "%d browsers"), row.browserCount)
+            )
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

@@ -154,7 +154,9 @@ struct MachinesPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.machines.isEmpty {
+        // This Mac is always a row once the local provider registered, so the
+        // empty state is only for "signed in, nothing at all to show yet".
+        if viewModel.machines.isEmpty, !viewModel.catalog.machines.contains(where: { $0.id.isLocal }) {
             emptyState
         } else {
             machinesList
@@ -259,17 +261,21 @@ struct MachinesPanelView: View {
         }
     }
 
-    /// The Finder-like tree: machine rows (the former flat rows) with their
-    /// cmux-tui workspaces, terminals, desktop, and ports underneath. Both closure
-    /// bundles are bound here, above the outline; rows never see the store.
+    /// The Finder-like tree over the surface catalog: This Mac, then every
+    /// machine, with their workspaces, terminals, screens, browsers, and ports
+    /// underneath. Both closure bundles are bound here, above the outline; rows
+    /// never see the store.
     private var machinesList: some View {
         let machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
         let nodeActions = CloudTreeNodeActions.bound(
-            machineActions: machineActions,
-            service: { CloudTreeServiceAccess.shared },
+            catalog: { SurfaceCatalog.shared },
+            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectLocalWorkspace: { workspaceID in
+                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+            },
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
@@ -277,7 +283,8 @@ struct MachinesPanelView: View {
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
-            tree: viewModel.tree,
+            snapshot: viewModel.catalog,
+            localWorkspaces: viewModel.localWorkspaces,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore

@@ -265,99 +265,21 @@ extension TerminalController {
                     "session": result.session.map(Self.socketWorkerCloudSessionPayload) ?? NSNull(),
                 ]
             }
-        // Cloud tree (`cmux vm tree|open|agent`, the Machines panel). The `vm.` prefix
-        // puts these on the socket worker like every other vm verb; the pane work inside
-        // hops to the main actor through `CloudTreeService` (a @MainActor type), so the
-        // worker only waits on it, never blocks it.
+        // The cloud tree verbs (`cmux vm tree|open|agent`, the sidebar) are thin wrappers
+        // over the surface catalog now; see SurfaceSocketCommands.swift. They stay on the
+        // socket worker like every other vm verb and await the main-actor catalog.
         case "vm.tree":
-            let vmId = Self.socketWorkerString(params["id"]) ?? Self.socketWorkerString(params["machine"])
-            let refresh = Self.socketWorkerBool(params["refresh"]) ?? false
-            return v2VmCall(id: id, timeoutSeconds: 120) {
-                let snapshot = try await CloudTreeService.shared.tree(machineID: vmId, refresh: refresh)
-                return try Self.socketWorkerEncode(snapshot)
-            }
+            return socketWorkerVMTreeResponse(id: id, params: params)
         case "vm.terminal_open":
-            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.terminal_open requires `id`. Run `cmux vm tree` to find one.")
-            }
-            guard let terminalId = Self.socketWorkerString(params["terminal_id"]), !terminalId.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.terminal_open requires `terminal_id` (a `term_…` id from `cmux vm tree`).")
-            }
-            let workspaceId = Self.socketWorkerString(params["workspace_id"])
-            let placement = Self.socketWorkerString(params["placement"]).flatMap { CloudTreePlacement(rawValue: $0) }
-            let focus = Self.socketWorkerBool(params["focus"]) ?? true
-            let target = Self.socketWorkerOpenTarget(params)
-            return v2VmCall(id: id, timeoutSeconds: 120) {
-                let result = try await CloudTreeService.shared.openTerminal(
-                    machineID: vmId,
-                    terminalID: terminalId,
-                    workspaceID: workspaceId,
-                    placement: placement,
-                    focus: focus,
-                    target: target
-                )
-                return try Self.socketWorkerEncode(result)
-            }
+            return socketWorkerVMTerminalOpenResponse(id: id, params: params)
         case "vm.terminal_new":
-            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.terminal_new requires `id`. Run `cmux vm ls` to find one.")
-            }
-            let remoteWorkspaceId = Self.socketWorkerString(params["workspace_id"])
-            let command = Self.socketWorkerStringArray(params["command"])
-            let cwd = Self.socketWorkerString(params["cwd"])
-            let name = Self.socketWorkerString(params["name"])
-            let open = Self.socketWorkerBool(params["open"]) ?? true
-            let localWorkspaceId = Self.socketWorkerString(params["local_workspace_id"])
-            let focus = Self.socketWorkerBool(params["focus"]) ?? true
-            return v2VmCall(id: id, timeoutSeconds: 120) {
-                let result = try await CloudTreeService.shared.newTerminal(
-                    machineID: vmId,
-                    workspaceID: remoteWorkspaceId,
-                    command: command.isEmpty ? nil : command,
-                    cwd: cwd,
-                    name: name,
-                    open: open,
-                    localWorkspaceID: localWorkspaceId,
-                    focus: focus
-                )
-                return try Self.socketWorkerEncode(result)
-            }
+            return socketWorkerVMTerminalNewResponse(id: id, params: params)
         case "vm.desktop_open":
-            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open requires `id`. Run `cmux vm ls` to find one.")
-            }
-            let workspaceId = Self.socketWorkerString(params["workspace_id"])
-            let focus = Self.socketWorkerBool(params["focus"]) ?? false
-            let target = Self.socketWorkerOpenTarget(params)
-            return v2VmCall(id: id, timeoutSeconds: 120) {
-                let result = try await CloudTreeService.shared.openDesktop(machineID: vmId, workspaceID: workspaceId, focus: focus, target: target)
-                var payload = try Self.socketWorkerEncode(result)
-                payload["open_url"] = result.url
-                return payload
-            }
+            return socketWorkerVMDesktopOpenResponse(id: id, params: params)
         case "vm.port_open":
-            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.port_open requires `id`. Run `cmux vm ls` to find one.")
-            }
-            guard let port = Self.socketWorkerInt(params["port"]), (1...65535).contains(port) else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.port_open requires `port` between 1 and 65535. From the CLI, use `cmux vm open <id> <port>`.")
-            }
-            let workspaceId = Self.socketWorkerString(params["workspace_id"])
-            let target = Self.socketWorkerOpenTarget(params)
-            return v2VmCall(id: id, timeoutSeconds: 120) {
-                let result = try await CloudTreeService.shared.openPort(machineID: vmId, port: port, workspaceID: workspaceId, target: target)
-                var payload = try Self.socketWorkerEncode(result)
-                payload["open_url"] = result.url
-                return payload
-            }
+            return socketWorkerVMPortOpenResponse(id: id, params: params)
         case "vm.link_socket":
-            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.link_socket requires `id`. Run `cmux vm ls` to find one.")
-            }
-            return v2VmCall(id: id, timeoutSeconds: 120) {
-                let result = try await CloudTreeService.shared.linkSocket(machineID: vmId)
-                return try Self.socketWorkerEncode(result)
-            }
+            return socketWorkerVMLinkSocketResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
@@ -437,28 +359,6 @@ extension TerminalController {
             ] as [String: Any]
         }
         return payload
-    }
-
-    /// Encodes a Codable payload with its declared CodingKeys (snake_case wire names).
-    private nonisolated static func socketWorkerEncode<T: Encodable>(_ value: T) throws -> [String: Any] {
-        let data = try JSONEncoder().encode(value)
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw VMClientError.malformedResponse("Cloud tree payload did not encode to an object.")
-        }
-        return object
-    }
-
-    /// Optional drop-position params shared by `vm.terminal_open` / `vm.desktop_open` /
-    /// `vm.port_open`: `pane_id`, `surface_id`, `direction` (left|right|up|down), `tab_index`.
-    /// Returns nil when none is present so the service opens relative to the focused pane.
-    private nonisolated static func socketWorkerOpenTarget(_ params: [String: Any]) -> CloudTreeOpenTarget? {
-        let target = CloudTreeOpenTarget(
-            paneID: socketWorkerString(params["pane_id"]),
-            surfaceID: socketWorkerString(params["surface_id"]),
-            direction: socketWorkerString(params["direction"]).flatMap { CloudTreeSplitDirection(rawValue: $0.lowercased()) },
-            tabIndex: socketWorkerInt(params["tab_index"])
-        )
-        return target.isEmpty ? nil : target
     }
 
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {

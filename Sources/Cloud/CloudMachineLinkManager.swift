@@ -11,7 +11,7 @@ import Foundation
 /// device fingerprint beside the CLI's (`vm-tui-devices.json`).
 actor CloudMachineLinkManager {
     struct LinkStatus: Sendable, Equatable {
-        let state: CloudTreeLinkState
+        let state: SurfaceLinkState
         let error: String?
     }
 

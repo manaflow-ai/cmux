@@ -2,90 +2,85 @@ import AppKit
 import Foundation
 
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
-/// Bound once above the outline (never a store below it). Every verb routes
-/// through the app-side `CloudTreeServicing` — the same path the CLI's
-/// `cmux vm open` uses — and degrades to the CLI-launch machine verbs when the
-/// service is not wired.
+/// Bound once above the outline (never a store below it). Every open verb is
+/// `SurfaceCatalog.project` — the same path the socket and `cmux vm open` use —
+/// so a row, a drop, and the CLI cannot disagree about what "open" means.
 struct CloudTreeNodeActions {
-    let openTerminal: @MainActor (_ machineID: String, _ terminalID: String, _ placement: CloudTreePlacement) -> Void
-    let newTerminal: @MainActor (_ machineID: String, _ workspaceID: String?) -> Void
-    let openWorkspace: @MainActor (_ machineID: String, _ workspace: CloudTreeWorkspace) -> Void
-    let openDesktop: @MainActor (_ machineID: String) -> Void
-    let openPort: @MainActor (_ machineID: String, _ port: Int) -> Void
+    /// Project a resource into the selected local workspace.
+    let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
+    /// Start a plain terminal on a machine (in a cmux-tui workspace when given) and show it.
+    let newTerminal: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) -> Void
+    /// Open a cmux-tui workspace: its first terminal, else a fresh one there.
+    let openWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace, _ terminals: [SurfaceResourceID]) -> Void
+    /// Select a local workspace.
+    let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     let refresh: @MainActor () -> Void
 
     @MainActor
     static func bound(
-        machineActions: MachineRowActions,
-        service: @escaping @MainActor () -> (any CloudTreeServicing)?,
+        catalog: @escaping @MainActor () -> SurfaceCatalog,
+        selectedWorkspaceID: @escaping @MainActor () -> UUID?,
+        selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void
     ) -> CloudTreeNodeActions {
-        func run(_ label: String, _ operation: @escaping @MainActor (any CloudTreeServicing) async throws -> Void, fallback: @escaping @MainActor () -> Void) {
-            guard let service = service() else {
-                fallback()
-                return
-            }
+        func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) {
             onWillMutate(label)
             Task { @MainActor in
                 do {
-                    try await operation(service)
+                    try await operation(catalog())
                 } catch {
                     onFailure(String(describing: error))
                 }
                 onDidMutate()
             }
         }
+        func destination(_ placement: SurfacePlacement) throws -> SurfaceDestination {
+            guard let workspaceID = selectedWorkspaceID() else {
+                throw SurfaceCatalogError.destinationNotFound("no selected workspace")
+            }
+            return .workspace(id: workspaceID, placement: placement)
+        }
+        let openingLabel: (SurfaceMachineID) -> String = { machine in
+            String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"), machine.isLocal
+                ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
+                : machine.rawValue)
+        }
+        let startingLabel: (SurfaceMachineID) -> String = { machine in
+            String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machine.isLocal
+                ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
+                : machine.rawValue)
+        }
         return CloudTreeNodeActions(
-            openTerminal: { machineID, terminalID, placement in
-                run(
-                    String(format: String(localized: "cloudTree.operation.openTerminal", defaultValue: "Opening terminal on %@\u{2026}"), machineID),
-                    { _ = try await $0.openTerminal(machineID: machineID, terminalID: terminalID, workspaceID: nil, placement: placement, focus: true) },
-                    // Without the service the closest thing is the machine's shell.
-                    fallback: { machineActions.openShell(machineID) }
-                )
-            },
-            newTerminal: { machineID, workspaceID in
-                run(
-                    String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineID),
-                    { _ = try await $0.newTerminal(machineID: machineID, workspaceID: workspaceID, command: nil, cwd: nil, name: nil, open: true) },
-                    fallback: { machineActions.openShell(machineID) }
-                )
-            },
-            openWorkspace: { machineID, workspace in
-                // The workspace's focused terminal, else its first, else a fresh one.
-                let terminal = workspace.terminals.first
-                if let terminal {
-                    run(
-                        String(format: String(localized: "cloudTree.operation.openTerminal", defaultValue: "Opening terminal on %@\u{2026}"), machineID),
-                        { _ = try await $0.openTerminal(machineID: machineID, terminalID: terminal.id, workspaceID: nil, placement: .split, focus: true) },
-                        fallback: { machineActions.openShell(machineID) }
-                    )
-                } else {
-                    run(
-                        String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineID),
-                        { _ = try await $0.newTerminal(machineID: machineID, workspaceID: workspace.id, command: nil, cwd: nil, name: nil, open: true) },
-                        fallback: { machineActions.openShell(machineID) }
-                    )
+            project: { resource, placement, reuseExisting in
+                run(openingLabel(resource.machine)) { catalog in
+                    _ = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
                 }
             },
-            openDesktop: { machineID in
-                run(
-                    String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@\u{2019}s desktop\u{2026}"), machineID),
-                    { _ = try await $0.openDesktop(machineID: machineID, workspaceID: nil, focus: true) },
-                    fallback: { machineActions.openDesktop(machineID) }
-                )
+            newTerminal: { machine, remoteWorkspaceID in
+                run(startingLabel(machine)) { catalog in
+                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
+                    let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                    _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                }
             },
-            openPort: { machineID, port in
-                run(
-                    String(format: String(localized: "cloudTree.operation.openPort", defaultValue: "Opening port %2$d on %1$@\u{2026}"), machineID, port),
-                    { _ = try await $0.openPort(machineID: machineID, port: port, workspaceID: nil) },
-                    fallback: { machineActions.runCommand(machineID, ["vm", "open", machineID, String(port)]) }
-                )
+            openWorkspace: { machine, workspace, terminals in
+                if let first = terminals.first {
+                    run(openingLabel(machine)) { catalog in
+                        _ = try await catalog.project(first, into: try destination(.split), focus: true, reuseExisting: true)
+                    }
+                } else {
+                    run(startingLabel(machine)) { catalog in
+                        guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
+                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+                        _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                    }
+                }
             },
+            selectLocalWorkspace: selectLocalWorkspace,
             copyToPasteboard: { text in
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()

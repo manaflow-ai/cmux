@@ -224,9 +224,9 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.cmux.cloud-surface.transfer</string>
+			<string>com.cmux.surface-resource</string>
 			<key>UTTypeDescription</key>
-			<string>cmux Cloud Surface Transfer</string>
+			<string>cmux Surface Resource</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

@@ -8,9 +8,10 @@
 cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
-cmux vm tree                           # every machine → workspaces/ → terminals, desktop, ports/ — each line is a `vm open` address
-cmux vm tree <id> --refresh            # one machine, re-read from its session
-cmux vm tree --json                    # {machines: [{id, status, link, workspaces: [{id, name, terminals: [{id, title, cwd, lifecycle, agent, open_surface_id}]}], desktop, ports}]}
+cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
+cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
+cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
+cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
 cmux vm tools <id>                     # which tools are installed
@@ -30,6 +31,19 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
   ports/
     3000  http  (cmux vm open vivid-newt:port/3000)
 ```
+
+## Surfaces: one open path for terminals, screens and browsers
+
+```bash
+cmux surface open vivid-newt/terminal/term_2f9c…                 # reuse the pane showing it, else open beside you
+cmux surface open vivid-newt/terminal/term_2f9c… --new           # a second pane on the same terminal
+cmux surface open vivid-newt/screen/display:1 --pane pane:3 --left   # the VNC screen, split left of pane 3
+cmux surface open local/terminal/<uuid> --workspace workspace:2  # move a local terminal into another workspace
+cmux surface new-terminal --machine vivid-newt --remote-workspace ws_3c1… --name "tests" -- bun test
+cmux surface new-terminal --machine local --cwd ~/src/app        # a new local shell
+```
+
+Resource ids come from `surface ls --json`; `--pane` + a side uses the same drop rules as dragging a row from the sidebar.
 
 ## Routing: which machine, without running anything
 

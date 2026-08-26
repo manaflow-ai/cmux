@@ -58145,6 +58145,142 @@
         }
       }
     },
+    "cli.vm.tree.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.localSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d terminals · %2$d browsers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル %1$d · ブラウザ %2$d"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.terminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminals/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.browsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browsers/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.noLocal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(no terminals open)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(開いているターミナルはありません)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.unknownWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(not in a workspace)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(ワークスペース外)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.openMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(open)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(表示中)"
+          }
+        }
+      }
+    },
+    "cli.surface.open.unknownResource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown surface '%@'. See: cmux surface ls --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なサーフェス '%@' です。cmux surface ls --json を参照してください"
+          }
+        }
+      }
+    },
     "cli.vm.tree.open": {
       "extractionState": "manual",
       "localizations": {
@@ -59137,6 +59273,40 @@
         }
       }
     },
+    "cloudTree.browser.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "cloudTree.group.browsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browsers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
     "cloudTree.group.ports": {
       "extractionState": "manual",
       "localizations": {
@@ -59171,6 +59341,74 @@
         }
       }
     },
+    "cloudTree.local.browserCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ 1"
+          }
+        }
+      }
+    },
+    "cloudTree.local.browserCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d browsers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ %d"
+          }
+        }
+      }
+    },
+    "cloudTree.localWorkspace.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "cloudTree.machine.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac"
+          }
+        }
+      }
+    },
     "cloudTree.menu.copyPort": {
       "extractionState": "manual",
       "localizations": {
@@ -59184,6 +59422,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポートをコピー"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.copySurfaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Surface ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス ID をコピー"
           }
         }
       }
@@ -59290,6 +59545,40 @@
         }
       }
     },
+    "cloudTree.menu.openFullClient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Full cmux-tui Client"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui クライアント全体を開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openInNewPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in New Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいペインで開く"
+          }
+        }
+      }
+    },
     "cloudTree.menu.openInNewTab": {
       "extractionState": "manual",
       "localizations": {
@@ -59320,6 +59609,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.selectWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースへ移動"
           }
         }
       }
@@ -59409,6 +59715,23 @@
         }
       }
     },
+    "cloudTree.operation.project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening on %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で開いています…"
+          }
+        }
+      }
+    },
     "cloudTree.placeholder.asleep": {
       "extractionState": "manual",
       "localizations": {
@@ -59456,6 +59779,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続に失敗しました"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.noLocalTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminals open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているターミナルはありません"
           }
         }
       }

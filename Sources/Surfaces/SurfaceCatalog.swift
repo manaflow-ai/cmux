@@ -130,8 +130,22 @@ final class SurfaceCatalog {
     /// Record a pane that shows a resource (materialized by a provider, or adopted from an
     /// existing pane such as a local terminal the app created on its own).
     func record(_ projection: SurfaceProjection) {
-        projections.insert(projection)
+        insertSupersedingLocalPlaceholder(projection)
         notifyChange()
+    }
+
+    /// A pane can show one resource. When a remote resource is projected into a pane the
+    /// local provider already registered as a plain local terminal (the pane is created
+    /// first, then attached), the local placeholder yields: its projection ends and the
+    /// local resource disappears, so the pane counts once, as the remote terminal.
+    private func insertSupersedingLocalPlaceholder(_ projection: SurfaceProjection) {
+        if !projection.resource.machine.isLocal {
+            for existing in projections where existing.panelID == projection.panelID && existing.resource.machine.isLocal {
+                projections.remove(existing)
+                resources[existing.resource] = nil
+            }
+        }
+        projections.insert(projection)
     }
 
     /// A pane went away (closed, or its workspace closed). Remote resources live on.
@@ -178,7 +192,7 @@ final class SurfaceCatalog {
     func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
         for record in records {
             if resources[record.resource] != nil {
-                projections.insert(SurfaceProjection(resource: record.resource, workspaceID: workspaceID, panelID: record.panelID))
+                insertSupersedingLocalPlaceholder(SurfaceProjection(resource: record.resource, workspaceID: workspaceID, panelID: record.panelID))
             } else {
                 pendingRestoredProjections[record] = workspaceID
             }
@@ -196,7 +210,7 @@ final class SurfaceCatalog {
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
         for (record, workspaceID) in pendingRestoredProjections where record.resource.machine == machine {
             guard resources[record.resource] != nil else { continue }
-            projections.insert(SurfaceProjection(resource: record.resource, workspaceID: workspaceID, panelID: record.panelID))
+            insertSupersedingLocalPlaceholder(SurfaceProjection(resource: record.resource, workspaceID: workspaceID, panelID: record.panelID))
             pendingRestoredProjections[record] = nil
         }
     }

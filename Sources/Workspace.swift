@@ -189,7 +189,8 @@ extension Workspace {
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
             cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase) },
-            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
+            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment,
+            surfaceProjections: surfaceProjectionRecordsForSession
         )
         snapshot.captureTodoState(from: self)
         snapshot.dock = _dockSplit?.sessionSnapshot(
@@ -370,6 +371,7 @@ extension Workspace {
         if startupRestoreCommitOwner == .workspaceTopology {
             terminalStartupRestoreCoordinator.commitPendingRestores()
         }
+        restoreSurfaceProjections(snapshot.surfaceProjections, oldToNewPanelIds: oldToNewPanelIds)
         return oldToNewPanelIds
     }
 
@@ -2627,6 +2629,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         set { paneTree.paneLayoutVersion = newValue }
     }
 
+    /// Panes being moved to another workspace: their surface projection moves with them
+    /// instead of ending when they leave this one (see `Workspace+SurfaceCatalog.swift`).
+    var surfaceTransferringPanelIds: Set<UUID> = []
+
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
@@ -2727,7 +2733,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
+    @Published var panelDirectories: [UUID: String] = [:] {
+        didSet { surfaceCatalogPanelMetadataDidChange(old: oldValue, new: panelDirectories) }
+    }
     /// Optional human-friendly sidebar label per panel, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
@@ -2739,7 +2747,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.panelDirectoryDisplayLabels }
         set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
     }
-    @Published var panelTitles: [UUID: String] = [:]
+    @Published var panelTitles: [UUID: String] = [:] {
+        didSet { surfaceCatalogPanelMetadataDidChange(old: oldValue, new: panelTitles) }
+    }
     @Published var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
@@ -10331,6 +10341,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
+        surfaceTransferringPanelIds.insert(panelId)
+        defer { surfaceTransferringPanelIds.remove(panelId) }
         if let terminalPanel = sourcePanel as? TerminalPanel {
             terminalFontSizeChangeCoordinator?
                 .terminalWillLeaveWorkspace(
@@ -12535,6 +12547,7 @@ extension Workspace: PaneTreeHosting {
     /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
     /// Combine bridge at the exact timing `@Published` used.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
+        surfaceCatalogPanelsWillChange(to: newValue)
         objectWillChange.send()
         setBrowserMediaActivity(
             currentBrowserMediaActivity(panels: newValue),

@@ -9003,7 +9003,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let subcommand = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "surface requires a subcommand. Try: cmux surface resume show --json")
+            throw CLIError(message: "surface requires a subcommand. Try: cmux surface ls, cmux surface open <resource>, cmux surface resume show --json")
         }
         switch subcommand {
         case "resume":
@@ -9014,8 +9014,17 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new":
+            // The surface catalog: terminals, screens and browsers on This Mac and every
+            // cloud machine, and one open path for all of them (`surface.project`).
+            try runSurfaceCatalogCommand(
+                subcommand: subcommand,
+                rest: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput
+            )
         default:
-            throw CLIError(message: "Unsupported surface subcommand: \(subcommand)")
+            throw CLIError(message: "Unsupported surface subcommand: \(subcommand)\n\n\(Self.surfaceUsage)")
         }
     }
 
@@ -18051,11 +18060,13 @@ struct CMUXCLI {
 
             Subcommands:
               ls                        List your cloud VMs.
-              tree [<machine>] [--refresh]
-                                        Finder-style view: machines, their cmux-tui
-                                        workspaces and terminals (title, cwd, agent,
-                                        open pane), desktop, and forwarded ports, each
-                                        with the address `vm open` accepts.
+              tree [<machine>|local] [--refresh]
+                                        Finder-style view of every surface: This Mac
+                                        (terminals by workspace, browsers), then each
+                                        machine's cmux-tui workspaces and terminals
+                                        (title, cwd, agent, open pane), desktop, and
+                                        forwarded ports — each with the address
+                                        `vm open` / `surface open` accepts.
               status <id>                Print provider, status, and image.
               base open [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
@@ -19184,13 +19195,25 @@ struct CMUXCLI {
             """
         case "surface", "surface-resume":
             return """
-            Usage: cmux surface resume set [flags] -- <argv...>
+            Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
+                   cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]
+                   cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]
+                   cmux surface resume set [flags] -- <argv...>
                    cmux surface resume set [flags] --shell <command>
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
 
-            Attach restart command metadata to a terminal surface.
+            ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
+            on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
+            e.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/screen/display:1,
+            vivid-newt/browser/port:3000); panes project them. `open` reuses the pane already
+            showing a resource unless --new; --pane with a side splits that pane on that side,
+            --tab adds a tab to it. A local terminal moves to the destination (it is shown once).
+            `new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).
+            `cmux vm tree` prints the same catalog.
+
+            resume: attach restart command metadata to a terminal surface.
             Public CLI bindings are stored for inspection and manual restore.
 
             Flags:

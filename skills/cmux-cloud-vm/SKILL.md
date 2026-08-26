@@ -1,6 +1,6 @@
 ---
 name: cmux-cloud-vm
-description: Route work to cmux Cloud machines (persistent cloud VMs) from the CLI — `cmux vm route`/`run`/`agent` pick a machine for you; `vm tree` and `vm open` show machines, their cmux-tui workspaces, terminals, desktop, and ports; plus create, exec, push/pull, ports, checkpoints, forks. Use when an agent should run builds, tests, servers, desktop/browser tasks, or another agent on a cloud machine instead of the local Mac, or when the user says "cloud machine", "cloud VM", "run it in the cloud", or "cmux vm".
+description: Route work to cmux Cloud machines (persistent cloud VMs) from the CLI — `cmux vm route`/`run`/`agent` pick a machine for you; `vm tree` / `surface ls` show the surface catalog (This Mac and every machine: terminals, VNC screens, browsers) and `vm open` / `surface open` put any of them in a pane; plus create, exec, push/pull, ports, checkpoints, forks. Use when an agent should run builds, tests, servers, desktop/browser tasks, or another agent on a cloud machine instead of the local Mac, or when the user says "cloud machine", "cloud VM", "run it in the cloud", or "cmux vm".
 ---
 
 # cmux Cloud Machines
@@ -14,6 +14,7 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 | **Machine** | A persistent cloud VM (`cmux vm ls`). Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
 | **Contents** | Ubuntu 22.04 (xfce desktop image, the default): node 22, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool. **Claude Code, Codex, OpenCode, and Pi are preinstalled** under `/root/.npm-global/bin`. The desktop runs TigerVNC + noVNC and the CUA driver (`cua-computer-server`) for computer-use agents. Provisioning runs in the background on first boot — `cat /tmp/cmux/provision.log` on a brand-new machine if a tool is missing. |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces → terminals, visible in `cmux vm tree`. A terminal you start there keeps running when the Mac disconnects. |
+| **Surface** | A terminal, VNC screen or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
 | **Plan meter** | `cmux vm ls` prints `N of M machines`. Free plans get **1 machine and a 7-day cloud window**; `vm ls --json` carries `limits.freeAccessExpiresAt`. At the cap, creates fail with an upgrade action — never delete machines to make room without asking. |
@@ -36,8 +37,9 @@ cmux vm route                                            # which machine would b
 cmux vm run -- uname -a                                  # routed, executed, exit code passed through
 cmux vm run --sync -- bun test                           # push cwd to work/<dir> first, run there
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a detached Claude Code session on the routed machine
-cmux vm tree                                             # see every machine, workspace, terminal, desktop, port
+cmux vm tree                                             # the surface catalog: This Mac, then every machine, workspace, terminal, desktop, port
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
+cmux surface open vivid-newt/screen/display:1 --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding), so synced checkouts and dependencies stay warm. `--new` forces a fresh machine; `--machine <id>` pins one.
@@ -72,6 +74,9 @@ cmux vm open <id>                       # the machine's shell (+ its screen on d
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm open <id>:desktop               # the noVNC screen
 cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
+cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
+cmux surface open <resource> [--new] [--pane <p> --left|--right|--up|--down|--tab]   # one open path for all of them
+cmux surface new-terminal --machine <id> --cwd /root/work/app -- bun test          # a terminal on the machine, opened as a pane
 cmux notify --title "Cloud build done" --body "…"
 ```
 

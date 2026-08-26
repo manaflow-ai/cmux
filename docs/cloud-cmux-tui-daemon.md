@@ -247,3 +247,34 @@ session (so it survives the pane and reattaches from any device); `cmux vm run`,
 orthogonal: it routes model credentials, not compute, and is configured inside
 the machine the same way as locally. The `skills/cmux-cloud-vm` skill teaches
 this policy to Claude Code, Codex, OpenCode, and Pi.
+
+## Surface catalog
+
+Terminals, VNC screens and browsers are *resources*; panes and workspaces are
+*projections* of them. On the Mac, `SurfaceCatalog` (`Sources/Surfaces/`) is the
+one owner of resource identities (`<machine>/<kind>/<key>`, machine = `local` or
+a cloud machine id) and projections (resource, workspace, panel). Providers push
+resources in: `LocalSurfaceProvider` (this Mac's terminals and browsers) and one
+`CmuxTuiSurfaceProvider` per cloud machine (its cmux-tui workspaces/terminals
+from the headless link, its noVNC screen `display:1`, its forwarded ports).
+`catalog.project(resource, into:)` is the single open path — the sidebar tree,
+drag and drop, the CLI and agents all go through it — so an already-open
+resource is focused instead of duplicated, a closed pane never destroys a
+remote resource, and restored panes re-project when their provider reports the
+resource again.
+
+Socket (worker lane, like `vm.*`):
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `surface.catalog` | `{machine?: "local"\|<id>, refresh?}` | `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent?, remote_workspace?, port?, url?, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}` |
+| `surface.project` | `{resource, workspace_id?, pane_id?, direction?: left\|right\|up\|down, tab_index?, placement?: split\|tab, focus? (true), reuse? (true)}` | `{surface_id, workspace_id, reused, resource}` — `pane_id` + `direction` splits that pane on that side; `pane_id` + `tab_index`/`placement: tab` tabs into it; else the workspace's focused pane |
+| `surface.new_terminal` | `{machine, command?: [string], cwd?, name?, remote_workspace_id?, open? (true), + the destination params}` | `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}` |
+
+The `vm.tree`, `vm.terminal_open`, `vm.terminal_new`, `vm.desktop_open`,
+`vm.port_open` and `vm.link_socket` verbs keep their shapes and are wrappers
+over the same catalog (`vm.tree` is the catalog restricted to cloud machines;
+`vm.desktop_open` projects `<id>/screen/display:1`; `vm.port_open` projects
+`<id>/browser/port:<n>`, registering the port first when the probe has not
+seen it). CLI: `cmux surface ls|open|new-terminal` and `cmux vm tree|open`.
+

@@ -1393,10 +1393,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Composition root for the Cloud tree: the Machines panel and the pane drop path
-        // resolve the service through this accessor; the `vm.*` socket verbs use the
-        // same instance, so every entrypoint shares one open path.
-        CloudTreeServiceAccess.shared = CloudTreeService.shared
+        // Composition root for surfaces: this Mac's panes and every cloud machine's
+        // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
+        // open through `SurfaceCatalog.project`.
+        SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
+        SurfaceCatalog.shared.focusProjection = { projection in
+            SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+        }
+        CmuxTuiSurfaceProviderRegistry.shared.start(catalog: .shared)
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(
@@ -5606,6 +5610,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    /// Every workspace whose panes are local surface resources, across all main windows.
+    func surfaceCatalogWorkspaces() -> [Workspace] {
+        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        return managers.flatMap(\.tabs)
+    }
+
     func moveBonsplitTab(
         tabId: UUID,
         toWorkspace targetWorkspaceId: UUID,

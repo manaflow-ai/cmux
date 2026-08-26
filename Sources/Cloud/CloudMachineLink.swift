@@ -40,7 +40,7 @@ actor CloudMachineLink {
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
 
-    private(set) var state: CloudTreeLinkState = .connecting
+    private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
     private(set) var connected: Connected?
 
@@ -116,7 +116,7 @@ actor CloudMachineLink {
         let socketPath: String = try await withThrowingTaskGroup(of: String?.self) { group in
             group.addTask {
                 for try await line in stdout.fileHandleForReading.bytes.lines {
-                    if let socket = CloudTreeSnapshotParser.localSocket(fromLinkLine: line) {
+                    if let socket = CmuxTuiSnapshotParser.localSocket(fromLinkLine: line) {
                         return socket
                     }
                 }

@@ -19,20 +19,18 @@ final class CloudTreeExpansionStore {
     }
 
     func isExpanded(_ node: CloudTreeNode) -> Bool {
-        switch node.kind {
-        case .machine(let machine):
-            return !collapsedMachineIDs.contains(machine.id)
-        default:
-            return !collapsedNodeIDs.contains(node.id)
+        if node.isMachineRow {
+            return !collapsedMachineIDs.contains(node.machine.rawValue)
         }
+        return !collapsedNodeIDs.contains(node.id)
     }
 
     func setExpanded(_ expanded: Bool, node: CloudTreeNode) {
-        switch node.kind {
-        case .machine(let machine):
-            if expanded { collapsedMachineIDs.remove(machine.id) } else { collapsedMachineIDs.insert(machine.id) }
+        if node.isMachineRow {
+            let key = node.machine.rawValue
+            if expanded { collapsedMachineIDs.remove(key) } else { collapsedMachineIDs.insert(key) }
             defaults.set(Array(collapsedMachineIDs).sorted(), forKey: Self.collapsedMachinesKey)
-        default:
+        } else {
             if expanded { collapsedNodeIDs.remove(node.id) } else { collapsedNodeIDs.insert(node.id) }
         }
     }

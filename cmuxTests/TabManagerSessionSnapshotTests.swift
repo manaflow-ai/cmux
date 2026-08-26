@@ -2144,6 +2144,42 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
+    func testSessionSnapshotPersistsRemoteSurfaceProjectionsAndRestoreRelinksThem() throws {
+        let panelId = UUID()
+        let remote = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .terminal, key: "term_abc")
+        var workspace = Self.localWorkspaceSnapshot(title: "vm:vivid-newt", panelId: panelId)
+        workspace.surfaceProjections = [SurfaceProjectionRecord(panelID: panelId, resource: remote)]
+        let snapshot = SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [workspace])
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "vm:vivid-newt" })
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.panels.first { $0.value is TerminalPanel }?.key)
+        let catalog = SurfaceCatalog.shared
+
+        // Until the machine's provider reports the terminal, the pane is a plain local shell.
+        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource.machine.isLocal, true)
+        catalog.upsert(SurfaceResource(id: remote, title: "root@vivid-newt", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil))
+        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource, remote, "the restored pane re-links to the remote terminal")
+        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.workspaceID, restoredWorkspace.id)
+
+        // The projection round-trips through the next save with the live panel id.
+        let resaved = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            resaved.workspaces.first { $0.customTitle == "vm:vivid-newt" }?.surfaceProjections,
+            [SurfaceProjectionRecord(panelID: restoredPanelId, resource: remote)]
+        )
+        catalog.remove(remote)
+        restored.closeWorkspace(restoredWorkspace, recordHistory: false)
+    }
+
+    func testWorkspaceSnapshotWithoutSurfaceProjectionsDecodesAndRestoresLocalOnly() throws {
+        let legacy = Self.localWorkspaceSnapshot(title: "Local", panelId: UUID())
+        let data = try JSONEncoder().encode(legacy)
+        XCTAssertFalse(try XCTUnwrap(String(data: data, encoding: .utf8)).contains("surfaceProjections"))
+        XCTAssertNil(try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data).surfaceProjections)
+    }
+
     func testWorkspaceSnapshotWithoutCloudVMBindingRestoresUnbound() throws {
         // Manifests written before the Cloud tree have no `cloudVM` key.
         let panelId = UUID()

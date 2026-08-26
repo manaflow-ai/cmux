@@ -305,12 +305,21 @@ final class MachinesPanelViewModel: ObservableObject {
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
     /// header while set — the in-app substitute for a floating progress HUD.
     @Published private(set) var activeOperation: String?
-    /// The Cloud tree service's last snapshot (workspaces, terminals, desktop,
-    /// ports per machine); nil until the service is wired and answers once.
-    @Published private(set) var tree: CloudTreeSnapshot?
-    /// Last failure from a tree verb (open terminal, new terminal, …); shown in
-    /// the control bar's help text, cleared by the next successful refresh.
+    /// The surface catalog as one value: machines (this Mac first), their
+    /// terminals/screens/browsers, and which local panes project them.
+    @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
+    /// Local workspaces in sidebar order, so this Mac's terminals group under
+    /// the workspace that shows them (titles resolved here, above the outline).
+    @Published private(set) var localWorkspaces: [CloudTreeLocalWorkspace] = []
+    /// Last failure from a tree verb (open, new terminal, …); shown in the
+    /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
+    /// How the view model reads local workspaces; injectable for tests.
+    var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace] = {
+        guard let tabManager = AppDelegate.shared?.tabManager else { return [] }
+        let selected = tabManager.selectedTabId
+        return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
+    }
 
     func beginOperation(_ label: String) {
         activeOperation = label
@@ -352,15 +361,16 @@ final class MachinesPanelViewModel: ObservableObject {
                 self?.resetForAuthTransition()
             }
         }
-        // The tree service pushes changes (link state, workspaces, terminals);
-        // re-read its snapshot instead of waiting for the slow poll.
+        // The catalog posts on every resource/projection change (link state,
+        // terminals, panes opening or closing); re-read its snapshot instead of
+        // waiting for the slow poll.
         treeChangeObserver = NotificationCenter.default.addObserver(
-            forName: CloudTreeServiceAccess.didChangeNotification,
+            forName: SurfaceCatalog.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.refreshTree(force: false)
+                self?.readCatalog()
             }
         }
     }
@@ -374,30 +384,29 @@ final class MachinesPanelViewModel: ObservableObject {
         }
     }
 
-    /// Re-reads the Cloud tree; `force` makes the service re-sync every awake
-    /// link (the toolbar/menu Refresh), otherwise it returns its cached view.
-    /// Coalesced: a burst of change notifications yields one read.
+    /// Publishes the catalog's current value and the local workspace list. Cheap
+    /// (a value read), so every change notification may call it.
+    func readCatalog() {
+        catalog = SurfaceCatalog.shared.snapshot
+        localWorkspaces = localWorkspacesProvider()
+    }
+
+    /// The explicit Refresh verb: asks every provider to re-sync (machine list,
+    /// links, local panels), then re-reads the catalog.
     func refreshTree(force: Bool) {
-        guard let service = CloudTreeServiceAccess.shared else {
-            tree = nil
-            return
-        }
         treeTask?.cancel()
         treeTask = Task { [weak self] in
-            do {
-                let snapshot = try await service.tree(machineID: nil, refresh: force)
-                guard !Task.isCancelled, let self else { return }
-                self.tree = snapshot
-                self.treeErrorDescription = nil
-            } catch {
-                guard !Task.isCancelled, let self else { return }
-                self.treeErrorDescription = String(describing: error)
+            if force {
+                await SurfaceCatalog.shared.refreshAll()
             }
+            guard !Task.isCancelled, let self else { return }
+            self.readCatalog()
+            self.treeErrorDescription = nil
         }
     }
 
     /// `refresh(tree: true)` is the explicit Refresh verb: machines, stats, and a
-    /// forced tree re-sync.
+    /// forced catalog re-sync.
     func refresh(tree forceTree: Bool) {
         refresh()
         refreshTree(force: forceTree)
@@ -502,7 +511,8 @@ final class MachinesPanelViewModel: ObservableObject {
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
-        tree = nil
+        catalog = .empty
+        localWorkspaces = []
         treeErrorDescription = nil
         plan = nil
         activeOperation = nil
@@ -531,7 +541,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastLimits = page.limits
             scheduleFreeAccessTransition()
             refreshStats()
-            refreshTree(force: false)
+            readCatalog()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
         } catch let error as VMClientError {
