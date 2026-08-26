@@ -2500,7 +2500,80 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    func testManualWorkspacePersistsOnlyAutoNameMessageProgress() throws {
+    func testStaleSpawnTokenCannotRebindTranscriptPath() throws {
+        let context = try makeClaudeHookContext(name: "codex-stale-spawn-transcript")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-stale-spawn-transcript-session"
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let currentTranscript = context.root.appendingPathComponent("current.jsonl")
+        let staleTranscript = context.root.appendingPathComponent("stale.jsonl")
+        try #"{"type":"user","message":{"content":"current"}}"#
+            .write(to: currentTranscript, atomically: true, encoding: .utf8)
+        try #"{"type":"user","message":{"content":"stale"}}"#
+            .write(to: staleTranscript, atomically: true, encoding: .utf8)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path
+        ])
+        try store.upsert(
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            transcriptPath: currentTranscript.path,
+            markActive: true
+        )
+        let now = Date()
+        let staleToken = try XCTUnwrap(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
+        let currentToken = try XCTUnwrap(try store.claimAutoNamingSpawn(
+            sessionId: sessionId,
+            now: now.addingTimeInterval(AutoNamingEngine().config.inFlightExpiry + 1)
+        ))
+        defer { try? store.releaseAutoNamingSpawn(sessionId: sessionId, token: currentToken) }
+
+        let probeHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(id: id, ok: true, result: [
+                "enabled": true,
+                "workspace_user_owned": false,
+            ])
+        }
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: [
+                "hooks", "codex", "auto-name",
+                "--session", sessionId,
+                "--workspace", context.workspaceId,
+                "--surface", context.surfaceId,
+                "--transcript", staleTranscript.path,
+            ],
+            environment: [
+                "HOME": context.root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": context.root.path,
+                "CMUX_SOCKET_PATH": context.socketPath,
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_AUTO_NAME_SPAWN_TOKEN": staleToken,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        wait(for: [probeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(try store.lookup(sessionId: sessionId)?.transcriptPath, currentTranscript.path)
+    }
+
+    func testManualWorkspaceDoesNotPersistAutoNameMessages() throws {
         let context = try makeClaudeHookContext(name: "opencode-manual-message-progress")
         defer { context.cleanup() }
 
@@ -2538,7 +2611,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         let record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertNil(record["autoNameRecentMessages"])
-        XCTAssertGreaterThan(record["autoNameMessageSequence"] as? Int ?? 0, 0)
+        XCTAssertNil(record["autoNameMessageSequence"])
         XCTAssertFalse(String(decoding: stateData, as: UTF8.self).contains(sensitivePrompt))
     }
 
