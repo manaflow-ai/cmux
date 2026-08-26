@@ -25,7 +25,7 @@ extension CodexTurnLedger {
     func activeChildCount(_ record: CodexTurnLedgerRecord) -> Int {
         let exact = record.activeChildrenByTurn.values.reduce(0) { $0 + $1.count }
         let unknown = record.unknownChildrenByTurn.values.reduce(0, +)
-        return exact + unknown
+        return min(Self.maximumChildrenPerTurn * Self.maximumTurnKeys, exact + unknown)
     }
 
     func turnKey(_ turnID: String?) -> String {
