@@ -100,10 +100,13 @@ struct ClaudeTaskSyncHookTests {
         #expect(latestTodos.compactMap { $0["id"] as? String } == ["1", "3"])
 
         // The task-store scope namespaces durable claims, while the
-        // cross-process lease intentionally uses one bounded file.
-        #expect(FileManager.default.fileExists(
-            atPath: context.storeURL.path + ".task-sync.lock"
-        ))
+        // cross-process lease uses one of a bounded set of deterministic files.
+        let taskSyncLockPrefix = context.storeURL.lastPathComponent + ".task-sync.lock."
+        let taskSyncLockFiles = try FileManager.default.contentsOfDirectory(
+            at: context.storeURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(taskSyncLockPrefix) }
+        #expect(taskSyncLockFiles.count == 1)
     }
 
     @Test("A personal task list clears its prior workspace after its pane moves")
@@ -651,6 +654,19 @@ struct ClaudeTaskSyncHookTests {
             directoryName: teamName,
             tasksRootURL: context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
         ))
+        let legacyTaskStoreIdentity = ClaudeTaskStoreIdentity(
+            tasksRootURL: context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        )
+        let stateAfterDelete = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: context.storeURL)
+            ) as? [String: Any]
+        )
+        let retiredAfterDelete = stateAfterDelete["retiredClaudeTaskLists"] as? [String: Any]
+        #expect(
+            retiredAfterDelete?["\(legacyTaskStoreIdentity.rawValue):\(teamName)"] != nil,
+            "Legacy TeamDelete cleanup must still fence the current task-store identity"
+        )
         for sessionId in [legacySessionId, teammateSessionId] {
             let record = try #require(
                 try ClaudeHookLiveDeliveryHarness.sessionRecord(
@@ -1027,6 +1043,32 @@ struct ClaudeTaskSyncHookTests {
                 && ($0["items"] as? [[String: Any]])?.isEmpty == true
         })
         #expect(try taskListDestinationRecords(in: context.storeURL).isEmpty)
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(
+            tasksRootURL: taskDirectory.deletingLastPathComponent()
+        )
+        let stateAfterDelete = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: context.storeURL)
+            ) as? [String: Any]
+        )
+        let retiredAfterDelete = stateAfterDelete["retiredClaudeTaskLists"] as? [String: Any]
+        #expect(
+            retiredAfterDelete?["\(taskStoreIdentity.rawValue):\(taskDirectoryName)"] != nil,
+            "A successful TeamDelete must leave a retirement fence for delayed hooks"
+        )
+        let reconciliationCountBeforeDelayedHook = reconcileRequests(in: context).count
+        let delayedHookResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: leaderSessionId,
+            toolName: "TaskUpdate"
+        )
+        #expect(!delayedHookResult.timedOut, Comment(rawValue: delayedHookResult.stderr))
+        #expect(delayedHookResult.status == 0, Comment(rawValue: delayedHookResult.stderr))
+        #expect(
+            reconcileRequests(in: context).count == reconciliationCountBeforeDelayedHook,
+            "A delayed task hook must not re-admit the retired task-list owner"
+        )
 
         let feedSessionIds = context.state.snapshot().compactMap(feedEvent)
             .compactMap { $0["session_id"] as? String }

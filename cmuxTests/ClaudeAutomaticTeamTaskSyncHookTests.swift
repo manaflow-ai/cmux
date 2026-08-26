@@ -336,7 +336,12 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
-        let reopenedDeliveries = reconcileRequests(in: context).suffix(2)
+        let allReopenedReconciliations = reconcileRequests(in: context)
+        #expect(
+            allReopenedReconciliations.count == 3,
+            "A team workspace already carrying the owner must not receive a redundant empty clear"
+        )
+        let reopenedDeliveries = allReopenedReconciliations.suffix(2)
         #expect(Set(reopenedDeliveries.compactMap { $0["workspace_id"] as? String }) == [
             firstWorkspaceId,
             secondWorkspaceId,
@@ -521,6 +526,19 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         )
         #expect(cleanupItems.isEmpty)
         #expect(try teamBindingRecords(in: context.storeURL).isEmpty)
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(
+            tasksRootURL: taskDirectory.deletingLastPathComponent()
+        )
+        let stateAfterCleanup = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: context.storeURL)
+            ) as? [String: Any]
+        )
+        let retiredAfterCleanup = stateAfterCleanup["retiredClaudeTaskLists"] as? [String: Any]
+        #expect(
+            retiredAfterCleanup?["\(taskStoreIdentity.rawValue):\(teamName)"] != nil,
+            "Orphan cleanup must retain a retirement fence for late compatibility scans"
+        )
         #expect(FileManager.default.fileExists(
             atPath: taskDirectory.appendingPathComponent("1.json").path
         ))
