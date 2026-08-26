@@ -651,9 +651,9 @@ struct SidebarWorkspaceTableTests {
         )
         #expect(pumpHeight > authoritativeHeight)
 
-        // The row configuration is intentionally identical. The apply must
-        // still reconcile the pump-painted cell and its matching height
-        // override atomically.
+        // The row configuration is intentionally identical. An unrelated
+        // apply must preserve the pump-painted model and its matching height
+        // rather than tearing down every active pump row.
         controller.apply(
             rows: allRows,
             actions: makeTableActions(),
@@ -666,6 +666,10 @@ struct SidebarWorkspaceTableTests {
         container.tableView.layoutSubtreeIfNeeded()
 
         let installedModel = try #require(cell.currentModelForMeasurement)
+        #expect(
+            installedModel.snapshot.customDescription == pumpDescription,
+            "A content-equivalent apply must not roll a newer pump model back to the stale snapshot."
+        )
         let expectedHeight = ceil(
             cell.layoutContent(model: installedModel, width: cell.bounds.width, apply: false)
         )

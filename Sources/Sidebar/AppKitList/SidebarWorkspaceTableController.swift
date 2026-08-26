@@ -461,11 +461,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         }
-        // A pump can paint a newer model without changing the authoritative
-        // row configuration. Reconcile those cells even when the snapshot is
-        // content-equivalent, then release their matching geometry in the
-        // same table transaction.
-        let releasedPumpRows = releasePumpHeightOverrides(for: nextRows)
+        // Release pump geometry only when this apply actually supersedes the
+        // row's authoritative content. An unrelated workspace update must not
+        // widen a per-row pump event into a full visible-row reconfiguration;
+        // content-equivalent rows keep their painted model and height paired.
+        let releasedPumpRows = releasePumpHeightOverrides(
+            for: nextRows,
+            supersededIndexes: contentChanges,
+            releaseAll: forceTableReload
+        )
         contentChanges.formUnion(releasedPumpRows)
         let width = currentColumnWidth()
         var heightChanges = IndexSet()
@@ -1874,19 +1878,31 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
     }
 
-    /// Drops pump heights when an authoritative row snapshot supersedes the
-    /// cell model and returns every affected row for atomic model/height
-    /// reconciliation.
+    /// Drops pump heights for rows whose authoritative snapshot supersedes the
+    /// painted model and returns those rows for atomic model/height
+    /// reconciliation. Content-equivalent rows retain their pump pair so an
+    /// unrelated apply cannot trigger an O(rows) reconfiguration sweep.
     private func releasePumpHeightOverrides(
-        for rows: [SidebarWorkspaceTableRowConfiguration]
+        for rows: [SidebarWorkspaceTableRowConfiguration],
+        supersededIndexes: IndexSet,
+        releaseAll: Bool
     ) -> IndexSet {
         guard !pumpHeightOverrides.isEmpty else { return [] }
-        let releasedIds = Set(pumpHeightOverrides.keys)
         var releasedRows = IndexSet()
-        for (index, row) in rows.enumerated() where releasedIds.contains(row.id) {
+        var liveIds = Set<SidebarWorkspaceRenderItemID>()
+        liveIds.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() {
+            liveIds.insert(row.id)
+            guard releaseAll || supersededIndexes.contains(index) else { continue }
+            guard pumpHeightOverrides.removeValue(forKey: row.id) != nil else { continue }
             releasedRows.insert(index)
         }
-        pumpHeightOverrides.removeAll(keepingCapacity: true)
+        // A removed row has no height to re-note, but its override must not
+        // linger until a recycled cell happens to retire.
+        let removedIds = pumpHeightOverrides.keys.filter { !liveIds.contains($0) }
+        for rowId in removedIds {
+            pumpHeightOverrides.removeValue(forKey: rowId)
+        }
         return releasedRows
     }
 
