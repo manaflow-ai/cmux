@@ -321,7 +321,18 @@ extension AppDelegate {
         }
 
         let frame = window.frame
-        // 4. Never persist a stranded/transient frame: if the reconcile logic
+        // 4. Never overwrite a remembered user frame with an external tiling
+        // window manager's intentional corner-parking position. The live
+        // reconcile path leaves that position untouched, but persistence must
+        // still retain the last useful frame for launches without the WM.
+        guard !MainWindowVisibleFrameFitCore().isLikelyWindowManagerParkedFrame(
+            frame: frame,
+            displayFrames: displays.available.map(\.frame)
+        ) else {
+            logCaptureSkipped(window, reason: reason, guardName: "windowManagerParking")
+            return
+        }
+        // 5. Never persist a stranded/transient frame: if the reconcile logic
         //    would move this frame, it is not a good frame to remember.
         guard Self.reconciledFrameAfterScreenChange(
             frame: frame,

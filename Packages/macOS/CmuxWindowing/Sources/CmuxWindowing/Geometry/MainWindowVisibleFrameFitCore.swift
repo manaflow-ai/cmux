@@ -88,6 +88,12 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
     ) -> CGRect? {
         let standardizedFrame = frame.standardized
         guard isUsableRect(standardizedFrame) else { return nil }
+        if isLikelyWindowManagerParkedFrame(
+            frame: standardizedFrame,
+            displayFrames: displays.map(\.frame)
+        ) {
+            return nil
+        }
 
         let usableDisplays = displays.filter { isUsableRect($0.visibleFrame) }
         guard !usableDisplays.isEmpty else { return nil }
@@ -104,6 +110,63 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             minimumHeight: minimumHeight
         )
         return rectApproximatelyEqual(fitted, standardizedFrame) ? nil : fitted
+    }
+
+    /// Returns whether `frame` looks like an external tiling window manager's
+    /// hidden parking position at a physical display corner. AeroSpace's
+    /// default parking leaves a roughly one-pixel-wide, menu-bar-height sliver
+    /// at the bottom-right edge (issue #9848). Without this guard, the visible
+    /// frame fitter interprets the sliver as a clipped window and moves it fully
+    /// on-screen; the window manager then parks it again, producing a visible
+    /// jerk.
+    ///
+    /// This is deliberately narrower than a general off-screen test. A frame
+    /// must intersect a physical display by only a small corner sliver and must
+    /// extend beyond the display on both axes. A frame with no intersection is
+    /// still eligible for normal recovery after a display disconnect. Use
+    /// physical `NSScreen.frame` values here rather than `visibleFrame`: parking
+    /// is relative to the outer display edge, including menu-bar and Dock areas.
+    ///
+    /// - Parameters:
+    ///   - frame: Window frame in global screen coordinates.
+    ///   - displayFrames: Full physical display frames in the same coordinates.
+    ///   - maximumSliverWidth: Maximum horizontal overlap treated as a parking sliver.
+    ///   - maximumSliverHeight: Maximum vertical overlap treated as a parking sliver.
+    /// - Returns: `true` when the frame matches a tight display-corner parking signature.
+    public func isLikelyWindowManagerParkedFrame(
+        frame proposedFrame: CGRect,
+        displayFrames: [CGRect],
+        maximumSliverWidth: CGFloat = 8,
+        maximumSliverHeight: CGFloat = 64
+    ) -> Bool {
+        let frame = proposedFrame.standardized
+        guard isUsableRect(frame),
+              maximumSliverWidth > 0,
+              maximumSliverHeight > 0
+        else { return false }
+
+        return displayFrames.contains { proposedDisplay in
+            let display = proposedDisplay.standardized
+            guard isUsableRect(display) else { return false }
+
+            let intersection = frame.intersection(display)
+            guard isUsableRect(intersection),
+                  intersection.width <= min(maximumSliverWidth, frame.width),
+                  intersection.height <= min(maximumSliverHeight, frame.height)
+            else { return false }
+
+            let reachesRightCorner = frame.minX >= display.maxX - maximumSliverWidth
+                && frame.maxX > display.maxX
+            let reachesLeftCorner = frame.maxX <= display.minX + maximumSliverWidth
+                && frame.minX < display.minX
+            let reachesBottomCorner = frame.maxY <= display.minY + maximumSliverHeight
+                && frame.minY < display.minY
+            let reachesTopCorner = frame.minY >= display.maxY - maximumSliverHeight
+                && frame.maxY > display.maxY
+
+            return (reachesRightCorner || reachesLeftCorner)
+                && (reachesBottomCorner || reachesTopCorner)
+        }
     }
 
     private func targetDisplay(

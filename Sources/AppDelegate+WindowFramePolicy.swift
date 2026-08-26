@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWindowing
 
 extension AppDelegate {
     nonisolated static func shouldPreserveAccessibleFrame(
@@ -76,6 +77,17 @@ extension AppDelegate {
               frame.width > 0,
               frame.height > 0,
               !availableDisplays.isEmpty else {
+            return nil
+        }
+
+        // A tiling window manager can deliberately park a hidden window at a
+        // display corner with a tiny sliver still visible. Do not treat that
+        // signature as a stranded frame during a spurious screen-membership
+        // callback; the fitter and `CmuxMainWindow` use the same guard.
+        if MainWindowVisibleFrameFitCore().isLikelyWindowManagerParkedFrame(
+            frame: frame,
+            displayFrames: availableDisplays.map(\.frame)
+        ) {
             return nil
         }
 
