@@ -392,6 +392,10 @@ public actor CmxIrohHostRuntime {
             registrationRefreshEnabled = true
             if !publishedFreshBinding {
                 registrationRefreshPending = false
+                // Every deferred first publication carries the pending flag so
+                // any refresh round that ends up performing it re-checks
+                // verified relay readiness first.
+                initialPublicationPending = true
                 if requiresRelayReadiness {
                     // Cached authority keeps offline admission and LAN
                     // discovery available, but it cannot describe this endpoint
@@ -402,7 +406,6 @@ public actor CmxIrohHostRuntime {
                         retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
                     )
                 } else {
-                    initialPublicationPending = true
                     allowsReplacedBindingAdoption = cachedStartPolicy != nil
                     if let retryAfterSeconds = publishedPolicy
                         .registrationRetryAfterSeconds {
