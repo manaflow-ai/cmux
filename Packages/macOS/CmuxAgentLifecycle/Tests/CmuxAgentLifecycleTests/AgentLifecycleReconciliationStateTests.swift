@@ -251,4 +251,39 @@ struct AgentLifecycleReconciliationStateTests {
             )
         )
     }
+
+    @Test("An unidentified process exit preserves unbound Feed attention")
+    func unidentifiedProcessExitPreservesUnboundFeedAttention() throws {
+        let panelId = UUID()
+        var state = AgentLifecycleReconciliationState()
+        let token = try #require(
+            state.beginFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                isBuiltIn: true
+            )
+        )
+
+        #expect(
+            state.recordUnidentifiedProcessExit(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                isBuiltIn: true
+            )
+        )
+        #expect(
+            state.hasFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId
+            ),
+            "An unidentified exit cannot prove that an unbound prompt belongs to the exited process."
+        )
+        #expect(
+            state.endFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                token: token
+            )
+        )
+    }
 }

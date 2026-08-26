@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -3837,7 +3838,28 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
     )
     log_directory.mkdir(parents=True, exist_ok=True)
     log_path = log_directory / f"session-test-{cursor_pid}-1.log"
-    log_path.write_text('{"msg":"cursor test log ready"}\n', encoding="utf-8")
+    session_start_time = datetime.now(timezone.utc).isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+    session_header = json.dumps(
+        {
+            "event": "debug-session-start",
+            "pid": cursor_pid,
+            "startTime": session_start_time,
+        }
+    )
+
+    def reset_log() -> None:
+        log_path.write_text(
+            "--- Cursor Agent Debug Session ---\n"
+            + session_header
+            + "\n",
+            encoding="utf-8",
+        )
+
+    reset_log()
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write('{"msg":"cursor test log ready"}\n')
 
     env = os.environ.copy()
     for key in (
@@ -4079,6 +4101,60 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     "without forwarding the oversized Feed payload"
                 )
 
+            # Cursor does not promise JSON field order. The bounded reader
+            # must still find correlation IDs after a large output field and
+            # conclude only this exact approval observation.
+            trailing_tool_call_id = f"cursor-call-trailing-id-{id_suffix}"
+            trailing_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-trailing-id",
+                "tool_use_id": trailing_tool_call_id,
+                "tool_input": {"command": "swift test"},
+            }
+            reset_log()
+            trailing_start = len(fake.frames)
+            run_cursor_feed("preToolUse", trailing_payload)
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                trailing_tool_call_id,
+            )
+            trailing_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=trailing_start,
+            )
+            oversized_ordered_payload = {
+                "tool_output": "x" * (1024 * 1024 + 2_048),
+                "conversation_id": "cursor-session",
+                "tool_use_id": trailing_tool_call_id,
+                "event": "postToolUse",
+                "tool_name": "Shell",
+                "cwd": str(root),
+            }
+            before_trailing_end = len(fake.frames)
+            run_cursor_feed("postToolUse", oversized_ordered_payload)
+            trailing_end = wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=before_trailing_end,
+            )
+            if (
+                trailing_end.get("params", {}).get("observation_id")
+                != trailing_begin.get("params", {}).get("observation_id")
+            ):
+                raise AssertionError(
+                    "Cursor oversized completion with a leading large field "
+                    f"cleared the wrong observation: begin={trailing_begin!r} "
+                    f"end={trailing_end!r}"
+                )
+            if any(
+                frame.get("method") == "feed.push"
+                for frame in fake.frames[before_trailing_end:]
+            ):
+                raise AssertionError(
+                    "Oversized Cursor completion must not forward its large output"
+                )
+
             # Cursor can create the per-process native log after preToolUse
             # starts. The observer must wait for that file instead of
             # abandoning the real approval before the first record exists.
@@ -4097,7 +4173,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 if cursor_observer_pids(delayed_tool_call_id):
                     break
                 time.sleep(0.02)
-            log_path.write_text("", encoding="utf-8")
+            reset_log()
             append_native_decision(
                 "Shell permissions: requesting shell approval",
                 delayed_tool_call_id,
@@ -4140,7 +4216,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     break
                 time.sleep(0.02)
             log_directory.mkdir(parents=True, exist_ok=True)
-            log_path.write_text("", encoding="utf-8")
+            reset_log()
             append_native_decision(
                 "Shell permissions: requesting shell approval",
                 delayed_directory_tool_call_id,
@@ -4177,7 +4253,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             # A turn boundary can cancel an observer while it is waiting for
             # Cursor's native decision. A decision arriving after that
             # cancellation must not resurrect Needs Input for the old turn.
-            log_path.write_text("", encoding="utf-8")
+            reset_log()
             cancelled_start = len(fake.frames)
             run_cursor_feed("preToolUse", cancelled_payload)
             wait_for_cursor_observer(cancelled_tool_call_id, present=True)
@@ -4388,6 +4464,55 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     f"observation: begin={concurrent_begin!r} "
                     f"end={concurrent_end!r}"
                 )
+
+            # A reused PID can leave a freshly touched log from an older
+            # process generation. Filename/mtime heuristics must not let that
+            # stale record publish attention for the new invocation.
+            stale_tool_call_id = f"cursor-call-stale-generation-{id_suffix}"
+            stale_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-stale-generation",
+                "tool_use_id": stale_tool_call_id,
+                "tool_input": {"command": "make stale-check"},
+            }
+            stale_header = json.dumps(
+                {
+                    "event": "debug-session-start",
+                    "pid": cursor_pid,
+                    "startTime": "1970-01-01T00:00:00.000Z",
+                }
+            )
+            log_path.write_text(
+                "--- Cursor Agent Debug Session ---\n"
+                + stale_header
+                + "\n"
+                + json.dumps(
+                    {
+                        "msg": "Shell permissions: requesting shell approval",
+                        "toolCallId": stale_tool_call_id,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            stale_start = len(fake.frames)
+            run_cursor_feed("preToolUse", stale_payload)
+            stale_deadline = time.monotonic() + 1
+            while time.monotonic() < stale_deadline:
+                stale_begins = [
+                    frame
+                    for frame in fake.frames[stale_start:]
+                    if frame.get("method") == "agent.attention.begin"
+                ]
+                if stale_begins:
+                    raise AssertionError(
+                        "A stale Cursor log from a reused PID published native attention: "
+                        f"{stale_begins!r}"
+                    )
+                time.sleep(0.02)
+            run_cursor_feed("postToolUse", stale_payload)
+            wait_for_cursor_observer(stale_tool_call_id, present=False)
+            reset_log()
     finally:
         log_path.unlink(missing_ok=True)
 

@@ -80,6 +80,60 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Scheduled remote custom PID registration keeps the PID opaque")
+    func scheduledRemoteCustomPIDRegistrationDoesNotUseLocalGeneration() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "remote-scheduled-custom-agent",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_011,
+            relayID: "scheduled-custom-remote-pid",
+            relayToken: String(repeating: "q", count: 64),
+            localSocketPath: "/tmp/cmux-scheduled-custom-remote-pid.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh remote-scheduled-custom-agent"
+        )
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let key = "custom.remote-scheduled"
+        let localPID = Int32(getpid())
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(workspace.id),
+            key: key,
+            pid: localPID,
+            processGeneration: nil,
+            panelID: panelID
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(workspace.agentPIDs[key] == localPID)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey[key] == nil,
+            "A PID from a remote namespace must not be reconstructed against the local process table."
+        )
+    }
+
     @Test("Rejected PID registration preserves an active Feed attention token")
     func rejectedPIDRegistrationDoesNotEraseFeedAttention() throws {
         let workspace = Workspace()

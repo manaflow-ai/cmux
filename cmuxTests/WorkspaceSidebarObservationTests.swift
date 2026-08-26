@@ -1224,7 +1224,7 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func unknownProcessLivenessRetiresExitObservation() throws {
+    @Test func unknownProcessLivenessKeepsExitObservation() throws {
         let generation = AgentPIDProcessIdentity(
             pid: pid_t(getpid()),
             startSeconds: 0,
@@ -1239,8 +1239,59 @@ struct WorkspaceSidebarObservationTests {
         }
 
         #expect(
-            didRetire,
-            "An unverified process generation must be retired conservatively instead of retaining a stuck watcher."
+            !didRetire,
+            "An unreadable process generation is not proof of exit and must keep its exact watcher until definitive evidence arrives."
+        )
+        monitor.cancel(key: "unknown-liveness")
+    }
+
+    @Test func manuallyClearedAgentPIDCanReRegisterSameLiveGeneration() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: process.processIdentifier)
+        )
+        let key = "codex.manual-unregister"
+        #expect(
+            workspace.recordAgentPIDResult(
+                key: key,
+                pid: generation.pid,
+                panelId: panelId,
+                processIdentity: generation,
+                refreshPorts: false,
+                observeProcessExit: false
+            ).accepted
+        )
+        #expect(
+            workspace.clearAgentPID(
+                key: key,
+                panelId: panelId,
+                clearStatus: true,
+                refreshPorts: false
+            )
+        )
+
+        #expect(
+            workspace.recordAgentPIDResult(
+                key: key,
+                pid: generation.pid,
+                panelId: panelId,
+                processIdentity: generation,
+                refreshPorts: false,
+                observeProcessExit: false
+            ).accepted,
+            "Manual unregister is not process-exit evidence; the same live generation must be admissible again."
         )
     }
 
