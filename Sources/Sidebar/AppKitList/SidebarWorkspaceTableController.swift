@@ -47,6 +47,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // SwiftUI may remove the representable (fullscreen/display changes) while
     // the native drag still owns that table.
     private var activeWorkspaceDragTableView: SidebarWorkspaceTableViewImpl?
+    // Keep the containing drop views alive as well. A fast release can leave a
+    // deferred reorder waiting for its target bridge after the representable is
+    // dismantled; retaining only the table would lose that pending operation.
+    private var activeWorkspaceDragContainerView: SidebarWorkspaceTableContainerView?
     private var activeWorkspaceDragSessionId: UUID?
     private var activeWorkspaceDragCapabilityValue: String?
     private var pendingWorkspaceDragSessionId: UUID?
@@ -181,6 +185,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
         guard containerView === container else { return }
+        let preserveNativeDragPresentation = hasPendingOrActiveWorkspaceDrag
+        if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
+            activeWorkspaceDragContainerView = container
+        }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
         deferredPumpHeightRowIds.removeAll(keepingCapacity: false)
@@ -215,7 +223,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         hoveredRowId = nil
         contextMenuRowId = nil
         cancelSelectionIntent()
-        clearDropViewActions(in: container)
+        if !preserveNativeDragPresentation {
+            clearDropViewActions(in: container)
+        }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
         if !hasPendingOrActiveWorkspaceDrag {
             detachController(from: container.tableView)
@@ -378,11 +388,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         cancelSelectionIntent()
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
-        if let containerView {
+        if let containerView, !hasPendingOrActiveWorkspaceDrag {
             clearDropViewActions(in: containerView)
             if previousRowIds != rows.map(\.id) {
                 mutationScheduler.stageTableReload()
             }
+        } else if let containerView, previousRowIds != rows.map(\.id) {
+            // A retained native source still owns the old drop callbacks. The
+            // row snapshot may change while hidden, but clearing those callbacks
+            // would erase a deferred drop before AppKit completes the source.
+            mutationScheduler.stageTableReload()
         }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
@@ -465,6 +480,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
+        if let retainedContainer = activeWorkspaceDragContainerView,
+           retainedContainer !== containerView {
+            // Rebind the retained drop views to the latest render/action graph
+            // while AppKit keeps the old source alive through reconstruction.
+            // The drop view owns any pending payload; rebinding must not clear it.
+            configureDropViews(in: retainedContainer, actions: actions)
+        }
 
         let previousRows = rows
         let hasStructuralChanges = previousRows.map(\.id) != nextRows.map(\.id)
@@ -1016,8 +1038,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func workspaceDragSessionDidBegin() {
         guard !isWorkspaceDragSourceActive else { return }
         isWorkspaceDragSourceActive = true
-        if let tableView = containerView?.tableView {
-            retainWorkspaceDragSource(tableView)
+        if let containerView {
+            activeWorkspaceDragContainerView = containerView
+            retainWorkspaceDragSource(containerView.tableView)
         }
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press
@@ -1075,10 +1098,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         retireReorderIndicator()
 
         let tableView = activeWorkspaceDragTableView
+        let retainedContainer = activeWorkspaceDragContainerView
         activeWorkspaceDragTableView = nil
+        activeWorkspaceDragContainerView = nil
         tableView?.activeWorkspaceDragController = nil
         if let tableView, tableView !== containerView?.tableView {
             detachController(from: tableView)
+        }
+        if let retainedContainer, retainedContainer !== containerView {
+            // The retained container may still hold a deferred drop or source
+            // closures. Native completion is now authoritative, so retire the
+            // old presentation and release its action graph together.
+            clearDropViewActions(in: retainedContainer)
         }
         if !isPresentationActive || containerView == nil {
             actions = nil

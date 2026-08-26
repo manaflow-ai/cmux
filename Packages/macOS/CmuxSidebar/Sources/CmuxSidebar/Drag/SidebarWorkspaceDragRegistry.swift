@@ -8,7 +8,7 @@ public import Foundation
 /// weak set of source/mirror presentation states. AppKit's terminal source
 /// callback clears the token and all matching window-local state together.
 @MainActor
-public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
+public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegistering {
     /// Provider used to inspect and clear the process drag pasteboard.
     public typealias DragPasteboardProvider = @MainActor () -> NSPasteboard
 
@@ -21,6 +21,8 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
     private var participants: [SidebarWorkspaceDragParticipantReference] = []
     private let dragPasteboardProvider: DragPasteboardProvider
+
+    deinit {}
 
     /// Creates an empty registry with no drag in flight.
     /// - Parameter dragPasteboardProvider: Source of the pasteboard used for

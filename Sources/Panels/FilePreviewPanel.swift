@@ -576,27 +576,57 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
     static func discardRegisteredDrag(from pasteboard: NSPasteboard) {
         let bonsplitCapability = pasteboard.string(forType: Self.bonsplitTransferType)
         let filePreviewData = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-        let dragId = dragID(from: pasteboard)
-        AppDelegate.shared?.tabDragTransferRegistry.end(from: pasteboard)
-        AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
-        if let bonsplitCapability {
+        let filePreviewDragId = filePreviewData.flatMap { dragID(from: $0) }
+        let transferRegistry = AppDelegate.shared?.tabDragTransferRegistry
+        let liveTransfer = transferRegistry?.resolve(from: pasteboard)
+        let liveFilePreviewDragId: UUID? = {
+            guard let liveTransfer else { return nil }
+            if let filePreviewDragId {
+                // The private preview payload is the strongest identity. It
+                // also keeps compatibility transfers whose kind field predates
+                // `filePreview` eligible for exact cleanup.
+                return liveTransfer.tab.id.uuid == filePreviewDragId
+                    ? filePreviewDragId
+                    : nil
+            }
+            return liveTransfer.tab.kind == "filePreview"
+                ? liveTransfer.tab.id.uuid
+                : nil
+        }()
+        // Resolve and revoke only the file-preview capability represented by
+        // this session's pasteboard. A late callback must never parse the
+        // process-wide pasteboard and end a newer pane/tab registration.
+        let canEndTransfer = liveFilePreviewDragId != nil
+            && (filePreviewDragId == nil || filePreviewDragId == liveFilePreviewDragId)
+        if canEndTransfer {
+            transferRegistry?.end(from: pasteboard)
+            AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
+        }
+        if let bonsplitCapability, canEndTransfer {
             DragPasteboardCapabilityCleaner().remove(
                 type: Self.bonsplitTransferType,
                 capabilityValue: bonsplitCapability,
                 from: pasteboard
             )
         }
-        if let filePreviewData {
+        if let filePreviewData, filePreviewDragId != nil || liveFilePreviewDragId != nil {
             DragPasteboardCapabilityCleaner().remove(
                 type: DragOverlayRoutingPolicy.filePreviewTransferType,
                 capabilityData: filePreviewData,
                 from: pasteboard
             )
         }
-        if let dragId {
+        if let dragId = filePreviewDragId ?? liveFilePreviewDragId {
             FilePreviewDragRegistry.shared.discard(id: dragId)
         }
         FilePreviewDragRegistry.shared.discardExpired()
+    }
+
+    /// Uses the pasteboard owned by this exact native session rather than the
+    /// process-wide `.drag` singleton. AppKit can deliver an older source's
+    /// completion after a newer drag has already replaced the ambient board.
+    static func discardRegisteredDrag(from session: NSDraggingSession) {
+        discardRegisteredDrag(from: session.draggingPasteboard)
     }
 
     private func transferDataForDrag() -> Data {

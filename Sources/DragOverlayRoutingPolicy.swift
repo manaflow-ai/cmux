@@ -243,7 +243,18 @@ enum DragOverlayRoutingPolicy {
         // private preview UTI on the same pasteboard. Only preview-only
         // payloads need a live in-process capability.
         if hasFileURL(types) { return true }
-        return AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil
+        if AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil {
+            return true
+        }
+        // File-preview writers may be used without an AppDelegate-owned tab
+        // registry (for example by an isolated file-explorer surface). Their
+        // private data still carries the registry UUID, so the file-preview
+        // registry is the authoritative fallback when no Bonsplit capability
+        // was published.
+        guard let dragId = FilePreviewDragPasteboardWriter.dragID(from: pasteboard) else {
+            return false
+        }
+        return FilePreviewDragRegistry.shared.contains(id: dragId)
     }
 
     @MainActor

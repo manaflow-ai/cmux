@@ -26,6 +26,8 @@ final class LiveTabDragCapabilityResolver {
     private let transferResolver: TransferResolver
     private var cache: Cache?
 
+    deinit {}
+
     init(
         registryProvider: @escaping RegistryProvider,
         transferResolver: @escaping TransferResolver = { registry, pasteboard in

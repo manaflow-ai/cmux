@@ -8,6 +8,8 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
     private weak var registry: SidebarWorkspaceDragRegistry?
     private var didFinish = false
 
+    deinit {}
+
     init(
         sessionId: UUID,
         capabilityValue: String,

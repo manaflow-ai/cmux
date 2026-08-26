@@ -4,9 +4,6 @@ import Foundation
 /// Removes one drag capability while preserving every unrelated representation.
 @MainActor
 struct DragPasteboardCapabilityCleaner {
-    /// Creates a capability cleaner for AppKit drag pasteboards.
-    init() {}
-
     /// Removes `capabilityValue` for `type` only when the pasteboard still owns it.
     ///
     /// - Parameters:

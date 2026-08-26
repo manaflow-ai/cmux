@@ -2931,6 +2931,97 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertNil(tabDragTransferRegistry.resolve(from: dragPasteboard))
     }
 
+    func testLateFilePreviewCompletionDoesNotEndNewerTabCapability() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            let oldPasteboard = NSPasteboard(
+                name: NSPasteboard.Name("file-preview-old-\(UUID().uuidString)")
+            )
+            oldPasteboard.clearContents()
+            let oldWriter = FilePreviewDragPasteboardWriter(
+                filePath: "/tmp/old-preview.txt",
+                displayTitle: "old-preview.txt",
+                tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
+            )
+            let oldData = try XCTUnwrap(
+                oldWriter.pasteboardPropertyList(
+                    forType: DragOverlayRoutingPolicy.filePreviewTransferType
+                ) as? Data
+            )
+            let oldCapability = try XCTUnwrap(
+                oldWriter.pasteboardPropertyList(
+                    forType: FilePreviewDragPasteboardWriter.bonsplitTransferType
+                ) as? String
+            )
+            oldPasteboard.setData(
+                oldData,
+                forType: DragOverlayRoutingPolicy.filePreviewTransferType
+            )
+            oldPasteboard.setString(
+                oldCapability,
+                forType: FilePreviewDragPasteboardWriter.bonsplitTransferType
+            )
+            let oldDragId = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: oldData))
+
+            let newerRegistration = try XCTUnwrap(
+                appDelegate.tabDragTransferRegistry.register(
+                    TabDragTransfer(
+                        tab: Tab(title: "new pane", kind: "terminal"),
+                        sourcePaneId: PaneID()
+                    )
+                )
+            )
+            let ambientPasteboard = NSPasteboard(name: .drag)
+            ambientPasteboard.clearContents()
+            XCTAssertTrue(newerRegistration.write(to: ambientPasteboard))
+
+            // The old source callback supplies its own session pasteboard. It
+            // must revoke only the old preview registration, leaving the newer
+            // ambient pane drag untouched.
+            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: oldPasteboard)
+
+            XCTAssertNil(appDelegate.tabDragTransferRegistry.resolve(from: oldPasteboard))
+            XCTAssertNotNil(appDelegate.tabDragTransferRegistry.resolve(from: ambientPasteboard))
+            XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: oldDragId))
+            appDelegate.tabDragTransferRegistry.end(newerRegistration)
+        }
+    }
+
+    func testPreviewPayloadWithoutFileURLUsesItsLiveRegistryEntry() throws {
+        let isolatedRegistry = TabDragTransferRegistry()
+        let writer = FilePreviewDragPasteboardWriter(
+            filePath: "/tmp/preview-only.txt",
+            displayTitle: "preview-only.txt",
+            tabDragTransferRegistry: isolatedRegistry
+        )
+        let data = try XCTUnwrap(
+            writer.pasteboardPropertyList(
+                forType: DragOverlayRoutingPolicy.filePreviewTransferType
+            ) as? Data
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("file-preview-only-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        let dragId = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: data))
+        defer {
+            FilePreviewDragRegistry.shared.discard(id: dragId)
+            pasteboard.clearContents()
+        }
+
+        XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
+        XCTAssertTrue(DragOverlayRoutingPolicy.hasLiveFileDropPayload(from: pasteboard))
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.fileURLs(from: pasteboard).first?.path,
+            "/tmp/preview-only.txt"
+        )
+    }
+
     func testRegistrySweepsExpiredDragEntries() {
         let start = Date(timeIntervalSince1970: 1_000)
         let oldID = FilePreviewDragRegistry.shared.register(

@@ -84,12 +84,10 @@ final class PaneDropTargetView: NSView {
 
         let dragPasteboard = NSPasteboard(name: .drag)
         let pasteboardTypes = dragPasteboard.types
-        let hasLiveTabTransfer = (
-            pasteboardTypes?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
-                || pasteboardTypes?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
-        ) && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
-            from: dragPasteboard
-        ) != nil
+        let hasLiveTabTransfer = DragOverlayRoutingPolicy.hasLiveTabTransfer(
+            in: dragPasteboard,
+            resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+        )
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType,

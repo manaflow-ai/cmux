@@ -127,6 +127,10 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
 
         source.dismissPresentation()
 
+        // A later generic clear belongs to the retired presentation, not to
+        // AppKit's still-live native source.
+        source.clearDrag()
+
         #expect(source.draggedTabId == nil)
         #expect(registry.currentWorkspaceId == workspaceId)
 
@@ -138,6 +142,37 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         )
         #expect(rebuilt.draggedTabId == nil)
         #expect(source.draggedTabId == nil)
+    }
+
+    @Test func completedSessionRemainsEligibleUntilANewerDragStarts() {
+        let registry = SidebarWorkspaceDragRegistry()
+        let state = SidebarDragState(workspaceDragRegistry: registry)
+        let workspaceId = UUID()
+        let session = state.beginDragging(tabId: workspaceId)
+
+        registry.nativeDraggingSessionDidEnd(
+            sessionId: session.id,
+            capabilityValue: session.pasteboardValue
+        )
+
+        #expect(
+            state.acceptsWorkspaceDragSession(
+                sessionId: session.id,
+                workspaceId: workspaceId
+            )
+        )
+
+        let newer = registry.beginSession(workspaceId: UUID())
+        #expect(
+            !state.acceptsWorkspaceDragSession(
+                sessionId: session.id,
+                workspaceId: workspaceId
+            )
+        )
+        registry.nativeDraggingSessionDidEnd(
+            sessionId: newer.id,
+            capabilityValue: newer.pasteboardValue
+        )
     }
 
     @Test func staleNativeCompletionCannotEndNewerSession() {

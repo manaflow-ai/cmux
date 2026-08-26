@@ -36,6 +36,10 @@ public final class SidebarDragState {
     /// this window. The session token prevents an old clear from ending a newer
     /// drag of the same workspace.
     private var sessionRole: SidebarWorkspaceDragSessionRole?
+    /// Source identity retained after presentation dismissal for an explicit
+    /// finish command. Generic `clearDrag()` deliberately does not consult
+    /// this value; only the token-scoped finish path may use it.
+    private var dismissedSessionId: UUID?
 
     /// Pin state of a foreign (cross-window) dragged workspace, resolved once
     /// when the drag is mirrored into this window and reused for every hover
@@ -46,13 +50,19 @@ public final class SidebarDragState {
 
     private let workspaceDragRegistry: any SidebarWorkspaceDragRegistering
 
+    private var sessionRegistry: (any SidebarWorkspaceDragSessionRegistering)? {
+        workspaceDragRegistry as? any SidebarWorkspaceDragSessionRegistering
+    }
+
     /// Creates a drag state wired to the process-wide cross-window registry.
     /// - Parameter workspaceDragRegistry: The shared registry that records which
     ///   workspace is being dragged across all windows.
     public init(workspaceDragRegistry: any SidebarWorkspaceDragRegistering) {
         self.workspaceDragRegistry = workspaceDragRegistry
-        workspaceDragRegistry.register(self)
+        sessionRegistry?.register(self)
     }
+
+    deinit {}
 
     /// The workspace currently being sidebar-dragged anywhere in the process,
     /// used by the drop path to resolve a drag that originated in another window.
@@ -62,26 +72,62 @@ public final class SidebarDragState {
 
     /// The token of the process-wide drag currently in flight, if any.
     public var currentWorkspaceDragSessionId: UUID? {
-        workspaceDragRegistry.currentSessionId
+        sessionRegistry?.currentSessionId ?? workspaceDragRegistry.currentWorkspaceId
     }
 
     /// The most recently issued session token, including completed sessions.
     /// A deferred drop uses this generation fence to reject work after a newer
     /// drag has already started and ended.
     public var mostRecentWorkspaceDragSessionId: UUID? {
-        workspaceDragRegistry.mostRecentSessionId
+        sessionRegistry?.mostRecentSessionId
     }
 
     /// The workspace paired with the most recently issued drag session.
     public var mostRecentWorkspaceDragWorkspaceId: UUID? {
-        workspaceDragRegistry.mostRecentWorkspaceId
+        sessionRegistry?.mostRecentWorkspaceId
+    }
+
+    /// Returns whether a deferred operation belongs to the current session or
+    /// to the most recently completed session. The latter is necessary because
+    /// AppKit can deliver target updates after its native source completion;
+    /// the registry's generation history still fences that operation from any
+    /// newer drag.
+    public func acceptsWorkspaceDragSession(
+        sessionId: UUID,
+        workspaceId: UUID
+    ) -> Bool {
+        if let currentSessionId = currentWorkspaceDragSessionId {
+            return currentSessionId == sessionId
+                && currentWorkspaceDragId == workspaceId
+        }
+        return mostRecentWorkspaceDragSessionId == sessionId
+            && mostRecentWorkspaceDragWorkspaceId == workspaceId
+    }
+
+    /// A sidebar payload is live only when its token matches the process-wide
+    /// native session. A residual or legacy value cannot create a session.
+    public func acceptsLiveSidebarSessionForCurrentPasteboard() -> Bool {
+        guard let currentSessionId = currentWorkspaceDragSessionId else { return false }
+        let pasteboard = NSPasteboard(name: .drag)
+        let type = NSPasteboard.PasteboardType(
+            SidebarWorkspaceDragSession.pasteboardTypeIdentifier
+        )
+        let raw = pasteboard.string(forType: type)
+            ?? pasteboard.data(forType: type).flatMap { String(data: $0, encoding: .utf8) }
+        return SidebarWorkspaceDragPayloadParser().sessionId(from: raw) == currentSessionId
     }
 
     /// Marks `tabId` as this window's dragged workspace and records it as the
     /// process-wide in-flight drag.
     @discardableResult
     public func beginDragging(tabId: UUID) -> SidebarWorkspaceDragSession {
-        let session = workspaceDragRegistry.beginSession(workspaceId: tabId)
+        let session: SidebarWorkspaceDragSession
+        if let sessionRegistry {
+            session = sessionRegistry.beginSession(workspaceId: tabId)
+        } else {
+            workspaceDragRegistry.begin(workspaceId: tabId)
+            session = SidebarWorkspaceDragSession(id: tabId, workspaceId: tabId)
+        }
         activate(session: session, role: .source(session.id))
         return session
     }
@@ -96,9 +142,10 @@ public final class SidebarDragState {
         draggingFrame: NSRect,
         dragImage: NSImage
     ) -> Bool {
-        let session = workspaceDragRegistry.beginSession(workspaceId: tabId)
+        guard let sessionRegistry else { return false }
+        let session = sessionRegistry.beginSession(workspaceId: tabId)
         activate(session: session, role: .source(session.id))
-        guard workspaceDragRegistry.beginNativeDragging(
+        guard sessionRegistry.beginNativeDragging(
             sessionId: session.id,
             pasteboardItem: pasteboardItem,
             sourceView: sourceView,
@@ -107,7 +154,7 @@ public final class SidebarDragState {
             dragImage: dragImage,
             capabilityValue: session.pasteboardValue
         ) else {
-            workspaceDragRegistry.nativeDraggingSessionDidEnd(
+            sessionRegistry.nativeDraggingSessionDidEnd(
                 sessionId: session.id,
                 capabilityValue: session.pasteboardValue
             )
@@ -120,9 +167,15 @@ public final class SidebarDragState {
     /// Mirrors the coordinator's current session into a destination window.
     @discardableResult
     public func mirrorDragging(tabId: UUID) -> Bool {
-        guard let session = workspaceDragRegistry.session(matching: tabId) else {
-            return false
+        let session: SidebarWorkspaceDragSession?
+        if let sessionRegistry {
+            session = sessionRegistry.session(matching: tabId)
+        } else if workspaceDragRegistry.currentWorkspaceId == tabId {
+            session = SidebarWorkspaceDragSession(id: tabId, workspaceId: tabId)
+        } else {
+            session = nil
         }
+        guard let session else { return false }
         // Re-observing the same session must not downgrade its source role.
         if let sessionRole, sessionRole.sessionId == session.id {
             activate(session: session, role: sessionRole)
@@ -164,7 +217,11 @@ public final class SidebarDragState {
     /// foreign id does not cancel the originating window's drag.
     public func clearDrag() {
         if case .source(let sessionId) = sessionRole {
-            workspaceDragRegistry.end(sessionId: sessionId)
+            if let sessionRegistry {
+                sessionRegistry.end(sessionId: sessionId)
+            } else {
+                workspaceDragRegistry.end(workspaceId: sessionId)
+            }
         }
         clearPresentation()
     }
@@ -172,6 +229,11 @@ public final class SidebarDragState {
     /// Removes this view's transient presentation without ending the native
     /// process-wide session.
     public func dismissPresentation() {
+        // Presentation teardown is not a source completion signal. Drop the
+        // local role as well as the rendered id so a later generic clear from
+        // this rebuilt view cannot end the still-live native session.
+        dismissedSessionId = sessionRole?.sessionId ?? dismissedSessionId
+        sessionRole = nil
         foreignDraggedIsPinned = nil
         draggedTabId = nil
         clearDropIndicator()
@@ -179,25 +241,33 @@ public final class SidebarDragState {
 
     /// Completes a drag from either its source or destination presentation.
     public func finishDrag() {
-        if let sessionRole {
-            workspaceDragRegistry.end(sessionId: sessionRole.sessionId)
+        if let sessionId = sessionRole?.sessionId ?? dismissedSessionId {
+            if let sessionRegistry {
+                sessionRegistry.end(sessionId: sessionId)
+            } else {
+                workspaceDragRegistry.end(workspaceId: sessionId)
+            }
         }
         clearPresentation()
     }
 
     /// Completes a specific native session and revokes its matching payload.
     public func finishDrag(sessionId: UUID, capabilityValue: String) {
-        workspaceDragRegistry.nativeDraggingSessionDidEnd(
-            sessionId: sessionId,
-            capabilityValue: capabilityValue
-        )
-        if self.sessionRole?.sessionId == sessionId {
+        if let sessionRegistry {
+            sessionRegistry.nativeDraggingSessionDidEnd(
+                sessionId: sessionId,
+                capabilityValue: capabilityValue
+            )
+        } else {
+            workspaceDragRegistry.end(workspaceId: sessionId)
+        }
+        if self.sessionRole?.sessionId == sessionId || dismissedSessionId == sessionId {
             clearPresentation()
         }
     }
 
     func coordinatorDidEnd(sessionId: UUID) {
-        guard self.sessionRole?.sessionId == sessionId else { return }
+        guard self.sessionRole?.sessionId == sessionId || dismissedSessionId == sessionId else { return }
         clearPresentation()
     }
 
@@ -205,6 +275,7 @@ public final class SidebarDragState {
         session: SidebarWorkspaceDragSession,
         role: SidebarWorkspaceDragSessionRole
     ) {
+        dismissedSessionId = nil
         sessionRole = role
         draggedTabId = session.workspaceId
         clearDropIndicator()
@@ -212,6 +283,7 @@ public final class SidebarDragState {
 
     private func clearPresentation() {
         sessionRole = nil
+        dismissedSessionId = nil
         foreignDraggedIsPinned = nil
         draggedTabId = nil
         clearDropIndicator()
