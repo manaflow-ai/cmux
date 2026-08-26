@@ -2,6 +2,11 @@ import Darwin
 import Foundation
 
 extension CodexTurnLedger {
+    func incrementUnknownChildCount(_ key: String, in record: inout CodexTurnLedgerRecord) {
+        let current = record.unknownChildrenByTurn[key, default: 0]
+        record.unknownChildrenByTurn[key] = min(Self.maximumChildrenPerTurn, current + 1)
+    }
+
     func stopChild(id: String?, turnID: String?, in record: inout CodexTurnLedgerRecord) {
         let key = turnKey(turnID ?? record.activeTurnID)
         guard let id = Self.normalized(id), id.utf8.count <= Self.maximumIdentifierBytes else { return }
@@ -79,6 +84,8 @@ extension CodexTurnLedger {
         }
     }
 
+    /// Serializes only the cross-process read/modify/atomic-replace transaction;
+    /// the lock is released before any socket or UI work begins.
     func withLockedState<T>(
         _ body: (inout CodexTurnLedgerFile) throws -> T
     ) throws -> T {

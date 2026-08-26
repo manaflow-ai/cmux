@@ -34730,12 +34730,6 @@ export default CMUXSessionRestore;
             }
 
         case .stop:
-            if def.name == "codex", !sessionId.isEmpty {
-                let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !stopTurnId.isEmpty {
-                    retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
-                }
-            }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             // Admit ownership before touching the legacy prompt-depth store.
             // A nested reviewer must not be able to create or mutate a generic
@@ -34759,6 +34753,15 @@ export default CMUXSessionRestore;
                     telemetry.breadcrumb("codex-hook.stop.nested-or-unknown")
                     print("{}")
                     return
+                }
+            }
+            // Retire only after the ledger admits this callback as the
+            // foreground owner. A nested reviewer must not tear down the
+            // foreground Codex transcript monitor while it inherits its PID.
+            if def.name == "codex", !sessionId.isEmpty {
+                let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !stopTurnId.isEmpty {
+                    retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
             }
             guard let target = resolveAgentHookTarget(mapped: mapped) else {

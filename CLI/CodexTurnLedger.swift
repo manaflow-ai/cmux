@@ -177,6 +177,7 @@ final class CodexTurnLedger {
         let normalizedSessionID = Self.normalized(sessionID) ?? ""
         guard !normalizedSessionID.isEmpty else { return .ignored }
         return try withLockedState { state in
+            self.prune(&state)
             let normalizedWorkspaceID = Self.normalized(workspaceID) ?? ""
             let normalizedSurfaceID = Self.normalized(surfaceID) ?? ""
             let existing = state.records[normalizedSessionID]
@@ -190,6 +191,9 @@ final class CodexTurnLedger {
                 existing: existing,
                 surfaceOwner: ownerRecord
             )
+            if existing == nil, ownerRecord == nil, state.records.count >= Self.maximumRecords {
+                return .ignored
+            }
 
             if case .sessionStart = event, ownership == .foreground {
                 let isSameOwner = existing.map { self.sameOwner($0.owner, invocation) } ?? false
@@ -345,7 +349,7 @@ final class CodexTurnLedger {
 
     private func ownership(
         event: Event,
-        sessionID: String,
+        sessionID _: String,
         invocation: CodexHookInvocation,
         existing: CodexTurnLedgerRecord?,
         surfaceOwner: CodexTurnLedgerRecord?
@@ -473,24 +477,22 @@ final class CodexTurnLedger {
     private func startChild(id: String?, turnID: String?, in record: inout CodexTurnLedgerRecord) {
         let key = turnKey(turnID ?? record.activeTurnID)
         guard record.activeChildrenByTurn[key] != nil || record.unknownChildrenByTurn[key] != nil || record.activeChildrenByTurn.count + record.unknownChildrenByTurn.count < Self.maximumTurnKeys else {
-            record.unknownChildrenByTurn[key, default: 0] += 1
+            incrementUnknownChildCount(key, in: &record)
             return
         }
         guard let id = Self.normalized(id), id.utf8.count <= Self.maximumIdentifierBytes else {
-            record.unknownChildrenByTurn[key, default: 0] += 1
+            incrementUnknownChildCount(key, in: &record)
             return
         }
         if record.terminalChildrenByTurn[key]?.contains(id) == true { return }
         var children = record.activeChildrenByTurn[key] ?? []
         if !children.contains(id) {
             if children.count >= Self.maximumChildrenPerTurn {
-                record.unknownChildrenByTurn[key, default: 0] += 1
+                incrementUnknownChildCount(key, in: &record)
             } else {
                 children.append(id)
                 record.activeChildrenByTurn[key] = children
             }
         }
     }
-
-
 }

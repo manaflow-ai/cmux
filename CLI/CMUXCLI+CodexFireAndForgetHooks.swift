@@ -7,10 +7,11 @@ extension CMUXCLI {
     /// hooks for one codex invocation when no persistent cmux channel is
     /// installed. Returns the arg list:
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
-    ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<ff>''',timeout=10000}]}]\0
+    ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<hook>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
-    /// where `<ff>` is `codexFireAndForgetAgentHookShellCommand(...)` so each
-    /// hook returns `{}` to codex instantly and backgrounds the real cmux call.
+    /// Turn/status hooks use `codexFireAndForgetAgentHookShellCommand(...)`;
+    /// native child lifecycle hooks synchronously commit their ledger event and
+    /// then return. All larger socket delivery remains non-blocking.
     /// Before emission, an existing cmux-owned persistent hook channel is
     /// reconciled in place and supersedes wrapper injection for this launch.
     /// No live socket is required.
