@@ -6690,6 +6690,28 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceTitleMenuShowsRenameAlongsideCustomize() async throws {
+        let server = try MobileSyncMockHostServer(advertisesWorkspaceMetadata: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4))
+
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceTitleCustomizeMenuItem"].waitForExistence(timeout: 4),
+            "A metadata-capable host must offer Customize Workspace in the title menu."
+        )
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists,
+            "The title menu must offer Rename Workspace alongside Customize, matching the row context menu."
+        )
+        dismissOpenMenu(in: app)
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarSurvivesDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
         let backButton = app.buttons["MobileWorkspaceBackButton"]
@@ -9572,6 +9594,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let holdsTerminalPasteResponse: Bool
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
+    private let advertisesWorkspaceMetadata: Bool
     private let advertisesCaffeineControl: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
@@ -9657,6 +9680,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         holdsTerminalPasteResponse: Bool = false,
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
+        advertisesWorkspaceMetadata: Bool = false,
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
@@ -9669,6 +9693,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
+        self.advertisesWorkspaceMetadata = advertisesWorkspaceMetadata
         self.advertisesCaffeineControl = advertisesCaffeineControl
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
@@ -10221,6 +10246,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
         if advertisesTaskAttachments {
             capabilities.append("task.attachments.v1")
+        }
+        if advertisesWorkspaceMetadata {
+            capabilities.append("workspace.metadata.v1")
         }
         if advertisesCaffeineControl {
             capabilities.append("caffeine.control.v1")
