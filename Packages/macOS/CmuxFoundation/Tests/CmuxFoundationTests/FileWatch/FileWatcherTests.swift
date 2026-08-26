@@ -4,6 +4,24 @@ import Testing
 @testable import CmuxFoundation
 
 @Suite struct FileWatcherTests {
+    @Test func pathResolverCanRejectFilesystemRootAncestor() {
+        let missingPath = "/cmux-file-watcher-\(UUID().uuidString)/future/file.txt"
+        let resolver = FileWatchPathResolver()
+
+        #expect(
+            resolver.nearestExistingDirectory(
+                forPath: missingPath,
+                allowsFilesystemRootAncestor: false
+            ) == nil
+        )
+        #expect(
+            resolver.nearestExistingDirectory(
+                forPath: missingPath,
+                allowsFilesystemRootAncestor: true
+            ) == "/"
+        )
+    }
+
     /// Awaits the watcher's first event, bounded so a broken watcher fails the
     /// test instead of hanging CI.
     private func firstEvent(_ watcher: FileWatcher, within seconds: Double) async -> Bool {

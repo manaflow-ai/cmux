@@ -129,7 +129,11 @@ extension SidebarGitMetadataService {
         guard branchChanged else { return }
         if let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId) {
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
-            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
+            updateWorkspaceGitMetadataWatcher(
+                for: probeKey,
+                directory: directory,
+                forceDescriptorRefresh: true
+            )
         }
         pullRequestProbing.scheduleWorkspacePullRequestRefresh(
             workspaceId: workspaceId,

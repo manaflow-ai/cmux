@@ -505,9 +505,8 @@ extension GitMetadataService {
         }
         guard !noSystemConfig else { return [] }
 
-        if let configured = environment["GIT_CONFIG_SYSTEM"],
-           !configured.isEmpty {
-            guard configured != "/dev/null" else { return [] }
+        if let configured = environment["GIT_CONFIG_SYSTEM"] {
+            guard !configured.isEmpty, configured != "/dev/null" else { return [] }
             return [URL(fileURLWithPath: configured)]
         }
 

@@ -60,6 +60,8 @@ public actor FileWatcher {
     private let path: String
     private let throttle: Duration?
     private let clock: any FileWatchClock
+    private let allowsFilesystemRootAncestor: Bool
+    private let pathResolver: FileWatchPathResolver
     // DispatchSource requires a queue; this is internal isolation only and never
     // exposed. Sources are owned by the actor and torn down on stop/deinit.
     private let queue: DispatchQueue
@@ -100,15 +102,23 @@ public actor FileWatcher {
     ///   - throttle: Optional leading-edge coalescing window. `nil` (default)
     ///     yields one element per `DispatchSource` event batch.
     ///   - clock: The clock driving the throttle. Defaults to
-    ///     ``SystemFileWatchClock``. Ignored when `throttle` is `nil`.
+    ///     ``SystemFileWatchClock``. Ignored when `throttle` is nil.
+    ///   - allowsFilesystemRootAncestor: Whether a missing path may fall back to
+    ///     watching the filesystem root. Disable for user-controlled paths.
+    ///   - fileManager: Filesystem dependency used to resolve missing ancestors.
     public init(
         path: String,
         throttle: Duration? = nil,
-        clock: any FileWatchClock = SystemFileWatchClock()
+        clock: any FileWatchClock = SystemFileWatchClock(),
+        allowsFilesystemRootAncestor: Bool = true,
+        fileManager: FileManager = .default
     ) {
         self.path = path
         self.throttle = throttle
         self.clock = clock
+        self.allowsFilesystemRootAncestor = allowsFilesystemRootAncestor
+        let pathResolver = FileWatchPathResolver(fileManager: fileManager)
+        self.pathResolver = pathResolver
         self.queue = DispatchQueue(label: "com.cmux.file-watcher", qos: .utility)
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -123,14 +133,19 @@ public actor FileWatcher {
         // Attach the sources synchronously so the watcher is already listening
         // when init returns. The handlers capture `rawContinuation` (Sendable),
         // not `self`, so this does not escape the actor mid-init.
-        let directory = Self.nearestExistingDirectory(forPath: path)
-        self.watchedDirectory = directory
-        self.directorySource = Self.makeSource(
-            forPath: directory,
-            eventMask: Self.directoryEventMask,
-            queue: queue,
-            rawContinuation: rawContinuation
+        let directory = pathResolver.nearestExistingDirectory(
+            forPath: path,
+            allowsFilesystemRootAncestor: allowsFilesystemRootAncestor
         )
+        self.watchedDirectory = directory
+        self.directorySource = directory.flatMap {
+            Self.makeSource(
+                forPath: $0,
+                eventMask: Self.directoryEventMask,
+                queue: queue,
+                rawContinuation: rawContinuation
+            )
+        }
         self.fileSource = Self.makeSource(
             forPath: path,
             eventMask: Self.fileEventMask,
@@ -172,28 +187,6 @@ public actor FileWatcher {
     }
 
     // MARK: - Private
-
-    /// Walks up from `path`'s parent to the first existing directory, so the
-    /// watcher can observe an ancestor while the path itself does not exist.
-    /// Falls back to the current directory.
-    private static func nearestExistingDirectory(forPath path: String) -> String {
-        let fileManager = FileManager.default
-        var current = (path as NSString).deletingLastPathComponent
-        var seen = Set<String>()
-        while !current.isEmpty {
-            let standardized = (current as NSString).standardizingPath
-            guard seen.insert(standardized).inserted else { break }
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory),
-               isDirectory.boolValue {
-                return standardized
-            }
-            let parent = (standardized as NSString).deletingLastPathComponent
-            if parent == standardized || parent.isEmpty { break }
-            current = parent
-        }
-        return fileManager.currentDirectoryPath
-    }
 
     /// Builds, resumes, and returns a source for `path`, or `nil` if it cannot
     /// be opened. The event handler captures only `rawContinuation`.
@@ -246,15 +239,20 @@ public actor FileWatcher {
     /// changed) and reattaches the path source to the current inode. Each previous
     /// source's `setCancelHandler` closes its own fd.
     private func reattachSources() {
-        let directory = Self.nearestExistingDirectory(forPath: path)
+        let directory = pathResolver.nearestExistingDirectory(
+            forPath: path,
+            allowsFilesystemRootAncestor: allowsFilesystemRootAncestor
+        )
         if directory != watchedDirectory {
             directorySource?.cancel()
-            directorySource = Self.makeSource(
-                forPath: directory,
-                eventMask: Self.directoryEventMask,
-                queue: queue,
-                rawContinuation: rawContinuation
-            )
+            directorySource = directory.flatMap {
+                Self.makeSource(
+                    forPath: $0,
+                    eventMask: Self.directoryEventMask,
+                    queue: queue,
+                    rawContinuation: rawContinuation
+                )
+            }
             watchedDirectory = directory
         }
         let newFileSource = Self.makeSource(
