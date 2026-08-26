@@ -233,7 +233,8 @@ final class PtxDialEnvironment {
 /// and rotated into the shared endpoint.
 @MainActor
 final class PtxDialClient {
-    static let relayOnlyDefaultsKey = "dev.cmux.ptx.relayOnly"
+    // Read inside the Sendable connect closure, off the main actor.
+    nonisolated static let relayOnlyDefaultsKey = "dev.cmux.ptx.relayOnly"
 
     let macID: String
     private let ticket: PtxTicket
