@@ -193,7 +193,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // drag session (fullscreen/display reconstruction). Keep the action
         // graph and table delegate alive until the terminal source callback.
         if !hasPendingOrActiveWorkspaceDrag {
-            actions?.endWorkspaceDrag()
+            // A writer can be requested before AppKit creates a native
+            // session. This controller owns no completion in that interval;
+            // calling the generic action would be able to end a newer drag
+            // owned by another source.
+            pendingWorkspaceDragSessionId = nil
+            pendingWorkspaceDragWorkspaceId = nil
             actions = nil
         }
         clearWorkspaceDragPresentation()
@@ -357,7 +362,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
         if !hasPendingOrActiveWorkspaceDrag {
-            actions?.endWorkspaceDrag()
+            // There is no table-owned native session to complete here. Leave
+            // session termination to the native source instead of invoking a
+            // generic callback during presentation teardown.
+            pendingWorkspaceDragSessionId = nil
+            pendingWorkspaceDragWorkspaceId = nil
             actions = nil
         }
         clearWorkspaceDragPresentation()
