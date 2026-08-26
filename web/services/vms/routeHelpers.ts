@@ -21,6 +21,7 @@ import {
   vmWorkflowErrorCause,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
+import { captureVmLimitHit } from "./productAnalytics";
 import { authProviderErrorResponse } from "./authErrors";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -275,8 +276,19 @@ export function vmActiveLimitExceededResponse(input: {
   readonly planId: string;
   readonly retryAction: string;
   readonly phase?: VmLifecyclePhase;
+  /** When set, the limit hit (the free-plan paywall moment) is captured for analytics. */
+  readonly userId?: string;
 }): Response {
   const paid = isPaidVmPlan(input.planId);
+  if (input.userId) {
+    captureVmLimitHit({
+      userId: input.userId,
+      planId: input.planId,
+      limit: input.limit,
+      upgradeShown: !paid,
+      phase: input.phase,
+    });
+  }
   const plural = input.limit === 1 ? "" : "s";
   if (paid) {
     return vmErrorResponse({

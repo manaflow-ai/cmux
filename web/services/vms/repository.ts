@@ -20,6 +20,7 @@ import {
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
+import { captureVmUsageEvents } from "./productAnalytics";
 import {
   VmCreateDisabledError,
   VmCreateInProgressError,
@@ -1524,6 +1525,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
 
   recordUsageEvent: (input) =>
     dbEffect("recordUsageEvent", async () => {
+      captureVmUsageEvents([input]);
       const db = cloudDb();
       await db.insert(cloudVmUsageEvents).values({
         userId: input.userId,
@@ -1539,6 +1541,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   recordUsageEvents: (inputs) =>
     dbEffect("recordUsageEvents", async () => {
       if (inputs.length === 0) return;
+      captureVmUsageEvents(inputs);
       const db = cloudDb();
       await db.insert(cloudVmUsageEvents).values(inputs.map((input) => ({
         userId: input.userId,
