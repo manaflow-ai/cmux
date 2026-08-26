@@ -92,7 +92,9 @@ public struct ClaudeTeamTaskListResolver {
                 agentID: normalizedAgentID
             ) {
             case .matches(let refreshedBinding):
-                guard let currentConfigurationGeneration = try teamConfigurationGeneration() else {
+                guard let currentConfigurationGeneration = try teamConfigurationGeneration(
+                    forTaskListID: provenBinding.taskListID
+                ) else {
                     return ClaudeTeamTaskListResolution(
                         binding: refreshedBinding,
                         usesRetainedCleanupProof: true
@@ -228,9 +230,12 @@ public struct ClaudeTeamTaskListResolver {
                 throw ClaudeTaskSnapshotLoaderError.ambiguousTeamMembership
             }
             if let matchedBinding = matchedBindings.first {
+                let bindingGeneration = try teamConfigurationGeneration(
+                    forTaskListID: matchedBinding.taskListID
+                ) ?? stableConfigurationGeneration
                 return ClaudeTeamTaskListResolution(
                     binding: matchedBinding.withTeamConfigurationGeneration(
-                        stableConfigurationGeneration
+                        bindingGeneration
                     ),
                     usesRetainedCleanupProof: false
                 )
@@ -329,7 +334,9 @@ public struct ClaudeTeamTaskListResolver {
         try operationDeadline.check()
         if let enumerationError { throw enumerationError }
         guard rootGenerationBeforeScan == (try teamsRootGeneration()),
-              let stableConfigurationGeneration = try teamConfigurationGeneration() else {
+              let stableConfigurationGeneration = try teamConfigurationGeneration(
+                  forTaskListID: taskListID
+              ) else {
             return nil
         }
         guard matches.count <= 1 else {
@@ -560,6 +567,31 @@ public struct ClaudeTeamTaskListResolver {
         try operationDeadline.check()
         if let enumerationError { throw enumerationError }
         let payload = Data(stamps.sorted().joined(separator: "\0").utf8)
+        return Data(SHA256.hash(data: payload)).base64EncodedString()
+    }
+
+    /// Captures a generation for one canonical team config only.
+    private func teamConfigurationGeneration(
+        forTaskListID taskListID: String
+    ) throws -> String? {
+        try operationDeadline.check()
+        guard let directoryName = ClaudeTeamDirectoryName(
+            teamName: taskListID
+        )?.rawValue else {
+            return nil
+        }
+        let directoryURL = teamsRootURL.appendingPathComponent(
+            directoryName,
+            isDirectory: true
+        )
+        let directoryStamp = try filesystemStamp(at: directoryURL)
+        let configStamp = try filesystemStamp(
+            at: directoryURL.appendingPathComponent("config.json", isDirectory: false)
+        ) ?? "missing"
+        guard let directoryStamp else { return nil }
+        let payload = Data(
+            "\(directoryName)\0\(directoryStamp)\0\(configStamp)".utf8
+        )
         return Data(SHA256.hash(data: payload)).base64EncodedString()
     }
 

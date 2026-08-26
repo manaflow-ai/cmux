@@ -3657,8 +3657,23 @@ final class ClaudeHookSessionStore {
                 retainedIDs.contains($0.key)
             }
         }
-        state.retiredClaudeTaskLists = state.retiredClaudeTaskLists.filter { _, retiredAt in
-            retiredAt >= cutoff
+        state.retiredClaudeTaskLists = state.retiredClaudeTaskLists.filter { key, retiredAt in
+            guard retiredAt < cutoff else { return true }
+            let destinationProofExists = state.claudeTaskListDestinations.values.contains {
+                guard let identity = $0.taskStoreIdentity else { return false }
+                return claudeTaskListStorageKey(
+                    taskListID: $0.taskListID,
+                    taskStoreIdentity: identity
+                ) == key
+            }
+            let teamProofExists = state.claudeTeamTaskBindings.values.contains {
+                guard let identity = $0.binding.taskStoreIdentity else { return false }
+                return claudeTaskListStorageKey(
+                    taskListID: $0.binding.taskListID,
+                    taskStoreIdentity: identity
+                ) == key
+            }
+            return destinationProofExists || teamProofExists
         }
         state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             (record.supersededCleanupEnqueuedAt ?? record.updatedAt) >= cutoff
