@@ -183,13 +183,17 @@ RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.b
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cua/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf
 
+# The entrypoint must live at /entrypoint.sh: Blaxel's push pipeline derives the
+# microVM boot command from that exact path (the official templates all use it);
+# with any other path the boot command silently falls back to a generic
+# `node /blaxel/index.js` and the machine crash-loops.
 COPY start-vnc.sh /usr/local/bin/start-vnc.sh
-COPY entrypoint.sh /usr/local/bin/cmux-entrypoint.sh
-RUN chmod +x /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-entrypoint.sh /usr/local/bin/sandbox-api \
-  && bash -n /usr/local/bin/start-vnc.sh && bash -n /usr/local/bin/cmux-entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /usr/local/bin/start-vnc.sh /entrypoint.sh /usr/local/bin/sandbox-api \
+  && bash -n /usr/local/bin/start-vnc.sh && bash -n /entrypoint.sh
 
 # Stamp last: its presence tells the driver every layer above baked successfully.
 RUN mkdir -p /etc/cmux && echo "cmux-devbox ${CMUX_IMAGE_EPOCH}" > /etc/cmux/image-stamp
 
 EXPOSE 5901 6901 7777 8080
-ENTRYPOINT ["/usr/local/bin/cmux-entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]

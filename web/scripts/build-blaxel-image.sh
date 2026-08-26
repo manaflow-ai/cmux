@@ -16,7 +16,9 @@ template_dir="$script_dir/../services/vms/images/blaxel"
 
 command -v bl >/dev/null 2>&1 || { echo "blaxel CLI (bl) not installed" >&2; exit 127; }
 
-bl push -t sandbox -d "$template_dir" -y "$@"
+# --name is required: bl push names the image after the directory ("blaxel")
+# otherwise, ignoring the name in blaxel.toml.
+bl push -t sandbox -d "$template_dir" -n cmux-devbox -y "$@"
 
 echo
 echo "Published. Resolve the image id with:"

@@ -44,7 +44,7 @@ describe("Blaxel baked image template", () => {
     expect(dockerfile).toContain(
       "COPY --from=ghcr.io/blaxel-ai/sandbox:latest /sandbox-api /usr/local/bin/sandbox-api",
     );
-    expect(dockerfile).toContain('ENTRYPOINT ["/usr/local/bin/cmux-entrypoint.sh"]');
+    expect(dockerfile).toContain('ENTRYPOINT ["/entrypoint.sh"]');
     expect(entrypoint).toContain("/usr/local/bin/sandbox-api &");
     expect(entrypoint.trimEnd().endsWith("wait")).toBe(true);
   });
