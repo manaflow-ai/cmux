@@ -53,7 +53,12 @@ final class WorkspaceHandoffFrameWatcher {
         )
         self.onReady = onReady
         for target in self.targets.values {
-            target.surface.armRendererFrameNotice()
+            let armed = target.surface.armRendererFrameNotice()
+#if DEBUG
+            cmuxDebugLog(
+                "ws.handoff.frameWatch.arm surface=\(target.surface.id.uuidString.prefix(5)) armed=\(armed ? 1 : 0)"
+            )
+#endif
         }
         observers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidRenderFrame,

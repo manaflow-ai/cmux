@@ -48,8 +48,11 @@ extension TerminalSurface {
 
     /// Arms one first-frame notice; the next completed renderer frame posts
     /// `.terminalSurfaceDidRenderFrame` with this surface's id (#1291).
-    public func armRendererFrameNotice() {
-        surfaceCallbackContext?.takeUnretainedValue().armRendererFrameNotice()
+    @discardableResult
+    public func armRendererFrameNotice() -> Bool {
+        guard let context = surfaceCallbackContext?.takeUnretainedValue() else { return false }
+        context.armRendererFrameNotice()
+        return true
     }
 
     /// Cancels an armed first-frame notice (handoff finished another way).
