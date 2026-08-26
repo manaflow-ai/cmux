@@ -11671,21 +11671,26 @@ class TerminalController {
     }
 
     /// Serves `next_transport_ticket`: the parallel host's dial ticket
-    /// (key + addrs + relay), or a named reason it is unavailable.
+    /// (key + addrs + relay), or an `ERROR: ` reply naming the readiness
+    /// rung that refused it (tickets exist only at `.published`).
     private nonisolated func nextTransportTicketText() -> String {
         #if DEBUG
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var reply = ""
         Task { @MainActor in
-            let runtime = MobileHostNextTransportRuntime.shared
-            reply = runtime.ticketJSON
-                ?? "next-transport host not running (state: \(runtime.state)); enable it in Debug > Next Transport"
+            switch MobileHostNextTransportRuntime.shared.mintTicketJSON() {
+            case .success(let ticket):
+                reply = ticket
+            case .failure(let failure):
+                reply =
+                    "ERROR: next-transport ticket unavailable: \(failure); enable it in Debug > Next Transport"
+            }
             semaphore.signal()
         }
         semaphore.wait()
         return reply
         #else
-        return "next-transport is a DEBUG-only surface"
+        return "ERROR: next-transport is a DEBUG-only surface"
         #endif
     }
 
@@ -11694,20 +11699,26 @@ class TerminalController {
         #if DEBUG
         let parts = args.split(separator: " ").map(String.init)
         guard parts.count == 3, let key = Data(base64Encoded: parts[1]) else {
-            return "usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
+            return "ERROR: Usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
         }
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var reply = ""
         Task { @MainActor in
-            reply = MobileHostNextTransportRuntime.shared.mintGrant(
+            switch MobileHostNextTransportRuntime.shared.mintGrant(
                 deviceID: parts[0], devicePublicKey: key, appIdentity: parts[2])
-                ?? "next-transport host not running; enable it in Debug > Next Transport"
+            {
+            case .success(let grant):
+                reply = grant
+            case .failure(let failure):
+                reply =
+                    "ERROR: next-transport grant unavailable: \(failure); enable it in Debug > Next Transport"
+            }
             semaphore.signal()
         }
         semaphore.wait()
         return reply
         #else
-        return "next-transport is a DEBUG-only surface"
+        return "ERROR: next-transport is a DEBUG-only surface"
         #endif
     }
 
@@ -11730,13 +11741,32 @@ class TerminalController {
                 data: nil)
         }
         let runtime = MobileHostNextTransportRuntime.shared
-        guard runtime.isEnabled, let ticket = runtime.ticketJSON,
-            let grant = runtime.mintGrant(
-                deviceID: deviceID, devicePublicKey: key, appIdentity: appIdentity)
-        else {
+        guard runtime.isEnabled else {
             return .err(
                 code: "unavailable",
-                message: "next-transport host not running (state: \(runtime.state))",
+                message: "next-transport host disabled (state: \(runtime.state))",
+                data: nil)
+        }
+        let ticket: String
+        switch runtime.mintTicketJSON() {
+        case .success(let minted):
+            ticket = minted
+        case .failure(let failure):
+            return .err(
+                code: "unavailable",
+                message: "next-transport ticket unavailable: \(failure)",
+                data: nil)
+        }
+        let grant: String
+        switch runtime.mintGrant(
+            deviceID: deviceID, devicePublicKey: key, appIdentity: appIdentity)
+        {
+        case .success(let minted):
+            grant = minted
+        case .failure(let failure):
+            return .err(
+                code: "unavailable",
+                message: "next-transport grant unavailable: \(failure)",
                 data: nil)
         }
         return .ok([

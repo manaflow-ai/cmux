@@ -7653,8 +7653,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             MobileHostService.shared.start()
             #if DEBUG
-            // Graduation P4: the parallel next-transport host (dev-gated,
-            // off by default; Debug > Next Transport toggles it).
+            // Graduation P4: the parallel next-transport host. DEBUG-only
+            // and OFF until `dev.cmux.nextTransport.enabled` opts in
+            // (Debug > Next Transport toggles it). Startup is cache-first
+            // and register-when-ready: startIfEnabled() returns immediately,
+            // binds without waiting on the broker, and publishes only at
+            // `.published` readiness.
             MobileHostNextTransportRuntime.shared.startIfEnabled()
             #endif
         }
