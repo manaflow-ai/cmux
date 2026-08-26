@@ -1592,6 +1592,7 @@ export function openVmCmuxRemote(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly deviceFingerprint?: string;
+  readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
   readonly callerPlanId?: string | null;
 }) {
@@ -1617,6 +1618,7 @@ export function openVmCmuxRemote(input: {
       "attach",
       providers.openCmuxRemote(vm.provider, input.providerVmId, {
         deviceFingerprint: input.deviceFingerprint,
+        clientCapabilities: input.clientCapabilities,
         providerMetadata: vm.providerMetadata,
       }),
     );

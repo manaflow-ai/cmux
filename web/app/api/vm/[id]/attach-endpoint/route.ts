@@ -51,6 +51,7 @@ export async function POST(
             message: err instanceof Error ? err.message : "Invalid Cloud VM attach request.",
           }, 400);
         }
+        const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
         setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
         try {
           const endpoint = await runVmWorkflow(openVmCmuxRemote({
@@ -59,6 +60,7 @@ export async function POST(
             teamIds: user.teamIds,
             providerVmId: id,
             deviceFingerprint,
+            clientCapabilities,
             callerPlanId: account.entitlements.planId,
           }));
           return jsonResponse(endpoint);
@@ -99,6 +101,16 @@ export async function POST(
       }
     },
   );
+}
+
+/** Client transport capabilities: short lowercase tokens, bounded, anything else dropped. */
+function capabilityList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const tokens = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => /^[a-z0-9-]{1,64}$/.test(entry));
+  return tokens.length ? Array.from(new Set(tokens)).slice(0, 16) : undefined;
 }
 
 function optionalString(value: unknown): string | null {

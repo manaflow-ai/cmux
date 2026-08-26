@@ -66,7 +66,10 @@ const SMART_SLEEP_PROCESS_NAME = "cmux-keepalive";
 // resurrected sandbox reuses it; daemon identity and enrolled devices live under
 // /root too (the daemon's default state dir), so they survive as well.
 const CMUX_TUI_PORT = 1337;
+// Two previews for the same port: the branded one for clients that can pass the
+// custom-domain ingress, the raw one for everything else (see cmuxTuiPreviewBranded).
 const CMUX_TUI_PREVIEW_NAME = "cmuxtui";
+const CMUX_TUI_RAW_PREVIEW_NAME = "cmuxtui-raw";
 const CMUX_TUI_SESSION = "cloud";
 const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
 const CMUX_TUI_PROCESS_NAME = "cmux-tui-daemon";
@@ -436,7 +439,7 @@ export function resetCmuxTuiSourceCache(): void {
 export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   const bin = shellQuote(CMUX_TUI_BINARY_PATH);
   const tmp = shellQuote(`${CMUX_TUI_BINARY_PATH}.tmp`);
-  const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c -s`;
+  const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
   // A stock blaxel/base-image has no curl until background provisioning adds it, so
   // the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
   const fetch =
@@ -483,6 +486,19 @@ export function parseEnrollmentInvitationUri(uri: string): { id: string; expires
 }
 
 const ENROLLMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+export const CMUX_TUI_CLIENT_CAPABILITY_USER_AGENT = "direct-ws-user-agent";
+
+/**
+ * The branded machine host (`<machine>-tui.vm.cmux.sh`) sits behind a CloudFront
+ * distribution that refuses WebSocket upgrades without a User-Agent (measured
+ * 2026-08-26: 403 without, 101 with). cmux-tui clients that send one advertise
+ * `direct-ws-user-agent`; every other client gets the raw `<hash>.preview.bl.run`
+ * host, which does not enforce it.
+ */
+export function cmuxTuiPreviewBranded(clientCapabilities: readonly string[] | undefined): boolean {
+  return (clientCapabilities ?? []).includes(CMUX_TUI_CLIENT_CAPABILITY_USER_AGENT);
+}
 
 
 function parseJsonObject(text: string): Record<string, unknown> {
@@ -783,7 +799,7 @@ export class BlaxelProvider implements VMProvider {
       // needs the process started; a pin change or a fresh volume re-runs the install.
       const installed = await this.sandboxExec(
         sandboxUrl,
-        `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c -s`,
+        `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`,
       ).catch(() => null);
       if (installed?.exitCode !== 0) {
         // Missing, or a different build than the manifest now pins: (re)install.
@@ -830,8 +846,15 @@ export class BlaxelProvider implements VMProvider {
             throw new Error("sandbox is missing metadata.url");
           }
           await this.ensureCmuxTuiRunning(vmId, sandboxUrl);
-          const previewUrl = await this.ensurePreview(vmId, CMUX_TUI_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false });
-          const token = await this.mintPreviewToken(vmId, CMUX_TUI_PREVIEW_NAME);
+          const branded = cmuxTuiPreviewBranded(options?.clientCapabilities);
+          const previewUrl = await this.ensurePreview(
+            vmId,
+            branded ? CMUX_TUI_PREVIEW_NAME : CMUX_TUI_RAW_PREVIEW_NAME,
+            CMUX_TUI_PORT,
+            { branded },
+          );
+          span.setAttribute("cmux.vm.cmux_remote.branded", branded);
+          const token = await this.mintPreviewToken(vmId, branded ? CMUX_TUI_PREVIEW_NAME : CMUX_TUI_RAW_PREVIEW_NAME);
           const expiresAtUnix = Math.floor(Date.now() / 1000) + PREVIEW_TOKEN_TTL_SECONDS;
           const host = previewUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "");
           // The gateway accepts the preview token as a query parameter and the Rust dialer
@@ -1630,7 +1653,9 @@ export function parseMachineStats(
 function brandedPreviewPrefix(vmId: string, previewName: string, port: number): string | null {
   const machine = vmId.toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(machine)) return null;
-  const prefix = previewName === CMUXD_PREVIEW_NAME ? machine : `${machine}-${port}`;
+  const prefix = previewName === CMUXD_PREVIEW_NAME
+    ? machine
+    : previewName === CMUX_TUI_PREVIEW_NAME ? `${machine}-tui` : `${machine}-${port}`;
   return prefix.length <= 48 ? prefix : null;
 }
 

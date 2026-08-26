@@ -132,6 +132,12 @@ export type CmuxRemoteAttachOptions = {
    * VM's daemon. Lets the provider skip minting an invitation.
    */
   deviceFingerprint?: string;
+  /**
+   * Transport capabilities the caller's cmux-tui client advertises (`remote-probe
+   * --json` → `capabilities`). `direct-ws-user-agent` lets the provider hand out the
+   * branded machine host, whose ingress refuses upgrades without a User-Agent.
+   */
+  clientCapabilities?: readonly string[];
   providerMetadata?: Record<string, unknown>;
 };
 

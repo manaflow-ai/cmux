@@ -972,7 +972,7 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm/provider-vm-team-1/attach-endpoint", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ transport: "cmux-remote", deviceFingerprint: "fp-device-1" }),
+        body: JSON.stringify({ transport: "cmux-remote", deviceFingerprint: "fp-device-1", clientCapabilities: ["direct-ws-user-agent", "Bad Token!", 42] }),
       }),
       context,
     );
@@ -983,6 +983,7 @@ describe("VM REST auth", () => {
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
       deviceFingerprint: "fp-device-1",
+      clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
     });
     expect(openAttachEndpoint).not.toHaveBeenCalled();
