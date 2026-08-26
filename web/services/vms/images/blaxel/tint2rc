@@ -1,0 +1,43 @@
+# tint2 dock for the cmux-devbox desktop: launchers (Ghostty, Chrome, Thunar),
+# taskbar, clock. Bottom panel, dark, matches the chatmux desktop layout.
+
+panel_items = LTC
+panel_position = bottom center horizontal
+panel_size = 100% 36
+panel_margin = 0 0
+panel_padding = 6 3 6
+panel_background_id = 1
+panel_layer = top
+wm_menu = 1
+
+# Background 1: panel
+rounded = 0
+border_width = 0
+background_color = #14161c 90
+border_color = #14161c 0
+
+# Background 2: task
+rounded = 4
+border_width = 0
+background_color = #2a2e3a 60
+border_color = #2a2e3a 0
+
+launcher_padding = 4 2 8
+launcher_icon_size = 26
+launcher_icon_theme = Adwaita
+launcher_item_app = /usr/share/applications/com.mitchellh.ghostty.desktop
+launcher_item_app = /usr/share/applications/google-chrome.desktop
+launcher_item_app = /usr/share/applications/thunar.desktop
+
+taskbar_mode = single_desktop
+taskbar_padding = 6 2 6
+task_maximum_size = 220 30
+task_padding = 8 3
+task_text = 1
+task_icon = 1
+task_font_color = #d8dee9 100
+task_active_background_id = 2
+
+time1_format = %H:%M
+clock_font_color = #d8dee9 100
+clock_padding = 8 0

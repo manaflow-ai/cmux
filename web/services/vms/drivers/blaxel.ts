@@ -94,7 +94,11 @@ done
 `;
 // Background provisioning for every machine: coding agents plus the dev essentials a person
 // expects on "their computer". The .bashrc seed only writes when absent so user edits stick.
+// Baked images (services/vms/images/blaxel) already contain all of this pinned at bake
+// time and stamp /etc/cmux/image-stamp; re-provisioning there would only drift the
+// pinned agent versions to latest, so the stamp short-circuits the whole block.
 const CMUX_PROVISION_COMMAND = [
+  "[ -f /etc/cmux/image-stamp ] && exit 0;",
   "{ command -v apk >/dev/null 2>&1 && apk add --no-cache curl tmux vim ripgrep jq openssh-client;",
   "command -v npm >/dev/null 2>&1 && npm install -g @anthropic-ai/claude-code @openai/codex;",
   "[ -f /root/.bashrc ] || printf '%s\\n' \"export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]# '\" \"alias ll='ls -la'\" > /root/.bashrc;",
