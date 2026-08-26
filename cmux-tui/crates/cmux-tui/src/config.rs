@@ -208,6 +208,7 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+    detached_owner: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -3180,10 +3181,20 @@ pub struct UserCommandConfig {
     pub cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Server {
     pub ws: Option<String>,
     pub ws_token: Option<String>,
+    /// Plain interactive launches connect through a detached headless
+    /// session owner so the session survives every client detaching.
+    /// `false` restores hosting the session inside the first TUI process.
+    pub detached_owner: bool,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self { ws: None, ws_token: None, detached_owner: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -3763,6 +3774,9 @@ pub fn load() -> Config {
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
+    if let Some(detached_owner) = raw.server.detached_owner {
+        config.server.detached_owner = detached_owner;
+    }
     config.keys.apply(&raw.keys);
     bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
     config.commands = user_commands;
