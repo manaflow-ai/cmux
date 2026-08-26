@@ -30,10 +30,13 @@ extension SurfaceResumeBindingSnapshot {
     ) -> SurfaceResumeBindingSnapshot {
         var registered = replacingLaunchFlavor(.persistentSSH(context))
         if registered.isAgentHookBinding {
-            let kind = restorableAgent?.kind.rawValue ?? registered.kind ?? ""
+            let matchingRestorableAgent = restorableAgent.flatMap {
+                Workspace.restorableAgentForSessionRestore($0, resumeBinding: registered)
+            }
+            let kind = matchingRestorableAgent?.kind.rawValue ?? registered.kind ?? ""
             if registered.cwd != nil {
                 registered.restoreWorkingDirectorySelection = .exact(registered.cwd)
-            } else if restorableAgent?.registration?.cwd == .ignore ||
+            } else if matchingRestorableAgent?.registration?.cwd == .ignore ||
                         AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind) == .cwdInFile {
                 registered.restoreWorkingDirectorySelection = .exact(nil)
             } else {
