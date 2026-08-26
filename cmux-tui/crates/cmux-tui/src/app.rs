@@ -14822,11 +14822,14 @@ impl App {
                 if let GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } =
                     &status
                 {
+                    #[cfg(not(test))]
                     crate::client_log::log(
                         "ERROR",
                         "kitty-graphics",
                         &messages.kitty_image_budget_update_failed(*retry_exhausted, summary),
                     );
+                    #[cfg(test)]
+                    let _ = (messages, retry_exhausted, summary);
                     return Ok(RenderAction::None);
                 }
                 self.status_message = Some(match status {
