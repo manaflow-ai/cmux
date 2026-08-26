@@ -87,6 +87,13 @@ public final class GhosttySurfaceCallbackContext {
     /// Lock-free one-shot latch, same shape as the presentation repair gate.
     private let rendererFrameNoticeArmed = AtomicBooleanGate(false)
 
+    /// TEMP DIAGNOSTIC: counts every renderer event that reaches the trampoline.
+    public let debugRendererEventCount = OSAllocatedUnfairLock(initialState: 0)
+
+    public func debugCountRendererEvent() {
+        debugRendererEventCount.withLock { $0 += 1 }
+    }
+
     /// Synchronously bridges libghostty callback acceptance to runtime teardown.
     private let runtimeClipboardState = OSAllocatedUnfairLock(
         initialState: RuntimeClipboardState()

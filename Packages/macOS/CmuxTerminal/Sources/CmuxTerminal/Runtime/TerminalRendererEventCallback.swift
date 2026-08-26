@@ -9,6 +9,7 @@ let terminalRendererEventCallback: @convention(c) (
     let context = Unmanaged<GhosttySurfaceCallbackContext>
         .fromOpaque(userdata)
         .takeUnretainedValue()
+    context.debugCountRendererEvent()
     switch event {
     case GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END:
         context.rendererMailboxDidDrain()

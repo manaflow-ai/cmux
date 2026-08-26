@@ -55,9 +55,9 @@ extension TerminalSurface {
         return true
     }
 
-    /// TEMP DIAGNOSTIC: consume the armed notice immediately.
-    public func debugFireRendererFrameNotice() {
-        surfaceCallbackContext?.takeUnretainedValue().rendererFrameDidEnd()
+    /// TEMP DIAGNOSTIC: renderer events seen by this surface's trampoline.
+    public var debugRendererEventCount: Int {
+        surfaceCallbackContext?.takeUnretainedValue().debugRendererEventCount.withLock { $0 } ?? -1
     }
 
     /// Cancels an armed first-frame notice (handoff finished another way).
