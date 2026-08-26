@@ -254,6 +254,7 @@ extension TerminalController {
                 "surface_id": surface.surfaceID,
                 "kind": surface.kind,
                 "title": surface.title,
+                "is_focused": surface.isFocused,
                 "file_path": v2OrNull(surface.filePath),
             ]
             if let todo = surface.todo {

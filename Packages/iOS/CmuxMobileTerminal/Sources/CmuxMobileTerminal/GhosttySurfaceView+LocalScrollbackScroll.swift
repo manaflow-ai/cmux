@@ -43,7 +43,8 @@ extension GhosttySurfaceView {
         // callers use `false` to abandon the viewport restore and request a
         // fresh authoritative frame.
         guard surface != nil,
-              pendingLocalScrollLines != 0 || localScrollApplyInFlight else {
+              pendingLocalScrollLines != 0 || localScrollApplyInFlight
+                || pendingLocalScrollPixels != 0 || localPixelScrollApplyInFlight else {
             return false
         }
         return await withCheckedContinuation { continuation in
@@ -52,6 +53,7 @@ extension GhosttySurfaceView {
                 continuation: continuation
             ))
             pumpLocalScrollbackScroll()
+            pumpLocalPixelScroll()
         }
     }
 

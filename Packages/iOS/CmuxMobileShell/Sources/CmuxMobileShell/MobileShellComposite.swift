@@ -123,6 +123,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let simulatorStreamCapability = MobileSimulatorStreamCapability.current.identifier
     static let simulatorInputCapability = MobileSimulatorStreamCapability.current.inputIdentifier
     static let simulatorKeepaliveCapability = MobileSimulatorStreamCapability.current.keepaliveIdentifier
+    static let simulatorStreamV2Capability = MobileSimulatorStreamCapability.current.streamV2Identifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
@@ -416,8 +417,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
     /// The number of currently retained unread notifications across all Macs.
     public private(set) var notificationFeedUnreadCount: Int = 0
-    /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
-    var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of every
     /// entry in ``workspacesByMac``. Each group's `isCollapsed` reflects this
     /// device's choice (see ``groupCollapseStore``), not the Mac's live value.
@@ -1051,8 +1050,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
-    /// Identity token that changes when the paired Mac chat event source is rebuilt.
-    public var agentChatEventSourceIdentity: String { chatEventSourceGeneration.uuidString }
     var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
@@ -1247,7 +1244,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Focus generations whose terminal subscription has been removed for a
     /// role handoff but whose registry transition has not committed yet.
     @ObservationIgnored var focusedHandoffPreparedGenerations: Set<UUID> = []
-    private var chatEventSourceGeneration: UUID
     /// One authoritative per-Mac connection registry. Compatibility accessors
     /// below keep focused/control call sites reviewable while every mutation
     /// lands in this single role-aware map.
@@ -1712,7 +1708,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.activeRoute = nil
         self.activeMacInstanceTag = nil
         self.selectedWorkspaceID = workspaces.first?.id
-        self.selectedTerminalID = workspaces.first?.terminals.first?.id
+        // Let the final synchronizer apply the same focus-aware priority used
+        // when a workspace changes after initialization.
+        self.selectedTerminalID = nil
         self.remoteClient = nil
         self.terminalEventListenerTask = nil
         self.terminalEventListenerID = nil
@@ -1733,7 +1731,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
-        self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.effectiveViewportSizesBySurfaceID = [:]; self.reportedTerminalViewportSizesBySurfaceID = [:]
         self.viewportReportGenerationsBySequenceKey = [:]
@@ -1804,6 +1801,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await self?.forceRestartMobileBrowserStream(panelID: panelID)
         }
         startObservingConnectionMethodChanges()
+        selectedTerminalID = nil
+        selectedMacSurfaceID = nil
+        syncSelectedTerminalForWorkspace()
     }
 
     isolated deinit {
@@ -1910,7 +1910,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // not write partial state into a store we are emptying wholesale.
         isLoadingDraft = true
         terminalInputText = ""
-        chatSessionSnapshotsByWorkspaceID = [:]
         // Enqueued on the FIFO draft pipeline so every save issued before this
         // point is applied first and then wiped; a pending keystroke save can
         // never land after the wipe and leak into the next account's session.
@@ -2714,7 +2713,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .superseded
         }
         if let outcome = race.value {
-            if outcome.didConnect, multiMacAggregationEnabled {
+            if outcome.didConnect {
                 // Start secondary dials only after the bounded foreground
                 // operation has handed ownership back to this shared entry.
                 // This preserves foreground-first ordering even though the
@@ -3453,7 +3452,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Presence is the pool's membership authority. Reconcile on every
         // online/offline/snapshot/routes transition so offline Macs stop
         // consuming battery and newly online Macs are warmed immediately.
-        if presence != nil, multiMacAggregationEnabled {
+        if presence != nil {
             switch update {
             case .seen:
                 break
@@ -3534,8 +3533,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await routeSyncTask.value
                     guard !Task.isCancelled else { return }
                     guard await self.isScopeCurrent(scope),
-                          self.presence != nil,
-                          self.multiMacAggregationEnabled else {
+                          self.presence != nil else {
                         return
                     }
                     // The scope check suspends. Drain any route operation that
@@ -4240,6 +4238,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
+                clientNamespace: payload.macClientNamespace,
                 macAppVersion: payload.macAppVersion
             )
         }
@@ -4261,6 +4260,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deviceID: String?,
         displayName: String?,
         instanceTag: String?,
+        clientNamespace: String? = nil,
         macAppVersion: String? = nil
     ) async {
         guard remoteClient === client,
@@ -4304,6 +4304,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard authenticatedMacBuildIsCompatible(
             instanceTag: resolvedTag,
+            clientNamespace: clientNamespace,
             macAppVersion: macAppVersion,
             client: client
         ) else {
@@ -5139,7 +5140,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsNewConnections: Bool = true,
         discoverLivePeers: Bool = false
     ) async {
-        guard let pairedMacStore, multiMacAggregationEnabled else { return }
+        guard let pairedMacStore else { return }
+        if !multiMacAggregationEnabled {
+            // The aggregation preference controls ongoing workspace fan-out,
+            // not account admission. A legacy install may have this switch
+            // persisted as false, but opening the app must still discover and
+            // persist every authenticated Mac instance so Computer Order is
+            // complete without a QR per build.
+            guard discoverLivePeers,
+                  connectionState == .connected,
+                  remoteClient != nil,
+                  let scope = await currentScopeSnapshot(),
+                  await isAggregationScopeValid(scope) else { return }
+            let loadedMacs = (try? await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )) ?? []
+            guard await isAggregationScopeValid(scope) else { return }
+            await establishDiscoveredSecondaryIrohMacs(
+                scope: scope,
+                excluding: loadedMacs
+            )
+            return
+        }
         let retryEvidenceGenerationAtStart =
             secondaryAggregationRetryEvidenceGeneration
         // Require a concrete signed-in user before any load/connection: a nil/empty
@@ -7401,7 +7424,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         pruneTerminalThemes(to: derived)
-        pruneChatSessionSnapshots(to: derived)
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {
             let remapped = previousSelection.flatMap { previous in
@@ -7425,27 +7447,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macIDsInDisplayOrder: macIDsInDisplayOrder
         )
         workspaceGroups = groupCollapseStore.apply(to: derivedGroups)
-    }
-
-    private func pruneChatSessionSnapshots(to visibleWorkspaces: [MobileWorkspacePreview]) {
-        var validWorkspaceIDs = Set<String>()
-        for workspace in visibleWorkspaces {
-            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
-            validWorkspaceIDs.insert(workspace.id.rawValue)
-            validWorkspaceIDs.insert(remoteID.rawValue)
-            if let macDeviceID = workspace.macDeviceID {
-                validWorkspaceIDs.insert(
-                    workspaceAggregation.rowID(
-                        macDeviceID: macDeviceID,
-                        instanceTag: workspace.macInstanceTag,
-                        workspaceID: remoteID
-                    ).rawValue
-                )
-            }
-        }
-        chatSessionSnapshotsByWorkspaceID = chatSessionSnapshotsByWorkspaceID.filter {
-            validWorkspaceIDs.contains($0.key)
-        }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
@@ -7661,22 +7662,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func dropStalePreviousForeground(_ previousKey: MacPairingKey) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
-        let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
-            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
-            return [
-                workspace.id.rawValue,
-                remoteID.rawValue,
-                workspaceAggregation.rowID(
-                    macDeviceID: previousKey.canonicalMacDeviceID,
-                    instanceTag: previousKey.normalizedInstanceTag,
-                    workspaceID: remoteID
-                ).rawValue,
-            ]
-        })
         workspacesByMac[previousKey] = nil
-        for workspaceID in removedWorkspaceIDs {
-            chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
-        }
     }
 
     /// Adopt a host-reported real device id as the foreground Mac's aggregate key.
@@ -9320,6 +9306,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     let reportedInstanceTag = hasAuthenticatedIdentity ? status.macInstanceTag : nil
                     guard authenticatedMacBuildIsCompatible(
                         instanceTag: reportedInstanceTag,
+                        clientNamespace: status.macClientNamespace,
                         macAppVersion: status.macAppVersion,
                         client: client
                     ) else {
@@ -9624,7 +9611,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
-                    if multiMacAggregationEnabled, !isReconnectingStoredMac {
+                    if !isReconnectingStoredMac {
                         self.scheduleSecondaryAggregation(
                             discoverLivePeers: true
                         )
@@ -10041,9 +10028,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             previous.retire()
         }
         remoteClient = newValue
-        if newValue != nil, previous !== newValue {
-            chatEventSourceGeneration = UUID()
-        }
         if previous !== newValue {
             terminalSubscriptionHandoffFences.removeAll()
         }
@@ -10072,7 +10056,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if !preservingTerminalHandoffFences {
             terminalSubscriptionHandoffFences.removeAll()
         }
-        chatEventSourceGeneration = UUID()
         return connectionGeneration
     }
 
@@ -10855,7 +10838,89 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
             return
         }
+        // Clear stale Mac selections and promote an active or Mac-focused
+        // non-terminal before assigning a preferred terminal fallback.
+        syncDefaultSurfaceForWorkspace()
+        let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
+        if selectedMacSurfaceID != nil
+            || simulatorStreamStore?.activeState(in: workspaceID) != nil
+            || (browserStreamEvents as? BrowserStreamStore)?.activeState(in: workspaceID) != nil {
+            return
+        }
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
+        if selectedTerminalID == nil {
+            syncDefaultSurfaceForWorkspace()
+        }
+    }
+
+    /// Re-evaluates the default surface after the workspace's panel lists
+    /// finish loading. Panel discovery can arrive after the workspace is
+    /// already selected, so this lets the shell promote the Mac-focused
+    /// non-terminal, then fall back to the first available one.
+    public func refreshWorkspaceSelection() {
+        syncSelectedTerminalForWorkspace()
+    }
+
+    /// Promotes the Mac-focused non-terminal surface when no explicit terminal
+    /// selection is active. Keeps the default-open workspace from landing on
+    /// an empty terminal frame when only Mac surfaces or streamed panels exist.
+    private func syncDefaultSurfaceForWorkspace() {
+        guard let selectedWorkspace else { return }
+        let workspaceID = selectedWorkspace.rpcWorkspaceID.rawValue
+        if let selectedMacSurfaceID,
+           !selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
+            self.selectedMacSurfaceID = nil
+        }
+        if simulatorStreamStore?.activeState(in: workspaceID) != nil {
+            return
+        }
+        if let browserStore = browserStreamEvents as? BrowserStreamStore,
+           browserStore.activeState(in: workspaceID) != nil {
+            return
+        }
+
+        func activateStream(for surfaceID: MobileSurfacePreview.ID) -> Bool {
+            if let simulatorPanelID = simulatorStreamStore?.panels(in: workspaceID)
+                .first(where: { $0.panelID == surfaceID.rawValue })?.panelID {
+                _ = simulatorStreamStore?.activate(panelID: simulatorPanelID, in: workspaceID)
+                return true
+            }
+            if let browserStore = browserStreamEvents as? BrowserStreamStore,
+               let browserPanelID = browserStore.panels(in: workspaceID)
+                .first(where: { $0.panelID == surfaceID.rawValue })?.panelID {
+                _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
+                return true
+            }
+            return false
+        }
+
+        if let selectedMacSurfaceID {
+            if activateStream(for: selectedMacSurfaceID) {
+                return
+            }
+            if selectedWorkspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID }) {
+                return
+            }
+        }
+
+        if let selectedSurface = selectedWorkspace.focusedNonTerminalSurface
+            ?? selectedWorkspace.selectedMacSurface(id: nil) {
+            if activateStream(for: selectedSurface.id) {
+                return
+            }
+            selectedMacSurfaceID = selectedSurface.id
+            return
+        }
+
+        if let simulatorPanelID = simulatorStreamStore?.panels(in: workspaceID).first?.panelID {
+            _ = simulatorStreamStore?.activate(panelID: simulatorPanelID, in: workspaceID)
+            return
+        }
+        if let browserStore = browserStreamEvents as? BrowserStreamStore,
+           let browserPanelID = browserStore.panels(in: workspaceID).first?.panelID {
+            _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
+            return
+        }
     }
 
     // MARK: - Per-terminal composer drafts
@@ -11798,6 +11863,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
+                clientNamespace: payload.macClientNamespace,
                 macAppVersion: payload.macAppVersion
             )
             guard isCurrentRemoteConnection(
@@ -13751,7 +13817,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
-            if self?.multiMacAggregationEnabled == true {
+            if self?.connectionState == .connected,
+               self?.remoteClient != nil {
                 await self?.refreshSecondaryMacWorkspaces(
                     discoverLivePeers: true
                 )

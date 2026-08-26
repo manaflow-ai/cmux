@@ -13539,8 +13539,8 @@ struct VerticalTabsSidebar: View, Equatable {
             // the measurement-free equivalent of physically placing the empty
             // area below the rows; doing that requires asking the LazyVStack for
             // its height, which realizes every row each layout pass and is the
-            // livelock this change removes. Per-row delegates render in front
-            // and still win over their own rows.
+            // livelock this change removes. The parent-owned AppKit overlays
+            // render in front and own both workspace drop types.
             .background {
                 Color.clear
                     .contentShape(Rectangle())
@@ -14331,7 +14331,7 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let isPointerHovering = pointerInteractionMonitor.hoveredRowId == .workspace(tab.id)
 
-        // Per-row drag/drop snapshots. Reading `dragState` here in the parent
+        // Per-row drag snapshots. Reading `dragState` here in the parent
         // is intentional: the parent owns the @Observable store, and these
         // value snapshots are what get passed to the row. The row's
         // Equatable conformance ignores closures, so rows whose snapshot is
@@ -14414,7 +14414,6 @@ struct VerticalTabsSidebar: View, Equatable {
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
             settings: settings,
             isChecklistExpanded: expandedChecklistWorkspaceIds.contains(tab.id),
             checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
@@ -14681,28 +14680,6 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
                 dragState.beginDragging(tabId: tabId)
                 return SidebarTabDragPayload(tabId: tabId).provider()
-            },
-            bonsplitSourceWorkspaceId: { bonsplitTabId in
-                AppDelegate.shared?.locateBonsplitSurface(tabId: bonsplitTabId)?.workspaceId
-            },
-            moveBonsplitTabToWorkspace: { transfer, workspaceId in
-                guard let app = AppDelegate.shared else { return false }
-                return app.moveBonsplitTab(
-                    tabId: transfer.tab.id,
-                    toWorkspace: workspaceId,
-                    focus: true,
-                    focusWindow: true
-                )
-            },
-            syncAfterBonsplitDrop: {
-                if let selectedId = tabManager.selectedTabId {
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-                } else {
-                    lastSidebarSelectionIndex = nil
-                }
-            },
-            selectAfterBonsplitDrop: {
-                selectedTabIds = [tabId]
             },
             onToggleChecklistExpansion: {
                 if expandedChecklistWorkspaceIds.contains(tabId) {
@@ -15394,7 +15371,6 @@ struct TabItemView: View, Equatable {
     var isBeingDragged: Bool { snapshot.isBeingDragged }
     var topDropIndicatorVisible: Bool { snapshot.topDropIndicatorVisible }
     var bottomDropIndicatorVisible: Bool { snapshot.bottomDropIndicatorVisible }
-    var isBonsplitWorkspaceDropActive: Bool { snapshot.isBonsplitWorkspaceDropActive }
     var contextMenuWorkspaceIds: [UUID] { snapshot.contextMenu.targetWorkspaceIds }
     var settings: SidebarTabItemSettingsSnapshot { snapshot.settings }
     var isChecklistExpanded: Bool { snapshot.isChecklistExpanded }
@@ -16177,14 +16153,6 @@ struct TabItemView: View, Equatable {
         }
         .sidebarRowDragGate(isEditing: isEditing, actions.onDragStart)
         .internalOnlyTabDrag()
-        .modifier(SidebarBonsplitWorkspaceRowDropModifier(
-            isEnabled: isBonsplitWorkspaceDropActive,
-            targetWorkspaceId: workspaceId,
-            bonsplitSourceWorkspaceId: actions.bonsplitSourceWorkspaceId,
-            moveBonsplitTabToWorkspace: actions.moveBonsplitTabToWorkspace,
-            syncSidebarSelectionAfterDrop: actions.syncAfterBonsplitDrop,
-            selectTargetAfterDrop: actions.selectAfterBonsplitDrop
-        ))
         .onTapGesture {
             if !isEditing { updateSelection() }
         }

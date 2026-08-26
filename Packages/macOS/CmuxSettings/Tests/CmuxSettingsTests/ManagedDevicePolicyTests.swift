@@ -154,6 +154,7 @@ struct ManagedDevicePolicyTests {
         // configuration profiles.
         #expect(ManagedDevicePolicyKey.disableEmbeddedBrowser.rawValue == "DisableEmbeddedBrowser")
         #expect(ManagedDevicePolicyKey.disableRemoteControl.rawValue == "DisableRemoteControl")
+        #expect(ManagedDevicePolicyKey.browserURLAllowlist.rawValue == "BrowserURLAllowlist")
         #expect(ManagedDevicePolicy.releasePayloadDomain == "com.cmuxterm.app")
     }
 }

@@ -74,7 +74,8 @@ extension TerminalController {
                 kind: mobileSurfaceKind(for: panel.panelType).rawValue,
                 title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                 filePath: filePath,
-                todo: panel.panelType == .workspaceTodo ? mobileTodoSnapshot(in: workspace) : nil
+                todo: panel.panelType == .workspaceTodo ? mobileTodoSnapshot(in: workspace) : nil,
+                isFocused: panel.id == workspace.focusedPanelId
             )
         }
     }
@@ -303,12 +304,6 @@ extension TerminalController {
                     defaultValue: "Artifact transfer is temporarily unavailable.",
                     path: nil
                 )
-            case .permissionDenied:
-                return mobileArtifactReadFailure(.permissionDenied, path: v2RawString(params, "path"))
-            case .notRegularFile:
-                return mobileArtifactReadFailure(.notRegularFile, path: v2RawString(params, "path"))
-            case .readFailed:
-                return mobileArtifactReadFailure(.readFailed, path: v2RawString(params, "path"))
             }
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobilePanelArtifactFileError(

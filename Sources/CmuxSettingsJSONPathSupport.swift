@@ -387,6 +387,11 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserInsecureHTTPSettings.allowlistKey,
             invalidPath: "browser.insecureHttpHostsAllowedInEmbeddedBrowser"
         ),
+        .init(
+            jsonKey: "urlAllowlist",
+            defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
+            invalidPath: "browser.urlAllowlist"
+        ),
     ]
 }
 
@@ -520,6 +525,7 @@ extension CmuxSettingsFileStore {
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
+        "browser.urlAllowlist",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
         "mobile.artifactFolderAccess",

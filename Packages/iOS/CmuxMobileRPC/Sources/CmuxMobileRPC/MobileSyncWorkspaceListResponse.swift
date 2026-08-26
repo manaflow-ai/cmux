@@ -147,6 +147,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let kind: String
         /// User-facing surface title.
         public let title: String
+        /// Whether the surface currently holds focus on the owning Mac.
+        public let isFocused: Bool
         /// Backing path for file-oriented surfaces, when present.
         public let filePath: String?
         /// Bounded checklist/status payload for todo surfaces.
@@ -156,6 +158,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case surfaceID = "surface_id"
             case kind
             case title
+            case isFocused = "is_focused"
             case filePath = "file_path"
             case todo
         }
@@ -166,13 +169,25 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             kind: String,
             title: String,
             filePath: String?,
-            todo: MobileTodoSnapshot? = nil
+            todo: MobileTodoSnapshot? = nil,
+            isFocused: Bool = false
         ) {
             self.surfaceID = surfaceID
             self.kind = kind
             self.title = title
+            self.isFocused = isFocused
             self.filePath = filePath
             self.todo = todo
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            surfaceID = try container.decode(String.self, forKey: .surfaceID)
+            kind = try container.decode(String.self, forKey: .kind)
+            title = try container.decode(String.self, forKey: .title)
+            isFocused = try container.decodeIfPresent(Bool.self, forKey: .isFocused) ?? false
+            filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+            todo = try container.decodeIfPresent(MobileTodoSnapshot.self, forKey: .todo)
         }
     }
 

@@ -89,22 +89,6 @@ struct WorkspaceDetailView: View {
     /// so completion applies only while its request is still current.
     @State private var browserCreateRequest: UUID?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
-    /// Chat-mode toggle for inline agent chat in place of the terminal.
-    @State var isChatMode = false
-    /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
-    /// out from under the user mid-read. Cleared when chat mode turns off.
-    @State var pinnedChatSessionID: String?
-    @State var chatSessions: [ChatSessionDescriptor] = []
-    @State var chatSessionsWorkspaceID: String?
-    /// Last terminal id whose cached snapshot said it had a chat session.
-    @State var cachedChatToggleTerminalID: String?
-    @State var ignoredChatSessionRefreshKey: String?
-    @State var ignoredChatSessionRefreshID: UUID?
-    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
-    /// Per-session chat stores kept warm while the workspace detail is visible.
-    @State var chatConversationStores: [String: ChatConversationStore] = [:]
-    /// Per-session composer drafts, surviving toggles back to the terminal.
-    @State var chatDrafts: [String: String] = [:]
     /// Local presenter identity remains separate from the artifact popover payload.
     @State var isTerminalArtifactFilesPresented = false
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
@@ -115,7 +99,6 @@ struct WorkspaceDetailView: View {
     @State var isWorkspaceChangesSheetPresented = false
     @State var workspaceChangesHint: MobileWorkspaceChangesHint?
     @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
-    /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
@@ -174,8 +157,6 @@ struct WorkspaceDetailView: View {
     }
     var activeSurface: WorkspaceActiveSurface {
         WorkspaceActiveSurface.derive(
-            isChatMode: isChatMode,
-            hasChosenChatSession: chosenChatSession != nil,
             hasActiveBrowser: activeBrowser != nil,
             hasActiveBrowserStream: activeBrowserStream != nil,
             hasActiveSimulatorStream: activeSimulatorStream != nil,
@@ -192,13 +173,18 @@ struct WorkspaceDetailView: View {
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
-            .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
+                store.refreshWorkspaceSelection()
             }
-            .onChange(of: workspace.simulators) { _, _ in syncSimulatorStreamPanels() }
-            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .onChange(of: browserStreamStore.panelDiscoveryRevision(in: workspace.rpcWorkspaceID.rawValue)) { _, _ in
+                store.refreshWorkspaceSelection()
+            }
+            .onChange(of: workspace.simulators) { _, _ in
+                syncSimulatorStreamPanels()
+                store.refreshWorkspaceSelection()
+            }
             // Structural removal drops the item's retained measurement so a
             // returning item takes the fail-safe unmeasured reserve instead of
             // a stale width for its first layout pass. Layout-driven
@@ -216,7 +202,6 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
-                refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
             }
             .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
@@ -378,7 +363,8 @@ struct WorkspaceDetailView: View {
     }
 
     private var trailingClusterToolbarContent: some View {
-        toolbarTrailingCluster
+        terminalPickerToolbarButton
+            .frame(width: 44, height: 44)
             .measureTrailingToolbarItem("trailing-cluster", into: $trailingToolbarItemWidths)
     }
 
@@ -397,7 +383,6 @@ struct WorkspaceDetailView: View {
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
             measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
@@ -429,21 +414,6 @@ struct WorkspaceDetailView: View {
             },
             label: {
                 switch value.labelToken {
-                case .chat(
-                    let descriptor,
-                    let agentState,
-                    let isConnected,
-                    let titleOverride,
-                    let subtitle
-                ):
-                    ChatSessionHeaderView(
-                        descriptor: descriptor,
-                        agentState: agentState,
-                        isConnected: isConnected,
-                        titleOverride: titleOverride,
-                        subtitle: subtitle,
-                        style: .toolbarCompact
-                    )
                 case .browser(let title):
                     Text(title)
                         .font(.headline)
@@ -459,17 +429,7 @@ struct WorkspaceDetailView: View {
     }
 
     private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
-        if isChatMode,
-           let session = chosenChatSession,
-           let conversation = chatConversationStores[session.id] {
-            return .chat(
-                descriptor: conversation.descriptor,
-                agentState: conversation.agentState,
-                isConnected: conversation.isConnected,
-                titleOverride: workspace.name,
-                subtitle: tabName(for: session)
-            )
-        } else if let browser = activeBrowser {
+        if let browser = activeBrowser {
             return .browser(title: browser.title ?? workspace.name)
         } else if let browser = activeBrowserStream {
             return .browser(title: browser.title ?? workspace.name)
@@ -571,13 +531,16 @@ struct WorkspaceDetailView: View {
             if let selectedTerminalArtifact {
                 ChatArtifactViewerDestination(
                     path: selectedTerminalArtifact.path,
-                    scope: selectedTerminalArtifact.usesSessionAuthorization ? .chat : .terminal
+                    scope: .terminal
                 ) {
                     self.selectedTerminalArtifact = nil
                 }
                     .environment(
                         \.chatArtifactLoader,
-                        artifactLoader(for: selectedTerminalArtifact)
+                        terminalArtifactLoader(
+                            workspaceID: selectedTerminalArtifact.workspaceID,
+                            surfaceID: selectedTerminalArtifact.surfaceID
+                        )
                     )
             }
         }
@@ -721,27 +684,6 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    private func artifactLoader(for selection: TerminalArtifactSelection) -> ChatArtifactLoader {
-        guard let sessionID = selection.sessionID else {
-            return terminalArtifactLoader(
-                workspaceID: selection.workspaceID,
-                surfaceID: selection.surfaceID
-            )
-        }
-        guard store.supportsChatArtifacts,
-              let source = store.makeChatEventSource() else {
-            return .unsupported(
-                cache: terminalArtifactThumbnailCache,
-                diagnosticLog: store.diagnosticLog
-            )
-        }
-        return ChatArtifactLoader(
-            source: source,
-            sessionID: sessionID,
-            cache: terminalArtifactThumbnailCache,
-            diagnosticLog: store.diagnosticLog
-        )
-    }
     #endif
 
     @ViewBuilder
@@ -790,7 +732,6 @@ struct WorkspaceDetailView: View {
                 selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
                 canCreateWorkspace: canCreateWorkspace,
                 hasActiveBrowser: activeBrowser != nil,
-                isChatMode: isChatMode,
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream,
                 activeBrowserStreamPanelID: activeBrowserStream?.id,

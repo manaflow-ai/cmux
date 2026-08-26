@@ -59,6 +59,24 @@ extension GhosttySurfaceView {
             )
         }
 
+        if let startedAt = localPixelScrollApplyStartedAt,
+           now - startedAt >= effectiveOutputApplyTimeout {
+            let elapsedMs = Int((now - startedAt) * 1000)
+            // Same waiter contract as the line pump above.
+            localPixelScrollApplyStartedAt = nil
+            localPixelScrollApplyToken = nil
+            localPixelScrollApplyInFlight = false
+            completePendingLocalScrollDrains(returning: false)
+            MobileDebugLog.anchormux(
+                "local_pixel_scroll.apply.TIMEOUT elapsedMs=\(elapsedMs)"
+            )
+            return recoverRenderPipeline(
+                reason: "local_pixel_scroll_timeout",
+                stalledMs: elapsedMs,
+                replay: .delegateWhenNoCaller
+            )
+        }
+
         if let pending = pendingVisibleSnapshot,
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVisibleSnapshot = nil

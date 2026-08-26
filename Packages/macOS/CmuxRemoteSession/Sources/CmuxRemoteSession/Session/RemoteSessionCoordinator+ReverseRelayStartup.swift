@@ -192,10 +192,8 @@ extension RemoteSessionCoordinator {
         resetTransportForReconnectLocked(
             preservePersistentRelayMetadata: true
         )
-        publishDaemonStatus(
-            .error,
-            detail: strings.reverseRelayUnavailableRetrying
-        )
+        publishDaemonStatus(.bootstrapping, detail: nil)
+        publishState(.reconnecting, detail: nil)
         _ = scheduleReconnectLocked(baseDelay: 2.0)
     }
 
@@ -243,9 +241,7 @@ extension RemoteSessionCoordinator {
     }
 
     private func publishReverseRelayPortUnavailableLocked() {
-        publishDaemonStatus(
-            .error,
-            detail: strings.reverseRelayPortUnavailableRetrying
-        )
+        publishDaemonStatus(.bootstrapping, detail: nil)
+        publishState(.reconnecting, detail: nil)
     }
 }

@@ -409,6 +409,17 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "clear_notifications",
     ]
 
+    /// The v1 agent-journal family: `agent_journal_append` commits one
+    /// semantic agent event to the append-only journal and replies with the
+    /// committed sequence — the emitting hook's durable acknowledgement. The
+    /// body runs on the socket worker (parse + one bounded SQLite
+    /// transaction); it is deliberately NOT main-thread callable so the
+    /// durability fsync can never run inline on the main thread. Internal
+    /// (not private) so the package tests can pin the exact set.
+    static let agentJournalV1Commands: Set<String> = [
+        "agent_journal_append",
+    ]
+
     /// The v1 terminal-read family (tranche C): `read_screen` is the v1 twin
     /// of `surface.read_text` — the Ghostty FFI capture takes one minimal
     /// `v2MainSync` hop and the (possibly multi-MB) tail/merge/base64
@@ -469,6 +480,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
+            .union(agentJournalV1Commands)
             .union(terminalReadV1Commands)
             .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)

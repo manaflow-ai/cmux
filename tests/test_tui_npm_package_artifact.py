@@ -5,6 +5,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import json
 from pathlib import Path
 
 
@@ -12,11 +13,23 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "cmux-tui/dist/scripts/package_npm_artifact.py"
 EXECUTABLES = (
     "cmux-tui-darwin-arm64/bin/cmux-tui",
+    "cmux-tui-darwin-arm64/bin/cmux-tui-hook",
     "cmux-tui-darwin-x64/bin/cmux-tui",
+    "cmux-tui-darwin-x64/bin/cmux-tui-hook",
     "cmux-tui-linux-x64/bin/cmux-tui",
+    "cmux-tui-linux-x64/bin/cmux-tui-hook",
     "cmux-tui-linux-arm64/bin/cmux-tui",
+    "cmux-tui-linux-arm64/bin/cmux-tui-hook",
     "cmux/bin/cmux.js",
 )
+
+VERSION = "1.2.3"
+TARGETS = {
+    "cmux-tui-darwin-arm64": ("darwin", "arm64"),
+    "cmux-tui-darwin-x64": ("darwin", "x64"),
+    "cmux-tui-linux-x64": ("linux", "x64"),
+    "cmux-tui-linux-arm64": ("linux", "arm64"),
+}
 
 
 def run_helper(*args: object) -> subprocess.CompletedProcess[str]:
@@ -31,11 +44,47 @@ def run_helper(*args: object) -> subprocess.CompletedProcess[str]:
 
 def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:
     packages = tmp_path / "npm-packages"
-    for relative_path in EXECUTABLES:
-        executable = packages / relative_path
-        executable.parent.mkdir(parents=True, exist_ok=True)
-        executable.write_text("#!/bin/sh\nexit 0\n")
-        executable.chmod(0o755)
+    for name, (os_name, cpu) in TARGETS.items():
+        package = packages / name
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": name,
+                    "version": VERSION,
+                    "os": [os_name],
+                    "cpu": [cpu],
+                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook"],
+                }
+            )
+            + "\n"
+        )
+        for binary in ("cmux-tui", "cmux-tui-hook"):
+            executable = package / "bin" / binary
+            executable.parent.mkdir(parents=True, exist_ok=True)
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o755)
+
+    launcher = packages / "cmux"
+    launcher.mkdir(parents=True, exist_ok=True)
+    (launcher / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "cmux",
+                "version": VERSION,
+                "bin": {"cmux": "bin/cmux.js"},
+                "files": ["bin/cmux.js"],
+                "optionalDependencies": {
+                    name: VERSION for name in TARGETS
+                },
+            }
+        )
+        + "\n"
+    )
+    launcher_bin = launcher / "bin" / "cmux.js"
+    launcher_bin.parent.mkdir(parents=True, exist_ok=True)
+    launcher_bin.write_text("#!/bin/sh\nexit 0\n")
+    launcher_bin.chmod(0o755)
 
     archive = tmp_path / "npm-packages.tar.gz"
     created = run_helper(

@@ -218,6 +218,9 @@ extension Workspace {
 #endif
         terminalStartupRestoreCoordinator.removeAllRestores()
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        pendingPlainSSHRestorePanelIds.removeAll(keepingCapacity: false)
+        observedPlainSSHPanelIds.removeAll(keepingCapacity: false)
+        plainSSHDetectionMissesByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredPanelTitleBoundariesByPanelId.removeAll(keepingCapacity: false)
         panelShellActivityStates.removeAll(keepingCapacity: false)
@@ -339,6 +342,14 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        // Record the identity remap for the agent journal: events journaled
+        // against the previous run's runtime workspace/panel UUIDs re-attach
+        // to the restored panels during replay through these aliases.
+        AgentJournalLifecycleCenter.shared.noteRestoredIdentityAliases(
+            oldWorkspaceId: snapshot.workspaceId,
+            newWorkspaceId: id,
+            oldToNewPanelIds: oldToNewPanelIds
+        )
         syncUnreadBadgeStateForAllPanels()
         if startupRestoreCommitOwner == .workspaceTopology {
             terminalStartupRestoreCoordinator.commitPendingRestores()
@@ -1304,6 +1315,16 @@ extension Workspace {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
 
+            if let detectedBinding, detectedBinding.isPlainSSHProcessDetectedBinding {
+                // A fresh process observation is authoritative evidence that
+                // the SSH child is still alive.  It also closes the restore
+                // observation gap so later misses can be interpreted as an
+                // actual exit rather than startup churn.
+                observedPlainSSHPanelIds.insert(panelId)
+                pendingPlainSSHRestorePanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId[panelId] = 0
+            }
+
             guard let storedBinding else {
                 if let detectedBinding, detectedBinding.isProcessDetected {
                     surfaceResumeBindingsByPanelId[panelId] = detectedBinding
@@ -1311,6 +1332,30 @@ extension Workspace {
                 continue
             }
             guard let detectedBinding else {
+                if storedBinding.isPlainSSHProcessDetectedBinding {
+                    if pendingPlainSSHRestorePanelIds.contains(panelId) {
+                        // The restored PTY may not have exec'd `ssh` yet. Keep
+                        // the binding for a bounded restore observation gap;
+                        // the shell activity transition below retires it if
+                        // SSH never starts.
+                        let restoreMisses = (plainSSHDetectionMissesByPanelId[panelId] ?? 0) + 1
+                        plainSSHDetectionMissesByPanelId[panelId] = restoreMisses
+                        if restoreMisses >= Self.plainSSHRestoreObservationMissLimit {
+                            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                            pendingPlainSSHRestorePanelIds.remove(panelId)
+                            plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+                        }
+                        continue
+                    }
+                    let misses = (plainSSHDetectionMissesByPanelId[panelId] ?? 0) + 1
+                    plainSSHDetectionMissesByPanelId[panelId] = misses
+                    if misses >= 2 {
+                        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                        observedPlainSSHPanelIds.remove(panelId)
+                        plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+                    }
+                    continue
+                }
                 if storedBinding.isProcessDetected {
                     surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 } else if isStaleAgentHookBinding(
@@ -1333,6 +1378,9 @@ extension Workspace {
                 surfaceResumeBindingsByPanelId[panelId] = detectedBinding
             } else if storedBinding.isProcessDetected {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                observedPlainSSHPanelIds.remove(panelId)
+                pendingPlainSSHRestorePanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
             }
         }
     }
@@ -1348,7 +1396,16 @@ extension Workspace {
 
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
         guard let storedBinding else { return detectedBinding }
-        guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
+        guard let detectedBinding else {
+            if storedBinding.isPlainSSHProcessDetectedBinding {
+                let misses = plainSSHDetectionMissesByPanelId[panelId] ?? 0
+                if pendingPlainSSHRestorePanelIds.contains(panelId) || misses < 2 {
+                    return storedBinding
+                }
+                return nil
+            }
+            return storedBinding.isProcessDetected ? nil : storedBinding
+        }
         if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
         if storedBinding.isProcessDetected { return nil }
         return storedBinding
@@ -1669,13 +1726,20 @@ extension Workspace {
                 )
             }
             if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding.retargetingRemoteOwner(
+                let restoredBinding = storedResumeBinding.retargetingRemoteOwner(
                     expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
                     workspaceID: id,
                     surfaceID: terminalPanel.id,
                     persistentPTYSessionID: restoredRemotePTYSessionID
                 )
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = restoredBinding
+                if restoredBinding.isPlainSSHProcessDetectedBinding,
+                   restoredBindingLaunch != nil {
+                    pendingPlainSSHRestorePanelIds.insert(terminalPanel.id)
+                    observedPlainSSHPanelIds.remove(terminalPanel.id)
+                    plainSSHDetectionMissesByPanelId[terminalPanel.id] = 0
+                }
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
@@ -2631,6 +2695,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Plain SSH restore bindings survive the short interval in which a new
+    /// local PTY exists but its `ssh` child has not become foreground yet.
+    /// These indexes make that exception explicit and bounded: once a shell
+    /// has been observed after SSH exits, the binding is retired instead of
+    /// being replayed forever.
+    var pendingPlainSSHRestorePanelIds: Set<UUID> = []
+    var observedPlainSSHPanelIds: Set<UUID> = []
+    var plainSSHDetectionMissesByPanelId: [UUID: Int] = [:]
+    private static let plainSSHRestoreObservationMissLimit = 3
     var restoredGuardedWorkingDirectoriesByPanelId: [UUID: RestoredWorkingDirectoryGuard] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the resumed run so split/new-tab cwd inheritance can rescue a
@@ -2749,12 +2822,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    /// Removes proxy-only daemon log entries appended by
-    /// `applyRemoteDaemonStatusUpdate`, without touching the connection-state
-    /// artifacts owned by `applyRemoteConnectionStateUpdate`.
-    func clearProxyOnlyRemoteDaemonSidebarArtifacts() {
-        logEntries.removeAll { entry in
-            entry.source == "remote-daemon" && Self.isProxyOnlyRemoteError(entry.message)
+    /// Retracts daemon/bootstrap failures after the daemon has become healthy.
+    ///
+    /// Bootstrap failures are published through both the daemon-status and
+    /// connection-state seams.  A persistent PTY can reattach as soon as the
+    /// daemon is ready, before the proxy publishes `.connected`, so leaving
+    /// either seam's old entry in place makes the sidebar report a failure
+    /// after recovery.  Keep an active `.error`/`.suspended` connection state
+    /// visible until the proxy confirms that the transport is healthy.
+    func clearRecoveredRemoteDaemonSidebarArtifacts() {
+        guard remoteConnectionState != .error,
+              remoteConnectionState != .suspended else {
+            return
+        }
+        logEntries.removeAll { $0.source == "remote-daemon" }
+        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+        remoteLastErrorFingerprint = nil
+        remoteLastDaemonErrorFingerprint = nil
+        if let key = remoteNotificationCooldownKey(target: remoteDisplayTarget ?? "") {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, correlationKey: key)
         }
     }
 
@@ -2928,18 +3014,54 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         true
     }
 
-    /// Resolves a terminal surface color against the same concrete scheme the
-    /// live Ghostty app selected. Workspace/Bonsplit objects can be created
-    /// before a SwiftUI `WindowAppearanceSnapshot` is mounted, so they use
-    /// this composition seam instead of AppKit's ambient window appearance.
+    /// Identifies the Bonsplit host whose general background is being resolved.
+    ///
+    /// A workspace Bonsplit tree sits directly under the window backdrop and
+    /// keeps its semantic chrome color for native tab treatment. A mounted Dock
+    /// has a separate root hosting boundary, so its general background must be
+    /// clear when the shared terminal backdrop owns the surface.
+    enum BonsplitChromeHost: Equatable, Sendable {
+        case workspace
+        case dock
+    }
+
+    /// Resolves a terminal surface color against the rendered-backdrop
+    /// authority. Opaque themes keep the terminal scheme; translucent themes
+    /// composite over the window base the ambient appearance paints, so the
+    /// resulting hex (and the black/white foregrounds Bonsplit derives from
+    /// it) matches what is actually visible behind the tab strip.
     nonisolated static func resolvedTerminalChromeBackgroundColor(
         backgroundColor: NSColor,
-        backgroundOpacity: Double
+        backgroundOpacity: Double,
+        terminalColorScheme: ColorScheme,
+        ambientColorScheme: ColorScheme
     ) -> NSColor {
         WindowAppearanceSnapshot.resolvedChromeBackgroundColor(
             backgroundColor: backgroundColor,
             opacity: backgroundOpacity,
-            colorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+            colorScheme: WindowAppearanceSnapshot.resolvedChromeColorScheme(
+                terminalScheme: terminalColorScheme,
+                backgroundColor: backgroundColor,
+                opacity: backgroundOpacity,
+                ambientScheme: ambientColorScheme
+            )
+        )
+    }
+
+    /// Convenience over the injectable seam above for live app state.
+    /// Workspace/Bonsplit objects can be created before a SwiftUI
+    /// `WindowAppearanceSnapshot` is mounted, so they use this composition
+    /// seam instead of AppKit's ambient window appearance.
+    @MainActor
+    static func resolvedTerminalChromeBackgroundColor(
+        backgroundColor: NSColor,
+        backgroundOpacity: Double
+    ) -> NSColor {
+        resolvedTerminalChromeBackgroundColor(
+            backgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity,
+            terminalColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light,
+            ambientColorScheme: AppearanceSettings.currentAmbientColorScheme()
         )
     }
 
@@ -2967,13 +3089,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return false
     }
 
+    /// Resolves Bonsplit colors while keeping terminal backdrop ownership explicit.
     nonisolated static func bonsplitChromeColors(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
         paneBorderColorHex: String? = nil,
-        chromeBackgroundColor: NSColor? = nil
+        chromeBackgroundColor: NSColor? = nil,
+        chromeHost: BonsplitChromeHost = .workspace
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
@@ -2995,9 +3119,30 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             fallback: defaultBorderHex
         )
 
+        // Keep this decision on the same owner plan used by terminal surfaces.
+        // The Dock is the only Bonsplit host with an extra root fill between
+        // clear panes and the window backdrop; its pre-snapshot configuration
+        // remains opaque until a mounted snapshot can provide that backdrop.
+        let terminalFillOwner = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: renderingMode,
+            surfaceBackgroundColor: nil,
+            defaultBackgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity,
+            sharesWindowBackdrop: sharesWindowBackdrop,
+            usesBonsplitPaneBackdrop: usesBonsplitPaneTerminalBackdrop(
+                renderingMode: renderingMode,
+                sharesWindowBackdrop: sharesWindowBackdrop
+            )
+        ).owner
+        let clearsDockGeneralBackground = chromeHost == .dock &&
+            terminalFillOwner == .sharedWindowBackdrop
+        let generalBackgroundHex = clearsDockGeneralBackground
+            ? "#00000000"
+            : surfaceHex
+
         if sharesWindowBackdrop {
             return .init(
-                backgroundHex: surfaceHex,
+                backgroundHex: generalBackgroundHex,
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
@@ -3012,7 +3157,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ? surfaceHex
             : "#00000000"
         return .init(
-            backgroundHex: surfaceHex,
+            backgroundHex: generalBackgroundHex,
             tabBarBackgroundHex: surfaceHex,
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
@@ -5117,6 +5262,26 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
+
+        if surfaceResumeBindingsByPanelId[panelId]?.isPlainSSHProcessDetectedBinding == true {
+            switch state {
+            case .commandRunning:
+                // The restored/manual SSH command reached the foreground.
+                observedPlainSSHPanelIds.insert(panelId)
+                pendingPlainSSHRestorePanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId[panelId] = 0
+            case .promptIdle where observedPlainSSHPanelIds.contains(panelId)
+                && !pendingPlainSSHRestorePanelIds.contains(panelId):
+                // The SSH child has exited and the pane is back at its local
+                // shell.  Retaining this binding would relaunch a connection
+                // the user has intentionally left.
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                observedPlainSSHPanelIds.remove(panelId)
+                plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+            default:
+                break
+            }
+        }
         if previousState == state {
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
@@ -5289,12 +5454,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        if binding.isPlainSSHProcessDetectedBinding {
+            observedPlainSSHPanelIds.insert(panelId)
+            pendingPlainSSHRestorePanelIds.remove(panelId)
+            plainSSHDetectionMissesByPanelId[panelId] = 0
+        } else {
+            observedPlainSSHPanelIds.remove(panelId)
+            pendingPlainSSHRestorePanelIds.remove(panelId)
+            plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+        }
         return true
     }
 
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        pendingPlainSSHRestorePanelIds.remove(panelId)
+        observedPlainSSHPanelIds.remove(panelId)
+        plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
+        return removed
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
@@ -5555,6 +5733,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             refreshTrackedAgentPorts()
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        pendingPlainSSHRestorePanelIds = pendingPlainSSHRestorePanelIds.intersection(validSurfaceIds)
+        observedPlainSSHPanelIds = observedPlainSSHPanelIds.intersection(validSurfaceIds)
+        plainSSHDetectionMissesByPanelId = plainSSHDetectionMissesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentLifecycle.retainSessionRestores(for: validSurfaceIds)
@@ -6985,6 +7168,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteControllerConnectionDetail = detail
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
+        if effectiveState == .connecting || effectiveState == .reconnecting {
+            // A retry has ownership of the failure now.  Retract any prior
+            // red sidebar entry immediately; only a bounded parked state may
+            // recreate it.
+            clearRecoveredRemoteDaemonSidebarArtifacts()
+        }
         if state == .connected,
            (remoteSessionController != nil || !reconnectWasInFlight) {
             _ = reattachPersistentRemotePTYPanels()
@@ -7074,6 +7263,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         if state == .connected {
             clearProxyOnlyRemoteSidebarArtifacts()
+            clearRecoveredRemoteDaemonSidebarArtifacts()
         }
     }
 
@@ -7083,10 +7273,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
             if status.state == .ready {
-                // #8917: a transport bounce that re-bootstrapped successfully is
-                // not a workspace failure, so retract its sidebar error the same
-                // way the connection-state path retracts on `.connected`.
-                clearProxyOnlyRemoteDaemonSidebarArtifacts()
+                // #8917/#10541: a transport bounce or bootstrap retry that
+                // succeeds is not a workspace failure.  Retract both the
+                // daemon log and any stale connection-state entry; a live
+                // `.error`/`.suspended` state remains until proxy readiness.
+                clearRecoveredRemoteDaemonSidebarArtifacts()
             }
             return
         }
@@ -9925,6 +10116,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            pendingPlainSSHRestorePanelIds.remove(detached.panelId)
+            observedPlainSSHPanelIds.remove(detached.panelId)
+            plainSSHDetectionMissesByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)

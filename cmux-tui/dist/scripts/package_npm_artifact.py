@@ -8,15 +8,11 @@ import stat
 import tarfile
 from pathlib import Path, PurePosixPath
 
+from package_contract import NPM_EXECUTABLE_FILES, PackageContractError, validate_npm_tree
+
 
 PACKAGE_ROOT = "npm-packages"
-EXECUTABLES = (
-    "cmux-tui-darwin-arm64/bin/cmux-tui",
-    "cmux-tui-darwin-x64/bin/cmux-tui",
-    "cmux-tui-linux-x64/bin/cmux-tui",
-    "cmux-tui-linux-arm64/bin/cmux-tui",
-    "cmux/bin/cmux.js",
-)
+EXECUTABLES = NPM_EXECUTABLE_FILES
 MAX_MEMBERS = 1_024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024
 
@@ -33,6 +29,11 @@ def verify_executables(packages_dir: Path) -> None:
             raise SystemExit(f"missing npm package executable: {executable}")
         if not executable.stat().st_mode & stat.S_IXUSR:
             raise SystemExit(f"npm package entry is not executable: {executable}")
+
+    try:
+        validate_npm_tree(packages_dir)
+    except PackageContractError as error:
+        raise SystemExit(str(error)) from error
 
 
 def create_archive(packages_dir: Path, archive: Path) -> None:

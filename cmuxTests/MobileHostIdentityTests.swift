@@ -154,6 +154,7 @@ struct MobileHostIdentityTests {
 
         let payload = MobileHostService.identityStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] as? String == "future-one")
+        #expect((payload["mac_client_namespace"] as? String)?.hasPrefix("mac:") == true)
         #expect(!(payload["terminal_theme_revision_epoch"] as? String ?? "").isEmpty)
     }
 

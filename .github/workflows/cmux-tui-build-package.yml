@@ -598,43 +598,29 @@ jobs:
             --version "$PYPI_VERSION" \
             --out dist/pypi-wheels
 
+      - name: Set up Node.js for npm package contract
+        if: inputs.package_npm
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+
+      - name: Install pinned npm for package contract
+        if: inputs.package_npm
+        run: npm install --global npm@11.5.1
+
       - name: Smoke verify npm packages
         if: inputs.package_npm
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import pathlib
-          import stat
-          import sys
-
-          version = os.environ["NPM_VERSION"]
-          root = pathlib.Path("dist/npm-packages")
-          platforms = {
-              "cmux-tui-darwin-arm64": ("darwin", "arm64"),
-              "cmux-tui-darwin-x64": ("darwin", "x64"),
-              "cmux-tui-linux-x64": ("linux", "x64"),
-              "cmux-tui-linux-arm64": ("linux", "arm64"),
-          }
-          launcher = json.loads((root / "cmux" / "package.json").read_text())
-          deps = launcher.get("optionalDependencies", {})
-          if deps != {name: version for name in platforms}:
-              print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
-              raise SystemExit(1)
-          for name, (os_name, cpu) in platforms.items():
-              package_json = json.loads((root / name / "package.json").read_text())
-              if package_json["version"] != version:
-                  raise SystemExit(f"{name}: version mismatch")
-              if package_json["os"] != [os_name] or package_json["cpu"] != [cpu]:
-                  raise SystemExit(f"{name}: os/cpu mismatch")
-              binary = root / name / "bin" / "cmux-tui"
-              if not binary.stat().st_mode & stat.S_IXUSR:
-                  raise SystemExit(f"{binary} is not executable")
-              hook = root / name / "bin" / "cmux-tui-hook"
-              if not hook.stat().st_mode & stat.S_IXUSR:
-                  raise SystemExit(f"{hook} is not executable")
-          PY
+          case "$(uname -m)" in
+            x86_64|amd64) install_target=cmux-tui-linux-x64 ;;
+            aarch64|arm64) install_target=cmux-tui-linux-arm64 ;;
+            *) echo "unsupported package runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "$NPM_VERSION" \
+            --install-npm-package "$install_target"
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
@@ -674,21 +660,9 @@ jobs:
         if: inputs.package_pypi
         run: |
           set -euo pipefail
-          for wheel in dist/pypi-wheels/*.whl; do
-            python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
-          done
-          python3 - <<'PY'
-          import glob
-          import stat
-          import zipfile
-
-          for path in glob.glob("dist/pypi-wheels/*.whl"):
-              with zipfile.ZipFile(path) as wheel:
-                  info = wheel.getinfo("cmux_tui/bin/cmux-tui-hook")
-                  mode = info.external_attr >> 16
-                  if not mode & stat.S_IXUSR:
-                      raise SystemExit(f"{path}: bundled cmux-tui-hook is not executable")
-          PY
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist/pypi-wheels \
+            --version "$PYPI_VERSION"
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1

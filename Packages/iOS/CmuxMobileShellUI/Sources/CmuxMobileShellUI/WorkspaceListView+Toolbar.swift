@@ -58,9 +58,15 @@ extension WorkspaceListView {
         filterMachines: [WorkspaceFilterMachine]
     ) -> some View {
         #if os(iOS)
-            if showsNavigationToolbar {
-                content
-                    .toolbar {
+            // The toolbar-visibility flip (off while a workspace is pushed on
+            // the compact stack, back on at exit) must stay inside the toolbar
+            // content builder. Branching the whole subtree on it changes the
+            // list's structural identity on every workspace enter/exit, which
+            // dismantles the represented workspace table and resets its scroll
+            // position to the top (issue #10481).
+            content
+                .toolbar {
+                    if showsNavigationToolbar {
                         if !usesExternalSharedToolbar {
                             ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
                                 settingsMenu
@@ -93,9 +99,7 @@ extension WorkspaceListView {
                             }
                         }
                     }
-            } else {
-                content
-            }
+                }
         #else
             content
                 .toolbar {

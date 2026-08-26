@@ -409,6 +409,35 @@ pub enum MachineRequest {
     },
 }
 
+impl MachineRequest {
+    /// Redacted label for logs: request payloads can carry hosts, pairing
+    /// codes, and action values that must never reach the client log.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            MachineRequest::Switch(_) => "switch",
+            MachineRequest::ReconnectProvider => "reconnect-provider",
+            MachineRequest::Create => "create",
+            MachineRequest::CreateFrom { .. } => "create-from",
+            MachineRequest::Connect { .. } => "connect",
+            MachineRequest::SelectProviderScope(_) => "select-provider-scope",
+            MachineRequest::InvokeProviderAction { .. } => "invoke-provider-action",
+            MachineRequest::RenameManagedMachine { .. } => "rename-managed-machine",
+            MachineRequest::RenameClientMachine { .. } => "rename-client-machine",
+            MachineRequest::DeleteManagedMachine { .. } => "delete-managed-machine",
+            MachineRequest::RestoreManagedMachine { .. } => "restore-managed-machine",
+            MachineRequest::PurgeManagedMachine { .. } => "purge-managed-machine",
+            MachineRequest::CreateManagedIsolatedWorkspace(_) => {
+                "create-managed-isolated-workspace"
+            }
+            MachineRequest::CreateManagedHostWorkspace(_) => "create-managed-host-workspace",
+            MachineRequest::RenameManagedWorkspace { .. } => "rename-managed-workspace",
+            MachineRequest::DeleteManagedWorkspace { .. } => "delete-managed-workspace",
+            MachineRequest::RestoreManagedWorkspace { .. } => "restore-managed-workspace",
+            MachineRequest::PurgeManagedWorkspace { .. } => "purge-managed-workspace",
+        }
+    }
+}
+
 /// Nested mux mutation applied only after the provider durably accepts it.
 pub(crate) enum ManagedWorkspaceSessionMutation {
     Rename { workspace_key: String, name: String },
@@ -536,8 +565,6 @@ pub(crate) trait MachineController: Send {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MachineRailSelection {
-    Scope,
-    Actions,
     #[default]
     Machine,
     NewVm,
@@ -546,8 +573,6 @@ pub enum MachineRailSelection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRailTarget {
-    Scope,
-    Actions,
     Machine(MachineKey),
     NewVm,
     ConnectMachine,
@@ -760,13 +785,7 @@ impl MachineUiState {
     #[allow(dead_code)]
     pub fn set_provider_presentation(&mut self, provider: ProviderPresentation) {
         self.provider = Some(provider);
-        if self.snapshot.machines.is_empty()
-            && self.provider.as_ref().is_some_and(|provider| !provider.scopes.is_empty())
-        {
-            self.rail_selection = MachineRailSelection::Scope;
-        } else {
-            self.ensure_rail_selection();
-        }
+        self.ensure_rail_selection();
     }
 
     #[allow(dead_code)]
@@ -855,13 +874,7 @@ impl MachineUiState {
     }
 
     pub fn rail_targets(&self) -> Vec<MachineRailTarget> {
-        let mut targets = Vec::with_capacity(self.snapshot.machines.len() + 4);
-        if self.provider.as_ref().is_some_and(|provider| !provider.scopes.is_empty()) {
-            targets.push(MachineRailTarget::Scope);
-        }
-        if self.provider.as_ref().is_some_and(|provider| !provider.actions.is_empty()) {
-            targets.push(MachineRailTarget::Actions);
-        }
+        let mut targets = Vec::with_capacity(self.snapshot.machines.len() + 2);
         targets.extend(
             self.snapshot.machines.iter().map(|machine| MachineRailTarget::Machine(machine.key)),
         );
@@ -876,8 +889,6 @@ impl MachineUiState {
 
     pub fn rail_target(&self) -> Option<MachineRailTarget> {
         match self.rail_selection {
-            MachineRailSelection::Scope => Some(MachineRailTarget::Scope),
-            MachineRailSelection::Actions => Some(MachineRailTarget::Actions),
             MachineRailSelection::Machine => {
                 self.selected().map(|machine| MachineRailTarget::Machine(machine.key))
             }
@@ -888,8 +899,6 @@ impl MachineUiState {
 
     pub fn select_rail_target(&mut self, target: MachineRailTarget) {
         match target {
-            MachineRailTarget::Scope => self.rail_selection = MachineRailSelection::Scope,
-            MachineRailTarget::Actions => self.rail_selection = MachineRailSelection::Actions,
             MachineRailTarget::Machine(key) => {
                 if let Some(index) =
                     self.snapshot.machines.iter().position(|machine| machine.key == key)
@@ -906,6 +915,9 @@ impl MachineUiState {
     }
 
     pub fn reconcile_navigation_from(&mut self, previous: &Self) {
+        fn return_target(machine: &MachineDescriptor) -> MachineRailTarget {
+            MachineRailTarget::Machine(machine.key)
+        }
         let targets = self.rail_targets();
         if targets.is_empty() {
             self.selection = 0;
@@ -914,8 +926,22 @@ impl MachineUiState {
         }
         let previous_targets = previous.rail_targets();
         let previous_target = previous.rail_target();
+        // A machine whose managed status JUST became Recoverable was deleted
+        // out from under the selection; keeping its row selected would leave
+        // the rail parked on the ghost. A row that was already recoverable
+        // when selected stays selected (restore/purge navigation).
+        let freshly_recoverable = matches!(
+            previous_target,
+            Some(MachineRailTarget::Machine(key))
+                if previous
+                    .managed_machine(key)
+                    .is_none_or(|managed| managed.status != ManagedMachineStatus::Recoverable)
+                    && self
+                        .managed_machine(key)
+                        .is_some_and(|managed| managed.status == ManagedMachineStatus::Recoverable)
+        );
         let target = previous_target
-            .filter(|target| targets.contains(target))
+            .filter(|target| !freshly_recoverable && targets.contains(target))
             .or_else(|| {
                 self.snapshot.active.and_then(|active| {
                     let target = MachineRailTarget::Machine(active);
@@ -923,10 +949,61 @@ impl MachineUiState {
                 })
             })
             .unwrap_or_else(|| {
-                let previous_index = previous_target
-                    .and_then(|target| previous_targets.iter().position(|item| *item == target))
-                    .unwrap_or_default();
-                targets[previous_index.min(targets.len() - 1)]
+                // The selected row vanished (a deleted machine, usually):
+                // land on the next available row of the SAME kind. A deleted
+                // machine hands its slot to the machine that moved up, or to
+                // the new last machine - never to a "+" footer, which would
+                // put a create prompt one accidental Enter away.
+                if let Some(MachineRailTarget::Machine(_)) = previous_target
+                    && self.snapshot.machines.is_empty()
+                {
+                    // Every machine is gone: land on the first action row
+                    // ("+ new vm" when available), never on whatever footer
+                    // happens to share the deleted machine's old index.
+                    targets[0]
+                } else if let Some(MachineRailTarget::Machine(deleted)) = previous_target
+                    && !self.snapshot.machines.is_empty()
+                {
+                    let previous_index = previous
+                        .snapshot
+                        .machines
+                        .iter()
+                        .position(|machine| machine.key == deleted)
+                        .unwrap_or_default();
+                    // Prefer usable machines (recoverable rows are ghosts of
+                    // deleted ones); fall back to plain slot-clamping only
+                    // when nothing usable remains.
+                    let usable = |machine: &&MachineDescriptor| {
+                        self.managed_machine(machine.key).is_none_or(|managed| {
+                            managed.status != ManagedMachineStatus::Recoverable
+                        })
+                    };
+                    let next = self
+                        .snapshot
+                        .machines
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, machine)| usable(machine))
+                        .fold(None::<(usize, &MachineDescriptor)>, |best, (index, machine)| {
+                            match best {
+                                Some((chosen, _)) if chosen >= previous_index => best,
+                                _ => Some((index, machine)),
+                            }
+                        })
+                        .map(|(_, machine)| machine);
+                    match next {
+                        Some(machine) => return_target(machine),
+                        None => {
+                            let clamp = previous_index.min(self.snapshot.machines.len() - 1);
+                            return_target(&self.snapshot.machines[clamp])
+                        }
+                    }
+                } else {
+                    let previous_index = previous_target
+                        .and_then(|target| previous_targets.iter().position(|item| *item == target))
+                        .unwrap_or_default();
+                    targets[previous_index.min(targets.len() - 1)]
+                }
             });
         self.select_rail_target(target);
     }
@@ -1063,8 +1140,6 @@ mod tests {
         assert_eq!(
             ui.rail_targets(),
             vec![
-                MachineRailTarget::Scope,
-                MachineRailTarget::Actions,
                 MachineRailTarget::Machine(MachineKey(7)),
                 MachineRailTarget::NewVm,
                 MachineRailTarget::ConnectMachine,
@@ -1149,7 +1224,7 @@ mod tests {
         });
 
         assert_eq!(ui.selected_scope().map(|scope| scope.name.as_str()), Some("Acme"));
-        assert_eq!(ui.rail_selection, MachineRailSelection::Scope);
+        assert_eq!(ui.rail_selection, MachineRailSelection::Machine);
     }
 
     #[test]

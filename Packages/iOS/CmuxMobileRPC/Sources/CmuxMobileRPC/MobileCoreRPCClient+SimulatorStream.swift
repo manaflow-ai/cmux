@@ -50,6 +50,29 @@ extension MobileCoreRPCClient {
         try await sendSimulatorCommand(method: "mobile.simulator.input.button", parameters: input)
     }
 
+    public func listMobileSimulatorDevices(
+        panelID: String,
+        workspaceID: String
+    ) async throws -> [MobileSimulatorDeviceDescriptor] {
+        let data = try await sendSimulatorRequest(
+            method: "mobile.simulator.devices.list",
+            parameters: MobileSimulatorPanelParameters(panelID: panelID, workspaceID: workspaceID)
+        )
+        return try MobileSimulatorDevicesResponse.decode(data).devices
+    }
+
+    public func selectMobileSimulatorDevice(
+        panelID: String,
+        workspaceID: String,
+        udid: String
+    ) async throws -> MobileSimulatorCommandResponse {
+        try await sendSimulatorCommand(
+            method: "mobile.simulator.device.select",
+            parameters: MobileSimulatorDeviceSelectParameters(
+                panelID: panelID, workspaceID: workspaceID, udid: udid)
+        )
+    }
+
     private func sendSimulatorCommand<Parameters: Encodable>(
         method: String,
         parameters: Parameters

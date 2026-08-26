@@ -11,6 +11,9 @@ extension AppDelegate {
             enforceBrowserPolicy: { [weak self] in
                 self?.closeBrowserPanelsForManagedPolicy()
             },
+            enforceBrowserURLAllowlistPolicy: { [weak self] in
+                self?.enforceBrowserURLAllowlistPolicy()
+            },
             enforceRemoteControlPolicy: {
                 // syncToSettings() tears the mobile host down under the
                 // policy (including live connections) and re-arms it when
@@ -37,6 +40,29 @@ extension AppDelegate {
             }
             for dock in manager.liveWindowDockStores {
                 closeDockBrowserPanelsForManagedPolicy(dock)
+            }
+        }
+    }
+
+    /// Re-evaluates every live browser document when the effective allowlist
+    /// changes. The panel/delegate boundary renders the localized blocked page
+    /// and also traverses popup windows.
+    func enforceBrowserURLAllowlistPolicy() {
+        for manager in allTabManagersForManagedPolicyEnforcement() {
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    (panel as? BrowserPanel)?.enforceURLAllowlistPolicy()
+                }
+                if let dock = workspace._dockSplit {
+                    dock.forEachPanel { _, panel in
+                        (panel as? BrowserPanel)?.enforceURLAllowlistPolicy()
+                    }
+                }
+            }
+            for dock in manager.liveWindowDockStores {
+                dock.forEachPanel { _, panel in
+                    (panel as? BrowserPanel)?.enforceURLAllowlistPolicy()
+                }
             }
         }
     }

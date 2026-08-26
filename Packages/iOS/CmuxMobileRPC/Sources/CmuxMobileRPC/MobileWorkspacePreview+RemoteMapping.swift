@@ -35,7 +35,8 @@ extension MobileSurfacePreview {
             kind: Kind(rawValue: remote.kind),
             title: remote.title,
             filePath: remote.filePath,
-            todo: remote.todo
+            todo: remote.todo,
+            isFocused: remote.isFocused
         )
     }
 }

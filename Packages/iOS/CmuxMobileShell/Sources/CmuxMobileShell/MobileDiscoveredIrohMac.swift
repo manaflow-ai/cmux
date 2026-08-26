@@ -13,6 +13,8 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
     public let displayName: String?
     /// Exact running cmux app-instance tag asserted by the broker.
     public let instanceTag: String
+    /// Exact bundle-derived Mac namespace asserted by the broker.
+    public let clientNamespace: String
     /// Iroh-pinned routes for this endpoint.
     public let routes: [CmxAttachRoute]
     /// Capabilities asserted by the authenticated broker binding.
@@ -27,7 +29,8 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
         instanceTag: String,
         routes: [CmxAttachRoute],
         lastSeenAt: Date,
-        capabilities: [String] = []
+        capabilities: [String] = [],
+        clientNamespace: String = "legacy"
     ) {
         let identity = CmxMacAppInstanceIdentity(
             macDeviceID: deviceID,
@@ -36,6 +39,7 @@ public struct MobileDiscoveredIrohMac: Equatable, Sendable {
         self.deviceID = identity.macDeviceID
         self.displayName = displayName
         self.instanceTag = identity.instanceTag ?? ""
+        self.clientNamespace = clientNamespace
         self.routes = routes
         self.lastSeenAt = lastSeenAt
         self.capabilities = capabilities

@@ -1516,8 +1516,8 @@ OPTIONS:
         tabs: "tabs",
         agents: "agents",
         projection_path_separator: " › ",
-        new_machine: "new machine",
-        connect_machine: "connect machine",
+        new_machine: "new vm",
+        connect_machine: "ssh host",
         no_machines: "no machines",
         no_workspaces: "no workspaces",
         no_panes: "no panes",
@@ -2105,8 +2105,8 @@ ID とセッション:
         tabs: "タブ",
         agents: "エージェント",
         projection_path_separator: " › ",
-        new_machine: "新規マシン",
-        connect_machine: "マシンを接続",
+        new_machine: "新規VM",
+        connect_machine: "SSHホスト",
         no_machines: "マシンがありません",
         no_workspaces: "ワークスペースがありません",
         no_panes: "ペインがありません",
@@ -2409,8 +2409,8 @@ mod tests {
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new machine");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規マシン");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new vm");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規VM");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"

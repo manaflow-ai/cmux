@@ -25,6 +25,13 @@ Linux packages contain static musl binaries that run on both glibc and musl
 distributions. PyPI publishes each Linux binary under matching manylinux and
 musllinux wheel tags so installers on both runtime families can resolve it.
 
+Before upload, the package contract validator checks the exact five npm package
+trees, including both the TUI binary and hook, then runs `npm pack` and an
+offline install of the matching Linux package. It checks the exact six PyPI
+wheels, their platform tags, metadata, `RECORD` hashes, and executable modes.
+The Windows binary and hook are raw release artifacts only. They are not in the
+npm or PyPI package set.
+
 ## One-time registry setup
 
 Add npm Trusted Publishers for all five npm package names:

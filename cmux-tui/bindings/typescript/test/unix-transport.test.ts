@@ -31,6 +31,16 @@ const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
 
+test("explicit empty socket paths fail with a typed validation error", () => {
+  const message = "socketPath must be a non-empty path";
+  assert.throws(() => new NodeClient({ socketPath: "" }), (error: unknown) =>
+    error instanceof TypeError && error.message === message,
+  );
+  assert.throws(() => new CmuxClient({ socketPath: "" }), (error: unknown) =>
+    error instanceof TypeError && error.message === message,
+  );
+});
+
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
   readonly received: string[];
