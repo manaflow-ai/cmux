@@ -284,7 +284,13 @@ extension CmxIrohHostRuntimeTests {
         #expect(configurations.count == 1)
         #expect(configurations.first?.secretKey == fixture.identity.secretKey)
         #expect(configurations.first?.bindPolicy == .ephemeral)
-        #expect(configurations.first?.managedRelayURLs == fixture.managedRelays)
+        // A fresh host binds relay-less and installs the managed relays
+        // exactly once, after its registration is acknowledged, so the first
+        // relay dial cannot race the relay's admission hook.
+        #expect(configurations.first?.managedRelayURLs == [])
+        let relayUpdates = await endpoint.observedRelayProfileUpdates()
+        #expect(relayUpdates.count == 1)
+        #expect(relayUpdates.first?.allowedRelayURLs == fixture.managedRelays)
         let lan = try #require(await runtime.lanAdvertisementContext())
         #expect(lan.binding == CmxIrohBrokerBindingMetadata(binding: fixture.binding))
         #expect(lan.rendezvous == fixture.discovery.lanRendezvous)
