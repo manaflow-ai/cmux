@@ -416,7 +416,7 @@ final class WebSurfaceSelectionReader {
       };
       return await Promise.race([
         Promise.resolve().then(readSelection),
-        new Promise((resolve) => setTimeout(() => resolve(null), \(Self.evaluationTimeoutMilliseconds)))
+        new Promise((resolve) => setTimeout(() => resolve(null), \(WebSurfaceSelectionReader.evaluationTimeoutMilliseconds)))
       ]);
     })()
     """
