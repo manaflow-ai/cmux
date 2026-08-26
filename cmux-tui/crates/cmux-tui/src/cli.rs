@@ -308,18 +308,14 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                     Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
-            "--json" => {
-                set_output_mode(&mut global, OutputMode::Json, value)
-                    .map_err(|error| (error, global.output))?;
-                index += 1;
-            }
-            "--jsonl" => {
-                set_output_mode(&mut global, OutputMode::JsonLines, value)
-                    .map_err(|error| (error, global.output))?;
-                index += 1;
-            }
-            "--quiet" => {
-                set_output_mode(&mut global, OutputMode::Quiet, value)
+            "--json" | "--jsonl" | "--quiet" => {
+                let output = match value.as_str() {
+                    "--json" => OutputMode::Json,
+                    "--jsonl" => OutputMode::JsonLines,
+                    "--quiet" => OutputMode::Quiet,
+                    _ => unreachable!(),
+                };
+                set_output_mode(&mut global, output, value)
                     .map_err(|error| (error, global.output))?;
                 index += 1;
             }

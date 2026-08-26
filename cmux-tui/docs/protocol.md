@@ -16,6 +16,13 @@ As of protocol v12, every server speaks JSON Lines over a Unix domain socket. Se
 
 Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
+PTY relay clients must use the `pty_error` contract and terminal lookup rule in
+[transports.md](../spec/transports.md#pty-lifecycle-errors-and-terminal_gone).
+`terminal_gone` is definitive only after a successful workspace listing proves
+that the requested resource is absent. A closed or saturated control connection
+is not proof that the terminal is gone; retry only after a new authenticated
+transport generation is established.
+
 For shell use, prefer the noun-first public CLI, such as
 `cmux workspace list --json`.
 
@@ -168,12 +175,16 @@ Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-
 When several clients display one terminal, their size reports are passive
 viewport hints until one exact client and terminal view claim geometry
 authority. Only that owner can resize the canonical PTY grid; every other view
-crops, pans, or scales it locally. Releasing or disconnecting the owner freezes
-the current grid until another explicit claim. Browser surfaces retain the
-legacy smallest-participating-size reducer because each browser has one live
-tab. A client releases its report when that view becomes hidden. Input and
-mux-driven redraws never claim geometry or reassert an idle viewport. See the
-canonical [`Sizing`](../spec/commands.md#sizing) contract.
+crops, pans, or scales it locally. Releasing or disconnecting the owner, or a
+refused owner resize, fences the old owner and freezes the current grid. A
+replacement report and claim must come from a newly attached client; the core
+server does not elect a survivor across sockets because the wire contract has
+no generation token for that hand-off.
+Browser surfaces retain the legacy smallest-participating-size reducer because
+each browser has one live tab. A client releases its report when that view
+becomes hidden. Input and mux-driven redraws never claim geometry or reassert an
+idle viewport. See the canonical [`Sizing`](../spec/commands.md#sizing)
+contract.
 
 Provider-aware clients require `provider-managed-workspace-authority-v2` before exposing provider-owned workspace lifecycle controls. The server starts with provider ownership fixed for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
 
