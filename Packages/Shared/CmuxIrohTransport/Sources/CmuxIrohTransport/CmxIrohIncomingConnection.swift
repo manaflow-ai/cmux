@@ -1,5 +1,3 @@
-public import Foundation
-
 /// One incoming connection attempt whose server-side handshake has not
 /// completed yet.
 ///
@@ -21,25 +19,4 @@ public protocol CmxIrohIncomingConnection: Sendable {
     /// Safe to call after ``establish()`` started; the attempt's resources are
     /// released and an unfinished handshake is aborted by the driver.
     func abandon() async
-}
-
-/// Wraps an already-established connection as an incoming attempt.
-///
-/// Alternate transports and test endpoints that produce finished connections
-/// use this to satisfy the accept contract; ``establish()`` returns
-/// immediately.
-public struct CmxIrohEstablishedIncomingConnection: CmxIrohIncomingConnection {
-    private let connection: any CmxIrohConnection
-
-    public init(_ connection: any CmxIrohConnection) {
-        self.connection = connection
-    }
-
-    public func establish() async throws -> any CmxIrohConnection {
-        connection
-    }
-
-    public func abandon() async {
-        await connection.close(errorCode: 1, reason: "admission_abandoned")
-    }
 }
