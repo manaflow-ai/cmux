@@ -3,7 +3,25 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
+private nonisolated struct AlwaysExecutableGitProbe: GitExecutableFileProbing {
+    func isExecutableFile(atPath _: String) -> Bool { true }
+}
+
 @Suite struct ReftableGitMetadataTests {
+    @Test func referenceResolverRetainsAbsoluteUserPathGitCandidates() {
+        let userGitDirectory = "/Users/cmux-tests/.local/bin"
+        let resolver = SystemGitExecutableResolver(
+            environment: [
+                "PATH": "\(userGitDirectory):/nix/var/nix/profiles/default/bin:/Applications/Xcode.app/Contents/Developer/usr/bin",
+            ],
+            fileProbe: AlwaysExecutableGitProbe()
+        )
+
+        let candidates = resolver.referenceExecutableURLs().map(\.path)
+
+        #expect(candidates.contains(userGitDirectory + "/git"))
+    }
+
     /// Reproduces a linked reftable worktree whose HEAD contains `.invalid`.
     @Test func metadataUsesGitResolvedWorktreeBranchAndWatchesReftableStorage() async throws {
         let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: false)

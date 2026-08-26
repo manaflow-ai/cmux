@@ -46,13 +46,17 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     func watchPaths() -> [String] {
         let result = traverse()
         var paths = result.configURLs.map { $0.standardizedFileURL.path }
+        let rootWatchPaths = GitWorktreeConfigEnablementReader().rootConfigWatchURLs(
+            repository: repository,
+            deadline: deadline,
+            branchContext: branchContext
+        ).map { $0.standardizedFileURL.path }
         if !result.isComplete {
-            paths = GitWorktreeConfigEnablementReader().rootConfigURLs(
-                repository: repository,
-                deadline: deadline,
-                branchContext: branchContext
-            ).map(\.path)
-                + paths
+            paths = rootWatchPaths + paths
+        } else {
+            // Keep a parent sentinel when extensions.worktreeConfig is enabled
+            // but config.worktree has not been created yet.
+            paths.append(contentsOf: rootWatchPaths)
         }
         paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []

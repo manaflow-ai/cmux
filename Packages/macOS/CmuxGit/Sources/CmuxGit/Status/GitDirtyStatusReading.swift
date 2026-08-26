@@ -13,7 +13,12 @@ struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
         boundedCommandWallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime
     ) {
         runnerSelector = GitReferenceRunnerSelector(
-            wallTimeLimit: boundedCommandWallTimeLimit
+            wallTimeLimit: boundedCommandWallTimeLimit,
+            // `git status` must honor the user's global/system attributes and
+            // filters (for example Git LFS). Only repository-selection
+            // variables are stripped by the runner; reference plumbing uses
+            // isolated mode to avoid unrelated global config.
+            isolateRepositoryConfig: false
         )
     }
 

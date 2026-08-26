@@ -216,7 +216,7 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         let includes = (0..<400)
             .map { "    path = missing-\($0).inc" }
             .joined(separator: "\n")
-        try fixture.writeConfig("[include]\n(includes)\n")
+        try fixture.writeConfig("[include]\n\(includes)\n")
 
         let repository = try #require(
             GitMetadataService.resolveGitRepository(containing: fixture.root.path)
@@ -226,7 +226,27 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
             branchContext: .resolved("main")
         ).watchPaths()
 
-        #expect(paths.count <= 256)
+        #expect(paths.count == 256)
+        #expect(!paths.contains { $0.hasSuffix("missing-399.inc") })
+    }
+
+    @Test func watchesGitDirectoryUntilMissingWorktreeConfigAppears() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [extensions]
+            worktreeConfig = true
+        """)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let paths = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .resolved("main")
+        ).watchPaths()
+
+        #expect(paths.contains(fixture.gitDirectory.standardizedFileURL.path))
     }
 
     @Test func readsLinkedWorktreeConfigWhenPresent() throws {

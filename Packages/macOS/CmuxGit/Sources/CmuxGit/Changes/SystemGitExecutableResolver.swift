@@ -87,17 +87,17 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         if let searchPath = environment["PATH"] {
             for entry in searchPath.split(separator: ":") {
                 guard entry.first == "/" else { continue }
-                guard entry.hasPrefix("/usr/")
-                    || entry.hasPrefix("/opt/")
-                    || entry.hasPrefix("/Library/") else {
-                    continue
-                }
                 let path = URL(fileURLWithPath: String(entry), isDirectory: true)
                     .appendingPathComponent("git", isDirectory: false)
                     .path
+                // Reference probing deliberately honors absolute user PATH
+                // entries (asdf/mise shims, Nix, ~/.local/bin, or an Xcode
+                // bundle). The candidate count and regular-executable probe
+                // keep this bounded; ordinary status commands still use the
+                // known-safe candidate set above.
                 guard !Self.systemGitPaths.contains(path) else { continue }
                 guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
-                if result.count >= Self.maximumReferenceCandidateCount - Self.systemGitPaths.count {
+                if result.count == Self.maximumReferenceCandidateCount {
                     break
                 }
             }

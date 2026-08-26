@@ -102,11 +102,23 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                 }
                 return directSnapshot
             case .incomplete:
-                return plumbingSnapshot(
+                // A root include does not imply a non-files backend. Finish
+                // the same bounded include walk with the resolved branch
+                // context before paying for Git plumbing; ordinary files
+                // repositories then stay on the direct hot path.
+                let storage = referenceStorageName(
                     repository: repository,
-                    deadline: deadline,
-                    includeStorageWatchPaths: includeStorageWatchPaths
+                    branchContext: .resolved(directSnapshot.branchName),
+                    deadline: deadline
                 )
+                if let storage, storage != "files" {
+                    return plumbingSnapshot(
+                        repository: repository,
+                        deadline: deadline,
+                        includeStorageWatchPaths: includeStorageWatchPaths
+                    )
+                }
+                return directSnapshot
             }
         }
         let configuredStorage: String?
@@ -186,7 +198,12 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             case .complete(let storage):
                 return storage.map { $0 != "files" } ?? false
             case .incomplete:
-                return true
+                let storage = referenceStorageName(
+                    repository: repository,
+                    branchContext: .resolved(directSnapshot.branchName),
+                    deadline: effectiveDeadline
+                )
+                return storage.map { $0 != "files" } ?? false
             }
         }
         switch quickReferenceStorageName(repository: repository, deadline: effectiveDeadline) {

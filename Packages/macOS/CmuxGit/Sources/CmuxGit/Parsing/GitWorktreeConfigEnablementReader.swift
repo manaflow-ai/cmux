@@ -43,6 +43,45 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         return rootURLs + [worktreeConfigURL]
     }
 
+    /// Returns config roots plus an existing `config.worktree` file or a
+    /// parent sentinel that can observe its later creation.
+    func rootConfigWatchURLs(
+        repository: ResolvedGitRepository,
+        deadline: DispatchTime? = nil,
+        branchContext: GitConfigBranchContext = .fileBacked
+    ) -> [URL] {
+        let rootURLs = [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
+        let effectiveDeadline = deadline
+            ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
+        guard isEnabled(
+            repository: repository,
+            rootURLs: rootURLs,
+            deadline: effectiveDeadline,
+            branchContext: branchContext
+        ) else {
+            return rootURLs
+        }
+
+        let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
+            .appendingPathComponent("config.worktree")
+        switch reader.read(
+            at: worktreeConfigURL,
+            maximumByteCount: 1,
+            deadline: effectiveDeadline
+        ) {
+        case .contents, .oversized:
+            return rootURLs + [worktreeConfigURL]
+        case .missing, .unavailable:
+            // A file watcher cannot attach to a path that does not exist. The
+            // containing Git directory is the narrowest stable sentinel for a
+            // future config.worktree creation event.
+            return rootURLs + [worktreeConfigURL.deletingLastPathComponent()]
+        }
+    }
+
     func isEnabled(
         repository: ResolvedGitRepository,
         rootURLs: [URL],

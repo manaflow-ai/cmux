@@ -277,7 +277,7 @@ extension GitMetadataService {
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
         ] + GitWorktreeConfigEnablementReader()
-            .rootConfigURLs(repository: repository, deadline: deadline)
+            .rootConfigWatchURLs(repository: repository, deadline: deadline)
             .map(\.path)
     }
 }

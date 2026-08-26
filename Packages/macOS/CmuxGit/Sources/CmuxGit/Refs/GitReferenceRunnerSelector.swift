@@ -12,7 +12,8 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
     /// Creates a production selector from bounded PATH/system candidates.
     init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        wallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime
+        wallTimeLimit: TimeInterval = GitMetadataSafetyConfiguration().gitStatusWallTime,
+        isolateRepositoryConfig: Bool = true
     ) {
         let resolver = SystemGitExecutableResolver(environment: environment)
         self.runners = resolver.referenceExecutableURLs().map { executableURL in
@@ -20,7 +21,7 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
                 executableURL: executableURL,
                 environment: environment,
                 boundedCommandWallTimeLimit: wallTimeLimit,
-                isolateRepositoryConfig: true
+                isolateRepositoryConfig: isolateRepositoryConfig
             ) as any WorkspaceChangesGitRunning
         }
         self.probesReferenceFormat = true
