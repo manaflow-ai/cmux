@@ -353,6 +353,12 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "prime-agent":
+            return PrimeAgentResumeArgv.build(
+                sessionId: sessionId,
+                executablePath: executablePath,
+                arguments: arguments
+            )
         case "omp":
             return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "campfire":

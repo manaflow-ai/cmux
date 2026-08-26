@@ -60,6 +60,20 @@ extension CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "prime-agent",
+            displayName: String(localized: "agent.primeAgent.displayName", defaultValue: "Prime Agent"),
+            statusKey: "prime-agent",
+            configDir: ".prime/agent",
+            configFile: "extensions/cmux-prime-agent-session.ts",
+            configDirEnvOverride: "PRIME_AGENT_CODING_AGENT_DIR",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "prime-agent",
+            disableEnvVar: "CMUX_PRIME_AGENT_HOOKS_DISABLED",
+            hookMarker: "cmux hooks prime-agent",
+            format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "omp", displayName: "OMP", statusKey: "omp",
             configDir: ".omp/agent", configFile: "extensions/cmux-omp-session.ts",
             createConfigDirIfMissing: true,

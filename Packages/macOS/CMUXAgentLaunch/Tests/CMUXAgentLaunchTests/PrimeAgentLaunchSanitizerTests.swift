@@ -60,7 +60,7 @@ struct PrimeAgentLaunchSanitizerTests {
 
     @Test("Rejects non-interactive Prime modes")
     func rejectsNonInteractiveModes() {
-        for option in ["--mode", "--daemon-socket", "--print", "--export", "--autonomous", "--goal"] {
+        for option in ["--mode", "--daemon", "--daemon-socket", "--print", "--export", "--autonomous", "--goal", "--help"] {
             #expect(
                 AgentLaunchSanitizer.sanitizedLaunchArguments(
                     ["prime-agent", option, "value"],
@@ -73,12 +73,14 @@ struct PrimeAgentLaunchSanitizerTests {
 
     @Test("Rejects Prime subcommands")
     func rejectsSubcommands() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["prime-agent", "session", "list"],
-                launcher: "prime-agent",
-                fallbackKind: "prime-agent"
-            ) == nil
-        )
+        for command in ["session", "model", "stop", "send", "rename"] {
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    ["prime-agent", command],
+                    launcher: "prime-agent",
+                    fallbackKind: "prime-agent"
+                ) == nil
+            )
+        }
     }
 }

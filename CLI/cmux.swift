@@ -16405,7 +16405,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, prime-agent, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -16419,6 +16419,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
+              ~/.prime/agent/extensions/cmux-prime-agent-session.ts
               ~/.omp/agent/extensions/cmux-omp-session.ts
               ~/.campfire/agent/extensions/cmux-campfire-session.ts
               ~/.config/amp/plugins/cmux-session.ts
@@ -30500,6 +30501,7 @@ export default CMUXSessionRestore;
         try Self.validateHookInstallDispatch(for: def)
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
+        if def.name == "prime-agent" { try installPrimeAgentExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }
         if def.name == "campfire" { try installCampfireExtensionHooks(def); return }
         if def.name == "amp" {
@@ -30891,6 +30893,7 @@ export default CMUXSessionRestore;
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" { try uninstallOpenCodePluginHooks(def); return }
         if def.name == "pi" { try uninstallPiExtensionHooks(def); return }
+        if def.name == "prime-agent" { try uninstallPrimeAgentExtensionHooks(def); return }
         if def.name == "omp" { try uninstallOmpExtensionHooks(def); return }
         if def.name == "campfire" { try uninstallCampfireExtensionHooks(def); return }
         if def.name == "amp" {

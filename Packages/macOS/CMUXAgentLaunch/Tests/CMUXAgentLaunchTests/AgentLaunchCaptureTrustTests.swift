@@ -72,6 +72,32 @@ struct AgentLaunchCaptureTrustTests {
         )
         #expect(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: [
+                    "node",
+                    "/Users/alice/.prime/agent/versions/current/packages/coding-agent/dist/bundle/cli.js",
+                    "--model",
+                    "prime-model",
+                ],
+                kind: "prime-agent"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/Users/alice/.prime/agent/scripts/unrelated.js"],
+                kind: "prime-agent"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/tmp/packages/coding-agent/cli.js"],
+                kind: "prime-agent"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "grok-macos-aarch64",
                 arguments: ["/Users/alice/.local/bin/grok-macos-aarch64", "-r", "session"],
                 kind: "grok"

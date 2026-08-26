@@ -68,6 +68,14 @@ struct AgentResumeArgvTests {
             AgentResumeArgv().builtInKind(
                 kind: "prime-agent",
                 sessionId: sessionFile,
+                executablePath: "/usr/bin/node",
+                arguments: ["/usr/bin/node", "--model", "prime-model"]
+            ) == ["prime-agent", "--resume", sessionFile, "--model", "prime-model"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "prime-agent",
+                sessionId: sessionFile,
                 executablePath: nil,
                 arguments: ["prime-agent"]
             ) == ["prime-agent", "--resume", sessionFile]
@@ -79,6 +87,21 @@ struct AgentResumeArgvTests {
                 executablePath: nil,
                 arguments: ["prime-agent"]
             ) == nil
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "prime-agent",
+                sessionId: "prime-session-id",
+                executablePath: "/usr/bin/node",
+                arguments: [
+                    "/usr/bin/node",
+                    "/Users/example/.prime/agent/versions/current/packages/coding-agent/dist/bundle/cli.js",
+                    "--model",
+                    "prime-model",
+                    "--resume",
+                    sessionFile,
+                ]
+            ) == ["prime-agent", "--resume", sessionFile, "--model", "prime-model"]
         )
         #expect(
             AgentResumeArgv().builtInKind(kind: "opencode", sessionId: "SID", executablePath: nil, arguments: ["opencode"])

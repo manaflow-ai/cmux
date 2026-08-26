@@ -115,6 +115,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "PI_OFFLINE",
         "PI_PACKAGE_DIR",
         "PI_SKIP_VERSION_CHECK",
+        "PRIME_AGENT_CODING_AGENT_DIR",
+        "PRIME_AGENT_CODING_AGENT_SESSION_DIR",
+        "PRIME_AGENT_SESSION_DIR",
         "QODER_CONFIG_DIR",
         "USE_BUILTIN_RIPGREP"
     ]

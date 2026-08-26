@@ -378,6 +378,24 @@ struct SharedLiveAgentIndexAgentLivenessTests {
 
     @Test
     func primeAgentNodeProcessMatchesItsCodingAgentBundle() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .primeAgent,
+            sessionId: "prime-session",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "prime-agent",
+                executablePath: "/usr/bin/node",
+                arguments: [
+                    "/usr/bin/node",
+                    "/Users/test/.prime/agent/prime-agent/packages/coding-agent/dist/bundle/cli.js",
+                ],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
+        )
+        let validator = CachedAgentProcessIdentityValidator()
         #expect(
             CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(
                 kind: .primeAgent,
@@ -396,6 +414,16 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                 liveExecutable: "/usr/bin/node",
                 arguments: ["/usr/bin/node", "/tmp/unrelated/cli.js"]
             )
+        )
+        #expect(
+            validator.currentProcess(
+                CmuxTopProcessArguments(
+                    arguments: ["/usr/bin/node", "/tmp/unrelated/cli.js"],
+                    environment: ["CMUX_AGENT_LAUNCH_KIND": "prime-agent"]
+                ),
+                matches: snapshot
+            ) == false,
+            "A same-basename Node process must not validate as the Prime Agent."
         )
     }
 }

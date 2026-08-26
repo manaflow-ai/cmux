@@ -188,6 +188,7 @@ printf '%s\\n' "$*" >> "$FAKE_PRIME_CMUX_ARGS_LOG"
 cat >> "$FAKE_PRIME_CMUX_STDIN_LOG"
 printf '\\n---\\n' >> "$FAKE_PRIME_CMUX_STDIN_LOG"
 printf 'kind=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-}" >> "$FAKE_PRIME_CMUX_ENV_LOG"
+printf 'argv=%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}" >> "$FAKE_PRIME_CMUX_ENV_LOG"
 """,
         )
         lifecycle_env = env.copy()
@@ -204,14 +205,16 @@ printf 'kind=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-}" >> "$FAKE_PRIME_CMUX_ENV_LOG"
         lifecycle_env.update(
             {
                 "CMUX_TEST_PRIME_EXTENSION_PATH": str(extension_path),
+                "CMUX_SURFACE_ID": "prime-lifecycle-surface",
                 "CMUX_PRIME_AGENT_CMUX_BIN": str(fake_cmux),
                 "FAKE_PRIME_CMUX_ARGS_LOG": str(fake_args_log),
                 "FAKE_PRIME_CMUX_STDIN_LOG": str(fake_stdin_log),
                 "FAKE_PRIME_CMUX_ENV_LOG": str(fake_env_log),
-                # Deliberately wrong: launchEnvironment must replace an
-                # inherited capture when a root Prime process starts.
-                "CMUX_AGENT_LAUNCH_KIND": "foreign-agent",
-                "CMUX_AGENT_LAUNCH_ARGV_B64": "foreign-capture",
+                # Deliberately stale, even though the inherited kind matches:
+                # launchEnvironment must replace a same-kind capture when a
+                # root Prime process starts.
+                "CMUX_AGENT_LAUNCH_KIND": "prime-agent",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": "stale-capture",
             }
         )
         lifecycle_source = r"""
@@ -265,6 +268,13 @@ await handlers.get("before_agent_start")({ prompt: "root prompt" }, rootCtx);
 await handlers.get("agent_end")({ messages: [{ role: "assistant", content: "root answer" }] }, rootCtx);
 await waitForLines(process.env.FAKE_PRIME_CMUX_ARGS_LOG, 3);
 
+// Prime tears down the old extension instance before loading a replacement.
+// The old instance is already idle, so its reload shutdown must not enqueue a
+// second stop; the fresh instance must not invent a running state either.
+await handlers.get("session_shutdown")({ reason: "reload" }, rootCtx);
+const reloadedHandlers = await loadExtension("3003");
+await reloadedHandlers.get("session_start")({ reason: "reload" }, rootCtx);
+
 // RLM children inherit CMUX_SURFACE_ID but carry a positive depth.
 process.env.RLM_DEPTH = "1";
 for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
@@ -282,7 +292,7 @@ await handlers.get("before_agent_start")({ prompt: "rpc prompt" }, rootCtx);
 await handlers.get("agent_end")({ messages: [{ role: "assistant", content: "rpc answer" }] }, rootCtx);
 process.argv = ["/usr/local/bin/prime-agent", "--model", "prime-model"];
 
-await handlers.get("session_shutdown")({ reason: "quit" }, rootCtx);
+await reloadedHandlers.get("session_shutdown")({ reason: "quit" }, rootCtx);
 // The duplicate copy never owned lifecycle state and must not emit a late stop.
 await duplicateHandlers.get("session_shutdown")({ reason: "quit" }, rootCtx);
 const delivered = lines(process.env.FAKE_PRIME_CMUX_ARGS_LOG);
@@ -300,7 +310,9 @@ if (payloads.some((payload) => payload.session_id !== "prime-root-session")) {
 if (payloads[1].prompt !== "root prompt" || payloads[2].last_assistant_message !== "root answer") {
   throw new Error(`root lifecycle payloads were incomplete: ${JSON.stringify(payloads)}`);
 }
-if (lines(process.env.FAKE_PRIME_CMUX_ENV_LOG).some((line) => line !== "kind=prime-agent")) {
+const envLines = lines(process.env.FAKE_PRIME_CMUX_ENV_LOG);
+if (envLines.filter((line) => line === "kind=prime-agent").length !== 3
+  || envLines.some((line) => line === "argv=stale-capture")) {
   throw new Error(`root launch capture was not normalized: ${lines(process.env.FAKE_PRIME_CMUX_ENV_LOG)}`);
 }
 """

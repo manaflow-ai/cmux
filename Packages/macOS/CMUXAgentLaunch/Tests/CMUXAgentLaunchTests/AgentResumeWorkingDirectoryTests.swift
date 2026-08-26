@@ -26,7 +26,7 @@ struct AgentResumeWorkingDirectoryTests {
 
     @Test("Id-keyed cwd-in-file agents keep the runtime cwd")
     func cwdInFileKeepsRuntime() {
-        for kind in ["codex", "opencode", "amp", "antigravity", "rovodev", "hermes-agent"] {
+        for kind in ["codex", "opencode", "amp", "antigravity", "rovodev", "hermes-agent", "prime-agent"] {
             #expect(AgentResumeWorkingDirectory().cwdNamespacing(forKind: kind) == .cwdInFile)
             #expect(
                 AgentResumeWorkingDirectory().resolve(
