@@ -195,6 +195,9 @@ public struct TerminalEmittedLinkScanner: Sendable {
             return
         }
         captured.append(TerminalCapturedLink(url: url, source: .osc8))
+        guard !logicalLineOverflowed else { return }
+        advanceLogicalLineConsumption(by: osc8URIBuffer.count)
+        guard !logicalLineOverflowed else { return }
         osc8URLsInLogicalLine.insert(url)
     }
 
@@ -263,7 +266,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         case 0x20...0x7E, 0x80...0xFF:
             appendToLogicalLine(byte)
         default:
-            break
+            appendToLogicalLine(0x20)
         }
     }
 
@@ -282,6 +285,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         logicalLineConsumedBytes += byteCount
         guard logicalLineConsumedBytes <= Self.maximumLogicalLineBytes else {
             logicalLine.removeAll(keepingCapacity: true)
+            osc8URLsInLogicalLine.removeAll(keepingCapacity: true)
             logicalLineOverflowed = true
             return
         }

@@ -7,6 +7,7 @@ import Observation
 @Observable
 final class WorkspaceLinksState {
     private static let maximumRecentTitleChanges = 256
+    private static let titleFetchRetryCooldown: TimeInterval = 60
 
     private var persistenceRevisionValue: UInt64 = 0
     private var titleChangeSequence: UInt64 = 0
@@ -58,6 +59,56 @@ final class WorkspaceLinksState {
         now: Date = Date(),
         id: UUID = UUID()
     ) -> WorkspaceCapturedLink? {
+        guard let entry = ingestWithoutMarking(
+            url: url,
+            origin: origin,
+            sourcePanelId: sourcePanelId,
+            sourceSurfaceTitle: sourceSurfaceTitle,
+            configuration: configuration,
+            now: now,
+            id: id
+        ) else {
+            return nil
+        }
+        markStructuralChange()
+        return entry
+    }
+
+    func ingest(
+        _ links: [TerminalCapturedLink],
+        sourcePanelId: UUID?,
+        sourceSurfaceTitle: String?,
+        configuration: WorkspaceLinksIngestConfiguration,
+        now: Date = .now
+    ) {
+        var didChange = false
+        for link in links {
+            if ingestWithoutMarking(
+                url: link.url,
+                origin: WorkspaceCapturedLinkOrigin(link.source),
+                sourcePanelId: sourcePanelId,
+                sourceSurfaceTitle: sourceSurfaceTitle,
+                configuration: configuration,
+                now: now,
+                id: UUID()
+            ) != nil {
+                didChange = true
+            }
+        }
+        if didChange {
+            markStructuralChange()
+        }
+    }
+
+    private func ingestWithoutMarking(
+        url: String,
+        origin: WorkspaceCapturedLinkOrigin,
+        sourcePanelId: UUID?,
+        sourceSurfaceTitle: String?,
+        configuration: WorkspaceLinksIngestConfiguration,
+        now: Date,
+        id: UUID
+    ) -> WorkspaceCapturedLink? {
         let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let lower = trimmed.lowercased()
@@ -81,14 +132,16 @@ final class WorkspaceLinksState {
             entry.sourcePanelId = sourcePanelId ?? entry.sourcePanelId
             entry.sourceSurfaceTitle = sourceSurfaceTitle ?? entry.sourceSurfaceTitle
             entry.origin = origin
-            if entry.fetchedTitle == nil, entry.titleFetchState == .failed {
+            if entry.fetchedTitle == nil,
+               entry.titleFetchState == .failed,
+               entry.titleFetchRetryAfter.map({ now >= $0 }) ?? true {
                 entry.titleFetchState = .idle
                 entry.titleFetchGeneration &+= 1
+                entry.titleFetchRetryAfter = nil
             }
             entriesByURL[trimmed] = entry
             moveToFront(trimmed)
             enforceRetention(configuration.retentionLimit)
-            markStructuralChange()
             return entry
         }
 
@@ -108,7 +161,6 @@ final class WorkspaceLinksState {
         urlByID[entry.id] = trimmed
         insertAtFront(trimmed)
         enforceRetention(configuration.retentionLimit)
-        markStructuralChange()
         return entry
     }
 
@@ -120,6 +172,7 @@ final class WorkspaceLinksState {
             var entry = restoredEntry
             entry.titleFetchState = .idle
             entry.activeTitleFetchID = nil
+            entry.titleFetchRetryAfter = nil
             entriesByURL[entry.url] = entry
             urlByID[entry.id] = entry.url
             appendToTail(entry.url)
@@ -155,7 +208,12 @@ final class WorkspaceLinksState {
         return WorkspaceLinkTitleFetchRequest(entry: entry, requestID: requestID)
     }
 
-    func finishTitleFetch(for id: UUID, requestID: UUID, title: String?) {
+    func finishTitleFetch(
+        for id: UUID,
+        requestID: UUID,
+        title: String?,
+        now: Date = .now
+    ) {
         guard let url = urlByID[id],
               var entry = entriesByURL[url],
               entry.activeTitleFetchID == requestID else {
@@ -164,6 +222,9 @@ final class WorkspaceLinksState {
         entry.fetchedTitle = title
         entry.titleFetchState = title == nil ? .failed : .idle
         entry.activeTitleFetchID = nil
+        entry.titleFetchRetryAfter = title == nil
+            ? now.addingTimeInterval(Self.titleFetchRetryCooldown)
+            : nil
         entriesByURL[url] = entry
         if title != nil {
             markTitleChange(entryID: id)

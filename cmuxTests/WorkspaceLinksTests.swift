@@ -169,10 +169,12 @@ struct WorkspaceLinksTests {
 
         let failedRequest = try #require(state.beginTitleFetch(for: entry.id))
         #expect(state.beginTitleFetch(for: entry.id) == nil)
+        let failureTime = Date(timeIntervalSince1970: 100)
         state.finishTitleFetch(
             for: entry.id,
             requestID: failedRequest.requestID,
-            title: nil
+            title: nil,
+            now: failureTime
         )
         #expect(state.beginTitleFetch(for: entry.id) == nil)
         let failedGeneration = try #require(state.entry(for: entry.id)).titleFetchGeneration
@@ -182,7 +184,17 @@ struct WorkspaceLinksTests {
             origin: .detected,
             sourcePanelId: nil,
             sourceSurfaceTitle: nil,
-            configuration: config
+            configuration: config,
+            now: failureTime.addingTimeInterval(59)
+        )
+        #expect(state.beginTitleFetch(for: entry.id) == nil)
+        state.ingest(
+            url: entry.url,
+            origin: .detected,
+            sourcePanelId: nil,
+            sourceSurfaceTitle: nil,
+            configuration: config,
+            now: failureTime.addingTimeInterval(60)
         )
         let retriedEntry = try #require(state.entry(for: entry.id))
         #expect(retriedEntry.titleFetchGeneration == failedGeneration + 1)
@@ -304,6 +316,30 @@ struct WorkspaceLinksTests {
         let changes = try #require(state.titleChanges(after: 0))
         #expect(changes.map(\.entryID) == [first.id, second.id])
         #expect(changes.map(\.sequence) == [1, 2])
+    }
+
+    @MainActor
+    @Test
+    func capturedLinkBatchPublishesOneStructuralRevision() {
+        let state = WorkspaceLinksState()
+        let initialRevision = state.structuralRevision
+
+        state.ingest(
+            [
+                TerminalCapturedLink(url: "https://example.com/first", source: .detected),
+                TerminalCapturedLink(url: "https://example.com/second", source: .osc8),
+            ],
+            sourcePanelId: nil,
+            sourceSurfaceTitle: "Terminal",
+            configuration: WorkspaceLinksIngestConfiguration(ignoreHosts: []),
+            now: Date(timeIntervalSince1970: 100)
+        )
+
+        #expect(state.entries.map(\.url) == [
+            "https://example.com/second",
+            "https://example.com/first",
+        ])
+        #expect(state.structuralRevision == initialRevision + 1)
     }
 
     @MainActor

@@ -24,14 +24,11 @@ final class TerminalLinkCaptureIngress {
             return
         }
         let sourceTitle = sourcePanelId.flatMap { workspace.panelTitles[$0] }
-        for link in links {
-            workspace.linksState.ingest(
-                url: link.url,
-                origin: WorkspaceCapturedLinkOrigin(link.source),
-                sourcePanelId: sourcePanelId,
-                sourceSurfaceTitle: sourceTitle,
-                configuration: settings.ingestConfiguration
-            )
-        }
+        workspace.linksState.ingest(
+            links,
+            sourcePanelId: sourcePanelId,
+            sourceSurfaceTitle: sourceTitle,
+            configuration: settings.ingestConfiguration
+        )
     }
 }

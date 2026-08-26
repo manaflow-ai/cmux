@@ -135,6 +135,38 @@ end https://end.example/c
     }
 
     @Test
+    func osc8URIsCountTowardLogicalLineCap() {
+        var scanner = TerminalEmittedLinkScanner()
+        let first = "https://first.example/" + String(repeating: "a", count: 1_400)
+        let second = "https://second.example/" + String(repeating: "b", count: 1_400)
+        let third = "https://third.example/" + String(repeating: "c", count: 1_400)
+        let ignoredPlainURL = "https://ignored.example/after-overflow"
+        let recoveredPlainURL = "https://recovered.example/next-line"
+        let output = """
+        \u{1B}]8;;\(first)\u{07}one\u{1B}]8;;\u{07}\
+        \u{1B}]8;;\(second)\u{07}two\u{1B}]8;;\u{07}\
+        \u{1B}]8;;\(third)\u{07}three\u{1B}]8;;\u{07}\
+        \(ignoredPlainURL)
+        \(recoveredPlainURL)
+        """
+
+        let links = scanner.consume(bytes(output))
+
+        #expect(links.map(\.url) == [first, second, third, recoveredPlainURL])
+    }
+
+    @Test
+    func controlSeparatorsDoNotMergeAdjacentURLs() {
+        var scanner = TerminalEmittedLinkScanner()
+        let links = scanner.consume(bytes("https://first.example/a\thttps://second.example/b\n"))
+
+        #expect(links.map(\.url) == [
+            "https://first.example/a",
+            "https://second.example/b",
+        ])
+    }
+
+    @Test
     func requiresPlausibleHostForDetectedURLs() {
         let scanner = TerminalEmittedLinkScanner()
         #expect(scanner.detectURLs(in: "http://example/path").isEmpty)

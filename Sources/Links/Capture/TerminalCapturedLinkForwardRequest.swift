@@ -1,6 +1,6 @@
 import CmuxTerminalCore
 
 struct TerminalCapturedLinkForwardRequest: Sendable {
-    let link: TerminalCapturedLink
+    let links: [TerminalCapturedLink]
     let settings: LinkCaptureSettingsSnapshot
 }

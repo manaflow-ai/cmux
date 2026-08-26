@@ -14,4 +14,5 @@ struct WorkspaceCapturedLink: Identifiable, Equatable, Hashable, Sendable {
     var titleFetchState: WorkspaceLinkTitleFetchState = .idle
     var titleFetchGeneration: UInt64 = 0
     var activeTitleFetchID: UUID?
+    var titleFetchRetryAfter: Date? = nil
 }
