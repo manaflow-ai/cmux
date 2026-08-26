@@ -34,7 +34,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
-| Mistral Vibe | `vibe` | `~/.vibe/hooks.toml` | `vibe --resume <id>` | pre_tool, post_tool |
+| Mistral Vibe | `vibe` | `~/.vibe/hooks.toml` | `vibe --resume <id>` | pre_tool, post_tool (telemetry only) |
 
 OpenCode also supports project-local Feed installation:
 

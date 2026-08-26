@@ -20,7 +20,7 @@ struct VibeHookConfigTests {
             ),
         ]
 
-        let installed = VibeHookConfig.installing(events: events, in: "")
+        let installed = VibeHookConfig().installing(events: events, in: "")
 
         #expect(installed == """
         # cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d begin
@@ -52,7 +52,7 @@ struct VibeHookConfigTests {
             VibeHookConfig.Event(name: "cmux-stop", type: "post_agent", command: "cmux hooks vibe stop", timeout: 60),
         ]
 
-        let installed = VibeHookConfig.installing(events: events, in: existing)
+        let installed = VibeHookConfig().installing(events: events, in: existing)
 
         #expect(installed == """
         active_model = "mistral-medium-3.5"
@@ -77,19 +77,19 @@ struct VibeHookConfigTests {
             VibeHookConfig.Event(name: "cmux-stop", type: "post_agent", command: "cmux hooks vibe stop", timeout: 60),
         ]
 
-        let installed = VibeHookConfig.installing(events: events, in: existing)
+        let installed = VibeHookConfig().installing(events: events, in: existing)
 
-        #expect(VibeHookConfig.installing(events: events, in: installed) == installed)
+        #expect(VibeHookConfig().installing(events: events, in: installed) == installed)
     }
 
     @Test("Reinstall replaces stale cmux block")
     func reinstallReplacesStaleCmuxBlock() {
-        let stale = VibeHookConfig.installing(
+        let stale = VibeHookConfig().installing(
             events: [VibeHookConfig.Event(name: "cmux-stop", type: "post_agent", command: "cmux hooks vibe stop", timeout: 60)],
             in: "active_model = \"mistral-medium-3.5\"\n"
         )
 
-        let reinstalled = VibeHookConfig.installing(
+        let reinstalled = VibeHookConfig().installing(
             events: [VibeHookConfig.Event(name: "cmux-stop", type: "post_agent", command: "cmux hooks vibe stop", timeout: 30)],
             in: stale
         )
@@ -106,9 +106,9 @@ struct VibeHookConfigTests {
             VibeHookConfig.Event(name: "cmux-stop", type: "post_agent", command: "cmux hooks vibe stop", timeout: 60),
         ]
 
-        let installed = VibeHookConfig.installing(events: events, in: existing)
+        let installed = VibeHookConfig().installing(events: events, in: existing)
 
-        #expect(VibeHookConfig.uninstalling(from: installed) == existing)
+        #expect(VibeHookConfig().uninstalling(from: installed) == existing)
     }
 
     @Test("Uninstall without cmux block leaves content unchanged")
@@ -119,7 +119,7 @@ struct VibeHookConfigTests {
 
         """
 
-        #expect(VibeHookConfig.uninstalling(from: existing) == existing)
+        #expect(VibeHookConfig().uninstalling(from: existing) == existing)
     }
 
     @Test("Detects whether a config carries a cmux block")
@@ -133,7 +133,7 @@ struct VibeHookConfigTests {
         command = "echo hello"
 
         """
-        let installed = VibeHookConfig.installing(
+        let installed = VibeHookConfig().installing(
             events: [
                 VibeHookConfig.Event(
                     name: "cmux-stop",
@@ -145,11 +145,11 @@ struct VibeHookConfigTests {
             in: userOnly
         )
 
-        #expect(!VibeHookConfig.containsCmuxBlock(in: ""))
-        #expect(!VibeHookConfig.containsCmuxBlock(in: userOnly))
-        #expect(VibeHookConfig.containsCmuxBlock(in: installed))
-        #expect(!VibeHookConfig.containsCmuxBlock(
-            in: VibeHookConfig.uninstalling(from: installed)
+        #expect(!VibeHookConfig().containsCmuxBlock(in: ""))
+        #expect(!VibeHookConfig().containsCmuxBlock(in: userOnly))
+        #expect(VibeHookConfig().containsCmuxBlock(in: installed))
+        #expect(!VibeHookConfig().containsCmuxBlock(
+            in: VibeHookConfig().uninstalling(from: installed)
         ))
     }
 
@@ -162,7 +162,7 @@ struct VibeHookConfigTests {
 
         """
 
-        #expect(VibeHookConfig.uninstalling(from: existing) == """
+        #expect(VibeHookConfig().uninstalling(from: existing) == """
         active_model = "mistral-medium-3.5"
         theme = "auto"
 
@@ -180,7 +180,7 @@ struct VibeHookConfigTests {
             ),
         ]
 
-        let installed = VibeHookConfig.installing(events: events, in: "")
+        let installed = VibeHookConfig().installing(events: events, in: "")
 
         #expect(installed.contains(#"command = "cmux hooks \"vibe\" \\\tstop""#))
     }
@@ -193,27 +193,27 @@ struct VibeHookConfigTests {
         let crlfExisting = "active_model = \"mistral-medium-3.5\"\r\ntheme = \"auto\"\r\n"
 
         #expect(
-            VibeHookConfig.uninstalling(from: crlfExisting)
+            VibeHookConfig().uninstalling(from: crlfExisting)
                 == "active_model = \"mistral-medium-3.5\"\ntheme = \"auto\"\n"
         )
 
-        let installed = VibeHookConfig.installing(events: eventsV1, in: crlfExisting)
-        #expect(VibeHookConfig.containsCmuxBlock(in: installed))
+        let installed = VibeHookConfig().installing(events: eventsV1, in: crlfExisting)
+        #expect(VibeHookConfig().containsCmuxBlock(in: installed))
 
         let crlfInstalled = installed.replacingOccurrences(of: "\n", with: "\r\n")
-        #expect(VibeHookConfig.containsCmuxBlock(in: crlfInstalled))
+        #expect(VibeHookConfig().containsCmuxBlock(in: crlfInstalled))
 
         let eventsV2 = [
             VibeHookConfig.Event(name: "cmux-stop", type: "post_agent", command: "cmux hooks vibe stop", timeout: 30),
         ]
-        let refreshed = VibeHookConfig.installing(events: eventsV2, in: crlfInstalled)
+        let refreshed = VibeHookConfig().installing(events: eventsV2, in: crlfInstalled)
         #expect(refreshed.components(separatedBy: "# cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d begin").count == 2)
         #expect(refreshed.contains("timeout = 30.0"))
         #expect(!refreshed.contains("timeout = 60.0"))
 
         #expect(
-            VibeHookConfig.uninstalling(from: crlfInstalled)
-                == VibeHookConfig.uninstalling(from: installed)
+            VibeHookConfig().uninstalling(from: crlfInstalled)
+                == VibeHookConfig().uninstalling(from: installed)
         )
     }
 }

@@ -5,7 +5,7 @@ import Foundation
 /// Vibe stores hooks in `~/.vibe/hooks.toml` as `[[hooks]]` array-of-tables with
 /// `name`, `type`, `command`, and `timeout` fields. This mirrors the marker-delimited
 /// text-transform approach used by ``KimiCodeHookConfig`` but emits the Vibe schema.
-public enum VibeHookConfig {
+public struct VibeHookConfig: Sendable {
     /// A Vibe hook event entry written as a TOML `[[hooks]]` table.
     public struct Event: Equatable, Sendable {
         /// The Vibe hook name (e.g. "cmux-stop").
@@ -31,9 +31,18 @@ public enum VibeHookConfig {
         }
     }
 
-    private static let beginMarker =
+    private let beginMarker: String
+    private let endMarker: String
+
+    /// Creates a Vibe hook config writer.
+    public init() {
+        self.beginMarker = Self.defaultBeginMarker
+        self.endMarker = Self.defaultEndMarker
+    }
+
+    private static let defaultBeginMarker =
         "# cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d begin"
-    private static let endMarker =
+    private static let defaultEndMarker =
         "# cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d end"
 
     /// Returns TOML content with exactly one cmux-owned Vibe hooks block.
@@ -41,7 +50,7 @@ public enum VibeHookConfig {
     ///   - events: Hook events to write, in output order.
     ///   - existing: Existing TOML config content.
     /// - Returns: The updated TOML content.
-    public static func installing(events: [Event], in existing: String) -> String {
+    public func installing(events: [Event], in existing: String) -> String {
         var lines = tomlLines(from: existing)
         removeCmuxVibeHooksBlock(from: &lines)
 
@@ -61,7 +70,7 @@ public enum VibeHookConfig {
     /// Returns whether the content already carries a cmux-owned Vibe hooks block.
     /// - Parameter existing: Existing TOML config content.
     /// - Returns: `true` when a cmux marker block is present.
-    public static func containsCmuxBlock(in existing: String) -> Bool {
+    public func containsCmuxBlock(in existing: String) -> Bool {
         tomlLines(from: existing).contains { line in
             line.trimmingCharacters(in: .whitespaces) == beginMarker
         }
@@ -70,48 +79,54 @@ public enum VibeHookConfig {
     /// Returns TOML content after removing cmux-owned Vibe hooks blocks.
     /// - Parameter existing: Existing TOML config content.
     /// - Returns: The TOML content without cmux-owned Vibe hook blocks.
-    public static func uninstalling(from existing: String) -> String {
+    public func uninstalling(from existing: String) -> String {
         var lines = tomlLines(from: existing)
         removeCmuxVibeHooksBlock(from: &lines)
         return tomlContent(from: lines)
     }
 
-    private static func hookTableLines(event: Event) -> [String] {
+    private func hookTableLines(event: Event) -> [String] {
         return [
             "[[hooks]]",
             "name = \"\(tomlBasicStringContent(event.name))\"",
             "type = \"\(tomlBasicStringContent(event.type))\"",
             "command = \"\(tomlBasicStringContent(event.command))\"",
-            "timeout = \(VibeHookConfig.formatTimeout(event.timeout))",
+            "timeout = \(formatTimeout(event.timeout))",
             "",
         ]
     }
 
-    private static func formatTimeout(_ timeout: Double) -> String {
+    private func formatTimeout(_ timeout: Double) -> String {
         if timeout == timeout.rounded() {
             return String(format: "%.1f", timeout)
         }
         return String(timeout)
     }
 
-    private static func removeCmuxVibeHooksBlock(from lines: inout [String]) {
-        var index = 0
-        while index < lines.count {
-            guard lines[index].trimmingCharacters(in: .whitespaces) == beginMarker else {
-                index += 1
+    /// Single-pass scan that appends non-cmux lines to an output array and
+    /// skips owned content until the end marker. An unterminated begin marker
+    /// is dropped without affecting following content.
+    private func removeCmuxVibeHooksBlock(from lines: inout [String]) {
+        var result: [String] = []
+        var skipUntilEnd = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if skipUntilEnd {
+                if trimmed == endMarker {
+                    skipUntilEnd = false
+                }
                 continue
             }
-            if let endIndex = lines[index...].firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces) == endMarker
-            }) {
-                lines.removeSubrange(index...endIndex)
-            } else {
-                lines.remove(at: index)
+            if trimmed == beginMarker {
+                skipUntilEnd = true
+                continue
             }
+            result.append(line)
         }
+        lines = result
     }
 
-    private static func tomlBasicStringContent(_ value: String) -> String {
+    private func tomlBasicStringContent(_ value: String) -> String {
         var escaped = ""
         escaped.reserveCapacity(value.count)
 
@@ -146,7 +161,7 @@ public enum VibeHookConfig {
     }
 
     /// Splits TOML content into lines, tolerating CRLF endings.
-    private static func tomlLines(from content: String) -> [String] {
+    private func tomlLines(from content: String) -> [String] {
         guard !content.isEmpty else { return [] }
         var lines = content.components(separatedBy: "\n").map { line in
             line.hasSuffix("\r") ? String(line.dropLast()) : line
@@ -157,7 +172,7 @@ public enum VibeHookConfig {
         return lines
     }
 
-    private static func tomlContent(from lines: [String]) -> String {
+    private func tomlContent(from lines: [String]) -> String {
         guard !lines.isEmpty else { return "" }
         return lines.joined(separator: "\n") + "\n"
     }

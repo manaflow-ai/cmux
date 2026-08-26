@@ -10,7 +10,11 @@ extension CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
             id: "vibe",
             name: RestorableAgentKind.vibe.displayName,
-            detect: CmuxVaultAgentDetectRule(processNames: ["vibe", "Vibe CLI", "mistral-vibe"]),
+            // Do not include "Vibe CLI" here: it is a mutable process title set
+            // via setproctitle, not an executable basename. Matching on it would
+            // bind an unrelated process to Vibe. Detection relies on the
+            // executable-path basename or validated cmux launch metadata.
+            detect: CmuxVaultAgentDetectRule(processNames: ["vibe", "mistral-vibe"]),
             sessionIdSource: .argvOption("--resume"),
             resumeCommand: RegisteredAgentResumeKind.vibe.commandTemplate,
             cwd: .preserve
