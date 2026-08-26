@@ -175,64 +175,187 @@ extension SidebarGitMetadataService {
         let normalizedPaths = Set(paths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
         let previousPaths = workspaceGitMetadataCreationWatchPathsByProbeKey[key] ?? []
         for path in previousPaths.subtracting(normalizedPaths) {
-            workspaceGitMetadataCreationWatcherProbeKeysByPath[path]?.remove(key)
-            if workspaceGitMetadataCreationWatcherProbeKeysByPath[path]?.isEmpty == true {
-                workspaceGitMetadataCreationWatcherProbeKeysByPath.removeValue(forKey: path)
-                workspaceGitMetadataCreationWatcherTasksByPath.removeValue(forKey: path)?.cancel()
-                workspaceGitMetadataCreationWatchersByPath.removeValue(forKey: path)
-            }
+            removeWorkspaceGitMetadataCreationWatchTarget(path, for: key)
         }
 
+        var acceptedPaths: Set<String> = []
         for path in normalizedPaths {
-            workspaceGitMetadataCreationWatcherProbeKeysByPath[path, default: []].insert(key)
-            guard workspaceGitMetadataCreationWatchersByPath[path] == nil,
-                  let watcher = FileWatcher(
-                      path: path,
-                      throttle: .milliseconds(250)
-                  ) else {
-                continue
-            }
-            workspaceGitMetadataCreationWatchersByPath[path] = watcher
-            let events = watcher.events
-            workspaceGitMetadataCreationWatcherTasksByPath[path] = Task { @MainActor [weak self] in
-                for await _ in events {
-                    guard let self else { break }
-                    let keys = Array(
-                        self.workspaceGitMetadataCreationWatcherProbeKeysByPath[path] ?? []
-                    )
-                    guard !keys.isEmpty else { continue }
-                    self.recordWorkspaceGitMetadataFilesystemEvent(for: keys)
-                    for key in keys {
-                        self.scheduleWorkspaceGitMetadataRefreshIfPossible(
-                            workspaceId: key.workspaceId,
-                            panelId: key.panelId,
-                            reason: "configCreationEvent"
-                        )
-                        guard let directory = self.workspaceGitMetadataWatcherSourceDirectoryByKey[key] else {
-                            continue
-                        }
-                        self.updateWorkspaceGitMetadataWatcher(
-                            for: key,
-                            directory: directory,
-                            forceDescriptorRefresh: true
-                        )
-                    }
-                }
+            if previousPaths.contains(path) || addWorkspaceGitMetadataCreationWatchTarget(path, for: key) {
+                acceptedPaths.insert(path)
             }
         }
-        workspaceGitMetadataCreationWatchPathsByProbeKey[key] = normalizedPaths
+        workspaceGitMetadataCreationWatchPathsByProbeKey[key] = acceptedPaths
     }
 
     private func stopWorkspaceGitMetadataCreationWatchers(for key: WorkspaceGitProbeKey) {
         let paths = workspaceGitMetadataCreationWatchPathsByProbeKey.removeValue(forKey: key) ?? []
         for path in paths {
-            workspaceGitMetadataCreationWatcherProbeKeysByPath[path]?.remove(key)
-            if workspaceGitMetadataCreationWatcherProbeKeysByPath[path]?.isEmpty == true {
-                workspaceGitMetadataCreationWatcherProbeKeysByPath.removeValue(forKey: path)
-                workspaceGitMetadataCreationWatcherTasksByPath.removeValue(forKey: path)?.cancel()
-                workspaceGitMetadataCreationWatchersByPath.removeValue(forKey: path)
+            removeWorkspaceGitMetadataCreationWatchTarget(path, for: key)
+        }
+    }
+
+    private func addWorkspaceGitMetadataCreationWatchTarget(
+        _ path: String,
+        for key: WorkspaceGitProbeKey
+    ) -> Bool {
+        let ancestor = nearestExistingDirectory(for: path)
+        guard ancestor != "/" else { return false }
+        let targetIsNew = workspaceGitMetadataCreationWatcherAncestorByTargetPath[path] == nil
+        if targetIsNew {
+            let targetCount = workspaceGitMetadataCreationWatcherAncestorByTargetPath.count
+            guard targetCount < 512 else { return false }
+            let ancestorIsNew = workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor] == nil
+            if ancestorIsNew {
+                guard workspaceGitMetadataCreationWatchersByAncestor.count < 128 else {
+                    return false
+                }
+            }
+            workspaceGitMetadataCreationWatcherAncestorByTargetPath[path] = ancestor
+            workspaceGitMetadataCreationWatchTargetExistsByPath[path] =
+                creationWatchFileManager.fileExists(atPath: path)
+            workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor, default: []].insert(path)
+        }
+        workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[path, default: []].insert(key)
+        ensureWorkspaceGitMetadataCreationWatcher(for: ancestor)
+        return true
+    }
+
+    private func removeWorkspaceGitMetadataCreationWatchTarget(
+        _ path: String,
+        for key: WorkspaceGitProbeKey
+    ) {
+        workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[path]?.remove(key)
+        guard workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[path]?.isEmpty == true else {
+            return
+        }
+        workspaceGitMetadataCreationWatcherProbeKeysByTargetPath.removeValue(forKey: path)
+        workspaceGitMetadataCreationWatcherTargetExistsByPath.removeValue(forKey: path)
+        guard let ancestor = workspaceGitMetadataCreationWatcherAncestorByTargetPath.removeValue(forKey: path) else {
+            return
+        }
+        workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor]?.remove(path)
+        if workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor]?.isEmpty == true {
+            workspaceGitMetadataCreationWatchTargetsByAncestor.removeValue(forKey: ancestor)
+            workspaceGitMetadataCreationWatcherTasksByAncestor.removeValue(forKey: ancestor)?.cancel()
+            workspaceGitMetadataCreationWatchersByAncestor.removeValue(forKey: ancestor)
+        }
+    }
+
+    private func ensureWorkspaceGitMetadataCreationWatcher(for ancestor: String) {
+        guard workspaceGitMetadataCreationWatchersByAncestor[ancestor] == nil else { return }
+        let watcher = FileWatcher(path: ancestor, throttle: .milliseconds(250))
+        workspaceGitMetadataCreationWatchersByAncestor[ancestor] = watcher
+        let events = watcher.events
+        workspaceGitMetadataCreationWatcherTasksByAncestor[ancestor] = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
+                let targets = Array(
+                    self.workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor] ?? []
+                )
+                let snapshots = await self.creationTargetSnapshots(for: targets)
+                guard !Task.isCancelled else { break }
+                var changed = false
+                for target in targets {
+                    guard self.workspaceGitMetadataCreationWatcherAncestorByTargetPath[target]
+                            == ancestor,
+                          let snapshot = snapshots[target] else {
+                        continue
+                    }
+                    let closerAncestor = snapshot.nearestExistingDirectory
+                    if closerAncestor != ancestor, closerAncestor != "/" {
+                        self.migrateWorkspaceGitMetadataCreationWatchTarget(
+                            target,
+                            from: ancestor,
+                            to: closerAncestor
+                        )
+                    }
+                    if self.workspaceGitMetadataCreationWatcherTargetExistsByPath[target]
+                        != snapshot.exists {
+                        self.workspaceGitMetadataCreationWatcherTargetExistsByPath[target] =
+                            snapshot.exists
+                        changed = true
+                    }
+                }
+                guard changed else { continue }
+                let keySet = targets.reduce(into: Set<WorkspaceGitProbeKey>()) { result, target in
+                    result.formUnion(
+                        self.workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[target] ?? []
+                    )
+                }
+                let keys = Array(keySet)
+                guard !keys.isEmpty else { continue }
+                self.recordWorkspaceGitMetadataFilesystemEvent(for: keys)
+                for key in keys {
+                    self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: key.workspaceId,
+                        panelId: key.panelId,
+                        reason: "configCreationEvent"
+                    )
+                    guard let directory = self.workspaceGitMetadataWatcherSourceDirectoryByKey[key] else {
+                        continue
+                    }
+                    self.updateWorkspaceGitMetadataWatcher(
+                        for: key,
+                        directory: directory,
+                        forceDescriptorRefresh: true
+                    )
+                }
             }
         }
+    }
+
+    private func migrateWorkspaceGitMetadataCreationWatchTarget(
+        _ target: String,
+        from previousAncestor: String,
+        to ancestor: String
+    ) {
+        let removesPreviousWatcher =
+            workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.count == 1
+        guard workspaceGitMetadataCreationWatcherAncestorByTargetPath[target] == previousAncestor,
+              workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor] != nil
+                || workspaceGitMetadataCreationWatchersByAncestor.count < 128
+                || removesPreviousWatcher else {
+            return
+        }
+        workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.remove(target)
+        if workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.isEmpty == true {
+            workspaceGitMetadataCreationWatchTargetsByAncestor.removeValue(forKey: previousAncestor)
+            workspaceGitMetadataCreationWatcherTasksByAncestor
+                .removeValue(forKey: previousAncestor)?
+                .cancel()
+            workspaceGitMetadataCreationWatchersByAncestor.removeValue(forKey: previousAncestor)
+        }
+        workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor, default: []].insert(target)
+        workspaceGitMetadataCreationWatcherAncestorByTargetPath[target] = ancestor
+        ensureWorkspaceGitMetadataCreationWatcher(for: ancestor)
+    }
+
+    @concurrent
+    nonisolated private func creationTargetSnapshots(
+        for paths: [String]
+    ) async -> [String: WorkspaceGitMetadataCreationTargetSnapshot] {
+        paths.reduce(into: [String: WorkspaceGitMetadataCreationTargetSnapshot]()) { result, path in
+            result[path] = WorkspaceGitMetadataCreationTargetSnapshot(
+                exists: creationWatchFileManager.fileExists(atPath: path),
+                nearestExistingDirectory: nearestExistingDirectory(for: path)
+            )
+        }
+    }
+
+    nonisolated private func nearestExistingDirectory(for path: String) -> String {
+        var candidate = URL(fileURLWithPath: path).deletingLastPathComponent()
+        while candidate.path != "/" {
+            var isDirectory: ObjCBool = false
+            if creationWatchFileManager.fileExists(
+                atPath: candidate.path,
+                isDirectory: &isDirectory
+            ),
+               isDirectory.boolValue {
+                return candidate.standardizedFileURL.path
+            }
+            candidate.deleteLastPathComponent()
+        }
+        return "/"
     }
 
     func workspaceGitSnapshotCacheGeneration(directory: String) -> UInt64? {
@@ -362,6 +485,7 @@ extension SidebarGitMetadataService {
         let keys = Set(workspaceGitMetadataWatcherSourceDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataWatcherDescriptorRequestsByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataCreationWatchPathsByProbeKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             stopWorkspaceGitMetadataWatcher(for: key)
         }
@@ -375,12 +499,15 @@ extension SidebarGitMetadataService {
         // Dropping the references runs each watcher's deinit synchronously,
         // invalidating its FSEventStream.
         workspaceGitMetadataWatchersByWatchedPathsKey.removeAll()
-        for task in workspaceGitMetadataCreationWatcherTasksByPath.values {
+        for task in workspaceGitMetadataCreationWatcherTasksByAncestor.values {
             task.cancel()
         }
-        workspaceGitMetadataCreationWatcherTasksByPath.removeAll()
-        workspaceGitMetadataCreationWatchersByPath.removeAll()
-        workspaceGitMetadataCreationWatcherProbeKeysByPath.removeAll()
+        workspaceGitMetadataCreationWatcherTasksByAncestor.removeAll()
+        workspaceGitMetadataCreationWatchersByAncestor.removeAll()
+        workspaceGitMetadataCreationWatchTargetsByAncestor.removeAll()
+        workspaceGitMetadataCreationWatcherProbeKeysByTargetPath.removeAll()
+        workspaceGitMetadataCreationWatcherAncestorByTargetPath.removeAll()
+        workspaceGitMetadataCreationWatcherTargetExistsByPath.removeAll()
         workspaceGitMetadataCreationWatchPathsByProbeKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
         workspaceGitMetadataWatcherKeysBySourceDirectory.removeAll()

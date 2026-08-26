@@ -126,7 +126,7 @@ import CmuxGit
         )
         #expect(appliedLog.contains("workspace.gitWatch.degraded"))
         #expect(installedWatcherKey.eventFilterIdentity == "fresh")
-        #expect(service.workspaceGitMetadataCreationWatchersByPath[creationWatchPath] != nil)
+        #expect(service.workspaceGitMetadataCreationWatchersByAncestor["/tmp"] != nil)
         #expect(await descriptorReader.requestCount == 2)
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
@@ -177,7 +177,13 @@ import CmuxGit
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         let descriptorReader = GatedWatchDescriptorReader()
-        let service = makeService(host: host, descriptorReader: descriptorReader)
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
         service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
 
         service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
@@ -185,10 +191,17 @@ import CmuxGit
         await descriptorReader.resumeNext(with: descriptor(
             repositoryRoot: fixture.root.path,
             identity: "shared-ancestor",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
             creationWatchPaths: [firstPath, secondPath]
         ))
+        var logIterator = logEvents.makeAsyncIterator()
+        _ = try #require(await logIterator.next())
 
-        #expect(service.workspaceGitMetadataCreationWatchersByPath.count == 1)
+        #expect(service.workspaceGitMetadataCreationWatchersByAncestor.count == 1)
+        #expect(
+            service.workspaceGitMetadataCreationWatchTargetsByAncestor[configDirectory.path]
+                == Set([firstPath, secondPath])
+        )
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
 }

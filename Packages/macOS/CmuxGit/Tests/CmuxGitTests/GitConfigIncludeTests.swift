@@ -72,13 +72,13 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(slugs(fromConfig: config) == ["manaflow-ai/cmux", "austinwang/cmux"])
     }
 
-    @Test func usesLastRemoteURLValue() {
+    @Test func usesFirstRemoteURLValueForFetch() {
         let config = """
         [remote "origin"]
             url = https://github.com/old-owner/old-repo.git
             url = https://github.com/manaflow-ai/cmux.git
         """
-        #expect(slugs(fromConfig: config) == ["manaflow-ai/cmux"])
+        #expect(slugs(fromConfig: config) == ["old-owner/old-repo"])
     }
 
     @Test func readsIncludedConfigFiles() throws {
