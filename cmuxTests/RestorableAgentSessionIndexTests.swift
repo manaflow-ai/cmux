@@ -968,7 +968,7 @@ struct RestorableAgentSessionIndexTests {
             panelId: panelId
         )
         let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
-        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestSessionId)
+        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestFile.path)
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
@@ -979,7 +979,7 @@ struct RestorableAgentSessionIndexTests {
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
 
-        XCTAssertEqual(snapshot.sessionId, detectedLatestSessionId)
+        XCTAssertEqual(snapshot.sessionId, detectedLatestFile.path)
     }
 
     @Test
@@ -1446,10 +1446,10 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertEqual(Set(commands.compactMap { $0 }).count, 1, "resume command must be stable across reloads")
     }
 
-    // A session whose recorded process is no longer alive (the agent was killed) must NOT restore
-    // from the hook index, even though the record is still on disk.
+    // A dead recorded process must not erase durable resume metadata, but its
+    // liveness must remain exited so restore cannot relaunch it automatically.
     @Test
-    func testKilledSessionWithDeadProcessDoesNotRestore() throws {
+    func testKilledSessionWithDeadProcessRemainsRestorableButExited() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-killed-\(UUID().uuidString)", isDirectory: true)
@@ -1477,12 +1477,11 @@ struct RestorableAgentSessionIndexTests {
             fileManager: fm,
             registry: registry,
             detectedSnapshots: [:],
-            processArgumentsProvider: { _ in nil }
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
         )
-        XCTAssertNil(
-            index.snapshot(workspaceId: ws, panelId: panel),
-            "a killed session whose recorded process is dead must not restore"
-        )
+        XCTAssertEqual(index.snapshot(workspaceId: ws, panelId: panel)?.sessionId, sid)
+        XCTAssertEqual(index.entry(workspaceId: ws, panelId: panel)?.processLiveness, .exited)
     }
 
     private func driftedHookRecord(
