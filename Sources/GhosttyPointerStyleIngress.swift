@@ -157,7 +157,22 @@ actor GhosttyPointerStyleIngress {
            let oldest = state.retiredRuntimeLifetimeIds.first {
             state.retiredRuntimeLifetimeIds.remove(oldest)
         }
+        state.lifecycleCutoffByRuntime.removeValue(forKey: runtimeLifetimeId)
         state.byRuntime.removeValue(forKey: runtimeLifetimeId)
+    }
+
+    private func recordLifecycleCutoff(
+        runtimeLifetimeId: UUID,
+        sequence: UInt64
+    ) {
+        guard sequence > 0 else { return }
+        let previous = state.lifecycleCutoffByRuntime[runtimeLifetimeId] ?? 0
+        guard sequence > previous else { return }
+        state.lifecycleCutoffByRuntime[runtimeLifetimeId] = sequence
+        if state.lifecycleCutoffByRuntime.count > 32,
+           let oldest = state.lifecycleCutoffByRuntime.min(by: { $0.value < $1.value }) {
+            state.lifecycleCutoffByRuntime.removeValue(forKey: oldest.key)
+        }
     }
 
     private func receive(_ incoming: GhosttyPointerStyleIngressRequest) {
@@ -173,6 +188,7 @@ actor GhosttyPointerStyleIngress {
         case .activate:
             state.activeRuntimeLifetimeId = request.runtimeLifetimeId
             state.retiredRuntimeLifetimeIds.remove(request.runtimeLifetimeId)
+            state.lifecycleCutoffByRuntime.removeValue(forKey: request.runtimeLifetimeId)
             state.byRuntime.removeAll(keepingCapacity: true)
             return
 
@@ -213,6 +229,14 @@ actor GhosttyPointerStyleIngress {
                   state.activeRuntimeGeneration == request.runtimeGeneration else {
                 return
             }
+            let lifecycleCutoff =
+                state.lifecycleCutoffByRuntime[request.runtimeLifetimeId] ?? 0
+            switch request.event {
+            case .shape, .linkHover:
+                guard request.sequence > lifecycleCutoff else { return }
+            case .runtimeReset, .runtimeEnded, .activate, .retire(_):
+                break
+            }
         }
 
         var runtime = state.byRuntime[request.runtimeLifetimeId] ??
@@ -222,6 +246,10 @@ actor GhosttyPointerStyleIngress {
         }
         switch request.event {
         case .runtimeReset:
+            recordLifecycleCutoff(
+                runtimeLifetimeId: request.runtimeLifetimeId,
+                sequence: request.sequence
+            )
             if (runtime.latestRuntimeReset?.sequence ?? 0) <= request.sequence {
                 runtime.latestRuntimeReset = request
             }
@@ -235,6 +263,10 @@ actor GhosttyPointerStyleIngress {
                 runtime.latestLinkHover = nil
             }
         case .runtimeEnded:
+            recordLifecycleCutoff(
+                runtimeLifetimeId: request.runtimeLifetimeId,
+                sequence: request.sequence
+            )
             guard (runtime.latestRuntimeEnded?.sequence ?? 0) <= request.sequence else {
                 return
             }
