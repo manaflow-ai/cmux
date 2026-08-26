@@ -45,6 +45,7 @@ struct SidebarWorkspaceTableTests {
         #expect(container.tableView.delegate == nil)
     }
 
+#if DEBUG
     @Test
     @MainActor
     func pendingNativeWorkspaceDragKeepsTableControllerAttachedBeforeWillBegin() async throws {
@@ -72,6 +73,7 @@ struct SidebarWorkspaceTableTests {
         #expect(container.tableView.dataSource == nil)
         #expect(container.tableView.delegate == nil)
     }
+#endif
 
     @Test
     @MainActor
