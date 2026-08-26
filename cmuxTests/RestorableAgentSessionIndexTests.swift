@@ -901,7 +901,7 @@ struct RestorableAgentSessionIndexTests {
         ]
         let detectedLatestSessionId = "pi-detected-newest"
         var hookSessions: [String: [String: Any]] = [:]
-        for hookRecord in hookRecords {
+        for (index, hookRecord) in hookRecords.enumerated() {
             hookSessions[hookRecord.sessionId] = driftedAgentHookRecord(
                 launcher: "pi",
                 sessionId: hookRecord.sessionId,
