@@ -305,6 +305,12 @@ final class MachinesPanelViewModel: ObservableObject {
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
     /// header while set — the in-app substitute for a floating progress HUD.
     @Published private(set) var activeOperation: String?
+    /// The Cloud tree service's last snapshot (workspaces, terminals, desktop,
+    /// ports per machine); nil until the service is wired and answers once.
+    @Published private(set) var tree: CloudTreeSnapshot?
+    /// Last failure from a tree verb (open terminal, new terminal, …); shown in
+    /// the control bar's help text, cleared by the next successful refresh.
+    @Published private(set) var treeErrorDescription: String?
 
     func beginOperation(_ label: String) {
         activeOperation = label
@@ -313,6 +319,10 @@ final class MachinesPanelViewModel: ObservableObject {
     func endOperation() {
         activeOperation = nil
         refresh()
+    }
+
+    func noteTreeFailure(_ description: String) {
+        treeErrorDescription = description
     }
 
     private var refreshTask: Task<Void, Never>?
@@ -328,6 +338,8 @@ final class MachinesPanelViewModel: ObservableObject {
     /// these on every local recompute without another round trip.
     private var lastLimits: VMPlanLimits?
     private var authSignOutObserver: NSObjectProtocol?
+    private var treeChangeObserver: NSObjectProtocol?
+    private var treeTask: Task<Void, Never>?
     private static let statsInterval: Duration = .seconds(20)
 
     init() {
@@ -340,12 +352,55 @@ final class MachinesPanelViewModel: ObservableObject {
                 self?.resetForAuthTransition()
             }
         }
+        // The tree service pushes changes (link state, workspaces, terminals);
+        // re-read its snapshot instead of waiting for the slow poll.
+        treeChangeObserver = NotificationCenter.default.addObserver(
+            forName: CloudTreeServiceAccess.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshTree(force: false)
+            }
+        }
     }
 
     deinit {
         if let authSignOutObserver {
             NotificationCenter.default.removeObserver(authSignOutObserver)
         }
+        if let treeChangeObserver {
+            NotificationCenter.default.removeObserver(treeChangeObserver)
+        }
+    }
+
+    /// Re-reads the Cloud tree; `force` makes the service re-sync every awake
+    /// link (the toolbar/menu Refresh), otherwise it returns its cached view.
+    /// Coalesced: a burst of change notifications yields one read.
+    func refreshTree(force: Bool) {
+        guard let service = CloudTreeServiceAccess.shared else {
+            tree = nil
+            return
+        }
+        treeTask?.cancel()
+        treeTask = Task { [weak self] in
+            do {
+                let snapshot = try await service.tree(machineID: nil, refresh: force)
+                guard !Task.isCancelled, let self else { return }
+                self.tree = snapshot
+                self.treeErrorDescription = nil
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                self.treeErrorDescription = String(describing: error)
+            }
+        }
+    }
+
+    /// `refresh(tree: true)` is the explicit Refresh verb: machines, stats, and a
+    /// forced tree re-sync.
+    func refresh(tree forceTree: Bool) {
+        refresh()
+        refreshTree(force: forceTree)
     }
 
     /// Samples every machine's CPU/memory/disk. Sleeping machines report
@@ -400,6 +455,8 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask = nil
         statsTask?.cancel()
         statsTask = nil
+        treeTask?.cancel()
+        treeTask = nil
         freeAccessTransitionTask?.cancel()
         freeAccessTransitionTask = nil
     }
@@ -440,9 +497,13 @@ final class MachinesPanelViewModel: ObservableObject {
         statsTask = nil
         freeAccessTransitionTask?.cancel()
         freeAccessTransitionTask = nil
+        treeTask?.cancel()
+        treeTask = nil
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
+        tree = nil
+        treeErrorDescription = nil
         plan = nil
         activeOperation = nil
         lastErrorDescription = nil
@@ -470,6 +531,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastLimits = page.limits
             scheduleFreeAccessTransition()
             refreshStats()
+            refreshTree(force: false)
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
         } catch let error as VMClientError {

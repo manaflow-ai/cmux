@@ -38,6 +38,12 @@ protocol PaneDropContainer: AnyObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
+    /// Opens the Cloud tree row (a machine's terminal, desktop, or port) at this destination.
+    func performPortalCloudSurfaceDrop(
+        item: CloudTreeDragItem,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool
+
     /// Returns the drag operation for a simulator file destination, if present.
     func simulatorFileDropOperation(
         urls: [URL],
@@ -92,6 +98,8 @@ extension PaneDropContainer {
                     destination: request.destination
                 )
             )
+        case .cloudSurface(let item):
+            handled = performPortalCloudSurfaceDrop(item: item, destination: request.destination)
         case .surface:
             return nil
         }
@@ -107,7 +115,7 @@ extension PaneDropContainer {
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
         switch source {
-        case .vaultSession, .filePreview:
+        case .vaultSession, .filePreview, .cloudSurface:
             return true
         case .surface:
             return canPerformPortalSurfaceDrop(transfer)
@@ -137,6 +145,8 @@ extension PaneDropContainer {
                 urls: [URL(fileURLWithPath: entry.filePath)],
                 destination: destination
             ))
+        case .cloudSurface(let item):
+            return performPortalCloudSurfaceDrop(item: item, destination: destination)
         case .surface:
             return performPortalSurfaceDrop(
                 tabId: tabId,
@@ -153,6 +163,14 @@ extension PaneDropContainer {
         panelId _: UUID
     ) -> NSDragOperation? {
         nil
+    }
+
+    /// Declines Cloud rows for containers that cannot host a cloud terminal (the Dock).
+    func performPortalCloudSurfaceDrop(
+        item _: CloudTreeDragItem,
+        destination _: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        false
     }
 
     /// Declines simulator handling for containers without simulator panels.
@@ -263,6 +281,14 @@ extension Workspace: PaneDropContainer {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         handleSessionDrop(entry: entry, destination: destination)
+    }
+
+    /// Opens a dragged Cloud row through the app-side Cloud tree service.
+    func performPortalCloudSurfaceDrop(
+        item: CloudTreeDragItem,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        handleCloudSurfaceDrop(item: item, destination: destination)
     }
 
     /// Returns the workspace panel selected in the target pane.

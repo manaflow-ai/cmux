@@ -22,13 +22,15 @@ enum CloudVMPanelAuthState: Equatable {
     }
 }
 
-/// Right-sidebar Machines tab: the user's cloud machine fleet. Matches the
+/// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
+/// tree (machine → cmux-tui workspaces → terminals, desktop, ports). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
-/// backgrounds, chrome-pill control bar. Rows receive immutable
-/// `MachineSnapshot`s plus a closure bundle only (snapshot-boundary rule);
-/// every mutation routes through the shared Cloud VM action path.
+/// backgrounds, chrome-pill control bar. Outline rows receive immutable
+/// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
+/// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
+    @State private var expansionStore = CloudTreeExpansionStore()
     let chromeBackgroundColor: NSColor
 
     private var accountFlow: HostAccountFlow? {
@@ -115,6 +117,18 @@ struct MachinesPanelView: View {
                 .foregroundColor(.orange.opacity(0.9))
                 .padding(.leading, 8)
                 .help(viewModel.lastErrorDescription ?? "")
+            } else if let treeError = viewModel.treeErrorDescription {
+                HStack(spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(String(localized: "machines.tree.error", defaultValue: "Cloud tree error"))
+                        .cmuxFont(size: 11)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundColor(.orange.opacity(0.9))
+                .padding(.leading, 8)
+                .help(treeError)
             } else if let plan = viewModel.plan {
                 MachinePlanMeter(plan: plan)
             }
@@ -124,7 +138,7 @@ struct MachinesPanelView: View {
                 accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
                 isBusy: viewModel.isLoading
             ) {
-                viewModel.refresh()
+                viewModel.refresh(tree: true)
             }
             MachinesChromeIconButton(
                 symbolName: "plus",
@@ -245,19 +259,30 @@ struct MachinesPanelView: View {
         }
     }
 
+    /// The Finder-like tree: machine rows (the former flat rows) with their
+    /// cmux-tui workspaces, terminals, desktop, and ports underneath. Both closure
+    /// bundles are bound here, above the outline; rows never see the store.
     private var machinesList: some View {
-        let actions = MachineRowActions.bound(
+        let machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
-        return ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(viewModel.machines) { machine in
-                    MachineRow(machine: machine, actions: actions)
-                }
-            }
-            .padding(.vertical, 6)
-        }
+        let nodeActions = CloudTreeNodeActions.bound(
+            machineActions: machineActions,
+            service: { CloudTreeServiceAccess.shared },
+            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
+            onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
+            onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+        )
+        return CloudTreeOutlineView(
+            machines: viewModel.machines,
+            tree: viewModel.tree,
+            machineActions: machineActions,
+            nodeActions: nodeActions,
+            expansionStore: expansionStore
+        )
+        .accessibilityIdentifier("CloudMachinesTree")
     }
 
     @ViewBuilder
@@ -324,7 +349,7 @@ struct MachinesPanelView: View {
 /// with used / total, or "Asleep · free" when the machine is hibernated.
 /// A narrow sidebar drops Disk, then Mem, instead of ever wrapping the
 /// gauges' text mid-character across lines.
-private struct MachineStatsLine: View {
+struct MachineStatsLine: View {
     let stats: VMStats
 
     var body: some View {
@@ -517,7 +542,7 @@ private struct MachinesFreeAccessBanner: View {
     }
 }
 
-private struct MachinesChromeIconButton: View {
+struct MachinesChromeIconButton: View {
     let symbolName: String
     let accessibilityLabel: String
     let isBusy: Bool
@@ -764,189 +789,4 @@ struct MachineRowActions {
             respond(alert.runModal())
         }
     }
-}
-
-private struct MachineRow: View, Equatable {
-    let machine: MachineSnapshot
-    let actions: MachineRowActions
-    @State private var isHovered = false
-
-    static func == (lhs: MachineRow, rhs: MachineRow) -> Bool {
-        // Skip body re-eval during scroll when the snapshot is unchanged.
-        // The closure bundle isn't compared (it comes from stable parent state).
-        lhs.machine == rhs.machine
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            activityDot
-            VStack(alignment: .leading, spacing: 1) {
-                Text(machine.displayName)
-                    .cmuxFont(size: 13)
-                    .foregroundColor(.primary.opacity(0.92))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                HStack(spacing: 4) {
-                    // A box's type at a glance: a desktop machine has its screen,
-                    // a base machine is shell-only.
-                    Image(systemName: machine.isDesktop ? "display" : "terminal")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.6))
-                    Text(subtitle)
-                        .cmuxFont(size: 11)
-                        .foregroundColor(.secondary.opacity(0.75))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                if let stats = machine.stats {
-                    MachineStatsLine(stats: stats)
-                        .padding(.top, 2)
-                }
-            }
-            Spacer(minLength: 8)
-            // Hover verbs: the screen (desktop machines only) and delete. The shell is
-            // the row itself — double-click, or Open Shell in the menu. The buttons are
-            // always laid out and only fade in, so hovering never reflows the row.
-            HStack(spacing: 2) {
-                if machine.isDesktop {
-                    MachinesChromeIconButton(
-                        symbolName: "display",
-                        accessibilityLabel: String(localized: "machines.row.openDesktop", defaultValue: "Open Desktop"),
-                        isBusy: false
-                    ) {
-                        actions.openDesktop(machine.id)
-                    }
-                }
-                MachinesChromeIconButton(
-                    symbolName: "trash",
-                    accessibilityLabel: String(localized: "machines.row.delete", defaultValue: "Delete Machine"),
-                    isBusy: false
-                ) {
-                    actions.confirmDelete(machine.id)
-                }
-            }
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .accessibilityHidden(!isHovered)
-        }
-        .padding(.leading, 12)
-        .padding(.trailing, 10)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .background(rowBackground)
-        .onHover { isHovered = $0 }
-        .onTapGesture(count: 2) {
-            if machine.freeAccess == .expired {
-                actions.promptUpgrade()
-            } else {
-                actions.openShell(machine.id)
-            }
-        }
-        .help(helpText)
-        .contextMenu { menuItems }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
-    }
-
-    @ViewBuilder
-    private var activityDot: some View {
-        if machine.freeAccess == .expired {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundColor(.secondary.opacity(0.8))
-                .frame(width: 7)
-        } else {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 7, height: 7)
-        }
-    }
-
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
-            .padding(.horizontal, 6)
-    }
-
-    private var dotColor: Color {
-        switch machine.activity {
-        case .ready: return Color.green.opacity(0.85)
-        case .pending: return Color.orange.opacity(0.9)
-        case .attention: return Color.red.opacity(0.85)
-        }
-    }
-
-    private var subtitle: String {
-        var parts: [String] = []
-        if machine.label?.isEmpty == false {
-            // Labeled machines keep their address visible: the id is what CLI
-            // verbs and URLs use.
-            parts.append(machine.id)
-        }
-        parts.append(machine.kindLabel)
-        if let createdAt = machine.createdAt {
-            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
-        }
-        switch machine.freeAccess {
-        case .unrestricted:
-            break
-        case .expired:
-            parts.append(String(localized: "machines.row.locked", defaultValue: "Locked"))
-        case .active(let daysLeft):
-            parts.append(
-                daysLeft == 1
-                    ? String(localized: "machines.row.dayLeft", defaultValue: "1 day left")
-                    : String(format: String(localized: "machines.row.daysLeft", defaultValue: "%d days left"), daysLeft)
-            )
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private var helpText: String {
-        [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
-    }
-
-    @ViewBuilder
-    private var menuItems: some View {
-        if machine.freeAccess == .expired {
-            Button(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) {
-                actions.promptUpgrade()
-            }
-        } else {
-            Button(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) {
-                actions.openShell(machine.id)
-            }
-            if machine.isDesktop {
-                Button(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                    actions.openDesktop(machine.id)
-                }
-            }
-        }
-        Divider()
-        Button(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) {
-            actions.promptRename(machine.id, machine.label)
-        }
-        Button(String(localized: "machines.menu.status", defaultValue: "Status")) {
-            actions.runCommand(machine.id, ["vm", "status"])
-        }
-        Button(String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) {
-            actions.runCommand(machine.id, ["vm", "snapshot"])
-        }
-        Button(String(localized: "machines.menu.fork", defaultValue: "Fork")) {
-            actions.runCommand(machine.id, ["vm", "fork"])
-        }
-        Divider()
-        Button(role: .destructive) {
-            actions.confirmDelete(machine.id)
-        } label: {
-            Text(String(localized: "machines.menu.delete", defaultValue: "Delete…"))
-        }
-    }
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
 }

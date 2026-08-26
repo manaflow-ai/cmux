@@ -7,17 +7,21 @@ struct PaneTransferSourceResolver {
     enum Source: Equatable {
         case vaultSession(SessionEntry)
         case filePreview(FilePreviewDragEntry)
+        /// A Cloud tree row: a machine's terminal, desktop, or forwarded port.
+        case cloudSurface(CloudTreeDragItem)
         case surface
     }
 
     typealias VaultSessionRegistry = @MainActor () -> SessionDragRegistry?
     typealias TabTransferRegistry = @MainActor () -> TabDragTransferRegistry?
     typealias FilePreviewLookup = @MainActor (UUID) -> FilePreviewDragEntry?
+    typealias CloudSurfaceLookup = @MainActor (UUID) -> CloudTreeDragItem?
     typealias LivenessLookup = @MainActor (UUID) -> Bool
 
     private let vaultSessionRegistry: VaultSessionRegistry
     private let tabTransferRegistry: TabTransferRegistry
     private let filePreview: FilePreviewLookup
+    private let cloudSurface: CloudSurfaceLookup
     private let surfaceIsLive: LivenessLookup
 
     init(
@@ -30,6 +34,9 @@ struct PaneTransferSourceResolver {
         filePreview: @escaping FilePreviewLookup = { id in
             FilePreviewDragRegistry.shared.entry(id: id)
         },
+        cloudSurface: @escaping CloudSurfaceLookup = { id in
+            CloudTreeDragRegistry.shared.item(id: id)
+        },
         surfaceIsLive: @escaping LivenessLookup = { id in
             AppDelegate.shared?.locateContainerSurface(tabId: id) != nil
         }
@@ -37,6 +44,7 @@ struct PaneTransferSourceResolver {
         self.vaultSessionRegistry = vaultSessionRegistry
         self.tabTransferRegistry = tabTransferRegistry
         self.filePreview = filePreview
+        self.cloudSurface = cloudSurface
         self.surfaceIsLive = surfaceIsLive
     }
 
@@ -67,6 +75,7 @@ struct PaneTransferSourceResolver {
             return .vaultSession(entry)
         }
         if let entry = filePreview(id) { return .filePreview(entry) }
+        if let item = cloudSurface(id) { return .cloudSurface(item) }
         return nil
     }
 
@@ -78,6 +87,8 @@ struct PaneTransferSourceResolver {
             vaultSessionRegistry()?.discard(id: id)
         case .filePreview:
             FilePreviewDragRegistry.shared.discard(id: id)
+        case .cloudSurface:
+            CloudTreeDragRegistry.shared.discard(id: id)
         case .surface:
             break
         }
@@ -93,7 +104,7 @@ struct PaneTransferSourceResolver {
         switch source {
         case .surface:
             tabTransferRegistry()?.finish(from: pasteboard)
-        case .vaultSession, .filePreview:
+        case .vaultSession, .filePreview, .cloudSurface:
             finish(source, id: id)
         }
     }

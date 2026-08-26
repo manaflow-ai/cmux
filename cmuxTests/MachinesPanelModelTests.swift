@@ -325,4 +325,306 @@ final class MachinesPanelModelTests: XCTestCase {
         // Local window math would say 7 days left; the server says it already closed.
         XCTAssertEqual(MachineSnapshotBuilder.snapshot(from: summary, freeAccessWindowDays: 7, now: now).freeAccess, .expired)
     }
+
+    // MARK: - Cloud tree
+
+    private func treeMachine(
+        id: String,
+        linkState: CloudTreeLinkState = .connected,
+        desktop: Bool = true,
+        workspaces: [CloudTreeWorkspace] = [],
+        ports: [CloudTreePort] = []
+    ) -> CloudTreeMachine {
+        CloudTreeMachine(
+            id: id,
+            status: linkState == .asleep ? "standby" : "running",
+            image: desktop ? "blaxel/xfce-vnc:latest" : "blaxel/base-image:latest",
+            desktop: desktop,
+            memoryMb: 24_576,
+            diskMb: 16_384,
+            linkState: linkState,
+            linkError: linkState == .error ? "boom" : nil,
+            workspaces: workspaces,
+            ports: ports
+        )
+    }
+
+    private func machineSnapshot(id: String, image: String = "blaxel/xfce-vnc:latest") -> MachineSnapshot {
+        MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: id, provider: "blaxel", status: "running", image: image, createdAt: 0, base: nil
+        ))
+    }
+
+    func testCloudTreeOrdersMachineWorkspacesTerminalsDesktopPorts() {
+        let terminal = CloudTreeTerminal(id: "term_1", title: "cargo test", cwd: "/root/app", lifecycle: .running, agentState: "running", agentSource: "claude", openSurfaceID: nil)
+        let idle = CloudTreeTerminal(id: "term_2", title: "zsh", cwd: nil, lifecycle: .exited, agentState: nil, agentSource: nil, openSurfaceID: "surface:9")
+        let tree = CloudTreeSnapshot(machines: [
+            treeMachine(
+                id: "vivid-newt",
+                workspaces: [CloudTreeWorkspace(id: "ws_main", name: "main", focused: true, terminals: [terminal, idle])],
+                ports: [CloudTreePort(port: 3000, label: "http")]
+            ),
+        ])
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "vivid-newt")], tree: tree)
+        let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
+        XCTAssertEqual(ids, [
+            "machine:vivid-newt",
+            "machine:vivid-newt/workspaces",
+            "machine:vivid-newt/ws/ws_main",
+            "machine:vivid-newt/term/term_1",
+            "machine:vivid-newt/term/term_2",
+            "machine:vivid-newt/desktop",
+            "machine:vivid-newt/ports",
+            "machine:vivid-newt/port/3000",
+        ])
+        XCTAssertEqual(nodes[0].children.count, 3)
+        XCTAssertTrue(nodes[0].isExpandable)
+        // Every leaf that can be dragged names a daemon-side resource, never a VM alone.
+        XCTAssertEqual(
+            CloudTreeNodeBuilder.flattened(nodes).compactMap(\.dragItem),
+            [
+                .terminal(machineID: "vivid-newt", terminalID: "term_1", title: "cargo test"),
+                .terminal(machineID: "vivid-newt", terminalID: "term_2", title: "zsh"),
+                .desktop(machineID: "vivid-newt"),
+                .port(machineID: "vivid-newt", port: 3000),
+            ]
+        )
+    }
+
+    func testCloudTreeSleepingMachineShowsSinglePlaceholder() {
+        let tree = CloudTreeSnapshot(machines: [treeMachine(id: "quiet-owl", linkState: .asleep, desktop: false)])
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "quiet-owl", image: "blaxel/base-image:latest")], tree: tree)
+        XCTAssertEqual(nodes.count, 1)
+        XCTAssertEqual(nodes[0].children.count, 1)
+        guard case .placeholder(let machineID, let placeholder) = nodes[0].children[0].kind else {
+            return XCTFail("expected a placeholder row, got \(nodes[0].children[0].kind)")
+        }
+        XCTAssertEqual(machineID, "quiet-owl")
+        XCTAssertEqual(placeholder.style, .dimmed)
+        XCTAssertNil(nodes[0].children[0].dragItem)
+    }
+
+    func testCloudTreeLinkErrorAndMissingSnapshot() {
+        let tree = CloudTreeSnapshot(machines: [treeMachine(id: "broken-elk", linkState: .error, desktop: false)])
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: "broken-elk"), machineSnapshot(id: "unknown-yak")],
+            tree: tree
+        )
+        guard case .placeholder(_, let placeholder) = nodes[0].children[0].kind else {
+            return XCTFail("expected an error row")
+        }
+        XCTAssertEqual(placeholder.style, .error)
+        XCTAssertEqual(placeholder.text, "boom")
+        // A machine the service has not described yet is a plain, non-expandable row.
+        XCTAssertFalse(nodes[1].isExpandable)
+        XCTAssertNil(CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "a")], tree: nil)[0].children.first)
+    }
+
+    func testCloudTreeDragItemRoundTripsThroughThePasteboardRecord() throws {
+        let items: [CloudTreeDragItem] = [
+            .terminal(machineID: "vivid-newt", terminalID: "term_1", title: "cargo test"),
+            .desktop(machineID: "vivid-newt"),
+            .port(machineID: "vivid-newt", port: 6901),
+        ]
+        for item in items {
+            let record = CloudTreeDragPasteboardRecord(dragID: UUID(), item: item)
+            let data = try JSONEncoder().encode(record)
+            XCTAssertEqual(try JSONDecoder().decode(CloudTreeDragPasteboardRecord.self, from: data), record)
+        }
+    }
+
+    func testCloudTreeSnapshotDecodesSnakeCaseKeys() throws {
+        let json = """
+        {"machines":[{"id":"vivid-newt","status":"running","image":"blaxel/xfce-vnc:latest","desktop":true,
+          "memory_mb":24576,"disk_mb":16384,"link_state":"connected","workspaces":[{"id":"ws_1","name":"main","focused":true,
+          "terminals":[{"id":"term_1","title":"zsh","cwd":"/root","lifecycle":"running","agent_state":"idle","agent_source":"codex","open_surface_id":"surface:3"}]}],
+          "ports":[{"port":8080,"label":"http"}]}]}
+        """
+        let snapshot = try JSONDecoder().decode(CloudTreeSnapshot.self, from: Data(json.utf8))
+        XCTAssertEqual(snapshot.machines[0].linkState, .connected)
+        XCTAssertEqual(snapshot.machines[0].workspaces[0].terminals[0].openSurfaceID, "surface:3")
+        XCTAssertEqual(snapshot.machines[0].workspaces[0].terminals[0].agentSource, "codex")
+        XCTAssertEqual(snapshot.machines[0].ports[0].label, "http")
+        XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/root/app"), "~/app")
+    }
+
+    @MainActor
+    func testCloudTreeExpansionStoreDefaultsToExpandedAndPersistsMachineCollapse() {
+        let defaults = UserDefaults(suiteName: "MachinesPanelModelTests.\(UUID().uuidString)")!
+        let store = CloudTreeExpansionStore(defaults: defaults)
+        let machineNode = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: "vivid-newt")],
+            tree: CloudTreeSnapshot(machines: [treeMachine(id: "vivid-newt")])
+        )[0]
+        let group = machineNode.children[0]
+        XCTAssertTrue(store.isExpanded(machineNode))
+        XCTAssertTrue(store.isExpanded(group))
+        store.setExpanded(false, node: machineNode)
+        store.setExpanded(false, node: group)
+        XCTAssertFalse(store.isExpanded(machineNode))
+        XCTAssertFalse(store.isExpanded(group))
+        // Machines persist; nested rows are panel-lifetime only.
+        let reloaded = CloudTreeExpansionStore(defaults: defaults)
+        XCTAssertFalse(reloaded.isExpanded(machineNode))
+        XCTAssertTrue(reloaded.isExpanded(group))
+    }
+
+    // MARK: - Cloud tree (machines → cmux-tui workspaces → terminals)
+
+    private static let cloudSessionSnapshotFixture: [String: Any] = [
+        "workspaces": [
+            ["id": "ws_main", "name": "main", "focused": true],
+            ["id": "ws_api", "name": "api", "focused": false],
+        ],
+        "screens": [
+            ["id": "screen_1", "workspace_id": "ws_main"],
+            ["id": "screen_2", "workspace_id": "ws_api"],
+        ],
+        "panes": [
+            ["id": "pane_1", "screen_id": "screen_1"],
+            ["id": "pane_2", "screen_id": "screen_2"],
+        ],
+        "tabs": [
+            ["id": "tab_1", "pane_id": "pane_1", "content_kind": "terminal", "content_id": "term_build"],
+            ["id": "tab_2", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_shell"],
+            ["id": "tab_3", "pane_id": "pane_1", "content_kind": "browser", "content_id": "browser_1"],
+        ],
+        "terminals": [
+            ["id": "term_build", "tab_id": "tab_1", "tab_ids": ["tab_1"], "title": "cargo test", "cwd": "/root/work/app", "lifecycle": "running", "running": true],
+            ["id": "term_shell", "tab_id": "tab_2", "tab_ids": ["tab_2"], "title": "", "lifecycle": "exited", "running": false],
+            ["id": "term_orphan", "tab_id": "tab_missing", "tab_ids": [], "title": "orphan", "running": true],
+        ],
+        "agents": [
+            ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
+        ],
+    ]
+
+    func testCloudTreeSnapshotParserAttributesTerminalsToWorkspaces() {
+        let workspaces = CloudTreeSnapshotParser.workspaces(fromSnapshot: Self.cloudSessionSnapshotFixture)
+        XCTAssertEqual(workspaces.map(\.id), ["ws_main", "ws_api"])
+        XCTAssertEqual(workspaces[0].name, "main")
+        XCTAssertTrue(workspaces[0].focused)
+        // Terminals reach their workspace through tab → pane → screen; an orphan lands in the first.
+        XCTAssertEqual(workspaces[0].terminals.map(\.id), ["term_build", "term_orphan"])
+        XCTAssertEqual(workspaces[1].terminals.map(\.id), ["term_shell"])
+
+        let build = workspaces[0].terminals[0]
+        XCTAssertEqual(build.title, "cargo test")
+        XCTAssertEqual(build.cwd, "/root/work/app")
+        XCTAssertEqual(build.lifecycle, .running)
+        XCTAssertEqual(build.agentState, "working")
+        XCTAssertEqual(build.agentSource, "claude")
+        XCTAssertNil(build.openSurfaceID)
+
+        let shell = workspaces[1].terminals[0]
+        XCTAssertEqual(shell.title, "term_shell", "an untitled terminal without cwd falls back to its id")
+        XCTAssertEqual(shell.lifecycle, .exited)
+        XCTAssertNil(shell.agentState)
+
+        // No lifecycle key: `running` decides.
+        XCTAssertEqual(workspaces[0].terminals[1].lifecycle, .running)
+    }
+
+    func testCloudTreeSnapshotParserHandlesEmptyAndMalformedSnapshots() {
+        XCTAssertEqual(CloudTreeSnapshotParser.workspaces(fromSnapshot: [:]), [])
+        XCTAssertEqual(CloudTreeSnapshotParser.workspaces(fromSnapshot: ["workspaces": [["name": "no id"]]]), [])
+        XCTAssertNil(CloudTreeSnapshotParser.terminal(fromSnapshotEntry: ["title": "no id"]))
+    }
+
+    func testCloudTreeSnapshotParserReadsRunResultsAndLinkLines() {
+        let wrapped: [String: Any] = [
+            "value": ["kind": "terminal", "workspace_id": "ws_main", "screen_id": "screen_1", "pane_id": "pane_1", "tab_id": "tab_9", "terminal_id": "term_new"],
+            "generation": "g1", "revision": "42", "replayed": false,
+        ]
+        let created = CloudTreeSnapshotParser.createdTerminal(fromRunResult: wrapped)
+        XCTAssertEqual(created?.terminalID, "term_new")
+        XCTAssertEqual(created?.workspaceID, "ws_main")
+        XCTAssertEqual(CloudTreeSnapshotParser.createdTerminal(fromRunResult: ["terminal_id": "term_bare"])?.terminalID, "term_bare")
+        XCTAssertNil(CloudTreeSnapshotParser.createdTerminal(fromRunResult: ["value": ["kind": "terminal"]]))
+
+        XCTAssertEqual(
+            CloudTreeSnapshotParser.localSocket(fromLinkLine: #"{"event":"connection-snapshot","local_socket":"/tmp/x/mux.sock","connection":{}}"#),
+            "/tmp/x/mux.sock"
+        )
+        XCTAssertNil(CloudTreeSnapshotParser.localSocket(fromLinkLine: #"{"event":"other","local_socket":"/tmp/x"}"#))
+        XCTAssertNil(CloudTreeSnapshotParser.localSocket(fromLinkLine: "not json"))
+    }
+
+    func testCloudTreeSnapshotParserListsListeningPorts() {
+        let ss = """
+        State   Recv-Q  Send-Q  Local Address:Port  Peer Address:Port Process
+        LISTEN  0       4096    0.0.0.0:3000        0.0.0.0:*
+        LISTEN  0       128     [::]:1337           [::]:*
+        LISTEN  0       128     127.0.0.1:5901      0.0.0.0:*
+        LISTEN  0       128     0.0.0.0:3000        0.0.0.0:*
+        """
+        let ports = CloudTreeSnapshotParser.listeningPorts(fromSocketListing: ss).map(\.port)
+        XCTAssertEqual(ports, [1337, 3000, 5901])
+        XCTAssertTrue(CloudTreeSnapshotParser.internalPorts.contains(1337))
+        XCTAssertTrue(CloudTreeSnapshotParser.internalPorts.contains(5901))
+        XCTAssertTrue(CloudTreeSnapshotParser.machineHasDesktop(image: "blaxel/xfce-vnc:latest"))
+        XCTAssertFalse(CloudTreeSnapshotParser.machineHasDesktop(image: "blaxel/base-image:latest"))
+    }
+
+    func testCloudTuiCommandLineBuildsExactArgv() {
+        XCTAssertEqual(
+            CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", inviteFilePath: "/i"),
+            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--invite-file", "/i"]
+        )
+        XCTAssertEqual(
+            CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil),
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json"]
+        )
+        XCTAssertEqual(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock"), ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
+        XCTAssertEqual(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock"), ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
+        XCTAssertEqual(
+            CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]),
+            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "run", "--", "claude", "-p", "fix it"]
+        )
+        XCTAssertEqual(CloudTuiCommandLine.attachArguments(socketPath: "/k.sock", terminalID: "term_1"), ["--socket", "/k.sock", "attach", "--terminal", "term_1"])
+        XCTAssertEqual(
+            CloudTuiCommandLine.attachShellCommand(clientPath: "/Applications/cmux DEV.app/Contents/Resources/bin/cmux-tui", socketPath: "/k.sock", terminalID: "term_1"),
+            "'/Applications/cmux DEV.app/Contents/Resources/bin/cmux-tui' --socket /k.sock attach --terminal term_1"
+        )
+        XCTAssertEqual(CloudTuiCommandLine.commandStartingIn(cwd: nil, command: ["bash", "-l"]), ["bash", "-l"])
+        XCTAssertEqual(
+            CloudTuiCommandLine.commandStartingIn(cwd: "/root/work/my app", command: ["codex", "exec", "it's"]),
+            ["sh", "-lc", "cd '/root/work/my app' && exec codex exec 'it'\\''s'"]
+        )
+    }
+
+    func testCloudTuiClientPathsMirrorTheCLI() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-cloud-paths-\(UUID().uuidString)")
+        let paths = CloudTuiClientPaths(home: home)
+        XCTAssertEqual(paths.stateDir.path, home.appendingPathComponent(".cmuxterm/cmux-tui-client").path)
+        XCTAssertEqual(paths.devicesStoreURL.path, home.appendingPathComponent(".cmuxterm/vm-tui-devices.json").path)
+        XCTAssertNil(paths.deviceFingerprint(for: "vivid-newt"))
+        paths.saveDeviceFingerprint("fp-1", for: "vivid-newt")
+        XCTAssertEqual(paths.deviceFingerprint(for: "vivid-newt"), "fp-1")
+        // Same JSON shape the CLI's `saveVMTuiDevice` writes.
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: paths.devicesStoreURL)) as? [String: [String: Any]]
+        XCTAssertEqual(raw?["vivid-newt"]?["deviceFingerprint"] as? String, "fp-1")
+        XCTAssertNotNil(raw?["vivid-newt"]?["updatedAtUnix"])
+        XCTAssertTrue(CloudTuiClientPaths.deviceName(hostName: "Austin's MacBook.local").hasPrefix("cmux-Austin-s-MacBook"))
+        try? FileManager.default.removeItem(at: home)
+    }
+
+    func testCloudTreeMachineEncodesSnakeCaseWireKeys() throws {
+        let machine = CloudTreeMachine(
+            id: "vivid-newt", status: "running", image: "blaxel/xfce-vnc:latest", desktop: true,
+            memoryMb: 24_064, diskMb: 16_384, linkState: .connected, linkError: nil,
+            workspaces: [CloudTreeWorkspace(id: "ws_1", name: "main", focused: true, terminals: [
+                CloudTreeTerminal(id: "term_1", title: "zsh", cwd: "/root", lifecycle: .running, agentState: nil, agentSource: nil, openSurfaceID: "ABC"),
+            ])],
+            ports: [CloudTreePort(port: 3000, label: nil)]
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(CloudTreeSnapshot(machines: [machine]))) as? [String: Any])
+        let encoded = try XCTUnwrap((object["machines"] as? [[String: Any]])?.first)
+        XCTAssertEqual(encoded["memory_mb"] as? Int, 24_064)
+        XCTAssertEqual(encoded["disk_mb"] as? Int, 16_384)
+        XCTAssertEqual(encoded["link_state"] as? String, "connected")
+        let terminal = try XCTUnwrap(((encoded["workspaces"] as? [[String: Any]])?.first?["terminals"] as? [[String: Any]])?.first)
+        XCTAssertEqual(terminal["open_surface_id"] as? String, "ABC")
+        XCTAssertEqual(terminal["lifecycle"] as? String, "running")
+    }
 }
