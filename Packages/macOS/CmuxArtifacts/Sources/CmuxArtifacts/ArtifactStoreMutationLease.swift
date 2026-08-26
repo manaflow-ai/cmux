@@ -221,7 +221,7 @@ final class ArtifactStoreMutationLease {
                     sourceName,
                     parentDescriptor,
                     targetName,
-                    RENAME_EXCL
+                    UInt32(RENAME_EXCL)
                 )
             }
         }
@@ -299,7 +299,7 @@ final class ArtifactStoreMutationLease {
                     sourcePointer,
                     destinationParent,
                     destinationPointer,
-                    RENAME_EXCL
+                    UInt32(RENAME_EXCL)
                 )
             }
         }
@@ -314,8 +314,9 @@ final class ArtifactStoreMutationLease {
 
     private func openedPath(for descriptor: Int32) -> String? {
         var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
-        let result = buffer.withUnsafeMutableBytes { bytes in
-            fcntl(descriptor, F_GETPATH, bytes.baseAddress)
+        let result = buffer.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) -> Int32 in
+            guard let baseAddress = bytes.baseAddress else { return -1 }
+            return Darwin.fcntl(descriptor, F_GETPATH, baseAddress)
         }
         guard result == 0 else { return nil }
         return canonicalPath(URL(fileURLWithPath: String(
