@@ -153,7 +153,7 @@
       "version": "blaxel-cmux-devbox-20260826a",
       "imageId": "sandbox/cmux-devbox:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
-      "defaultForLocalDev": false,
+      "defaultForLocalDev": true,
       "cmuxdRemoteCommit": "bootstrap-on-create",
       "builtAt": "2026-08-26T00:00:00.000Z",
       "builderScriptVersion": "cmux-devbox-2026-08-26-r1",
@@ -164,15 +164,15 @@
         "@earendil-works/pi-coding-agent": "0.84.3",
         "agent-browser": "0.35.1"
       },
-      "validationStatus": "pending",
-      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. cmuxd-remote is still injected at create time."
+      "validationStatus": "passed",
+      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. cmuxd-remote is still injected at create time. Validated 2026-08-26 on tag b0c4419e0446711a96624 in us-pdx-1: driver E2E (create, daemon inject, WS PTY lease round trip, replay rejection, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history in an interactive shell, 5901+6901 listening, and the noVNC page served through a tokened gateway preview of port 6901."
     },
     {
       "provider": "blaxel",
       "version": "blaxel-bootstrap-20260820a",
       "imageId": "blaxel/xfce-vnc:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
-      "defaultForLocalDev": true,
+      "defaultForLocalDev": false,
       "cmuxdRemoteCommit": "bootstrap-on-create",
       "builtAt": "2026-08-20T04:30:00.000Z",
       "builderScriptVersion": "bootstrap-on-create",

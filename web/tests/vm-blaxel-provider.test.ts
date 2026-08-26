@@ -71,7 +71,7 @@ describe("BlaxelProvider registry wiring", () => {
 
   test("manifest resolves a local-dev default image", () => {
     const selection = resolveVmImage("blaxel", undefined, {});
-    expect(selection.image).toBe("blaxel/xfce-vnc:latest");
+    expect(selection.image).toBe("sandbox/cmux-devbox:latest");
     expect(selection.manifestEntry?.provider).toBe("blaxel");
   });
 });
