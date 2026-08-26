@@ -34,6 +34,7 @@ import Testing
         WorkspaceTitleMenuValue(
             contentWidth: 390,
             hasBackButton: true,
+            backButtonUnreadCount: 0,
             hasTrailingCluster: true,
             measuredTrailingItemsWidth: 0,
             measuredTrailingItemCount: 0,

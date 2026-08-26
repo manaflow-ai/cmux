@@ -412,6 +412,7 @@ struct WorkspaceDetailView: View {
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
+            backButtonUnreadCount: backButtonConfiguration?.unreadCount ?? 0,
             hasTrailingCluster: true,
             measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
             measuredTrailingItemCount: measuredWidths.count,

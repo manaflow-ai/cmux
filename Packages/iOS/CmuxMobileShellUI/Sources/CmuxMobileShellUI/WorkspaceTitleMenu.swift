@@ -32,6 +32,7 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
         let cap = MobileLeadingToolbarTitleWidth(
             contentWidth: value.contentWidth,
             hasBackButton: value.hasBackButton,
+            backButtonUnreadCount: value.backButtonUnreadCount,
             hasTrailingCluster: value.hasTrailingCluster,
             measuredTrailingItemsWidth: value.measuredTrailingItemsWidth,
             measuredTrailingItemCount: value.measuredTrailingItemCount,
