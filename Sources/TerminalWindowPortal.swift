@@ -1449,7 +1449,7 @@ final class WindowTerminalPortal: NSObject {
     /// Rebuilds the cached exclusion rectangles from every authoritative visible entry.
     @discardableResult
     private func updateRootBackdropExclusionCache() -> Bool {
-        let nextRects = entriesByHostedId.reduce(into: [:]) { result, pair in
+        let nextRects: [ObjectIdentifier: NSRect] = entriesByHostedId.reduce(into: [:]) { result, pair in
             if let rect = rootBackdropExclusionRect(for: pair.value) {
                 result[pair.key] = rect
             }
