@@ -170,7 +170,7 @@ extension TerminalController {
             groups = aggregatedGroups
         }
 
-        var payload: [String: Any] = [
+        let payload: [String: Any] = [
             "workspaces": workspaces,
             "groups": groups
         ]
