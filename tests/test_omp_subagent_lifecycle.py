@@ -238,8 +238,8 @@ while (Date.now() < deliveryDeadline) {
     .split("\\n")
     .filter((line) => line.trim().length > 0 && line.startsWith("hooks omp ")).length;
   if (delivered >= expectedDeliveredHooks) break;
+  await new Promise((resolve) => setTimeout(resolve, 20));
 }
-
 await handlers.get("session_shutdown")({}, mainCtx);
 """
         check = subprocess.run(
