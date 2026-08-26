@@ -81,7 +81,7 @@ struct CloudTreeSnapshotParser: Sendable {
         let agentInfo = agent[id]
         return CloudTreeTerminal(
             id: id,
-            title: title.isEmpty ? (cwd ?? id) : title,
+            title: title.isEmpty ? (cwd ?? "") : title,
             cwd: cwd,
             lifecycle: lifecycle,
             agentState: agentInfo?.state,

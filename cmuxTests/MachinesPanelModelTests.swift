@@ -518,7 +518,7 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertNil(build.openSurfaceID)
 
         let shell = workspaces[1].terminals[0]
-        XCTAssertEqual(shell.title, "term_shell", "an untitled terminal without cwd falls back to its id")
+        XCTAssertEqual(shell.title, "", "an untitled terminal without cwd stays untitled so the row shows the localized fallback, not the raw id")
         XCTAssertEqual(shell.lifecycle, .exited)
         XCTAssertNil(shell.agentState)
 
