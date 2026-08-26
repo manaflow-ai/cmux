@@ -322,7 +322,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             workspaceId: context.workspaceId,
             surfaceId: context.surfaceId,
             cwd: context.root.path,
-            pid: 111,
+            pid: Int(getpid()),
             markActive: true
         )
         let expected = try XCTUnwrap(try store.lookup(sessionId: sessionId))
@@ -331,7 +331,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         var sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         var current = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        current["pid"] = 222
+        current["pid"] = Int(getpid())
+        current["pidStartSeconds"] = 0
+        current["pidStartMicroseconds"] = 0
         sessions[sessionId] = current
         state["sessions"] = sessions
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
@@ -344,7 +346,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             surfaceId: context.surfaceId,
             cwd: context.root.path,
             transcriptPath: nil,
-            pid: 222,
+            pid: Int(getpid()),
             launchCommand: nil,
             targetIsAuthoritative: true
         ))
@@ -2302,6 +2304,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let now = Date()
         XCTAssertTrue(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
         XCTAssertFalse(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
+        try store.releaseAutoNamingSpawn(sessionId: sessionId)
+        XCTAssertTrue(try store.claimAutoNamingSpawn(sessionId: sessionId, now: now))
         XCTAssertTrue(try store.claimAutoNamingSpawn(
             sessionId: sessionId,
             now: now.addingTimeInterval(AutoNamingEngine().config.inFlightExpiry + 1)
