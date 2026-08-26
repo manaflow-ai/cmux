@@ -330,7 +330,10 @@ impl LinkGroup for WebSocketLinkGroup {
 mod tests {
     #[test]
     fn client_request_sets_user_agent_and_keeps_the_query() {
-        let endpoint = Url::parse("wss://machine-1337.vm.cmux.sh/v1/link?bl_preview_token=t&cmux_lane=control").unwrap();
+        let endpoint = Url::parse(
+            "wss://machine-1337.vm.cmux.sh/v1/link?bl_preview_token=t&cmux_lane=control",
+        )
+        .unwrap();
         let request = super::client_request(&endpoint).unwrap();
         assert_eq!(
             request.headers().get("user-agent").and_then(|value| value.to_str().ok()),
