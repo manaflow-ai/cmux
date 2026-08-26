@@ -56389,6 +56389,57 @@
         }
       }
     },
+    "cli.tmuxCompat.capturePane.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "capture-pane: unknown flag '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "capture-pane: 不明なフラグ '%@'"
+          }
+        }
+      }
+    },
+    "cli.tmuxCompat.capturePane.error.unknownPositional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "capture-pane: unknown positional arg '%@'; use --surface <id|ref|index>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "capture-pane: 不明な位置引数 '%@'。--surface <id|ref|index> を使用してください"
+          }
+        }
+      }
+    },
+    "cli.tmuxCompat.capturePane.help.noPositional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Positional arguments are not supported; use --surface <id|ref|index>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置引数はサポートされていません。--surface <id|ref|index> を使用してください。"
+          }
+        }
+      }
+    },
     "cli.tmuxCompat.respawnPane.requiresForce": {
       "extractionState": "manual",
       "localizations": {
