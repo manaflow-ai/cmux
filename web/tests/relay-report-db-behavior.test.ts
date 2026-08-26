@@ -224,6 +224,27 @@ describe("relay attach report registry behavior", () => {
     expect((await attachState()).url).toBe(CUSTOM_URL);
   });
 
+  dbTest("a custom relay deleted from preferences can still detach cleanly", async () => {
+    await insertBinding();
+    await saveCustomRelay(USER_ID, CUSTOM_URL);
+    await applyRelayAttachReport(report({ relayId: CUSTOM_HOSTNAME }));
+    await requiredSql()`delete from iroh_relay_preferences where account_id = ${USER_ID}`;
+    expect(await applyRelayAttachReport(report({
+      event: "detach",
+      relayId: CUSTOM_HOSTNAME,
+      reportedAt: new Date(T0 + 1_000),
+    }))).toBe("applied");
+    expect((await attachState()).url).toBeNull();
+  });
+
+  dbTest("a detach for a hostname nothing is attached to is superseded", async () => {
+    await insertBinding();
+    expect(await applyRelayAttachReport(report({
+      event: "detach",
+      reportedAt: new Date(T0),
+    }))).toBe("superseded");
+  });
+
   dbTest("another account's saved custom relay grants no trust", async () => {
     await insertBinding();
     await saveCustomRelay("user-other", CUSTOM_URL);

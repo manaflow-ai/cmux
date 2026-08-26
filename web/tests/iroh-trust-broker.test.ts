@@ -1366,6 +1366,43 @@ describe("Iroh discovery and grants", () => {
       .toBeGreaterThan(NOW.getTime());
   });
 
+  test("ages out an attach route with no fresh evidence (lost detach report)", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: MANAGED_RELAY_URLS[0]!,
+      // Both evidence channels are stale: the relay died without a detach
+      // report and the Mac stopped renewing its registration.
+      relayAttachReportedAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+      lastSeenAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: unknown[] }>;
+    };
+    expect(discovered.bindings[0]?.path_hints).toEqual([]);
+  });
+
+  test("a fresh attach report keeps the route while the binding lease is stale", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: MANAGED_RELAY_URLS[0]!,
+      relayAttachReportedAt: new Date(NOW.getTime() - 5 * 60 * 1_000),
+      // Broker unreachable from the Mac (cache-first world) while the relay
+      // path works: the attach report alone corroborates the route.
+      lastSeenAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: Array<Record<string, unknown>> }>;
+    };
+    expect(discovered.bindings[0]?.path_hints.map((hint) => hint.value))
+      .toEqual([MANAGED_RELAY_URLS[0]!]);
+  });
+
   test("withholds a fleet-reported custom relay the account no longer saves", async () => {
     const fixture = makeFixture();
     fixture.repository.bindings.push(binding({

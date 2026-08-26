@@ -17,11 +17,14 @@
 // secret) sent the report, but `relayId` inside the body is self-declared,
 // so a single compromised relay — or a leaked secret — could otherwise
 // publish an attacker-controlled relay URL to every phone on any account.
-// A report is therefore only applied when its hostname resolves to a relay
+// An ATTACH is therefore only applied when its hostname resolves to a relay
 // the account is already allowed to dial: an exact managed-catalog URL, or a
 // custom relay the account has saved (matched by hostname, publishing the
-// saved URL verbatim). Everything else is rejected (`untrusted_relay`),
+// saved URL verbatim). Every other attach is rejected (`untrusted_relay`),
 // which also keeps dev relays (`cmux-relay-dev`) out of production state.
+// A DETACH clears state instead of publishing it, so it is matched against
+// the stored URL by hostname without the trust lookup — see
+// `applyRelayAttachReport`.
 // Debug/test fleets get trusted the same way: their relay must be in the
 // catalog the deployment was built with, or saved as that account's custom
 // relay; the HMAC alone is deliberately NOT sufficient.
@@ -202,13 +205,14 @@ export type RelayReportOutcome =
   | "unknown_endpoint"
   | "untrusted_relay";
 
-// The active binding for the endpoint plus that account's saved custom
-// relays (preferences are keyed by the same Stack user id bindings carry).
-// The partial unique index `iroh_endpoint_bindings_active_endpoint_unique`
-// guarantees at most one row.
+// The active binding for the endpoint (with its current attachment) plus
+// that account's saved custom relays (preferences are keyed by the same
+// Stack user id bindings carry). The partial unique index
+// `iroh_endpoint_bindings_active_endpoint_unique` guarantees at most one row.
 const REPORT_CONTEXT_SQL = `
   select
     binding.user_id as "userId",
+    binding.relay_attached_url as "attachedUrl",
     pref.custom_relays as "customRelays"
   from iroh_endpoint_bindings binding
   left join iroh_relay_preferences pref
@@ -268,6 +272,14 @@ function savedCustomRelayURLs(customRelays: unknown): string[] {
 /**
  * Applies one verified report to the registry. Both statements run on the
  * dedicated deadline-bounded report client under the concurrency cap.
+ *
+ * The catalog/saved-set trust rule gates only ATTACH, because only an attach
+ * publishes a URL. A detach merely clears the stored attachment, so it is
+ * matched against the STORED URL by hostname and needs no trust resolution:
+ * a custom relay deleted from the account's preferences must still be able
+ * to detach cleanly, or its stale attachment would resurface if the same
+ * relay were ever saved again (a forged clear already requires the shared
+ * secret and only degrades discovery to the client-published fallback).
  */
 export async function applyRelayAttachReport(
   report: RelayAttachReport,
@@ -276,11 +288,29 @@ export async function applyRelayAttachReport(
     const client = reportClient();
     const context = (await client.query(REPORT_CONTEXT_SQL, [report.endpointId]))[0];
     if (!context) return "unknown_endpoint" as const;
-    const url = publishableRelayURLForHostname(
-      report.relayId,
-      savedCustomRelayURLs(context.customRelays),
-    );
-    if (url === null) return "untrusted_relay" as const;
+
+    let url: string;
+    if (report.event === "attach") {
+      const publishable = publishableRelayURLForHostname(
+        report.relayId,
+        savedCustomRelayURLs(context.customRelays),
+      );
+      if (publishable === null) return "untrusted_relay" as const;
+      url = publishable;
+    } else {
+      const attachedUrl = typeof context.attachedUrl === "string"
+        ? context.attachedUrl
+        : null;
+      if (attachedUrl === null || urlHostname(attachedUrl) !== report.relayId) {
+        // Nothing (or a different relay's route) is published; the detach is
+        // stale relative to the applied event stream.
+        return "superseded" as const;
+      }
+      // Clear exactly what was read; the WHERE below re-checks it so a
+      // concurrent attach between the two statements survives.
+      url = attachedUrl;
+    }
+
     const applied = await client.query(
       report.event === "attach" ? APPLY_ATTACH_SQL : APPLY_DETACH_SQL,
       [report.endpointId, url, report.reportedAt.toISOString()],

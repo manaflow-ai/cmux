@@ -823,7 +823,8 @@ function bindingPathHints(
   const attachedURL = binding.relayAttachedUrl;
   if (
     attachedURL === null ||
-    !isPublishableAttachedRelayURL(attachedURL, savedCustomRelayURLs)
+    !isPublishableAttachedRelayURL(attachedURL, savedCustomRelayURLs) ||
+    !attachmentCorroborated(binding, now)
   ) {
     return clientHints;
   }
@@ -846,6 +847,27 @@ function bindingPathHints(
 
 /** Half the model's 1h hint-lifetime cap; refreshed by every discovery read. */
 const SERVER_RELAY_HINT_TTL_MS = 30 * 60 * 1_000;
+
+/**
+ * Detach reports are fire-and-forget, so a relay that dies together with its
+ * report leaves `relayAttachedUrl` behind; without a liveness bound that dead
+ * route would be re-served as fresh forever. An attachment is served only
+ * while some live evidence is younger than this window: the attach report
+ * itself, or the binding's `lastSeenAt` (a live Mac re-registers at least
+ * hourly to keep its ≤1h path hints and binding freshness lease current,
+ * and a Mac that outlives its relay reattaches elsewhere, which overwrites
+ * the URL). A Mac that goes dark with its relay stops refreshing both, so
+ * the stale route ages out within this window.
+ */
+const SERVER_RELAY_ATTACH_LIVENESS_MS = 60 * 60 * 1_000;
+
+function attachmentCorroborated(binding: IrohBindingRecord, now: Date): boolean {
+  const freshestEvidence = Math.max(
+    binding.relayAttachReportedAt?.getTime() ?? 0,
+    binding.lastSeenAt.getTime(),
+  );
+  return now.getTime() - freshestEvidence <= SERVER_RELAY_ATTACH_LIVENESS_MS;
+}
 
 function customRelayURLs(preference: RelayPreference): ReadonlySet<string> {
   return new Set(preference.customRelays.map((relay) => relay.url));
