@@ -272,6 +272,7 @@ final class CmuxPluginProcessSupervisor {
         environment[environmentKeys.pluginTokenKey] = sessionToken
         environment[environmentKeys.pluginSocketPathKey] = socketPath
         environment[environmentKeys.manifestPathKey] = executionSnapshot.manifestURL.path
+        environment[environmentKeys.entrypointPathKey] = executionSnapshot.entrypointURL.path
         environment[environmentKeys.apiVersionKey] = "\(descriptor.plugin.manifest.minimumAPIVersion.major).\(descriptor.plugin.manifest.minimumAPIVersion.minor)"
         // Existing cmux SDKs and the bundled CLI both discover the socket via
         // this conventional variable. Keep it alongside the plugin-specific

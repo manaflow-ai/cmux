@@ -6,7 +6,7 @@ import Foundation
 /// The returned descriptor belongs to the caller. The source interpreter is
 /// never modified; only the private copy receives the immutable flag.
 struct CmuxPluginInterpreterSnapshotter {
-    private static let maximumInterpreterBytes: UInt64 = 512 * 1024 * 1024
+    private static let maximumInterpreterBytes: UInt64 = 256 * 1024 * 1024
     private let fileManager: FileManager
 
     init(fileManager: FileManager = .default) {

@@ -77,8 +77,16 @@ When enabled, CMUX launches the validated entry point with these variables:
 | `CMUX_PLUGIN_TOKEN` | In-memory capability token for this process. |
 | `CMUX_PLUGIN_SOCKET_PATH` | Active CMUX control-socket path. |
 | `CMUX_PLUGIN_MANIFEST_PATH` | Absolute path to `manifest.json`. |
+| `CMUX_PLUGIN_ENTRYPOINT_PATH` | Stable declared entrypoint path for resource discovery. |
 | `CMUX_PLUGIN_API_VERSION` | Plugin API selected by the host as `major.minor`. |
 | `CMUX_SOCKET_PATH` | Alias for the active socket path. |
+
+CMUX executes approved entrypoint/interpreter bytes through pinned file
+descriptors, so a process may observe `/dev/fd/...` as `argv[0]`, `$0`, or
+`__file__`. Plugins must resolve bundle-relative modules and resources from the
+directory containing `CMUX_PLUGIN_MANIFEST_PATH` (the process working directory),
+or use `CMUX_PLUGIN_ENTRYPOINT_PATH` when the declared entrypoint path itself is
+needed. Descriptor paths are an intentional part of the API 3.0 security contract.
 
 ### Event subscription
 

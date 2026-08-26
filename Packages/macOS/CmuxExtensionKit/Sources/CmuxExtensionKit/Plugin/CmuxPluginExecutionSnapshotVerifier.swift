@@ -8,7 +8,7 @@ import Foundation
 /// identity and the complete artifact fingerprint so a cleared flag or an
 /// in-place rewrite fails closed before the launch gate is released.
 struct CmuxPluginExecutionSnapshotVerifier {
-    private static let maximumInterpreterBytes = 512 * 1024 * 1024
+    private static let maximumInterpreterBytes = 256 * 1024 * 1024
     private let fileManager: FileManager
 
     init(fileManager: FileManager = .default) {

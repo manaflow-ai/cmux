@@ -87,6 +87,7 @@ public actor CmuxPluginExecutionSnapshotter {
     private let fileManager: FileManager
     private var openEntrypointDescriptors: Set<Int32> = []
     private static let orphanSnapshotAge: TimeInterval = 24 * 60 * 60
+    private static let maximumOrphanSnapshotCount = 2
 
     /// Creates a snapshotter with an injected private staging root.
     public init(
@@ -515,8 +516,8 @@ public actor CmuxPluginExecutionSnapshotter {
 
     /// Recovers UUID-named snapshots left by a crashed or force-quit host.
     /// The default root is process-scoped, and only roots older than a day are
-    /// removed, leaving snapshots from another currently-running host untouched
-    /// while bounding disk retention.
+    /// removed. Across dead process roots, at most two recent snapshots survive;
+    /// with the 256 MiB bundle/interpreter caps this also bounds retained bytes.
     private func pruneOrphanedSnapshots() {
         let cutoff = Date().addingTimeInterval(-Self.orphanSnapshotAge)
         let rootName = rootDirectoryURL.lastPathComponent
@@ -533,6 +534,7 @@ public actor CmuxPluginExecutionSnapshotter {
             roots = [rootDirectoryURL]
         }
 
+        var orphaned: [(url: URL, root: URL, modified: Date)] = []
         for root in roots {
             guard let rootValues = try? root.resourceValues(
                 forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
@@ -559,12 +561,17 @@ public actor CmuxPluginExecutionSnapshotter {
                       values.isDirectory == true,
                       values.isSymbolicLink != true,
                       let attributes = try? fileManager.attributesOfItem(atPath: entry.path),
-                      let modified = attributes[.modificationDate] as? Date,
-                      modified < cutoff else {
+                      let modified = attributes[.modificationDate] as? Date else {
                     continue
                 }
-                removeStagingRoot(entry, within: root)
+                orphaned.append((entry, root, modified))
             }
+        }
+        for (index, candidate) in orphaned
+            .sorted(by: { $0.modified > $1.modified })
+            .enumerated()
+        where index >= Self.maximumOrphanSnapshotCount || candidate.modified < cutoff {
+            removeStagingRoot(candidate.url, within: candidate.root)
         }
     }
 

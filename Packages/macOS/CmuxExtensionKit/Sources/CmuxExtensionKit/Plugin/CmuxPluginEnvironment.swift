@@ -14,6 +14,8 @@ public struct CmuxPluginEnvironment: Sendable {
     public let pluginSocketPathKey = "CMUX_PLUGIN_SOCKET_PATH"
     /// Absolute path to the validated manifest file.
     public let manifestPathKey = "CMUX_PLUGIN_MANIFEST_PATH"
+    /// Stable declared entrypoint path for resource discovery.
+    public let entrypointPathKey = "CMUX_PLUGIN_ENTRYPOINT_PATH"
     /// The negotiated plugin API version (`major.minor`).
     public let apiVersionKey = "CMUX_PLUGIN_API_VERSION"
     /// Conventional socket variable also understood by bundled cmux clients.
