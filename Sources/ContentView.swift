@@ -3616,7 +3616,7 @@ struct ContentView: View {
         if let workspace = tabManager.tabs.first(where: { $0.id == newSelectedId }) {
             workspaceHandoffFrameWatcher.begin(
                 workspaceId: newSelectedId,
-                expectedSurfaceIds: workspace.renderedVisibleTerminalSurfaceIds()
+                targets: workspace.handoffWatchTargets()
             ) {
                 completeWorkspaceHandoff(reason: "first_frame")
             }

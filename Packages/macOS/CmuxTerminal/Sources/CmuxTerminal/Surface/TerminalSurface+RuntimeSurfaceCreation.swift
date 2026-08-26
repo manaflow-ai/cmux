@@ -40,6 +40,15 @@ extension TerminalSurface {
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
                 }
+            },
+            rendererFrameNotice: { surfaceID in
+                Task { @MainActor in
+                    NotificationCenter.default.post(
+                        name: .terminalSurfaceDidRenderFrame,
+                        object: nil,
+                        userInfo: [TerminalSurfaceRenderNotice.surfaceIdKey: surfaceID]
+                    )
+                }
             }
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()

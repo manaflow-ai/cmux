@@ -11,4 +11,5 @@ let terminalRendererEventCallback: @convention(c) (
         .fromOpaque(userdata)
         .takeUnretainedValue()
     context.rendererMailboxDidDrain()
+    context.rendererFrameDidEnd()
 }

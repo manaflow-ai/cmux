@@ -46,6 +46,17 @@ extension TerminalSurface {
         }
     }
 
+    /// Arms one first-frame notice; the next completed renderer frame posts
+    /// `.terminalSurfaceDidRenderFrame` with this surface's id (#1291).
+    public func armRendererFrameNotice() {
+        surfaceCallbackContext?.takeUnretainedValue().armRendererFrameNotice()
+    }
+
+    /// Cancels an armed first-frame notice (handoff finished another way).
+    public func cancelRendererFrameNotice() {
+        surfaceCallbackContext?.takeUnretainedValue().cancelRendererFrameNotice()
+    }
+
     /// Applies the occlusion state to the runtime surface.
     public func setOcclusion(_ visible: Bool) {
         guard let surface = surface else { return }

@@ -78,6 +78,15 @@ public final class GhosttySurfaceCallbackContext {
     /// Lock-free so the unarmed renderer callback path neither allocates nor locks.
     private let rendererPresentationRepairArmed = AtomicBooleanGate(false)
 
+    /// Runs with the stable surface id after an armed frame notice observes a
+    /// completed renderer frame (`GHOSTTY_RENDERER_EVENT_UPDATE_FRAME_END`).
+    /// The workspace handoff arms this to learn when an incoming surface has
+    /// fresh pixels (manaflow-ai/cmux#1291).
+    private let rendererFrameNoticeHandler: @Sendable (UUID) -> Void
+
+    /// Lock-free one-shot latch, same shape as the presentation repair gate.
+    private let rendererFrameNoticeArmed = AtomicBooleanGate(false)
+
     /// Synchronously bridges libghostty callback acceptance to runtime teardown.
     private let runtimeClipboardState = OSAllocatedUnfairLock(
         initialState: RuntimeClipboardState()
@@ -105,6 +114,7 @@ public final class GhosttySurfaceCallbackContext {
         terminalLifecycleID: UUID,
         titleOverride: String? = nil,
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
+        rendererFrameNotice: @escaping @Sendable (UUID) -> Void = { _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
         self.surfaceHost = surfaceHost
@@ -114,11 +124,35 @@ public final class GhosttySurfaceCallbackContext {
         self.terminalLifecycleID = terminalLifecycleID
         self.titleOverride = titleOverride
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
+        self.rendererFrameNoticeHandler = rendererFrameNotice
         self.maximumRuntimeClipboardRequests = max(
             0,
             maximumRuntimeClipboardRequests
         )
         _ = Self.runtimeClipboardPasteDispatchKey
+    }
+
+    /// Arms one frame notice for the next completed renderer frame.
+    public func armRendererFrameNotice() {
+        rendererFrameNoticeArmed.storeRelease(true)
+    }
+
+    /// Cancels an armed frame notice (handoff completed another way).
+    public func cancelRendererFrameNotice() {
+        rendererFrameNoticeArmed.storeRelease(false)
+    }
+
+    /// Consumes at most one armed frame notice after a renderer frame ends.
+    ///
+    /// - Returns: Whether this frame consumed the armed notice.
+    @discardableResult
+    public func rendererFrameDidEnd() -> Bool {
+        guard rendererFrameNoticeArmed.compareExchange(
+            expected: true,
+            desired: false
+        ) else { return false }
+        rendererFrameNoticeHandler(surfaceId)
+        return true
     }
 
     /// Arms one presentation repair for the next renderer mailbox-drain signal.

@@ -5150,21 +5150,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return terminalPanels.contains { $0.surface.surface != nil }
     }
 
-    /// Surface ids of the terminals the current rendered layout would show.
-    /// The workspace handoff waits for each one's first rendered frame before
-    /// the retiring workspace's content is hidden (#1291).
-    func renderedVisibleTerminalSurfaceIds() -> Set<UUID> {
+    /// The terminals the current layout model would show, as handoff watch
+    /// targets. The workspace handoff waits for each one's first rendered
+    /// frame and reveal before the retiring workspace's content is hidden
+    /// (#1291).
+    func handoffWatchTargets() -> [WorkspaceHandoffFrameWatcher.Target] {
         let visiblePanelIds = expectedVisiblePanelIdsForLayout()
-        var ids: Set<UUID> = []
+        var targets: [WorkspaceHandoffFrameWatcher.Target] = []
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             // Mirror-rendered window-tab panels are drawn by their split view,
             // not this panel's surface (see the portal visibility reconcile).
             if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             guard visiblePanelIds.contains(terminalPanel.id) else { continue }
-            ids.insert(terminalPanel.surface.id)
+            targets.append(WorkspaceHandoffFrameWatcher.Target(
+                surface: terminalPanel.surface,
+                hostedView: terminalPanel.hostedView
+            ))
         }
-        return ids
+        return targets
     }
 
     /// Whether every rendered-visible terminal is already presented in the
