@@ -353,4 +353,48 @@ struct AgentHibernationTerminationFailureTests {
         #expect(record.hasPressureSafeProcessEvidence == false)
         #expect(record.processSafetyAllowsHibernation(for: .systemMemoryPressure))
     }
+
+    @MainActor
+    @Test
+    func oversizedLiveProcessScopeIsNotEligibleForHibernation() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let processIDs = Set(
+            1...(AgentHibernationController.maximumScopedProcessTerminationCount + 1)
+        )
+        let processIdentities = Dictionary(uniqueKeysWithValues: processIDs.map { processID in
+            (
+                processID,
+                AgentPIDProcessIdentity(
+                    pid: pid_t(processID),
+                    startSeconds: Int64(processID),
+                    startMicroseconds: 0
+                )
+            )
+        })
+        let record = AgentHibernationRecord(
+            key: .init(workspaceId: workspace.id, panelId: panelID),
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: .init(
+                kind: .custom("test-agent"),
+                sessionId: "oversized-process-scope",
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: true,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: processIDs,
+            processIDs: processIDs,
+            processIdentities: processIdentities
+        )
+
+        #expect(record.hasPressureSafeProcessEvidence == false)
+        #expect(!record.processSafetyAllowsHibernation(for: .scheduled))
+    }
 }
