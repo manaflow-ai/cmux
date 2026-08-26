@@ -438,17 +438,11 @@ final class AgentJournalLifecycleCenter: Sendable {
             return
         }
         // Journal assignments intentionally carry no process generation: they
-        // must remain replayable across launches. Once a live generation is
-        // already registered for this built-in key, an unbound replay/live
-        // assignment cannot prove that it belongs to that generation and may
-        // otherwise overwrite newer running evidence. Hooks with exact
-        // generation identity remain the authoritative mutation path.
-        let hasRemoteLifecycleEvidence =
-            owner.usesRemoteAgentProcessNamespace(panelId: panelId)
-            && owner.agentLifecycleState(
-                key: assignment.agentKey,
-                panelId: panelId
-            ) != nil
+        // must remain replayable across launches. Once a local generation is
+        // already registered for this built-in key, an unbound assignment
+        // cannot prove that it belongs to that generation and may otherwise
+        // overwrite newer running evidence. Remote generation tuples are
+        // opaque to the Mac, so their journal remains the ordered authority.
         let hasLiveAgentProcess = owner.hasLiveAgentProcess(
             statusKey: assignment.agentKey,
             panelId: panelId
@@ -458,8 +452,7 @@ final class AgentJournalLifecycleCenter: Sendable {
         // turns. The reducer's per-session precedence still prevents an idle
         // older session from replacing a newer running session.
         let isCompletionAssignment = assignment.phase == .idle
-        guard (!hasLiveAgentProcess || isCompletionAssignment),
-              !hasRemoteLifecycleEvidence else {
+        guard !hasLiveAgentProcess || isCompletionAssignment else {
             CmuxEventBus.shared.publish(
                 name: "agent.journal.apply_skipped",
                 category: "agent",
@@ -467,18 +460,13 @@ final class AgentJournalLifecycleCenter: Sendable {
                 surfaceId: assignment.surfaceId,
                 payload: [
                     "agent_key": assignment.agentKey,
-                    "reason": hasRemoteLifecycleEvidence
-                        ? "remoteLifecycleEvidence"
-                        : "liveProcessGeneration",
+                    "reason": "liveProcessGeneration",
                 ]
             )
 #if DEBUG
             cmuxDebugLog(
                 "agentJournal.apply.skip surface=\(assignment.surfaceId.prefix(8)) " +
-                    "key=\(assignment.agentKey) reason="
-                    + (hasRemoteLifecycleEvidence
-                        ? "remoteLifecycleEvidence"
-                        : "liveProcessGeneration")
+                    "key=\(assignment.agentKey) reason=liveProcessGeneration"
             )
 #endif
             return

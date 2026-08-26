@@ -88,12 +88,16 @@ extension TerminalController: ControlFeedContext {
         let observationId = agentAttentionOpaqueID(observationIdValue)
         let scopeIdValue = params["scope_id"]
         let scopeId = agentAttentionOpaqueID(scopeIdValue)
+        let hasConclusionIdentity = observationId != nil
+            || scopeId != nil
+            || boundaryEpoch != nil
         guard let source = agentAttentionSource(params["source"]),
               let sessionId = agentAttentionOpaqueID(params["session_id"]),
               let generation = agentAttentionProcessGeneration(params),
               boundaryEpochValue == nil || boundaryEpoch != nil,
               observationIdValue == nil || observationId != nil,
-              scopeIdValue == nil || scopeId != nil
+              scopeIdValue == nil || scopeId != nil,
+              hasConclusionIdentity
         else {
             return .err(
                 code: "invalid_params",
