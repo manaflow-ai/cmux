@@ -57726,6 +57726,108 @@
         }
       }
     },
+    "cli.vm.tui.clientExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui exited with status %1$d. Re-run `cmux vm tui %2$@` to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui がステータス %1$d で終了しました。再接続するには `cmux vm tui %2$@` を再実行してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.clientMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux-tui client found. Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui クライアントが見つかりません。`curl -fsSL https://cmux.com/tui/install-static.sh | sh` でインストールするか、CMUX_TUI_CLIENT にバイナリを指定してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to %1$@ through cmux-tui…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui 経由で %1$@ に接続しています…"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.mode.enrolled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "device already enrolled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスは登録済みです"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.mode.enrolling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enrolling this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を登録しています"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opened cmux-tui for %1$@ (%2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の cmux-tui を開きました（%2$@）"
+          }
+        }
+      }
+    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {

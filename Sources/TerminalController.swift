@@ -2816,6 +2816,8 @@ class TerminalController {
             "vm.destroy",
             "vm.exec",
             "vm.attach_info",
+            "vm.cmux_remote_info",
+            "vm.cmux_remote_approve",
             "vm.ssh_info",
             "aiAccounts.list",
             "aiAccounts.upload",

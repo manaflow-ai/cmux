@@ -318,6 +318,26 @@ as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH
 
 Blaxel needs no baked image: the driver bootstraps the stock `blaxel/base-image:latest` at create time by injecting the cmuxd-remote linux/amd64 binary through the sandbox filesystem API (gzip+base64, sub-second) and starting `serve --ws` as a `keepAlive` process. `keepAlive` is required — Blaxel freezes a sandbox ~15 s after the last connection otherwise, which would pause user workloads on disconnect; standby time is free, so a later "smart sleep while all PTYs are idle" optimization can reclaim the cost without changing the bootstrap. Config: `BL_API_KEY`, `BL_WORKSPACE`, and either `CMUX_VM_BLAXEL_DAEMON_PATH` (local linux/amd64 build) or `CMUX_VM_BLAXEL_DAEMON_URL` (R2 artifact). A URL source additionally requires `CMUX_VM_BLAXEL_DAEMON_SHA256` (sha256 of the raw binary) and fails closed without it — the daemon runs in every sandbox, so the download is integrity-pinned; a local path may run unpinned but honors the pin when set. Preview ingress is enforced private: attach only reuses a preview whose spec is not public, replaces a public one, and refuses a preview that comes back public, so the daemon is never reachable without a minted preview token. Attach dials the sandbox's private preview URL for port 7777 with a minted `X-Blaxel-Preview-Token` header (12 h expiry); the workspace API key never leaves the backend. Live driver E2E: `bun scripts/test-blaxel-vm-poc.ts`.
 
+**cmux-tui remote daemon.** When `CMUX_VM_BLAXEL_TUI_URL` and
+`CMUX_VM_BLAXEL_TUI_SHA256` are set, cmux-tui is the machine's only session daemon:
+create/resurrect no longer install or start `cmuxd-remote` (the legacy websocket
+attach can still self-heal it on demand for machines that predate the pin), and
+`cmux vm shell` / the Machines panel open cmux-tui sessions, falling back to the
+websocket attach only when the control plane reports no pin. The driver installs the pinned static-musl
+`cmux-tui` onto the persistent home volume (`/root/.cmux/bin/cmux-tui`, downloaded and
+sha256-verified inside the VM, reused on resurrection) and runs `cmux-tui server start
+--session cloud --remote-ws 0.0.0.0:1337` under the sandbox supervisor, beside
+`cmuxd-remote`. `POST /api/vm/[id]/attach-endpoint` with `{"transport":"cmux-remote"}`
+returns `{route, token, session, invitation?}` where `route` is
+`wss://<hash>.preview.bl.run/v1/link?bl_preview_token=…` (the daemon preview is
+deliberately unbranded: a WebSocket upgrade carrying the token as a query parameter
+completes on the raw host but is refused through the `vm.cmux.sh` custom domain) and
+`invitation` is a single-use `cmux://enroll/…` URI minted only when the caller's
+device is not enrolled. The client connects with `cmux-tui remote connect <route>
+--invite-file …`, then `POST /api/vm/[id]/cmux-remote/approve {invitationId}` approves
+the pending claim (poll until `state` is `approved`). `cmux vm tui <id>` drives this
+from the Mac. See docs/cloud-cmux-tui-daemon.md (#10800) for the full migration.
+
 E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
 
 Operational note: Blaxel is the intended default. Before rollout or rollback, verify the deployed

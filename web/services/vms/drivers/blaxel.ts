@@ -86,12 +86,11 @@ INTERVAL=\${CMUX_SMART_SLEEP_INTERVAL:-15}
 idle=0
 while true; do
   busy=""
-  cm=$(pidof cmuxd-remote 2>/dev/null | awk '{print $1}')
-  if [ -n "$cm" ]; then
+  for cm in $(pidof cmuxd-remote cmux-tui 2>/dev/null); do
     for c in $(pgrep -P "$cm" 2>/dev/null); do
-      if pgrep -P "$c" >/dev/null 2>&1; then busy=jobs; break; fi
+      if pgrep -P "$c" >/dev/null 2>&1; then busy=jobs; break 2; fi
     done
-  fi
+  done
   if [ -z "$busy" ]; then
     if awk -v port="$PORT_HEX" -v tui="$TUI_PORT_HEX" '($2 ~ ":"port"$" || $2 ~ ":"tui"$") && $4 == "01" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
       busy=conn
@@ -539,6 +538,14 @@ export class BlaxelProvider implements VMProvider {
   }
 
   private async bootstrapDaemon(name: string, sandboxUrl: string): Promise<void> {
+    // With a cmux-tui pin configured, cmux-tui is the machine's only session daemon:
+    // cmuxd-remote is neither installed nor started (the legacy websocket attach can
+    // still self-heal it on demand through ensureDaemonRunning for machines that need
+    // it). Exec, ports, stats and the desktop never depended on cmuxd.
+    if (resolveCmuxTuiSource()) {
+      await this.bootstrapCmuxTuiOnly(name, sandboxUrl);
+      return;
+    }
     const b64 = await timedStep("daemon_binary_encode", () => daemonBinaryBase64Gzip());
     // Both filesystem writes are independent; the install exec below is the barrier
     // that needs them on disk.
@@ -592,6 +599,28 @@ export class BlaxelProvider implements VMProvider {
   }
 
   // MARK: cmux-tui remote daemon
+
+  /** Create-time bootstrap for cmux-tui deployments: the watcher, hostname/VNC chain and provisioning as before, cmux-tui instead of cmuxd-remote. */
+  private async bootstrapCmuxTuiOnly(name: string, sandboxUrl: string): Promise<void> {
+    await blaxelFetch("PUT", `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`, { content: SMART_SLEEP_SCRIPT, permissions: "0755" });
+    const prep = await this.sandboxExec(sandboxUrl, `chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux`);
+    if (prep.exitCode !== 0) {
+      throw new ProviderError("blaxel", `machine prep in ${name} failed: ${prep.stderr || prep.stdout}`);
+    }
+    await Promise.all([
+      timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl)),
+      timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl)),
+      (async () => {
+        await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
+        await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
+      })(),
+      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+        name: "cmux-provision",
+        command: CMUX_PROVISION_COMMAND,
+        waitForCompletion: false,
+      }).catch(() => undefined),
+    ]);
+  }
 
   /** Installs (or re-verifies) the pinned binary and starts the daemon. No-op when the deployment has not opted in. */
   private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<boolean> {

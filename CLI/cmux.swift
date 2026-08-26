@@ -5925,16 +5925,27 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
-                let shellWorkspaceId = try vmOpenShell(
-                    id: vmId,
-                    workspaceName: "vm:\(vmId)",
-                    windowRaw: windowOpt ?? windowId,
-                    forceSSH: false,
-                    shouldPinWorkspaceToTop: false,
-                    client: client,
-                    jsonOutput: jsonOutput,
-                    idFormat: idFormat
-                )
+                // Cloud shells are cmux-tui sessions wherever the deployment runs the
+                // cmux-tui daemon; the cmuxd-remote websocket attach remains only for
+                // deployments without a cmux-tui pin (docs/cloud-cmux-tui-daemon.md).
+                let shellWorkspaceId: String?
+                if let opened = try openVMShellViaCmuxTuiIfAvailable(vmId: vmId, windowRaw: windowOpt ?? windowId, client: client) {
+                    shellWorkspaceId = opened.workspaceId
+                    if jsonOutput {
+                        print(jsonString(["ok": true, "vm_id": vmId, "workspace_id": opened.workspaceId, "transport": "cmux-remote", "enrolling": opened.enrolling]))
+                    }
+                } else {
+                    shellWorkspaceId = try vmOpenShell(
+                        id: vmId,
+                        workspaceName: "vm:\(vmId)",
+                        windowRaw: windowOpt ?? windowId,
+                        forceSSH: false,
+                        shouldPinWorkspaceToTop: false,
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat
+                    )
+                }
                 if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
                    let image = status["image"] as? String,
                    Self.cloudVMImageHasDesktop(image) {
