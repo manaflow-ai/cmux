@@ -74,7 +74,6 @@ const retiredEnvValue = (
     }
   });
 const privateRelayEnvNames = new Set([
-  "CMUX_RELAY_JWT_PRIVATE_KEY_PEM",
   "CMUX_RELAY_POLICY_KEY_ID",
   "CMUX_RELAY_POLICY_PRIVATE_KEY_PEM",
 ]);
@@ -259,12 +258,9 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: irohBindingLimit.optional(),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: irohBindingLimit.optional(),
-    // Self-hosted relay fleet. Preview and local builds remain credential-free,
-    // while every deployed non-preview runtime must be able to mint endpoint-
-    // bound credentials, sign the fleet policy, and enforce its account limit.
-    CMUX_RELAY_JWT_PRIVATE_KEY_PEM: requireVercelRelayValue(
-      z.string().min(64).max(16_384),
-    ),
+    // Self-hosted relay fleet. Relay admission is the allow hook; the web API
+    // only signs the fleet policy. Every deployed non-preview runtime must be
+    // able to sign that policy and enforce its account limit.
     CMUX_RELAY_POLICY_KEY_ID: requireVercelRelayValue(
       z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/),
     ),
@@ -369,7 +365,6 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_DEVICE_LIMIT),
-    CMUX_RELAY_JWT_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM),
     CMUX_RELAY_POLICY_KEY_ID: trimEnv(process.env.CMUX_RELAY_POLICY_KEY_ID),
     CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_POLICY_PRIVATE_KEY_PEM),
     CMUX_RELAY_TOKEN_RATE_LIMIT_ID: trimEnv(process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID),

@@ -354,8 +354,7 @@ extension CmxIrohClientRuntime {
 
     func install(
         policy: ResolvedPolicy,
-        revision: UInt64,
-        startRelays: Bool
+        revision: UInt64
     ) async throws {
         try requireCurrent(revision)
         let offlinePolicy = try policy.offlineExpectation.map { expectation in
@@ -399,47 +398,5 @@ extension CmxIrohClientRuntime {
         }
         await contextRouter.install(provider)
         localBinding = policy.binding
-
-        guard endpointRelayProfile.source == .managed,
-              !endpointRelayProfile.allowedRelayURLs.isEmpty else {
-            await relayCoordinator?.deactivate()
-            relayCoordinator = nil
-            return
-        }
-
-        let coordinator: CmxIrohRelayCredentialCoordinator
-        if let relayCoordinator {
-            coordinator = relayCoordinator
-        } else {
-            coordinator = CmxIrohRelayCredentialCoordinator(
-                supervisor: connectivityEngine,
-                broker: broker,
-                managedRelayURLs: managedRelayURLs,
-                selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
-                retrySchedule: .foregroundClient,
-                automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-                credentialDidInstall: { [handleRelayCredential] response in
-                    await handleRelayCredential(response, policy.binding)
-                }
-            )
-            relayCoordinator = coordinator
-        }
-
-        let bootstrap = startRelays ? configuration.cachedRelayCredential : nil
-        if startRelays || bootstrap != nil {
-            let requiresRelayReadiness = !protocolConfiguration
-                .allowsNATTraversalAfterAdmission
-            do {
-                try await coordinator.activate(
-                    bindingID: policy.binding.bindingID,
-                    endpointIdentity: policy.binding.endpointID,
-                    bootstrap: bootstrap,
-                    waitForInitialCredential: requiresRelayReadiness
-                )
-            } catch {
-                if requiresRelayReadiness { throw error }
-                // Registration remains authoritative; direct paths remain usable.
-            }
-        }
     }
 }

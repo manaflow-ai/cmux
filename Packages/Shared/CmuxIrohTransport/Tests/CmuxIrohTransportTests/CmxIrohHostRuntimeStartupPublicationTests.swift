@@ -87,13 +87,8 @@ extension CmxIrohHostRuntimeTests {
         #expect(await routes.values().isEmpty)
         #expect(await runtime.snapshot().state == .active)
 
-        // The relay credential installs, then native iroh reports the home
-        // relay online. Publication must follow, exactly once, with the
-        // post-relay hints.
-        for _ in 0 ..< 20_000 {
-            if await !endpoint.observedRelayUpdates().isEmpty { break }
-            await Task.yield()
-        }
+        // Native iroh reports the home relay online. Publication must follow,
+        // exactly once, with the post-relay hints.
         await endpoint.emit(.online)
         #expect(await bindings.waitForCount(1, timeout: .seconds(5)))
         let republished = await routes.values()
@@ -411,13 +406,8 @@ extension CmxIrohHostRuntimeTests {
         #expect(adopted)
         #expect(await bindings.count() == 0)
 
-        // The relay credential installs for the adopted binding, then the
-        // home relay comes online. Publication must follow, exactly once,
-        // with the adopted identity.
-        for _ in 0 ..< 20_000 {
-            if await !endpoint.observedRelayUpdates().isEmpty { break }
-            await Task.yield()
-        }
+        // The home relay comes online for the adopted binding. Publication
+        // must follow, exactly once, with the adopted identity.
         await endpoint.emit(.online)
         #expect(await bindings.waitForCount(1, timeout: .seconds(5)))
         #expect(!(await bindings.waitForCount(2, timeout: .milliseconds(300))))

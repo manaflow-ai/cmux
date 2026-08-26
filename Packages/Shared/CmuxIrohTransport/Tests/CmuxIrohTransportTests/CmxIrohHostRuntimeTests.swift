@@ -58,7 +58,6 @@ struct CmxIrohHostRuntimeTests {
         try await runtime.start()
 
         #expect(await runtime.snapshot().state == .active)
-        #expect(await broker.observedRelayIssueCount() == 0)
         await runtime.stop()
     }
 
@@ -381,7 +380,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let revokeError: CmxIrohTrustBrokerClientError?
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
-    private let relayIssueHook: (@Sendable () async -> Void)?
     private let embedDiscoveryStartingAtRegistrationCount: Int?
     private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
     private let embeddedRegistrationDiscoveryIsComplete: Bool?
@@ -391,7 +389,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private var preflightOperations: [CmxIrohBrokerOperation] = []
     private var registrationCount = 0
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
-    private var relayIssueCount = 0
     private var discoveryCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
@@ -409,7 +406,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         revokeError: CmxIrohTrustBrokerClientError? = nil,
         registrationHook: (@Sendable () async -> Bool)? = nil,
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
-        relayIssueHook: (@Sendable () async -> Void)? = nil,
         embedDiscoveryInRegistration: Bool = false,
         embedDiscoveryStartingAtRegistrationCount: Int? = nil,
         embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
@@ -425,7 +421,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.revokeError = revokeError
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
-        self.relayIssueHook = relayIssueHook
         self.embedDiscoveryStartingAtRegistrationCount =
             embedDiscoveryInRegistration
                 ? 1
@@ -503,21 +498,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         throw TestIrohTransportError.unsupported
     }
 
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) async -> CmxIrohRelayTokenResponse {
-        relayIssueCount += 1
-        if let relayIssueHook {
-            await relayIssueHook()
-        }
-        return CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-07-10T12:00:00.000Z",
-            refreshAfter: "2027-07-10T11:00:00.000Z",
-            relayFleet: HostRuntimeFixture.relayURLs
-        )
-    }
 
     func revoke(bindingID: String) throws {
         revokedBindingIDs.append(bindingID)
@@ -535,7 +515,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     func observedPreparedRegistrations() -> [CmxIrohPreparedRegistration] {
         preparedRegistrations
     }
-    func observedRelayIssueCount() -> Int { relayIssueCount }
     func observedDiscoveryCount() -> Int { discoveryCount }
 
     func enqueueSubsequentRegistrationError(
@@ -833,7 +812,6 @@ actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
         return connection
     }
 
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
     func isHealthy() -> Bool { true }
 

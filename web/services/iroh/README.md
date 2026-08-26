@@ -52,10 +52,11 @@ authenticated user-id and deployment-environment allowlist match.
 
 Registration never mints a relay credential. A newly created binding receives
 `relay.status = "unavailable"` and signed refreshes of the same binding return
-`relay.status = "not_requested"`; clients obtain endpoint-bound credentials for
-the self-hosted fleet from `/api/relay/token`, which admits callers by their
-active binding. Platform is part of the immutable binding identity and requires
-explicit revocation before it can change.
+`relay.status = "not_requested"`; the fields exist only for wire compatibility.
+Relay admission is decided server-side by the relay's allow hook
+(`/api/relay/allow`) against the proven endpoint key, and clients fetch the
+signed fleet policy from `/api/relay/policy`. Platform is part of the immutable
+binding identity and requires explicit revocation before it can change.
 
 Every user-scoped mutation acquires the account-deletion advisory fence before
 any Iroh lock. If the deletion tombstone wins, no challenge, binding, grant, or

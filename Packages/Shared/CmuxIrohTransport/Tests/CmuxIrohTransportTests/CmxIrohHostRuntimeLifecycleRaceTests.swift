@@ -46,12 +46,10 @@ extension CmxIrohHostRuntimeTests {
             }
         )
         try await runtime.start()
-        // Native iroh reports the home relay online once the installed
-        // credential connects; the readiness gate publishes only after this.
-        for _ in 0 ..< 20_000 {
-            if await !endpoint.observedRelayUpdates().isEmpty { break }
-            await Task.yield()
-        }
+        // Native iroh reports the home relay online once the configured relay
+        // connects; the address then carries the relay URL and the readiness
+        // gate publishes only after this.
+        await endpoint.setPathHints([relayHint])
         await endpoint.emit(.online)
 
         let republished = await broker.waitForRegistrationCount(
@@ -98,34 +96,6 @@ extension CmxIrohHostRuntimeTests {
         #expect(snapshot.endpointID == fixture.endpointID)
         #expect(snapshot.bindingID == fixture.binding.bindingID)
         #expect(await endpoint.observedCloseCallCount() == 0)
-        await runtime.stop()
-    }
-
-    @Test
-    func validatedBindingPublishesBeforeRelayCredentialInstallationCompletes() async throws {
-        let fixture = try HostRuntimeFixture()
-        let endpoint = try fixture.relayReadyEndpoint()
-        let gate = HostRuntimeSuspensionGate()
-        let bindings = HostRuntimeBindingRecorder()
-        let runtime = CmxIrohHostRuntime(
-            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
-            broker: TestIrohHostBroker(
-                registrationBinding: fixture.binding,
-                discovery: fixture.discovery,
-                relayIssueHook: { await gate.suspend() }
-            ),
-            configuration: fixture.configuration,
-            pendingRevocations: fixture.pendingRevocations(),
-            handleTransport: { session, _ in await session.close() },
-            handleBinding: { _, _, _ in await bindings.record() }
-        )
-        let start = Task { try await runtime.start() }
-        await gate.waitUntilSuspended()
-
-        #expect(await bindings.count() == 1)
-
-        await gate.resume()
-        try await start.value
         await runtime.stop()
     }
 

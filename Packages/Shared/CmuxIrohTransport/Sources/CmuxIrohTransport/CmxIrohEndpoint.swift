@@ -34,12 +34,6 @@ public protocol CmxIrohEndpoint: Sendable {
     /// - Throws: A transport error for a failed handshake.
     func accept() async throws -> (any CmxIrohConnection)?
 
-    /// Replaces relay credentials without changing the EndpointID.
-    ///
-    /// - Parameter relays: The new complete managed relay set.
-    /// - Throws: A transport error when the update cannot be applied.
-    func replaceRelays(_ relays: [CmxIrohRelayConfiguration]) async throws
-
     /// Replaces the complete managed or custom relay profile without changing EndpointID.
     ///
     /// - Parameter profile: The exact new allowlist and active relay configurations.
@@ -65,11 +59,10 @@ public extension CmxIrohEndpoint {
     /// Test and alternate endpoints opt out of local advertisement by default.
     func localDirectAddresses() async -> [String] { [] }
 
-    /// Alternate endpoints retain managed credential refresh compatibility.
+    /// Test and alternate endpoints reject relay profile replacement by default.
     func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) async throws {
         guard profile.source == .managed else {
             throw CmxIrohEndpointConfigurationError.unsupportedRelayProfileReplacement
         }
-        try await replaceRelays(profile.managedRelays)
     }
 }

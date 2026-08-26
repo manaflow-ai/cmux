@@ -22,10 +22,6 @@ public actor CmxIrohHostRuntime {
     /// Persistent identity and credential deletion belongs to the caller and
     /// must remain conditional on a successfully queued sign-out revocation.
     public typealias DeactivationHandler = @Sendable (_ bindingID: String?) async -> Void
-    public typealias RelayCredentialHandler = @Sendable (
-        _ response: CmxIrohRelayTokenResponse,
-        _ binding: CmxIrohBrokerBindingMetadata
-    ) async -> Void
     public typealias LANRefreshHandler = @Sendable () async -> Void
     public typealias LANDirectAddressProvider = @Sendable () async -> [String]
     public typealias LANPolicyHandler = @Sendable (
@@ -40,7 +36,6 @@ public actor CmxIrohHostRuntime {
         let pairingEnabled: Bool
         let grantVerificationKeys: CmxIrohGrantVerificationKeySet
         let attestation: CmxIrohEndpointAttestationResponse?
-        let relayBootstrap: CmxIrohRelayTokenResponse?
         let lanRendezvous: CmxIrohLANRendezvous
         let routePathHints: [CmxIrohPathHint]
         let registrationRetryAfterSeconds: Int?
@@ -81,7 +76,6 @@ public actor CmxIrohHostRuntime {
     let handleBinding: BindingHandler
     let handleRoute: RouteHandler
     let handleDeactivation: DeactivationHandler
-    let handleRelayCredential: RelayCredentialHandler
     let handleLANRefresh: LANRefreshHandler
     let handleLANPolicy: LANPolicyHandler
 
@@ -89,13 +83,11 @@ public actor CmxIrohHostRuntime {
     var lifecyclePhase = LifecyclePhase.inactive
     var signOutOperation: Task<CmxIrohHostSignOutPreparation, Never>?
     var connectivityEngine: CmxConnectivityEngine?
-    var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var endpointServer: CmxIrohEndpointServer?
     var admissionController: CmxIrohAdmissionController?
     var onlineAdmissionRegistry: CmxIrohOnlineAdmissionRegistry?
     var offlineSessions: CmxIrohOfflinePairingSessions?
     var connectivityEventTask: Task<Void, Never>?
-    var relayActivationTask: Task<Void, Never>?
     var initialPublicationTask: Task<Void, Never>?
     /// True while activation still owes the first ready publication. It makes
     /// the next refresh round publish even when reachability is unchanged.
@@ -147,7 +139,6 @@ public actor CmxIrohHostRuntime {
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleRoute: @escaping RouteHandler = { _, _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
-        handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLANRefresh: @escaping LANRefreshHandler = {},
         handleLANPolicy: @escaping LANPolicyHandler = { _, _ in }
     ) {
@@ -166,7 +157,6 @@ public actor CmxIrohHostRuntime {
         self.handleBinding = handleBinding
         self.handleRoute = handleRoute
         self.handleDeactivation = handleDeactivation
-        self.handleRelayCredential = handleRelayCredential
         self.handleLANRefresh = handleLANRefresh
         self.handleLANPolicy = handleLANPolicy
         managedRelayURLs = configuration.managedRelayURLs
@@ -199,9 +189,8 @@ public actor CmxIrohHostRuntime {
         )
 
         do {
-            let endpointRelayProfile = try (currentEndpointRelayProfile
-                ?? configuration.resolvedEndpointRelayProfile(now: now()))
-                .droppingExpiredManagedCredentials(at: now())
+            let endpointRelayProfile = try currentEndpointRelayProfile
+                ?? configuration.resolvedEndpointRelayProfile()
             currentEndpointRelayProfile = endpointRelayProfile
             let endpointConfiguration = CmxIrohEndpointConfiguration(
                 secretKey: configuration.identity.secretKey,
@@ -265,26 +254,9 @@ public actor CmxIrohHostRuntime {
                 offlineSessions: offlineSessions,
                 onlineRegistry: onlineAdmissionRegistry
             )
-            let relayCoordinator: CmxIrohRelayCredentialCoordinator?
-            if endpointRelayProfile.source == .managed,
-               !endpointRelayProfile.allowedRelayURLs.isEmpty {
-                relayCoordinator = CmxIrohRelayCredentialCoordinator(
-                    supervisor: connectivityEngine,
-                    broker: broker,
-                    managedRelayURLs: managedRelayURLs,
-                    selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
-                    credentialDidInstall: { [handleRelayCredential] response in
-                        await handleRelayCredential(response, policy.binding)
-                    }
-                )
-            } else {
-                relayCoordinator = nil
-            }
-
             self.offlineSessions = offlineSessions
             self.onlineAdmissionRegistry = onlineAdmissionRegistry
             self.admissionController = admissionController
-            self.relayCoordinator = relayCoordinator
             localBinding = policy.binding
             endpointAttestation = policy.attestation
             lanRendezvous = policy.lanRendezvous
@@ -313,15 +285,6 @@ public actor CmxIrohHostRuntime {
             )
             var publishedPolicy = policy
             if requiresRelayReadiness {
-                if let relayCoordinator {
-                    try await relayCoordinator.activate(
-                        bindingID: policy.binding.bindingID,
-                        endpointIdentity: endpointID,
-                        bootstrap: policy.relayBootstrap,
-                        waitForInitialCredential: true
-                    )
-                }
-                try requireCurrent(revision)
                 guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
                 }
@@ -423,28 +386,14 @@ public actor CmxIrohHostRuntime {
                         // publication inside the refresh round.
                         scheduleRegistrationRefresh(revision: revision)
                     }
-                    // The ready gate activates the relay, waits for a usable
-                    // home relay, and then runs the round that performs the
-                    // deferred first publication with fresh path hints.
-                    scheduleInitialPublication(
-                        binding: publishedPolicy.binding,
-                        endpointID: endpointID,
-                        bootstrap: publishedPolicy.relayBootstrap,
-                        revision: revision
-                    )
+                    // The ready gate waits for a usable home relay and then
+                    // runs the round that performs the deferred first
+                    // publication with fresh path hints.
+                    scheduleInitialPublication(revision: revision)
                 }
             } else if registrationRefreshPending {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
-            }
-            if let relayCoordinator, !requiresRelayReadiness, publishedFreshBinding {
-                scheduleRelayActivation(
-                    relayCoordinator,
-                    binding: policy.binding,
-                    endpointID: endpointID,
-                    bootstrap: policy.relayBootstrap,
-                    revision: revision
-                )
             }
             scheduleLANPublication(
                 binding: publishedPolicy.binding,
@@ -642,57 +591,22 @@ public actor CmxIrohHostRuntime {
         engine: CmxConnectivityEngine
     ) async -> Bool {
         if await engine.hasUsableHomeRelay() { return true }
-        guard relayCoordinator == nil else { return false }
         return !(await engine.hasConfiguredRelay())
     }
 
-    func scheduleInitialPublication(
-        binding: CmxIrohBrokerBindingMetadata,
-        endpointID: CmxIrohPeerIdentity,
-        bootstrap: CmxIrohRelayTokenResponse?,
-        revision: UInt64
-    ) {
+    func scheduleInitialPublication(revision: UInt64) {
         initialPublicationTask?.cancel()
         initialPublicationTask = Task { [weak self] in
-            await self?.runInitialPublication(
-                binding: binding,
-                endpointID: endpointID,
-                bootstrap: bootstrap,
-                revision: revision
-            )
+            await self?.runInitialPublication(revision: revision)
         }
     }
 
-    private func runInitialPublication(
-        binding: CmxIrohBrokerBindingMetadata,
-        endpointID: CmxIrohPeerIdentity,
-        bootstrap: CmxIrohRelayTokenResponse?,
-        revision: UInt64
-    ) async {
-        guard lifecyclePhase == .active,
-              lifecycleRevision == revision,
-              !Task.isCancelled else { return }
-        if let coordinator = relayCoordinator {
-            // Credential installation happens before the readiness wait so a
-            // cached relay bootstrap makes the home relay usable without a
-            // broker round. The coordinator owns bounded retry on failure.
-            try? await coordinator.activate(
-                bindingID: binding.bindingID,
-                endpointIdentity: endpointID,
-                bootstrap: bootstrap
-            )
-        }
+    private func runInitialPublication(revision: UInt64) async {
         guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               !Task.isCancelled else { return }
         guard let connectivityEngine else { return }
-        let relayExpected: Bool
-        if relayCoordinator != nil {
-            relayExpected = true
-        } else {
-            relayExpected = await connectivityEngine.hasConfiguredRelay()
-        }
-        if relayExpected {
+        if await connectivityEngine.hasConfiguredRelay() {
             // The Mac must never be discoverable-but-undialable: a readiness
             // timeout keeps the endpoint unpublished and retries the wait with
             // bounded backoff on the injected clock until a verified usable
@@ -746,51 +660,6 @@ public actor CmxIrohHostRuntime {
             return
         }
         scheduleRegistrationRefresh(revision: revision)
-    }
-
-    func scheduleRelayActivation(
-        _ coordinator: CmxIrohRelayCredentialCoordinator,
-        binding: CmxIrohBrokerBindingMetadata,
-        endpointID: CmxIrohPeerIdentity,
-        bootstrap: CmxIrohRelayTokenResponse?,
-        revision: UInt64
-    ) {
-        relayActivationTask?.cancel()
-        relayActivationTask = Task { [weak self] in
-            await self?.activateRelaySidecar(
-                coordinator,
-                binding: binding,
-                endpointID: endpointID,
-                bootstrap: bootstrap,
-                revision: revision
-            )
-        }
-    }
-
-    private func activateRelaySidecar(
-        _ coordinator: CmxIrohRelayCredentialCoordinator,
-        binding: CmxIrohBrokerBindingMetadata,
-        endpointID: CmxIrohPeerIdentity,
-        bootstrap: CmxIrohRelayTokenResponse?,
-        revision: UInt64
-    ) async {
-        guard lifecyclePhase == .active,
-              lifecycleRevision == revision,
-              relayCoordinator === coordinator,
-              !Task.isCancelled else { return }
-        do {
-            try await coordinator.activate(
-                bindingID: binding.bindingID,
-                endpointIdentity: endpointID,
-                bootstrap: bootstrap
-            )
-        } catch {
-            // The coordinator owns bounded retry. A verified direct route stays
-            // authoritative when relay credential installation is unavailable.
-        }
-        if relayCoordinator === coordinator {
-            relayActivationTask = nil
-        }
     }
 
     func scheduleLANPublication(

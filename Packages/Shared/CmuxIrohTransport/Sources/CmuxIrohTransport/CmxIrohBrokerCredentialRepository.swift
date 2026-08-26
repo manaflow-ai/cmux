@@ -1,7 +1,9 @@
 import CryptoKit
 public import Foundation
 
-/// Persists one active account's broker binding and relay capability.
+/// Persists one active account's broker binding. The Keychain-backed secure
+/// store survives only to delete legacy relay-credential records; no relay
+/// credentials exist any more (relay admission is the relay's allow hook).
 public actor CmxIrohBrokerCredentialRepository {
     private static let activeScopeKey = "cmux.iroh.broker-credentials.scope.v1"
     private static let bindingKey = "cmux.iroh.broker-credentials.binding.v1"
@@ -69,134 +71,9 @@ public actor CmxIrohBrokerCredentialRepository {
             appInstanceID: binding.appInstanceID,
             epoch: epoch
         )
-        let existing = try await loadBinding(
-            scope: scope,
-            appInstanceID: binding.appInstanceID,
-            epoch: epoch
-        )
-        if existing != binding {
-            try await deleteSecureRecord(account: scope, epoch: epoch)
-        }
         let encoded = try JSONEncoder().encode(binding)
         try requireCurrent(epoch)
         installState.set(String(decoding: encoded, as: UTF8.self), forKey: Self.bindingKey)
-    }
-
-    /// Loads a fresh relay credential for one exact binding and managed fleet.
-    ///
-    /// Stale, corrupt, wrong-binding, and wrong-fleet capabilities are deleted
-    /// and returned as a cache miss.
-    ///
-    /// - Parameters:
-    ///   - accountID: The authenticated account identifier.
-    ///   - binding: The exact active binding tuple.
-    ///   - expectedRelayFleet: The complete configured managed relay fleet.
-    ///   - now: The validation time.
-    /// - Returns: A validated relay credential, or `nil` when a new mint is required.
-    /// - Throws: A scope-validation or secure-storage error.
-    public func loadRelayCredential(
-        accountID: String,
-        binding: CmxIrohBrokerBindingMetadata,
-        expectedRelayFleet: Set<String>,
-        now: Date
-    ) async throws -> CmxIrohRelayTokenResponse? {
-        let epoch = try beginOperation()
-        let scope = try await prepareScope(
-            accountID: accountID,
-            appInstanceID: binding.appInstanceID,
-            epoch: epoch
-        )
-        guard try await loadBinding(
-            scope: scope,
-            appInstanceID: binding.appInstanceID,
-            epoch: epoch
-        ) == binding else {
-            try await deleteSecureRecord(account: scope, epoch: epoch)
-            return nil
-        }
-        guard let data = try await readSecureRecord(account: scope, epoch: epoch),
-              let stored = try? JSONDecoder().decode(
-                  CmxIrohStoredRelayCredential.self,
-                  from: data
-              ),
-              stored.version == CmxIrohStoredRelayCredential.currentVersion,
-              stored.binding == binding,
-              hasExactFleet(stored.response.relayFleet, expected: expectedRelayFleet),
-              (try? stored.response.relayConfigurations(now: now))?.count
-                  == expectedRelayFleet.count else {
-            try await deleteSecureRecord(account: scope, epoch: epoch)
-            return nil
-        }
-        try requireCurrent(epoch)
-        return stored.response
-    }
-
-    /// Saves a fresh relay credential for one exact binding and managed fleet.
-    ///
-    /// - Parameters:
-    ///   - response: The relay token response returned by the trust broker.
-    ///   - accountID: The authenticated account identifier.
-    ///   - binding: The exact active binding tuple.
-    ///   - expectedRelayFleet: The complete configured managed relay fleet.
-    ///   - now: The validation time.
-    /// - Throws: A validation, encoding, or secure-storage error.
-    public func saveRelayCredential(
-        _ response: CmxIrohRelayTokenResponse,
-        accountID: String,
-        binding: CmxIrohBrokerBindingMetadata,
-        expectedRelayFleet: Set<String>,
-        now: Date
-    ) async throws {
-        let epoch = try beginOperation()
-        let scope = try await prepareScope(
-            accountID: accountID,
-            appInstanceID: binding.appInstanceID,
-            epoch: epoch
-        )
-        guard let storedBinding = try await loadBinding(
-            scope: scope,
-            appInstanceID: binding.appInstanceID,
-            epoch: epoch
-        ) else {
-            throw CmxIrohBrokerCredentialRepositoryError.bindingNotStored
-        }
-        guard storedBinding == binding else {
-            try await deleteSecureRecord(account: scope, epoch: epoch)
-            throw CmxIrohBrokerCredentialRepositoryError.bindingMismatch
-        }
-        guard hasExactFleet(response.relayFleet, expected: expectedRelayFleet) else {
-            throw CmxIrohBrokerCredentialRepositoryError.relayFleetMismatch
-        }
-        guard (try? response.relayConfigurations(now: now))?.count
-            == expectedRelayFleet.count else {
-            throw CmxIrohBrokerCredentialRepositoryError.invalidRelayCredential
-        }
-        let record = CmxIrohStoredRelayCredential(binding: binding, response: response)
-        try await writeSecureRecord(
-            JSONEncoder().encode(record),
-            account: scope,
-            accessibility: .afterFirstUnlockThisDeviceOnly,
-            epoch: epoch
-        )
-    }
-
-    /// Removes a relay credential while preserving its broker binding.
-    ///
-    /// - Parameters:
-    ///   - accountID: The authenticated account identifier.
-    ///   - appInstanceID: The installation's lowercase app-instance UUID.
-    /// - Throws: A scope-validation or secure-storage error.
-    public func deleteRelayCredential(
-        accountID: String,
-        appInstanceID: String
-    ) async throws {
-        let epoch = try beginOperation()
-        let scope = try await prepareScope(
-            accountID: accountID,
-            appInstanceID: appInstanceID,
-            epoch: epoch
-        )
-        try await deleteSecureRecord(account: scope, epoch: epoch)
     }
 
     /// Removes a broker binding and every capability scoped to it.
@@ -345,12 +222,6 @@ public actor CmxIrohBrokerCredentialRepository {
         await withCheckedContinuation { continuation in
             storageMutationDrainWaiters.append(continuation)
         }
-    }
-
-    private func hasExactFleet(_ fleet: [String], expected: Set<String>) -> Bool {
-        (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(expected.count)
-            && fleet.count == expected.count
-            && Set(fleet) == expected
     }
 
     private static func scope(accountID: String, appInstanceID: String) -> String {

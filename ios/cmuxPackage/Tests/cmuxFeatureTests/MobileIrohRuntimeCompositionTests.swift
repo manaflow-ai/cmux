@@ -1800,13 +1800,6 @@ private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
         throw MobileIrohSignOutTestError.unavailable
     }
 
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
-        throw MobileIrohSignOutTestError.unavailable
-    }
-
     func revoke(bindingID: String) {
         bindingIDs.append(bindingID)
     }
@@ -1863,13 +1856,6 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
         initiatorBindingID _: String,
         acceptorBindingID _: String
     ) throws -> CmxIrohPairGrantResponse {
-        throw MobileIrohSignOutTestError.unavailable
-    }
-
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
         throw MobileIrohSignOutTestError.unavailable
     }
 

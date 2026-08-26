@@ -218,17 +218,6 @@ private actor TestRevisionedHostBroker:
         throw TestIrohTransportError.unsupported
     }
 
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) -> CmxIrohRelayTokenResponse {
-        CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-07-10T12:00:00.000Z",
-            refreshAfter: "2027-07-10T11:00:00.000Z",
-            relayFleet: HostRuntimeFixture.relayURLs
-        )
-    }
 
     func revoke(bindingID _: String) {}
 

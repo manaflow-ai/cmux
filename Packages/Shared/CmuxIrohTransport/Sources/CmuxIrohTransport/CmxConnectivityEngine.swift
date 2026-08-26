@@ -345,17 +345,6 @@ public actor CmxConnectivityEngine {
         )
     }
 
-    /// Replaces active managed relay credentials without changing identity.
-    public func replaceRelays(
-        _ relays: [CmxIrohRelayConfiguration],
-        expectedIdentity: CmxIrohPeerIdentity
-    ) async throws {
-        try await supervisor.replaceRelays(
-            relays,
-            expectedIdentity: expectedIdentity
-        )
-    }
-
     /// Returns the selected live path after removing raw coordinates.
     public func selectedTransportPath(
         relayPolicy: CmxIrohEffectiveRelayPolicy?
@@ -929,5 +918,3 @@ public actor CmxConnectivityEngine {
         return lhs.deviceID < rhs.deviceID
     }
 }
-
-extension CmxConnectivityEngine: CmxIrohRelayEndpointControlling {}

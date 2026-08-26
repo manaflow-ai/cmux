@@ -6,7 +6,7 @@ import Testing
 @Suite
 struct CmxIrohBackpressuredHostBrokerTests {
     @Test
-    func endpointAttestationFloorIsIsolatedAndRelayCredentialIsShared() async throws {
+    func endpointAttestationFloorIsIsolatedFromRelayPolicyFloor() async throws {
         let now = Date(timeIntervalSince1970: 1_782_000_000)
         let accountID = "account-a"
         let gate = CmxIrohBrokerBackpressureGate(now: { now })
@@ -20,9 +20,6 @@ struct CmxIrohBackpressuredHostBrokerTests {
             broker: probe,
             gate: gate,
             accountID: accountID
-        )
-        let endpointID = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
         )
         let attestationLimit = CmxIrohTrustBrokerClientError.rateLimited(
             code: "attestation_rate_limited",
@@ -38,8 +35,7 @@ struct CmxIrohBackpressuredHostBrokerTests {
         }
         #expect(await probe.calls() == BackpressuredHostBrokerProbeCalls(
             endpointAttestation: 1,
-            relayToken: 0,
-            relayBootstrap: 0
+            relayPolicy: 0
         ))
         #expect(await gate.remainingSeconds(
             accountID: accountID,
@@ -51,40 +47,31 @@ struct CmxIrohBackpressuredHostBrokerTests {
         ) == nil)
 
         await #expect(throws: relayLimit) {
-            _ = try await host.issueRelayToken(
-                bindingID: "binding-a",
-                endpointID: endpointID
-            )
+            _ = try await relayPolicy.fetchRelayPolicy()
         }
         #expect(await probe.calls() == BackpressuredHostBrokerProbeCalls(
             endpointAttestation: 1,
-            relayToken: 1,
-            relayBootstrap: 0
+            relayPolicy: 1
         ))
-        #expect(await gate.remainingSeconds(
-            accountID: accountID,
-            operation: .endpointAttestation
-        ) == 600)
         #expect(await gate.remainingSeconds(
             accountID: accountID,
             operation: .relayCredential
         ) == 600)
 
+        // The armed floor gates the next policy fetch without a broker call.
         await #expect(throws: relayLimit) {
-            _ = try await relayPolicy.issueRelayBootstrap(endpointID: endpointID)
+            _ = try await relayPolicy.fetchRelayPolicy()
         }
         #expect(await probe.calls() == BackpressuredHostBrokerProbeCalls(
             endpointAttestation: 1,
-            relayToken: 1,
-            relayBootstrap: 0
+            relayPolicy: 1
         ))
     }
 }
 
 private struct BackpressuredHostBrokerProbeCalls: Equatable, Sendable {
     let endpointAttestation: Int
-    let relayToken: Int
-    let relayBootstrap: Int
+    let relayPolicy: Int
 }
 
 private enum BackpressuredHostBrokerProbeError: Error, Sendable {
@@ -96,8 +83,7 @@ private actor BackpressuredHostBrokerProbe:
     CmxIrohRelayPolicyServing
 {
     private var endpointAttestationCalls = 0
-    private var relayTokenCalls = 0
-    private var relayBootstrapCalls = 0
+    private var relayPolicyCalls = 0
 
     func register(
         prepared _: CmxIrohPreparedRegistration,
@@ -120,17 +106,6 @@ private actor BackpressuredHostBrokerProbe:
         )
     }
 
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayTokenResponse {
-        relayTokenCalls += 1
-        throw CmxIrohTrustBrokerClientError.rateLimited(
-            code: "relay_rate_limited",
-            retryAfterSeconds: 600
-        )
-    }
-
     func revoke(bindingID _: String) async throws {
         throw BackpressuredHostBrokerProbeError.unexpectedCall
     }
@@ -139,11 +114,12 @@ private actor BackpressuredHostBrokerProbe:
         throw BackpressuredHostBrokerProbeError.unexpectedCall
     }
 
-    func issueRelayBootstrap(
-        endpointID _: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayBootstrapResponse {
-        relayBootstrapCalls += 1
-        throw BackpressuredHostBrokerProbeError.unexpectedCall
+    func fetchRelayPolicy() async throws -> CmxIrohRelayPolicyResponse {
+        relayPolicyCalls += 1
+        throw CmxIrohTrustBrokerClientError.rateLimited(
+            code: "relay_rate_limited",
+            retryAfterSeconds: 600
+        )
     }
 
     func relayPreference() async throws -> CmxIrohRelayPreferenceResponse {
@@ -159,8 +135,7 @@ private actor BackpressuredHostBrokerProbe:
     func calls() -> BackpressuredHostBrokerProbeCalls {
         BackpressuredHostBrokerProbeCalls(
             endpointAttestation: endpointAttestationCalls,
-            relayToken: relayTokenCalls,
-            relayBootstrap: relayBootstrapCalls
+            relayPolicy: relayPolicyCalls
         )
     }
 }

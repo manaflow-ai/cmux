@@ -24,8 +24,6 @@ const requiredIrohProductionEnv = {
 };
 
 const requiredRelayProductionEnv = {
-  CMUX_RELAY_JWT_PRIVATE_KEY_PEM:
-    `-----BEGIN PRIVATE KEY-----\n${"B".repeat(64)}\n-----END PRIVATE KEY-----`,
   CMUX_RELAY_POLICY_KEY_ID: "relay-policy-current",
   CMUX_RELAY_POLICY_PRIVATE_KEY_PEM:
     `-----BEGIN PRIVATE KEY-----\n${"C".repeat(64)}\n-----END PRIVATE KEY-----`,

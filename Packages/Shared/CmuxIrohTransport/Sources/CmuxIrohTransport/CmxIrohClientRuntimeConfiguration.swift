@@ -34,9 +34,6 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// `nil` preserves automatic use of the complete managed fleet.
     public let endpointRelayProfile: CmxIrohEndpointRelayProfile?
 
-    /// A previously validated endpoint-scoped relay credential, when available.
-    public let cachedRelayCredential: CmxIrohRelayTokenResponse?
-
     /// The exact locally persisted binding tuple from a prior verified discovery.
     ///
     /// When it still appears exactly once in an authenticated connectivity
@@ -64,7 +61,6 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     ///   - capabilities: The advertised protocol capabilities.
     ///   - managedRelayURLs: The exact managed relay fleet.
     ///   - endpointRelayProfile: An optional local selection or custom override.
-    ///   - cachedRelayCredential: A validated cached relay capability.
     ///   - cachedBinding: A previously verified exact local binding tuple.
     ///   - dialPhaseTimeout: The per-phase dial deadline, injectable so tests
     ///     can shrink it.
@@ -79,7 +75,6 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         capabilities: [String],
         managedRelayURLs: Set<String>,
         endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
-        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
         cachedBinding: CmxIrohBrokerBindingMetadata? = nil,
         dialPhaseTimeout: Duration = .seconds(5)
     ) {
@@ -93,8 +88,17 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.capabilities = capabilities
         self.managedRelayURLs = managedRelayURLs
         self.endpointRelayProfile = endpointRelayProfile
-        self.cachedRelayCredential = cachedRelayCredential
         self.cachedBinding = cachedBinding
         self.dialPhaseTimeout = dialPhaseTimeout
+    }
+}
+
+extension CmxIrohClientRuntimeConfiguration {
+    func resolvedEndpointRelayProfile(
+        debugOverride: CmxIrohEndpointRelayProfile? = CmxIrohDebugRelayOverride.activeProfile()
+    ) throws -> CmxIrohEndpointRelayProfile {
+        if let debugOverride { return debugOverride }
+        return try endpointRelayProfile
+            ?? CmxIrohEndpointRelayProfile(managedRelayURLs: managedRelayURLs)
     }
 }

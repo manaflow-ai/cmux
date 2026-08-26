@@ -60,16 +60,10 @@ import Testing
         let override = try #require(
             CmxIrohDebugRelayOverride.profile(rawValue: "https://relay-test.example.com/")
         )
-        let resolved = try fixture.configuration.resolvedEndpointRelayProfile(
-            now: Date(),
-            debugOverride: override
-        )
+        let resolved = try fixture.configuration.resolvedEndpointRelayProfile(debugOverride: override)
         #expect(resolved == override)
 
-        let managed = try fixture.configuration.resolvedEndpointRelayProfile(
-            now: Date(),
-            debugOverride: nil
-        )
+        let managed = try fixture.configuration.resolvedEndpointRelayProfile(debugOverride: nil)
         #expect(managed.source == .managed)
         #expect(managed.allowedRelayURLs == fixture.managedRelays)
     }
@@ -79,16 +73,10 @@ import Testing
         let override = try #require(
             CmxIrohDebugRelayOverride.profile(rawValue: "https://relay-test.example.com/")
         )
-        let resolved = try fixture.configuration.resolvedEndpointRelayProfile(
-            now: fixture.now,
-            debugOverride: override
-        )
+        let resolved = try fixture.configuration.resolvedEndpointRelayProfile(debugOverride: override)
         #expect(resolved == override)
 
-        let managed = try fixture.configuration.resolvedEndpointRelayProfile(
-            now: fixture.now,
-            debugOverride: nil
-        )
+        let managed = try fixture.configuration.resolvedEndpointRelayProfile(debugOverride: nil)
         #expect(managed.source == .managed)
         #expect(managed.allowedRelayURLs == Set(ClientRuntimeTestFixture.relayURLs))
     }

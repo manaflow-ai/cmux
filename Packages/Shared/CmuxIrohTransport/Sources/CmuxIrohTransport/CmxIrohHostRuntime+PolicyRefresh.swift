@@ -94,7 +94,6 @@ extension CmxIrohHostRuntime {
                 after: error,
                 expectedEndpointID: expectedEndpointID,
                 confirmedBinding: nil,
-                relayBootstrap: nil,
                 allowFallback: allowCachedFallback
             )
         }
@@ -116,7 +115,6 @@ extension CmxIrohHostRuntime {
                 after: error,
                 expectedEndpointID: expectedEndpointID,
                 confirmedBinding: nil,
-                relayBootstrap: nil,
                 allowFallback: allowCachedFallback
             )
         }
@@ -167,7 +165,6 @@ extension CmxIrohHostRuntime {
                 after: error,
                 expectedEndpointID: expectedEndpointID,
                 confirmedBinding: registration.binding,
-                relayBootstrap: nil,
                 allowFallback: allowCachedFallback
             )
         }
@@ -205,7 +202,6 @@ extension CmxIrohHostRuntime {
             pairingEnabled: discovered.pairingEnabled,
             grantVerificationKeys: discovery.grantVerificationKeys,
             attestation: attestation,
-            relayBootstrap: configuration.cachedRelayCredential,
             lanRendezvous: discovery.lanRendezvous,
             routePathHints: discovered.pathHints,
             registrationRetryAfterSeconds: nil
@@ -292,7 +288,6 @@ extension CmxIrohHostRuntime {
             pairingEnabled: cached.pairingEnabled,
             grantVerificationKeys: cached.grantVerificationKeys,
             attestation: cached.endpointAttestation,
-            relayBootstrap: configuration.cachedRelayCredential,
             lanRendezvous: cached.lanRendezvous,
             routePathHints: [],
             registrationRetryAfterSeconds: nil
@@ -303,7 +298,6 @@ extension CmxIrohHostRuntime {
         after error: any Error,
         expectedEndpointID: CmxIrohPeerIdentity,
         confirmedBinding: CmxIrohBrokerBinding?,
-        relayBootstrap: CmxIrohRelayTokenResponse?,
         allowFallback: Bool
     ) throws -> ResolvedPolicy {
         if let confirmedBinding, let localBinding,
@@ -332,7 +326,6 @@ extension CmxIrohHostRuntime {
             pairingEnabled: cached.pairingEnabled,
             grantVerificationKeys: cached.grantVerificationKeys,
             attestation: cached.endpointAttestation,
-            relayBootstrap: relayBootstrap ?? configuration.cachedRelayCredential,
             lanRendezvous: cached.lanRendezvous,
             routePathHints: [],
             registrationRetryAfterSeconds: (
@@ -390,15 +383,6 @@ extension CmxIrohHostRuntime {
               envelopeExpiry > validationTime else {
             throw CmxIrohHostPolicyCacheError.invalidAttestationEnvelope
         }
-    }
-
-    func cachedRelayConfigurations() -> [CmxIrohRelayConfiguration] {
-        guard let cached = configuration.cachedRelayCredential,
-              Set(cached.relayFleet) == managedRelayURLs,
-              cached.relayFleet.count == managedRelayURLs.count else {
-            return []
-        }
-        return (try? cached.relayConfigurations(now: now())) ?? []
     }
 
     func startConnectivityObservation(
@@ -698,86 +682,27 @@ extension CmxIrohHostRuntime {
 
     /// Rebinds binding-scoped components to an authenticated replacement
     /// binding. `CmxIrohAdmissionController.update` already propagates the new
-    /// acceptor to online and offline admission; only the relay credential
-    /// coordinator pins a binding ID at activation and must be recreated.
+    /// acceptor to online and offline admission.
     private func adoptReplacedBinding(
-        policy: ResolvedPolicy,
+        policy _: ResolvedPolicy,
         revision: UInt64
     ) async throws {
         try requireCurrent(revision)
-        guard let connectivityEngine else {
-            throw CmxIrohHostRuntimeError.inactive
-        }
-        // The startup ready gate retains the superseded cached binding and
-        // relay bootstrap it was armed with. Cancel and drain it before
-        // rebinding so it can never activate the replacement coordinator with
-        // the stale identity or install a stale relay credential; the deferred
-        // first publication is re-armed onto the adopted binding below.
+        // The startup ready gate was armed with the superseded cached binding.
+        // Cancel and drain it before rebinding; the deferred first publication
+        // is re-armed below.
         if let staleReadyGate = initialPublicationTask {
             staleReadyGate.cancel()
             initialPublicationTask = nil
             await staleReadyGate.value
             try requireCurrent(revision)
         }
-        try await rebindRelayCoordinator(
-            policy: policy,
-            engine: connectivityEngine,
-            revision: revision
-        )
         if initialPublicationPending {
             // The drained gate owned the relay-readiness wait for the deferred
-            // first publication. Re-arm it bound to the adopted identity so
-            // the endpoint still publishes once the relay becomes usable.
-            scheduleInitialPublication(
-                binding: policy.binding,
-                endpointID: policy.binding.endpointID,
-                bootstrap: policy.relayBootstrap,
-                revision: revision
-            )
+            // first publication. Re-arm it so the endpoint still publishes
+            // once the relay becomes usable.
+            scheduleInitialPublication(revision: revision)
         }
-    }
-
-    /// Deactivates the coordinator pinned to the replaced binding and, for a
-    /// managed relay profile, activates a replacement pinned to the adopted
-    /// binding.
-    private func rebindRelayCoordinator(
-        policy: ResolvedPolicy,
-        engine: CmxConnectivityEngine,
-        revision: UInt64
-    ) async throws {
-        guard let coordinator = relayCoordinator else { return }
-        relayActivationTask?.cancel()
-        relayActivationTask = nil
-        await coordinator.deactivate()
-        if relayCoordinator === coordinator {
-            relayCoordinator = nil
-        }
-        try requireCurrent(revision)
-        let binding = policy.binding
-        guard let profile = currentEndpointRelayProfile,
-              profile.source == .managed,
-              !profile.allowedRelayURLs.isEmpty else { return }
-        let replacement = CmxIrohRelayCredentialCoordinator(
-            supervisor: engine,
-            broker: broker,
-            managedRelayURLs: managedRelayURLs,
-            selectedRelayURLs: profile.allowedRelayURLs,
-            credentialDidInstall: { [handleRelayCredential] response in
-                await handleRelayCredential(response, binding)
-            }
-        )
-        relayCoordinator = replacement
-        do {
-            try await replacement.activate(
-                bindingID: binding.bindingID,
-                endpointIdentity: binding.endpointID,
-                bootstrap: policy.relayBootstrap
-            )
-        } catch {
-            // The replacement coordinator owns bounded retry. An unavailable
-            // relay credential must not fail the adopted live policy.
-        }
-        try requireCurrent(revision)
     }
 
     static func seconds(_ date: Date) -> Int64? {

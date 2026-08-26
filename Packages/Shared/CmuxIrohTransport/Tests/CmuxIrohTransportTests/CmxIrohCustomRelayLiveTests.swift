@@ -121,7 +121,7 @@ struct CmxIrohCustomRelayLiveTests {
     }
 
     @Test(.enabled(if: CmxIrohCustomRelayLiveEnvironment.hasBrokerCredentials))
-    func brokerBoundTokensCarryBidirectionalRoundTrip() async throws {
+    func brokerRegisteredEndpointsCarryTokenlessRoundTrip() async throws {
         let baseURL = try #require(URL(string: try CmxIrohCustomRelayLiveEnvironment.required(
             "CMUX_IROH_CUSTOM_RELAY_BROKER_URL"
         )))
@@ -166,40 +166,18 @@ struct CmxIrohCustomRelayLiveTests {
             )
             bindingIDs.append(second.bindingID)
 
-            stage = "mint first endpoint-bound token"
-            print("Iroh live relay: \(stage)")
-            let firstToken = try await broker.issueRelayToken(
-                bindingID: first.bindingID,
-                endpointID: first.endpointID
-            )
-            stage = "mint second endpoint-bound token"
-            print("Iroh live relay: \(stage)")
-            let secondToken = try await broker.issueRelayToken(
-                bindingID: second.bindingID,
-                endpointID: second.endpointID
-            )
-            let firstCredentials = Dictionary(
-                firstToken.credentials.map { ($0.relayURL, $0.token) },
-                uniquingKeysWith: { _, latestToken in latestToken }
-            )
-            let commonRelayURL = try #require(
-                secondToken.credentials.lazy
-                    .map(\.relayURL)
-                    .first(where: { firstCredentials[$0] != nil })
-            )
-            let firstAuthenticationToken = try #require(firstCredentials[commonRelayURL])
-            let secondAuthenticationToken = try #require(
-                secondToken.credentials.first(where: {
-                    $0.relayURL == commonRelayURL
-                })?.token
+            let relayURL = try CmxIrohCustomRelayLiveEnvironment.required(
+                "CMUX_IROH_CUSTOM_RELAY_BROKER_RELAY_URL"
             )
 
-            stage = "carry bidirectional relay-only stream"
+            // Tokenless connect: the relay's allow hook admits the registered
+            // endpoint keys proven in the handshake; no credential is attached.
+            stage = "carry tokenless bidirectional relay-only stream"
             print("Iroh live relay: \(stage)")
             try await assertBidirectionalRoundTrip(
-                relayURL: commonRelayURL,
-                firstAuthenticationToken: firstAuthenticationToken,
-                secondAuthenticationToken: secondAuthenticationToken,
+                relayURL: relayURL,
+                firstAuthenticationToken: nil,
+                secondAuthenticationToken: nil,
                 firstSecretKey: firstSecretKey,
                 secondSecretKey: secondSecretKey
             )

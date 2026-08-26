@@ -413,11 +413,11 @@ export function makeIrohTrustBroker(
         now,
       });
 
-      // Registration never mints a relay credential: clients obtain
-      // endpoint-bound credentials for the self-hosted fleet from
-      // /api/relay/token after registering. "unavailable" preserves the
-      // response shape the pre-registry bootstrap produced when the removed
-      // n0-hosted minter was unconfigured, which production always was.
+      // Registration never mints a relay credential: relay admission is the
+      // relay's allow hook against the proven endpoint key, so no client
+      // credential exists at all. "unavailable" preserves the response shape
+      // the pre-registry bootstrap produced when the removed n0-hosted minter
+      // was unconfigured, which production always was.
       const relay = registration.created
         ? { status: "unavailable" as const }
         : { status: "not_requested" as const };

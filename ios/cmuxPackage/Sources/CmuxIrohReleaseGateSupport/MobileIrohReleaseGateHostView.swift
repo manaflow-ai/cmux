@@ -17,16 +17,12 @@ struct MobileIrohReleaseGateHostView: View {
         configuration: MobileIrohReleaseGateRunner.Configuration,
         onboardingStore: MobileOnboardingStore,
         signOutHook: MobileSignOutHook,
-        settingsController: any CmxIrohSettingsControlling,
-        endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity?,
-        relayCredentialExpiry: @escaping @Sendable () async -> Date?
+        settingsController: any CmxIrohSettingsControlling
     ) {
         _store = State(initialValue: store)
         _runner = State(initialValue: MobileIrohReleaseGateRunner(
             configuration: configuration,
-            settingsController: settingsController,
-            endpointIdentity: endpointIdentity,
-            relayCredentialExpiry: relayCredentialExpiry
+            settingsController: settingsController
         ))
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook

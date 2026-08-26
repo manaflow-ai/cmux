@@ -21,8 +21,7 @@ extension CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -100,8 +99,7 @@ extension CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 3, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -161,8 +159,7 @@ extension CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 5, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -245,8 +242,7 @@ extension CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 6, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()

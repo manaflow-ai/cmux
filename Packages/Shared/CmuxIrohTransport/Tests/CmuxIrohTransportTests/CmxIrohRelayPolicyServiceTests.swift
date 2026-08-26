@@ -20,7 +20,6 @@ struct CmxIrohRelayPolicyServiceTests {
             response: response,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -28,7 +27,6 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(effective.staleRelayIDs == ["removed-relay"])
         #expect(effective.endpointRelayProfile.allowedRelayURLs == [fixture.relayURLs[0]])
         #expect(effective.managedSnapshot?.relays.map(\.id) == ["cmux-us"])
-        #expect(effective.relayBootstrap == fixture.relayCredential())
         let stored = try #require(
             try await stores.preferenceStore.load(accountID: "account-a")
         )
@@ -44,13 +42,11 @@ struct CmxIrohRelayPolicyServiceTests {
             response: fullyStale,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
         #expect(directOnly.source == .managedUnavailable)
         #expect(directOnly.effectivePreference == nil)
         #expect(directOnly.endpointRelayProfile.allowedRelayURLs.isEmpty)
-        #expect(directOnly.relayBootstrap == nil)
         #expect(await service.diagnosticsSnapshot().failure == .staleManagedSelection)
     }
 
@@ -76,7 +72,6 @@ struct CmxIrohRelayPolicyServiceTests {
             response: response,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
         #expect(missing.source == .customUnavailable)
@@ -128,7 +123,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: nil,
             now: fixture.now
         )
 
@@ -164,7 +158,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: nil,
             now: fixture.now
         )
 
@@ -199,7 +192,6 @@ struct CmxIrohRelayPolicyServiceTests {
                     _ = await service.restore(
                         accountID: "account-a",
                         trustRoot: trustRoot,
-                        relayCredential: nil,
                         now: Date()
                     )
                 }
@@ -228,7 +220,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -241,7 +232,6 @@ struct CmxIrohRelayPolicyServiceTests {
                 ),
                 accountID: "account-a",
                 trustRoot: fixture.firstTrustRoot,
-                relayCredential: fixture.relayCredential(),
                 now: fixture.now
             )
         }
@@ -263,7 +253,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -276,7 +265,6 @@ struct CmxIrohRelayPolicyServiceTests {
                 ),
                 accountID: "account-a",
                 trustRoot: fixture.firstTrustRoot,
-                relayCredential: fixture.relayCredential(),
                 now: fixture.now
             )
         }
@@ -300,14 +288,12 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
         let expired = await stores.service.restore(
             accountID: "account-a",
             trustRoot: try fixture.firstTrustRoot,
-            relayCredential: nil,
             now: fixture.now.addingTimeInterval(
                 3_600 + CmxIrohRelayPolicyService.defaultExpiredPolicyReuseGrace + 1
             )
@@ -330,7 +316,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -340,7 +325,6 @@ struct CmxIrohRelayPolicyServiceTests {
         let rejected = await stores.service.restore(
             accountID: "account-a",
             trustRoot: try fixture.secondTrustRoot,
-            relayCredential: nil,
             now: fixture.now.addingTimeInterval(3_600 + 300)
         )
 
@@ -360,7 +344,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.rotatedTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
         _ = try await stores.service.install(
@@ -371,14 +354,12 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.rotatedTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
         let restored = await stores.service.restore(
             accountID: "account-a",
             trustRoot: try fixture.secondTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
         #expect(restored.usedCachedPolicy)
@@ -390,7 +371,6 @@ struct CmxIrohRelayPolicyServiceTests {
         let graced = await stores.service.restore(
             accountID: "account-a",
             trustRoot: try fixture.secondTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now.addingTimeInterval(3_600)
         )
         #expect(graced.source == .managed)
@@ -411,7 +391,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -422,7 +401,6 @@ struct CmxIrohRelayPolicyServiceTests {
         let restored = await stores.service.restore(
             accountID: "account-a",
             trustRoot: try fixture.firstTrustRoot,
-            relayCredential: nil,
             now: fixture.now.addingTimeInterval(3_600 + 300)
         )
 
@@ -444,7 +422,6 @@ struct CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -457,7 +434,6 @@ struct CmxIrohRelayPolicyServiceTests {
                 ),
                 accountID: "account-a",
                 trustRoot: fixture.firstTrustRoot,
-                relayCredential: fixture.relayCredential(),
                 now: fixture.now
             )
         }
@@ -595,9 +571,7 @@ actor RelayPolicyServiceBroker: CmxIrohRelayPolicyServing {
         self.responses = responses
     }
 
-    func issueRelayBootstrap(
-        endpointID _: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayBootstrapResponse {
+    func fetchRelayPolicy() async throws -> CmxIrohRelayPolicyResponse {
         throw Failure.unsupported
     }
 

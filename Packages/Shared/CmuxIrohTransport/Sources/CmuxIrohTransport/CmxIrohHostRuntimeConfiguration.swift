@@ -21,7 +21,6 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     ///
     /// `nil` preserves automatic use of the complete managed fleet.
     public let endpointRelayProfile: CmxIrohEndpointRelayProfile?
-    public let cachedRelayCredential: CmxIrohRelayTokenResponse?
     /// A previously verified last-good policy. When it still verifies for this
     /// exact binding it activates the host immediately (cache-first) while the
     /// live broker resolve reconciles in the background; it also remains the
@@ -43,7 +42,6 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     ///   - bindPolicy: The UDP bind behavior, ephemeral by default.
     ///   - managedRelayURLs: The exact managed relay allowlist.
     ///   - endpointRelayProfile: An optional local selection or custom override.
-    ///   - cachedRelayCredential: A validated relay bootstrap for this endpoint.
     ///   - cachedHostPolicy: A policy previously verified by ``CmxIrohHostPolicyCache``.
     public init(
         accountID: String,
@@ -58,7 +56,6 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
         managedRelayURLs: Set<String>,
         endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
-        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil
     ) {
         self.accountID = accountID
@@ -73,7 +70,16 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         self.bindPolicy = bindPolicy
         self.managedRelayURLs = managedRelayURLs
         self.endpointRelayProfile = endpointRelayProfile
-        self.cachedRelayCredential = cachedRelayCredential
         self.cachedHostPolicy = cachedHostPolicy
+    }
+}
+
+extension CmxIrohHostRuntimeConfiguration {
+    func resolvedEndpointRelayProfile(
+        debugOverride: CmxIrohEndpointRelayProfile? = CmxIrohDebugRelayOverride.activeProfile()
+    ) throws -> CmxIrohEndpointRelayProfile {
+        if let debugOverride { return debugOverride }
+        return try endpointRelayProfile
+            ?? CmxIrohEndpointRelayProfile(managedRelayURLs: managedRelayURLs)
     }
 }

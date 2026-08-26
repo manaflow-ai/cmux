@@ -47,11 +47,7 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
     ) async throws -> Endpoint {
         let relayMap = RelayMap.empty()
         if transportVerificationMode != .directOnly {
-            let now = Date()
             for relay in configuration.relayProfile.activeRelays {
-                guard relay.isUsable(at: now) else {
-                    throw CmxIrohLibError.expiredRelayCredential(relay.url)
-                }
                 try relayMap.insert(config: CmxIrohLibEndpoint.relayConfig(relay))
             }
         }

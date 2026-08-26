@@ -17,50 +17,24 @@ struct CmxIrohConfigurationTests {
     }
 
     @Test
-    func relayCredentialRequiresCanonicalURLTokenAndFutureRefresh() throws {
-        #expect(throws: CmxIrohRelayConfigurationError.invalidURL) {
-            try relay(url: "http://relay.example/", token: "aaaa")
-        }
-        #expect(throws: CmxIrohRelayConfigurationError.invalidURL) {
-            try relay(url: "https://relay.example", token: "aaaa")
-        }
-        #expect(throws: CmxIrohRelayConfigurationError.invalidToken) {
-            try relay(url: "https://relay.example/", token: "upperCASE")
-        }
-        #expect(
-            try relay(url: "https://relay.example/", token: "aB_-.cD-_.eF_-").token
-                == "aB_-.cD-_.eF_-"
-        )
-        #expect(throws: CmxIrohRelayConfigurationError.invalidLifetime) {
-            try CmxIrohRelayConfiguration(
-                url: "https://relay.example/",
-                token: "aaaa",
-                expiresAt: now.addingTimeInterval(10),
-                refreshAfter: now,
-                now: now
-            )
-        }
-    }
-
-    @Test
-    func endpointConfigurationRejectsUnmanagedAndDuplicateRelays() throws {
-        let relay = try relay(url: "https://relay.example/", token: "aaaa")
+    func managedEndpointConfigurationIsTokenlessAndBoundedBySize() throws {
         let secret = try CmxIrohSecretKey(bytes: Data(repeating: 0, count: 32))
+        let configuration = try CmxIrohEndpointConfiguration(
+            secretKey: secret,
+            alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+            managedRelayURLs: ["https://relay.example/"]
+        )
+        #expect(configuration.relayProfile.activeRelays.map(\.url) == ["https://relay.example/"])
+        #expect(configuration.relayProfile.activeRelays.allSatisfy {
+            $0.authenticationToken == nil
+        })
 
-        #expect(throws: CmxIrohEndpointConfigurationError.unmanagedRelayURL(relay.url)) {
+        let oversized = Set((0 ..< 17).map { "https://relay\($0).example/" })
+        #expect(throws: CmxIrohEndpointConfigurationError.tooManyRelays(oversized.count)) {
             try CmxIrohEndpointConfiguration(
                 secretKey: secret,
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: [relay]
-            )
-        }
-        #expect(throws: CmxIrohEndpointConfigurationError.duplicateRelayURL(relay.url)) {
-            try CmxIrohEndpointConfiguration(
-                secretKey: secret,
-                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [relay.url],
-                relays: [relay, relay]
+                managedRelayURLs: oversized
             )
         }
     }
@@ -84,7 +58,6 @@ struct CmxIrohConfigurationTests {
 
         #expect(configuration.relayProfile.allowedRelayURLs == [custom.relays[0].url])
         #expect(configuration.managedRelayURLs.isEmpty)
-        #expect(configuration.relays.isEmpty)
     }
 
     @Test
@@ -93,8 +66,7 @@ struct CmxIrohConfigurationTests {
         let defaultConfiguration = try CmxIrohEndpointConfiguration(
             secretKey: secret,
             alpns: [],
-            managedRelayURLs: [],
-            relays: []
+            managedRelayURLs: []
         )
         #expect(defaultConfiguration.bindPolicy == .ephemeral)
         #expect(defaultConfiguration.bindPolicy.socketAddress == nil)
@@ -126,16 +98,4 @@ struct CmxIrohConfigurationTests {
         }
     }
 
-    private func relay(
-        url: String,
-        token: String
-    ) throws -> CmxIrohRelayConfiguration {
-        try CmxIrohRelayConfiguration(
-            url: url,
-            token: token,
-            expiresAt: now.addingTimeInterval(24 * 60 * 60),
-            refreshAfter: now.addingTimeInterval(12 * 60 * 60),
-            now: now
-        )
-    }
 }

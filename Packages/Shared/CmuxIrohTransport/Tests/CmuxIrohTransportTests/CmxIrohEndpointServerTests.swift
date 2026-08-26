@@ -19,8 +19,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 1, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         let snapshot = try await supervisor.activate()
@@ -65,8 +64,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 4, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         let snapshot = try await supervisor.activate()
@@ -112,8 +110,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 6, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -152,8 +149,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 2, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -214,8 +210,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 8, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -278,8 +273,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 9, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -333,8 +327,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 9, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -519,7 +512,6 @@ actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
         return try Self.resolve(event)
     }
 
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
     func isHealthy() -> Bool { true }
 

@@ -74,18 +74,6 @@ public struct CmxIrohBackpressuredClientBroker:
         }
     }
 
-    public func issueRelayToken(
-        bindingID: String,
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayTokenResponse {
-        try await gate.perform(accountID: accountID, operation: .relayCredential) {
-            try await broker.issueRelayToken(
-                bindingID: bindingID,
-                endpointID: endpointID
-            )
-        }
-    }
-
     public func revoke(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revoke(bindingID: bindingID)
@@ -167,18 +155,6 @@ public struct CmxIrohBackpressuredHostBroker:
         }
     }
 
-    public func issueRelayToken(
-        bindingID: String,
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayTokenResponse {
-        try await gate.perform(accountID: accountID, operation: .relayCredential) {
-            try await broker.issueRelayToken(
-                bindingID: bindingID,
-                endpointID: endpointID
-            )
-        }
-    }
-
     public func revoke(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revoke(bindingID: bindingID)
@@ -209,11 +185,9 @@ public struct CmxIrohBackpressuredRelayPolicyBroker: CmxIrohRelayPolicyServing, 
         self.accountID = accountID
     }
 
-    public func issueRelayBootstrap(
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayBootstrapResponse {
+    public func fetchRelayPolicy() async throws -> CmxIrohRelayPolicyResponse {
         try await gate.perform(accountID: accountID, operation: .relayCredential) {
-            try await broker.issueRelayBootstrap(endpointID: endpointID)
+            try await broker.fetchRelayPolicy()
         }
     }
 
