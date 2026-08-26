@@ -11,6 +11,7 @@ final class BrowserPaneEngineController {
     private var chromiumSnapshotHandler: ((ChromiumSessionSnapshot) -> Void)?
     private var chromiumFocusHandler: (() -> Void)?
     private let chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment
+    private let chromiumNavigationPolicy: ((URL) -> Bool)?
 
     var kind: BrowserEngineKind { adapter.kind }
     var contentView: NSView? { adapter.contentView }
@@ -23,9 +24,11 @@ final class BrowserPaneEngineController {
         profileID: UUID,
         storageID: UUID,
         remoteDebuggingPort: ChromiumRemoteDebuggingPort,
-        chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment
+        chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment,
+        chromiumNavigationPolicy: ((URL) -> Bool)? = nil
     ) {
         self.chromiumRuntimeEnvironment = chromiumRuntimeEnvironment
+        self.chromiumNavigationPolicy = chromiumNavigationPolicy
         switch kind {
         case .webkit:
             adapter = WebKitBrowserPaneEngineAdapter(webView: webView)
@@ -37,7 +40,8 @@ final class BrowserPaneEngineController {
                 adapter = CEFBrowserPaneEngineAdapter(
                     profileID: profileID,
                     storageID: storageID,
-                    remoteDebuggingPort: remoteDebuggingPort
+                    remoteDebuggingPort: remoteDebuggingPort,
+                    navigationPolicy: chromiumNavigationPolicy
                 )
             } else {
                 adapter = ChromiumBrowserPaneEngineAdapter(
@@ -82,7 +86,8 @@ final class BrowserPaneEngineController {
                 storageID: storageID,
                 remoteDebuggingPort: remoteDebuggingPort,
                 documentScripts: documentScripts,
-                startPrerequisite: stopTask
+                startPrerequisite: stopTask,
+                navigationPolicy: chromiumNavigationPolicy
             )
             replacement.onSnapshot = chromiumSnapshotHandler
             replacement.onContentFocused = chromiumFocusHandler

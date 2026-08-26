@@ -284,6 +284,24 @@ static void CEF_CALLBACK request_on_render_process_terminated(
   wrapper->callbacks.on_renderer_crashed(wrapper->callbacks.context);
 }
 
+static int CEF_CALLBACK request_on_before_browse(
+    cef_request_handler_t *self, cef_browser_t *browser, cef_frame_t *frame,
+    cef_request_t *request, int user_gesture, int is_redirect) {
+  struct cmux_cef_browser *wrapper = request_wrapper(self);
+  if (wrapper->browser != browser || !frame || !frame->is_main(frame) ||
+      !request || !request->get_url ||
+      !wrapper->callbacks.should_block_navigation) {
+    return 0;
+  }
+  cef_string_userfree_t url = request->get_url(request);
+  char *utf8 = copy_utf8(url);
+  cef_string_userfree_free(url);
+  int blocked = wrapper->callbacks.should_block_navigation(
+      wrapper->callbacks.context, utf8);
+  free(utf8);
+  return blocked ? 1 : 0;
+}
+
 // MARK: - DevTools
 
 static int CEF_CALLBACK devtools_on_message(
@@ -602,6 +620,7 @@ cmux_cef_browser_t *cmux_cef_browser_create(
   wrapper->load.on_loading_state_change = load_on_loading_state_change;
 
   request_init_base(wrapper, &wrapper->request.base, sizeof(wrapper->request));
+  wrapper->request.on_before_browse = request_on_before_browse;
   wrapper->request.on_render_process_terminated =
       request_on_render_process_terminated;
 

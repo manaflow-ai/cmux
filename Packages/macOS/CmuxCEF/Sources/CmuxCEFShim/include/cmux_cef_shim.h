@@ -29,6 +29,8 @@ typedef struct {
   void (*on_closed)(void *context);
   /// The renderer process terminated unexpectedly; the pane should recover.
   void (*on_renderer_crashed)(void *context);
+  /// Returns 1 to cancel a main-frame navigation before any request is sent.
+  int (*should_block_navigation)(void *context, const char *url);
   void (*on_title_changed)(void *context, const char *title);
   void (*on_address_changed)(void *context, const char *url);
   void (*on_loading_state_changed)(void *context, int is_loading,

@@ -40,6 +40,7 @@ extension TerminalController {
         var workspaceID: UUID?
         var surfaceID: UUID?
         var isChromium = false
+        var isChromiumIsolationPending = false
         v2MainSync {
             guard let tabManager = v2ResolveTabManager(params: params),
                   let context = v2ResolveBrowserPanelContext(
@@ -52,10 +53,10 @@ extension TerminalController {
             workspaceID = context.workspaceId
             surfaceID = context.surfaceId
             isChromium = context.browserPanel.isChromiumBacked
+            isChromiumIsolationPending = context.browserPanel.isChromiumIsolationPendingForAutomation
         }
         if isChromium,
-           let resolvedPanel,
-           resolvedPanel.isChromiumIsolationPendingForAutomation {
+           isChromiumIsolationPending {
             return .err(
                 code: "not_connected",
                 message: ChromiumBrowserDiagnostic.connectionClosed.message,
@@ -64,7 +65,7 @@ extension TerminalController {
         }
         guard isChromium,
               let resolvedPanel,
-              !resolvedPanel.isChromiumIsolationPendingForAutomation,
+              !isChromiumIsolationPending,
               let workspaceID,
               let surfaceID else {
             return v2MainSync {

@@ -80,7 +80,11 @@ extension BrowserPanel {
             profileID: profileID,
             storageID: chromiumStorageID,
             remoteDebuggingPort: configuredChromiumRemoteDebuggingPort,
-            chromiumRuntimeEnvironment: .cmuxLive
+            chromiumRuntimeEnvironment: .cmuxLive,
+            chromiumNavigationPolicy: { [weak self] url in
+                guard let self else { return true }
+                return self.shouldBlockInsecureHTTPNavigation(to: url)
+            }
         )
         controller.setChromiumSnapshotHandler { [weak self] snapshot in
             self?.applyChromiumSnapshot(snapshot)

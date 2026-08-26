@@ -38,6 +38,7 @@ public final class CEFBrowser {
     private var closeWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var closeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var selfRetain: Unmanaged<CEFBrowser>?
+    private var shouldBlockNavigation: ((URL) -> Bool)?
 
     deinit {
         for task in closeTimeoutTasks.values { task.cancel() }
@@ -50,9 +51,14 @@ public final class CEFBrowser {
     ///   - cachePath: Profile storage directory below CEF's root cache path,
     ///     or `nil` for the shared global context.
     /// - Returns: The browser, or `nil` when CEF is unavailable.
-    public static func create(url: URL, cachePath: String?) -> CEFBrowser? {
+    public static func create(
+        url: URL,
+        cachePath: String?,
+        shouldBlockNavigation: ((URL) -> Bool)? = nil
+    ) -> CEFBrowser? {
         guard CEFRuntime.isInitialized else { return nil }
         let browser = CEFBrowser()
+        browser.shouldBlockNavigation = shouldBlockNavigation
         let context = Unmanaged.passRetained(browser)
         browser.selfRetain = context
 
@@ -81,6 +87,12 @@ public final class CEFBrowser {
             MainActor.assumeIsolated {
                 browser.publish(.rendererCrashed)
             }
+        }
+        callbacks.should_block_navigation = { context, rawURL in
+            let browser = unmanagedBrowser(context)
+            guard let rawURL,
+                  let url = URL(string: String(cString: rawURL)) else { return 1 }
+            return browser.shouldBlockNavigation?(url) == true ? 1 : 0
         }
         callbacks.on_title_changed = { context, title in
             let browser = unmanagedBrowser(context)

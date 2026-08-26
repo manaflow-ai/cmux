@@ -28,6 +28,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private let storageID: UUID
     private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
     private let startPrerequisite: Task<Void, Never>?
+    private let navigationPolicy: ((URL) -> Bool)?
     private var browser: CEFBrowser?
     private var devTools: CEFDevToolsClient?
     private var eventTask: Task<Void, Never>?
@@ -62,12 +63,14 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         storageID: UUID = UUID(),
         remoteDebuggingPort: ChromiumRemoteDebuggingPort = .disabled,
         documentScripts: [(source: String, isStyle: Bool)] = [],
-        startPrerequisite: Task<Void, Never>? = nil
+        startPrerequisite: Task<Void, Never>? = nil,
+        navigationPolicy: ((URL) -> Bool)? = nil
     ) {
         self.profileID = profileID
         self.storageID = storageID
         self.remoteDebuggingPort = remoteDebuggingPort
         self.startPrerequisite = startPrerequisite
+        self.navigationPolicy = navigationPolicy
         initScriptSources = documentScripts.filter { !$0.isStyle }.map(\.source)
         styleScriptSources = documentScripts.filter(\.isStyle).map(\.source)
         hostView.onFocus = { [weak self] in
@@ -136,7 +139,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             : CEFRuntimeBootstrap.profileCachePath(for: profileID, storageID: storageID)
         guard let browser = CEFBrowser.create(
             url: URL(string: "about:blank")!,
-            cachePath: cachePath
+            cachePath: cachePath,
+            shouldBlockNavigation: navigationPolicy
         ) else {
             remoteDebuggingEndpoint = nil
             throw CDPError.notConnected
