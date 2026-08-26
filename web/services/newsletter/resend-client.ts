@@ -549,13 +549,34 @@ export class ResendClient {
     );
   }
 
-  async updateContactEmail(contactId: string, email: string): Promise<void> {
+  async updateContactEmail(
+    contactId: string,
+    email: string,
+    properties?: Record<string, unknown>,
+  ): Promise<void> {
     await this.throttledWrite(
       "PATCH",
       `/contacts/${encodeURIComponent(contactId)}`,
       {
         redactedLabel: "/contacts/<id> (email migration)",
-        body: { email },
+        body: {
+          email,
+          ...(properties ? { properties } : {}),
+        },
+      },
+    );
+  }
+
+  async updateContactProperties(
+    contactId: string,
+    properties: Record<string, unknown>,
+  ): Promise<void> {
+    await this.throttledWrite(
+      "PATCH",
+      `/contacts/${encodeURIComponent(contactId)}`,
+      {
+        redactedLabel: "/contacts/<id> (property backfill)",
+        body: { properties },
       },
     );
   }

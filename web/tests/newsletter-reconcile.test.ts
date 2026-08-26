@@ -205,6 +205,28 @@ describe("planSegmentSync", () => {
         previousEmail: "old@example.com",
         email: "new@example.com",
         stackUserId: "stack-1",
+        previousEmails: ["old@example.com"],
+      },
+    ]);
+  });
+
+  test("backfills the stable Stack identity on an existing email match", () => {
+    const plan = planSegmentSync({
+      desired: [contact("present@example.com", "Ada", undefined, "stack-2")],
+      existingContacts: [
+        {
+          id: "c_present",
+          email: "present@example.com",
+          unsubscribed: false,
+        },
+      ],
+      segmentMemberEmails: new Set(["present@example.com"]),
+    });
+    expect(plan.toBackfillProperties).toEqual([
+      {
+        contactId: "c_present",
+        email: "present@example.com",
+        properties: { cmux_stack_user_id: "stack-2" },
       },
     ]);
   });

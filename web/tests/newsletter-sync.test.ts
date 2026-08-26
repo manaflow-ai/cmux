@@ -200,6 +200,7 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
           first_name?: string;
           last_name?: string;
           email?: string;
+          properties?: Record<string, unknown>;
           unsubscribed?: boolean;
           topics?: unknown;
         };
@@ -208,6 +209,9 @@ function fakeResend(options?: { pageSize?: number }): FakeResend {
         if (body.first_name) found.first_name = body.first_name;
         if (body.last_name) found.last_name = body.last_name;
         if (body.email) found.email = body.email;
+        if (body.properties) {
+          found.properties = { ...(found.properties ?? {}), ...body.properties };
+        }
         state.writes.push(`patch-contact:${found.email}`);
         return respond(200, { id: found.id });
       }
@@ -453,6 +457,64 @@ describe("syncSegment", () => {
     ).toBe(0);
   });
 
+  test("resolves a revocation through a migrated email alias", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_founders", name: FOUNDERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_founders",
+      name: FOUNDERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
+    fake.contacts.push({
+      id: "con_migrated",
+      email: "new@example.com",
+      unsubscribed: false,
+      properties: { cmux_previous_emails: ["old@example.com"] },
+      segmentIds: new Set(["seg_founders"]),
+    });
+
+    const summary = await syncSegment({
+      client: client(fake),
+      segmentName: FOUNDERS_SEGMENT_NAME,
+      topic: FOUNDERS_TOPIC,
+      desired: [],
+      existingContacts: await listContactsOf(fake),
+      apply: false,
+      revokedEmails: new Set(["old@example.com"]),
+      pruneRevoked: false,
+    });
+    expect(summary.revokedFromSegment).toBe(1);
+    expect(fake.writes).toEqual([]);
+  });
+
+  test("does not write even a revocation delete for a globally unsubscribed contact", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_founders", name: FOUNDERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_founders",
+      name: FOUNDERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
+    fake.contacts.push({
+      id: "con_unsub_revoked",
+      email: "unsub-revoked@example.com",
+      unsubscribed: true,
+      segmentIds: new Set(["seg_founders"]),
+    });
+
+    await syncSegment({
+      client: client(fake),
+      segmentName: FOUNDERS_SEGMENT_NAME,
+      topic: FOUNDERS_TOPIC,
+      desired: [],
+      existingContacts: await listContactsOf(fake),
+      apply: true,
+      revokedEmails: new Set(["unsub-revoked@example.com"]),
+      pruneRevoked: true,
+    });
+    expect(fake.writes).toEqual([]);
+  });
+
   test("fails closed on a same-name topic whose immutable default is opt_out", async () => {
     const fake = fakeResend();
     fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
@@ -631,6 +693,41 @@ describe("syncSegment", () => {
     expect(fake.contacts[0].email).toBe("new@example.com");
     expect(fake.contacts[0].unsubscribed).toBe(false);
     expect(fake.contacts[0].segmentIds.has("seg_users")).toBe(true);
+  });
+
+  test("backfills the Stack identity property on an existing contact", async () => {
+    const fake = fakeResend();
+    fake.segments.push({ id: "seg_users", name: USERS_SEGMENT_NAME });
+    fake.topics.push({
+      id: "top_updates",
+      name: USERS_TOPIC.name,
+      default_subscription: "opt_in",
+    });
+    fake.contacts.push({
+      id: "con_existing",
+      email: "existing@example.com",
+      unsubscribed: false,
+      segmentIds: new Set(["seg_users"]),
+    });
+
+    await syncSegment({
+      client: client(fake),
+      segmentName: USERS_SEGMENT_NAME,
+      topic: USERS_TOPIC,
+      desired: [
+        {
+          email: "existing@example.com",
+          stackUserId: "stack-existing",
+          sources: ["stack"],
+        },
+      ],
+      existingContacts: await listContactsOf(fake),
+      apply: true,
+    });
+    expect(fake.contacts[0].properties).toMatchObject({
+      cmux_stack_user_id: "stack-existing",
+    });
+    expect(fake.writes).toContain("patch-contact:existing@example.com");
   });
 });
 

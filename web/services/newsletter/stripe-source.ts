@@ -37,7 +37,6 @@ type StripeCheckoutSession = {
     | {
         latest_charge?: {
           refunded?: boolean;
-          disputed?: boolean;
           amount?: number | null;
           amount_refunded?: number | null;
         } | null;
@@ -80,7 +79,6 @@ export function isRefundedFounderSession(session: StripeCheckoutSession): boolea
       : null;
   return Boolean(
     charge?.refunded ||
-      charge?.disputed ||
       (charge?.amount !== null &&
         charge?.amount !== undefined &&
         charge.amount_refunded !== null &&

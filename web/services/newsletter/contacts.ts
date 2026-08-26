@@ -22,6 +22,7 @@ export type NewsletterContact = {
 export type NewsletterSource = "stack" | "stripe";
 
 export const STACK_USER_ID_PROPERTY = "cmux_stack_user_id";
+export const PREVIOUS_EMAILS_PROPERTY = "cmux_previous_emails";
 
 // Deliberately loose shape check: one local part, one @, a dot-bearing
 // domain. The sources (Stack, Stripe) have already validated deliverability;

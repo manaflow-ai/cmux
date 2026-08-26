@@ -22,13 +22,32 @@
 //     server-authoritative consent/refund revocations are handled by the
 //     orchestration layer with a separate, exact removal plan.
 
-import type { NewsletterContact } from "./contacts";
+import {
+  PREVIOUS_EMAILS_PROPERTY,
+  STACK_USER_ID_PROPERTY,
+  type NewsletterContact,
+} from "./contacts";
+
+function previousEmailsFrom(
+  properties: Record<string, unknown> | null | undefined,
+): string[] {
+  const value = properties?.[PREVIOUS_EMAILS_PROPERTY];
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.filter((email): email is string => typeof email === "string").map(
+        (email) => email.trim().toLowerCase(),
+      ),
+    ),
+  ];
+}
 
 // Existing global contact state read from Resend before any write is planned.
 export type ExistingContact = {
   id: string;
   email: string;
   stackUserId?: string;
+  properties?: Record<string, unknown> | null;
   firstName?: string;
   lastName?: string;
   unsubscribed: boolean;
@@ -59,17 +78,25 @@ export type ContactNameBackfill = {
   lastName?: string;
 };
 
+export type ContactPropertiesBackfill = {
+  contactId: string;
+  email: string;
+  properties: Record<string, unknown>;
+};
+
 export type ContactEmailUpdate = {
   contactId: string;
   previousEmail: string;
   email: string;
   stackUserId: string;
+  previousEmails: string[];
 };
 
 export type SegmentPlan = {
   toCreate: ContactCreate[];
   toAddToSegment: SegmentAdd[];
   toBackfillName: ContactNameBackfill[];
+  toBackfillProperties: ContactPropertiesBackfill[];
   toUpdateEmail: ContactEmailUpdate[];
   alreadyPresent: number;
   skippedUnsubscribed: number;
@@ -105,6 +132,7 @@ export function planSegmentSync(options: {
     toCreate: [],
     toAddToSegment: [],
     toBackfillName: [],
+    toBackfillProperties: [],
     toUpdateEmail: [],
     alreadyPresent: 0,
     skippedUnsubscribed: 0,
@@ -137,6 +165,23 @@ export function planSegmentSync(options: {
     }
     if (
       contact.stackUserId &&
+      current.stackUserId &&
+      current.stackUserId !== contact.stackUserId
+    ) {
+      throw new Error(
+        "A newsletter contact is already linked to a different Stack user; " +
+          "refusing to overwrite account identity.",
+      );
+    }
+    if (contact.stackUserId && !current.stackUserId) {
+      plan.toBackfillProperties.push({
+        contactId: current.id,
+        email: desiredEmail,
+        properties: { [STACK_USER_ID_PROPERTY]: contact.stackUserId },
+      });
+    }
+    if (
+      contact.stackUserId &&
       current.stackUserId === contact.stackUserId &&
       current.email.trim().toLowerCase() !== desiredEmail
     ) {
@@ -145,6 +190,10 @@ export function planSegmentSync(options: {
         previousEmail: current.email.trim().toLowerCase(),
         email: desiredEmail,
         stackUserId: contact.stackUserId,
+        previousEmails: [
+          current.email.trim().toLowerCase(),
+          ...previousEmailsFrom(current.properties),
+        ],
       });
     }
     if (current.unsubscribed) {

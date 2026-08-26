@@ -21,6 +21,7 @@
 
 import {
   STACK_USER_ID_PROPERTY,
+  PREVIOUS_EMAILS_PROPERTY,
   type NewsletterContact,
   mergeContactSources,
 } from "./contacts";
@@ -144,12 +145,11 @@ export async function syncSegment(options: {
 
   // Missing segment in dry-run mode: report what would happen against an
   // empty membership.
+  const segmentMembers = segment
+    ? await client.listSegmentContacts(segment.id)
+    : [];
   const memberEmails = new Set<string>(
-    segment
-      ? (await client.listSegmentContacts(segment.id)).map((contact) =>
-          contact.email.trim().toLowerCase(),
-        )
-      : [],
+    segmentMembers.map((contact) => contact.email.trim().toLowerCase()),
   );
 
   const plan = planSegmentSync({
@@ -161,6 +161,7 @@ export async function syncSegment(options: {
         typeof contact.properties?.[STACK_USER_ID_PROPERTY] === "string"
           ? contact.properties[STACK_USER_ID_PROPERTY]
           : undefined,
+      properties: contact.properties,
       firstName: contact.first_name ?? undefined,
       lastName: contact.last_name ?? undefined,
       unsubscribed: contact.unsubscribed,
@@ -176,9 +177,27 @@ export async function syncSegment(options: {
       email.trim().toLowerCase(),
     ),
   );
-  const revokedToRemove = [...memberEmails].filter(
-    (email) => revokedEmails.has(email) && !desiredEmails.has(email),
-  );
+  const revokedToRemove = segmentMembers
+    .filter((member) => {
+      const email = member.email.trim().toLowerCase();
+      const previousEmails = Array.isArray(
+        member.properties?.[PREVIOUS_EMAILS_PROPERTY],
+      )
+        ? (member.properties?.[PREVIOUS_EMAILS_PROPERTY] as unknown[]).filter(
+            (value): value is string => typeof value === "string",
+          )
+        : [];
+      const wasRevoked =
+        revokedEmails.has(email) ||
+        previousEmails.some((previous) =>
+          revokedEmails.has(previous.trim().toLowerCase()),
+        );
+      // An active source (for example a Stack opt-in or another paid founder
+      // purchase) keeps the current address in the segment even if an older
+      // alias appears in a refund/revocation feed.
+      return wasRevoked && !desiredEmails.has(email);
+    })
+    .map((member) => member.email.trim().toLowerCase());
   // Dry runs report the exact planned removals; apply mode performs them below.
   const revokedFromSegment = revokedToRemove.length;
   let createdCount = plan.toCreate.length;
@@ -202,15 +221,33 @@ export async function syncSegment(options: {
         const contact = existingByEmail.get(email);
         if (!contact || !memberEmails.has(email)) continue;
         const latest = await client.getContactByEmail(email);
-        if (!latest) continue;
+        if (!latest || latest.unsubscribed) continue;
         await client.removeContactFromSegment(latest.id, segment.id);
         memberEmails.delete(email);
       }
     }
+    for (const propertyBackfill of plan.toBackfillProperties) {
+      const latest = await client.getContactById(propertyBackfill.contactId);
+      if (!latest || latest.unsubscribed) continue;
+      await client.updateContactProperties(latest.id, {
+        ...(latest.properties ?? {}),
+        ...propertyBackfill.properties,
+      });
+    }
     for (const update of plan.toUpdateEmail) {
       const latest = await client.getContactById(update.contactId);
       if (!latest || latest.unsubscribed) continue;
-      await client.updateContactEmail(latest.id, update.email);
+      const previousEmails = new Set<string>([
+        ...update.previousEmails,
+        ...((Array.isArray(latest.properties?.[PREVIOUS_EMAILS_PROPERTY])
+          ? latest.properties?.[PREVIOUS_EMAILS_PROPERTY]
+          : []) as string[]),
+      ]);
+      await client.updateContactEmail(latest.id, update.email, {
+        ...(latest.properties ?? {}),
+        [STACK_USER_ID_PROPERTY]: update.stackUserId,
+        [PREVIOUS_EMAILS_PROPERTY]: [...previousEmails],
+      });
       if (memberEmails.delete(update.previousEmail)) {
         memberEmails.add(update.email);
       }

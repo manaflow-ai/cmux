@@ -29,6 +29,11 @@ import {
   parseSyncArgs,
   requirePrivacyDisclosureConfirmation,
 } from "../../services/newsletter/cli";
+import {
+  PREVIOUS_EMAILS_PROPERTY,
+  STACK_USER_ID_PROPERTY,
+  type NewsletterContact,
+} from "../../services/newsletter/contacts";
 import { ResendClient } from "../../services/newsletter/resend-client";
 import { listStackContacts } from "../../services/newsletter/stack-source";
 import { listFounderContacts } from "../../services/newsletter/stripe-source";
@@ -43,6 +48,36 @@ import {
 } from "../../services/newsletter/sync";
 
 import { requiredEnv } from "./script-env";
+
+function alignContactsToExistingIdentity(
+  desired: NewsletterContact[],
+  existing: Awaited<ReturnType<ResendClient["listContacts"]>>,
+): NewsletterContact[] {
+  const byEmail = new Map(
+    existing.map((contact) => [contact.email.trim().toLowerCase(), contact]),
+  );
+  const byPreviousEmail = new Map<string, (typeof existing)[number]>();
+  for (const contact of existing) {
+    const previous = contact.properties?.[PREVIOUS_EMAILS_PROPERTY];
+    if (!Array.isArray(previous)) continue;
+    for (const value of previous) {
+      if (typeof value === "string") {
+        byPreviousEmail.set(value.trim().toLowerCase(), contact);
+      }
+    }
+  }
+  return desired.map((candidate) => {
+    const email = candidate.email.trim().toLowerCase();
+    const match = byEmail.get(email) ?? byPreviousEmail.get(email);
+    const stackUserId = match?.properties?.[STACK_USER_ID_PROPERTY];
+    if (!match || typeof stackUserId !== "string") return candidate;
+    return {
+      ...candidate,
+      email: match.email.trim().toLowerCase(),
+      stackUserId,
+    };
+  });
+}
 
 const args = parseSyncArgs(process.argv.slice(2));
 
@@ -92,9 +127,13 @@ if (args.audience === "users" || args.audience === "all") {
   sourceCounts.stackSkippedNotOptedIn = stackResult.skippedNotOptedIn;
   sourceCounts.stackSkippedMissingIdentity = stackResult.skippedMissingIdentity;
 
+  const founderContacts = alignContactsToExistingIdentity(
+    stripeResult.contacts,
+    existingContacts,
+  );
   usersDesired = buildUsersSegmentContacts(
     stackResult.contacts,
-    stripeResult.contacts,
+    founderContacts,
   );
   summaries.push(
     await syncSegment({
@@ -185,12 +224,16 @@ if (args.audience === "founders" || args.audience === "all") {
       contactsForFounders = projected;
     }
   }
+  const founderDesired = alignContactsToExistingIdentity(
+    stripeResult.contacts,
+    contactsForFounders,
+  );
   summaries.push(
     await syncSegment({
       client,
       segmentName: FOUNDERS_SEGMENT_NAME,
       topic: FOUNDERS_TOPIC,
-      desired: stripeResult.contacts,
+      desired: founderDesired,
       existingContacts: contactsForFounders,
       apply: args.apply,
       revokedEmails: new Set(stripeResult.revokedEmails),
