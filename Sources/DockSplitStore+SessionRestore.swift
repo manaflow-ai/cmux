@@ -11,6 +11,7 @@ extension DockSplitStore {
         excludingStableIdentities: Set<UUID> = [],
         sourceWorkspaceResolver: (UUID) -> Workspace? = { _ in nil }
     ) -> [UUID: UUID] {
+        guard !isRetired else { return [:] }
         cancelConfigurationTasks()
         removeAllPanels()
         hasLoadedConfiguration = true
@@ -434,6 +435,10 @@ extension DockSplitStore {
         snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID
     ) -> TabID? {
+        guard !isRetired else {
+            panel.close()
+            return nil
+        }
         panels[panel.id] = panel
         let title = snapshot.customTitle ?? snapshot.title ?? panel.displayTitle
         guard let tabId = bonsplitController.createTab(

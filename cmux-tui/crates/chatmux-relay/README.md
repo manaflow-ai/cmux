@@ -11,7 +11,7 @@ is the self-hosted encrypted-circuit relay server, a different product. The
 npm distribution of THIS crate keeps the `cmux-relay` package name because
 production sandbox images and the pairing docs install it by that name.
 
-## What it does (target state)
+## What it does
 
 - Pairing ceremony against the chatmux Worker (`POST /v2/pairing/start` +
   the pairing WebSocket): x25519 key fingerprint, cute-code SAS, URL
@@ -35,11 +35,20 @@ One binary serves both paired human machines and sandboxes. Job sessions
 keep launching through the `cmux` CLI daemon; the relay attaches to them
 over the shared control socket (`cmux-terminal-client`).
 
+The journal-forwarder conformance harness may set
+`CHATMUX_RELAY_E2E_BACKEND` to its local stub origin. The relay accepts this
+override only when it is an explicit `http://` origin on `127.0.0.1`,
+`localhost`, or `::1`, and only for an exact enrollment backend origin. Empty,
+remote, HTTPS, and mismatched values are ignored. The production backend
+allowlist remains active with or without the override.
+
 ## Port plan (slices)
 
 Each slice is gated on the JS relay's behavior; the chatmux e2e conformance
-harness is the cross-language gate (see below). The JS relay is deleted at
-cutover — pre-launch, no legacy.
+harness is the cross-language gate (see below). The Rust crate is the
+implementation used by the new machine-relay packaging. The Node relay in
+chatmux remains the rollback implementation until hosted conformance and a
+release have completed.
 
 1. **Config + pairing + presence (THIS SLICE, done)** — config file
    handling (`~/.config/chatmux-relay/config.json`, 0600), URL + `--code`
@@ -47,74 +56,62 @@ cutover — pre-launch, no legacy.
    YOLO receipt, managed enrollment (0600 check, shred after read,
    `managedSessionToken` kept in memory), `--allow-root` persistence,
    `--status`.
-2. **PTY bridge** — port `bin/pty.mjs` incl. the 0.0.10 MULTI-VIEWER
-   fan-out (any number of attachments per session/surface; `session_limit`
-   only for the process-wide PTY cap). `packages/relay/test/pty.test.mjs`
-   pins the behavior. Raise the advertised dialect to 4.
-3. **Exec verbs + trust gates** — port `bin/actions.mjs` (path scoping,
-   caps, timeouts). Raise the advertised dialect to 5.
-4. **Wire-v6 pane verbs + preview proxy** — fs/git/watch verbs and the
-   chobitsu-injecting preview proxy (chatmux pane-primitives program;
-   these verbs have NO JS implementation — Rust-first by decision).
-5. **Autostart** — launchd/systemd/schtasks install (`--autostart` /
-   `--uninstall`), replacing the npm runtime-install machinery with the
-   platform binary path.
+2. **PTY bridge (DONE)** — `pty.rs` ports `bin/pty.mjs`: the shell
+   fallback with a bounded scrollback ring and the 0.0.10 MULTI-VIEWER
+   fan-out (any number of attachments per session; `session_limit` only
+   for the process-wide `MAX_PTYS` cap), the cmux-tui whole-session viewer
+   path, the W86 raw single-terminal control-socket path, `surface_list`,
+   the buffered-output cap, and the no-empty-frame rule.
+   `packages/relay/test/pty.test.mjs` behaviors are mirrored in
+   `pty.rs::tests`. Real PTY allocation is `pty_deps.rs` (cmux-pty +
+   pipe-mode degradation); the control socket is `control.rs`.
+3. **Exec verbs + trust gates (DONE)** — `actions.rs` ports
+   `bin/actions.mjs`: exec/read/write/ls/grep/find with the 60k output
+   bound, 2 MB read cap, `--allow-root` + server-echoed path scoping,
+   lexical + canonical (realpath) double pass, O_NOFOLLOW opens, scrubbed
+   env, hard process-group timeouts, the v5 process-credential runtime,
+   and the reconciled-trust gate (observe = read-only verbs only).
+   Slices 2 and 3, plus the v6 pane verbs, are included; the advertised
+   dialect is **7**. Version 7 gates the additive PTY operational error codes.
+4. **Wire-v6 pane verbs + preview proxy (DONE)** — fs/git/watch verbs and
+   the chobitsu-injecting preview proxy. These verbs have no JS
+   implementation; they are Rust-first by decision.
+5. **Autostart (DONE)** — launchd, systemd, and Windows Task Scheduler
+   install/uninstall (`--autostart` / `--uninstall`) use the platform binary.
+   Autostart requires a durable executable path. The npm launcher refuses
+   `--autostart` when `npx` resolved the relay from its disposable `_npx`
+   cache; install `cmux-relay` globally or in a persistent project first.
 
-### Intentional slice-1 divergences from the JS relay
+### Intentional divergences from the JS relay (still open)
 
-- The advertised relay protocol is **v2** (`wire::ADVERTISED_PROTOCOL_VERSION`)
-  until the verb slices land, so the Worker's designed old-relay degrade
-  applies instead of half-implemented verbs. The JS relay advertises v5.
-  DIALECT: the workspace slice implements the full v6 verb set but does
-  NOT bump the advertised dialect — the PTY + exec slices (dialect 4/5)
-  land in parallel, and whichever slice merges LAST raises the advertised
-  dialect to 6 once e2e-relay + e2e-terminal-pty + e2e-workspace are all
-  green on the combined head. Harness runs meanwhile use the existing
-  `CHATMUX_RELAY_PROTOCOL=6` env override. Workspace frames that arrive
-  are always answered (typed refusal for unknown ops, never a socket
-  close); exec/PTY frames keep the slice-1 refusals.
+- The advertised relay protocol is **v7**. PTY and exec remain capability
+  gated at v4 and v3; workspace/watch/preview use v6. PTY operational errors
+  use the v7 outer feature gate and downgrade to `failed` for older Workers.
 - `--code` prints the `chatmux://pair` link without the terminal QR
   graphic (QR rendering comes with a later slice; the link carries the
   same payload).
-- `--autostart` / `--uninstall` exit 1 with a pointer to the npm build
-  (slice 5).
+- PTY frame dispatch is serialized on one task per connection, so a slow
+  `pty_open` (daemon spawn, up to 5s) delays a following frame for a
+  DIFFERENT pty. Acceptable for typical one-open-at-a-time use; revisit
+  if concurrent opens become common.
 
 ## Wire contract and the vendored protocol
 
 The wire truth is chatmux `packages/protocol/src/relay.ts`, emitted to
-`generated/schema/relay-client.schema.json`. A Rust serde emitter is being
-added to the chatmux protocol codegen (alongside the existing Swift and
-Kotlin targets) together with the wire-v6 pane verbs.
+`generated/schema/relay-client.schema.json`. The generated serde types for
+the workspace/v6 data plane are vendored in `src/relay_wire.rs`.
 
-The generated file is VENDORED here as `src/relay_wire.rs` (chatmux
-`packages/protocol/generated/rust/relay_wire.rs`, copied verbatim — never
-edited, only re-vendored; `#[rustfmt::skip]` on the module declaration
-keeps the generated layout as the diff baseline). Vendored from chatmux
-commit `271c6efc445fd083165519d20588c2fcbf0eb765` (10 workspace ops). To re-vendor after a
-chatmux protocol change:
+After a chatmux protocol change:
 
 1. In chatmux: `cd packages/protocol && bun run generate`.
-2. Copy `packages/protocol/generated/rust/relay_wire.rs` over
-   `src/relay_wire.rs` verbatim and update the sha recorded above.
-3. Run the chatmux conformance harness against the rebuilt binary
-   (`apps/backend/test/e2e-workspace.ts` with `CHATMUX_E2E_RELAY_BIN`).
+2. Copy `packages/protocol/generated/rust/relay_wire.rs` (generated,
+   do not edit) into this crate as `src/relay_wire.rs`.
+3. Keep `src/wire.rs` only for the pairing/presence compatibility frames
+   and tolerant parse helpers until those frames are also generated.
+4. Record the chatmux commit sha of the vendored file in the copy header.
 
-`src/wire.rs` still hand-models the slice-1 core frames (hello,
-heartbeats, trust) with the tolerant parse; the v6 workspace frames decode
-through the vendored types (workspace.rs / watch.rs / preview_proxy.rs).
-The remaining hand-modeled structs migrate to the vendored file with the
-PTY/exec slices.
-
-## Preview proxy (slice 4, this crate)
-
-`preview_open` starts (or reuses) a reverse proxy of the target dev-server
-port per the pinned contract in chatmux pane-primitives-plan.md: chobitsu
-script-tag injection into text/html (skip on `x-chatmux-no-inject: 1`),
-`GET /__chatmux__/target.js` (vendored chobitsu 1.8.6 + connector, in
-`assets/`), `WS /__chatmux__/page` + `WS /__chatmux__/devtools` piping
-(latest page connection wins), `GET /__chatmux__/status` with credentialed
-CORS (ACAO=origin + ACAC=true), and a bounded console/network ring served
-by `preview_console_tail`.
+Regenerate + re-copy is part of any chatmux protocol change that touches
+the relay group (cross-repo step; documented in both repos).
 
 ## Conformance harness (chatmux repo)
 
@@ -124,10 +121,6 @@ The cross-language gate lives in chatmux `apps/backend`:
 - `test/e2e-pair-url.ts` — URL approval flow, deny path, rate limit.
 - `test/e2e-terminal-pty.ts`, `scripts/terminal-dev-server.ts` — PTY
   (slice 2 gate).
-- `test/e2e-workspace.ts` — wire-v6 workspace verbs + fs_watch + preview
-  shapes (this slice's gate; `CHATMUX_E2E_RELAY_BIN` points it at this
-  binary, with `CHATMUX_RELAY_PROTOCOL=6` until the dialect bump — see
-  DIALECT below).
 
 Point the harness at this binary with `CHATMUX_RELAY_BIN`:
 
@@ -155,11 +148,17 @@ change nothing but the version:
   linux-x64, linux-arm64, win32-x64) each ship one static binary, wired as
   `optionalDependencies` of `cmux-relay` — the same scheme the `cmux` /
   `cmux-tui` packages use.
-- The `cmux-relay` wrapper's bin shim resolves the platform package (env
-  override → optionalDependency → PATH fallback) and `exec`s the binary.
-- Publish as `0.1.0` from this workspace's release tooling; rebake images
-  (bump `CHATMUX_IMAGE_EPOCH`) in the same series that deletes
-  `packages/relay` from chatmux.
+- The `cmux-relay` wrapper's bin shim resolves the platform package from its
+  optional dependency and launches the native binary with the same arguments.
+- Do not use `npx cmux-relay --autostart`: `npx` may place the binary in a
+  disposable `_npx` cache. Use `npm install --global cmux-relay` (or install
+  it in a persistent project) and then run `cmux-relay --autostart`. The
+  launcher and the native binary both refuse an ephemeral `_npx` path.
+The release workflows build the machine binary and platform packages for
+darwin-arm64, darwin-x64, linux-arm64, linux-x64, and win32-x64. The package
+name remains `cmux-relay`; the sibling circuit-relay binary and artifacts use
+separate lanes. Publish only after hosted conformance passes. Keep
+`packages/relay` as the rollback path until the image update is released.
 
 ## Development
 

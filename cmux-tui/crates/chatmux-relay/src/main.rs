@@ -7,8 +7,15 @@
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
+use tokio_util::sync::CancellationToken;
+
+use chatmux_relay::actions::validate_request_path;
+use chatmux_relay::autostart;
 use chatmux_relay::cli::{Command, parse_cli_args};
-use chatmux_relay::config::{Config, default_config_path, load_config, save_config};
+use chatmux_relay::config::{
+    Config, default_config_path, load_config, load_config_checked, save_config,
+    validate_allowed_roots,
+};
 use chatmux_relay::enrollment::load_managed_enrollment_file;
 use chatmux_relay::error::RelayError;
 use chatmux_relay::pairing::{CeremonyMode, PairedOutcome, await_ceremony, start_pairing};
@@ -177,33 +184,49 @@ async fn prepare_existing_trust(config: &mut Config, config_path: &Path, interac
 }
 
 /// Path scoping: `--allow-root <path>` (repeatable) or
-/// `CHATMUX_RELAY_ALLOWED_ROOTS` (colon-separated; empty string clears).
+/// `CHATMUX_RELAY_ALLOWED_ROOTS` (platform path-list separated; empty string clears).
 /// Persisted in the local config and advertised in the hello so the server
 /// records it on the machine.
-fn apply_allowed_roots(config: &mut Config, allow_root_args: &[String], config_path: &Path) {
+fn apply_allowed_roots(
+    config: &mut Config,
+    allow_root_args: &[String],
+    config_path: &Path,
+) -> Result<(), String> {
     let from_env = std::env::var("CHATMUX_RELAY_ALLOWED_ROOTS").ok();
     if allow_root_args.is_empty() && from_env.is_none() {
-        return;
+        return Ok(());
     }
-    let mut roots: Vec<String> = if allow_root_args.is_empty() {
-        from_env
-            .unwrap_or_default()
-            .split(':')
-            .filter(|root| !root.is_empty())
-            .map(str::to_owned)
-            .collect()
+    let roots: Vec<String> = if allow_root_args.is_empty() {
+        parse_allowed_roots_environment(from_env.as_deref().unwrap_or_default())
     } else {
         allow_root_args.to_vec()
     };
     if roots.is_empty() {
-        config.allowed_roots = None;
-        println!("Agent path scoping cleared (unscoped).");
+        return Err("allowed root configuration is empty; refusing to continue unscoped".to_owned());
     } else {
-        roots.truncate(16);
+        validate_allowed_roots(&roots).map_err(str::to_owned)?;
+        if let Some(error) = roots.iter().find_map(|root| validate_request_path(root).err()) {
+            return Err(format!("invalid allowed root: {error}"));
+        }
         println!("Agent access on this machine is limited to: {}", roots.join(", "));
         config.allowed_roots = Some(roots);
     }
     persist(config, config_path);
+    Ok(())
+}
+
+/// Parse the environment form with the platform path-list separator. A plain
+/// colon split corrupts Windows drive-letter roots such as `C:\\work`.
+fn parse_allowed_roots_environment(value: &str) -> Vec<String> {
+    if value.is_empty() {
+        return Vec::new();
+    }
+    std::env::split_paths(std::ffi::OsStr::new(value))
+        .filter_map(|root| {
+            let root = root.to_string_lossy().into_owned();
+            (!root.is_empty()).then_some(root)
+        })
+        .collect()
 }
 
 fn persist(config: &Config, config_path: &Path) {
@@ -212,21 +235,25 @@ fn persist(config: &Config, config_path: &Path) {
     }
 }
 
-fn offer_autostart(code_mode: bool) {
+fn offer_autostart(code_mode: bool, config_path: &Path) {
     let env = env_string("CHATMUX_RELAY_AUTOSTART").or_else(|| env_string("CMUX_RELAY_AUTOSTART"));
     if env.as_deref() == Some("0") {
         return;
     }
     if env.as_deref() == Some("1") {
-        // Autostart install is a later slice (README: port plan).
-        eprintln!(
-            "Autostart install is not implemented in this relay build yet; run `npx cmux-relay \
-             --autostart` (npm build) to install it meanwhile."
-        );
+        let result = std::env::current_exe()
+            .map_err(|error| format!("could not locate relay executable: {error}"))
+            .and_then(|path| autostart::install(&path, config_path));
+        match result {
+            Ok(message) => println!("Autostart installed: {message}"),
+            Err(message) => {
+                eprintln!("Autostart install failed: {message}. Continuing without it.");
+            }
+        }
         return;
     }
     if !code_mode {
-        println!("Tip: `npx cmux-relay --autostart` keeps this machine online after reboots.");
+        println!("Tip: `cmux-relay --autostart` keeps this machine online after sign-in.");
     }
 }
 
@@ -245,6 +272,57 @@ struct Runtime {
     config_path: PathBuf,
     interactive: bool,
     http: reqwest::Client,
+}
+
+/// Wait for the process-level stop signal used by both managed and paired
+/// relay sessions. The signal task only owns the OS listener; the session
+/// owns all socket and request tasks through the shared cancellation token.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                let _ = result;
+            }
+            _ = terminate.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// Run one persistent session under a signal listener and wait for every
+/// session-owned task to observe cancellation before returning to `main`.
+async fn run_online(config: Config, config_path: &Path, state: SessionState) {
+    let cancellation = CancellationToken::new();
+    let signal_cancellation = cancellation.clone();
+    let signal_task = tokio::spawn(async move {
+        shutdown_signal().await;
+        signal_cancellation.cancel();
+    });
+    let journal_task = config.events.clone().map(|events| {
+        // The journal forwarder owns a separate child task and cancellation
+        // path. Its retries can never block or fail the relay WebSocket.
+        chatmux_relay::journal_forwarder::start(events, cancellation.child_token())
+    });
+    let result = stay_online(config, config_path, state, cancellation.clone()).await;
+    cancellation.cancel();
+    if let Some(task) = journal_task {
+        let _ = task.await;
+    }
+    if !signal_task.is_finished() {
+        signal_task.abort();
+    }
+    let _ = signal_task.await;
+    if let Err(error) = result {
+        fatal_exit(&error);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +347,7 @@ async fn onboard_with_url(runtime: &Runtime) -> Result<Config, RelayError> {
                 )
                 .await;
                 persist(&config, &runtime.config_path);
-                offer_autostart(false);
+                offer_autostart(false, &runtime.config_path);
                 return Ok(config);
             }
             Err(RelayError::PairingExpired { .. }) => {
@@ -338,7 +416,7 @@ async fn onboard_with_code(runtime: &Runtime) -> Result<Config, RelayError> {
     persist(&config, &runtime.config_path);
 
     // 5. autostart (opt-in)
-    offer_autostart(true);
+    offer_autostart(true, &runtime.config_path);
     Ok(config)
 }
 
@@ -434,11 +512,14 @@ Usage:
   npx cmux-relay --code        Offline fallback: QR + chatmux:// link and a
                                6-digit mutual verification ceremony
   npx cmux-relay --status      Show local pairing state
-  npx cmux-relay --autostart   Install autostart (reconnect on sign-in)
+  npx cmux-relay --autostart   Install autostart (reconnect on sign-in).
+                               npx's temporary cache is refused; use a
+                               global install or a persistent project install.
   npx cmux-relay --uninstall   Remove autostart files (keeps pairing)
   npx cmux-relay --no-onboard  Scripted use: no prompts; answers come from
                                the environment or defaults
   npx cmux-relay --backend <url>  Worker base URL (staging/dev)
+  npx cmux-relay --config <path>  Config file path (overrides CHATMUX_RELAY_CONFIG)
   npx cmux-relay --allow-root <path>  Limit agent file access and command
                                working directories to this path prefix
                                (repeatable; persisted; run with none to
@@ -499,7 +580,17 @@ async fn main() {
     let parsed = match parse_cli_args(std::env::args().skip(1)) {
         Ok(parsed) => parsed,
         Err(error) => {
-            eprintln!("{}", error.message);
+            // Keep user-facing diagnostics independent from internal parser
+            // implementation names. Do not echo raw argv values here:
+            // positional arguments may contain copied credentials.
+            let (public_code, public_message) = match error.code {
+                "coderouter_unavailable" => (
+                    "unsupported_command",
+                    "cmux-relay: that command is not supported in this version.",
+                ),
+                _ => (error.code, error.message.as_str()),
+            };
+            eprintln!("cmux-relay error [{public_code}]: {public_message}");
             eprintln!("Run `cmux-relay --help` for usage.");
             std::process::exit(2);
         }
@@ -517,8 +608,20 @@ async fn main() {
         .unwrap_or_else(|| "https://chatmux.dev".to_owned())
         .trim_end_matches('/')
         .to_owned();
-    let config_path =
-        env_string("CHATMUX_RELAY_CONFIG").map(PathBuf::from).unwrap_or_else(default_config_path);
+    let config_path = parsed
+        .config_path
+        .clone()
+        .map(PathBuf::from)
+        .or_else(|| env_string("CHATMUX_RELAY_CONFIG").map(PathBuf::from))
+        .unwrap_or_else(default_config_path);
+    let config_path = if config_path.is_absolute() {
+        config_path
+    } else {
+        std::env::current_dir().map(|directory| directory.join(config_path)).unwrap_or_else(|_| {
+            eprintln!("could not resolve relative relay config path");
+            std::process::exit(1);
+        })
+    };
     // Legacy QR/SAS ceremony prompts only run on a real terminal.
     let interactive =
         !parsed.no_onboard && std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
@@ -533,15 +636,29 @@ async fn main() {
             std::process::exit(0);
         }
         Some(Command::Status) => print_status(&config_path),
-        Some(Command::Uninstall) | Some(Command::Autostart) => {
-            // Autostart install/uninstall is a later slice (README: port
-            // plan). The npm build still owns this surface.
-            eprintln!(
-                "Autostart is not implemented in this relay build yet; use the npm cmux-relay \
-                 for --autostart/--uninstall."
-            );
-            std::process::exit(1);
-        }
+        Some(Command::Uninstall) => match autostart::uninstall() {
+            Ok(message) => {
+                println!("{message}");
+                std::process::exit(0);
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
+        Some(Command::Autostart) => match std::env::current_exe()
+            .map_err(|_| "could not locate relay executable".to_owned())
+            .and_then(|path| autostart::install(&path, &config_path))
+        {
+            Ok(message) => {
+                println!("{message}");
+                std::process::exit(0);
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        },
         Some(Command::Pair) | None => {}
     }
 
@@ -563,18 +680,22 @@ async fn main() {
                 std::process::exit(1);
             }
         };
-        stay_online(
+        run_online(
             managed,
             &runtime.config_path,
             SessionState { first_connect: true, first_run: false, managed: true },
         )
         .await;
+        return;
     }
 
     let existing = if parsed.command == Some(Command::Pair) {
         None
     } else {
-        load_config(&runtime.config_path)
+        match load_config_checked(&runtime.config_path) {
+            Ok(config) => config,
+            Err(error) => fatal_exit(&RelayError::fatal(error)),
+        }
     };
     let first_run = existing.is_none();
     let mut config = match existing {
@@ -594,11 +715,38 @@ async fn main() {
             }
         }
     };
-    apply_allowed_roots(&mut config, &parsed.allow_root, &runtime.config_path);
-    stay_online(
+    if let Err(error) = apply_allowed_roots(&mut config, &parsed.allow_root, &runtime.config_path) {
+        fatal_exit(&RelayError::fatal(error));
+    }
+    run_online(
         config,
         &runtime.config_path,
         SessionState { first_connect: true, first_run, managed: false },
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_allowed_roots_environment;
+
+    #[test]
+    fn empty_allowed_roots_environment_clears_scope() {
+        assert!(parse_allowed_roots_environment("").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_allowed_roots_use_colon_separator() {
+        assert_eq!(
+            parse_allowed_roots_environment("/srv/one:/srv/two"),
+            vec!["/srv/one", "/srv/two"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_allowed_roots_keep_drive_letters() {
+        assert_eq!(parse_allowed_roots_environment(r"C:\work;D:\src"), vec![r"C:\work", r"D:\src"]);
+    }
 }

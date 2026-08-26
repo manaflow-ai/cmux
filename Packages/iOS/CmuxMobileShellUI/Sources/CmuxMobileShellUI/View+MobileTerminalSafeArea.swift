@@ -42,6 +42,10 @@ private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier 
         // on every toggle, which resizes the terminal grid (a shared-PTY
         // renegotiation with the Mac) and produces a stale one-cell gap at
         // the top plus reflow row-blanking while the round trip settles.
+        // Ignoring the keyboard here is necessary but NOT sufficient: while
+        // the keyboard is up the home-indicator band is re-attributed to the
+        // CONTAINER region, which the terminal leaf ignores itself (see
+        // `WorkspaceDetailView.terminalArtifactSurface`).
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .background {
             MobileTerminalWindowOrientationReader { orientation in
