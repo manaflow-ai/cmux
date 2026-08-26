@@ -17,8 +17,8 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         let panelId = UUID()
         let ttyDevice: Int64 = 0x123
         let processGroupID = 500
-        let makeProcess: (Int, Int, UUID?, UUID?) -> CmuxTopProcessInfo = {
-            pid, parentPID, cmuxWorkspaceID, cmuxSurfaceID in
+        let makeProcess: (Int, Int, UUID?, UUID?, Int) -> CmuxTopProcessInfo = {
+            pid, parentPID, cmuxWorkspaceID, cmuxSurfaceID, processGroupID in
             CmuxTopProcessInfo(
                 pid: pid,
                 parentPID: parentPID,
@@ -37,9 +37,9 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             )
         }
         let baseProcesses = [
-            makeProcess(500, 1, nil, nil),
-            makeProcess(501, 500, workspaceId, panelId),
-            makeProcess(502, 501, workspaceId, panelId),
+            makeProcess(500, 1, nil, nil, processGroupID),
+            makeProcess(501, 500, workspaceId, panelId, processGroupID),
+            makeProcess(502, 501, workspaceId, panelId, processGroupID),
         ]
         let base = CmuxTopProcessSnapshot(
             processes: baseProcesses,
@@ -47,7 +47,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             includesProcessDetails: true
         )
         let withUnscopedSibling = CmuxTopProcessSnapshot(
-            processes: baseProcesses + [makeProcess(503, 500, nil, nil)],
+            processes: baseProcesses + [makeProcess(503, 500, nil, nil, processGroupID + 1)],
             sampledAt: Date(timeIntervalSince1970: 43),
             includesProcessDetails: true
         )
