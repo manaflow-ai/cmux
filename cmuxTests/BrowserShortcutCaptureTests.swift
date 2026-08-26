@@ -206,6 +206,87 @@ final class BrowserShortcutCaptureTests {
         }
     }
 
+    @Test
+    func captureFailsClosedForPortalBrowserChrome() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        try withCaptureEnabled { harness in
+            guard let slot = ancestorSlot(for: harness.webView) else {
+                throw BrowserCaptureFixtureError.browserUnavailable
+            }
+
+            let chromeView = BrowserCaptureFocusableView(
+                frame: NSRect(x: 0, y: 0, width: 120, height: 40)
+            )
+            slot.addSubview(chromeView, positioned: .above, relativeTo: nil)
+            #expect(harness.window.makeFirstResponder(chromeView))
+
+            let commandR = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: harness.window.windowNumber
+            ))
+
+            #expect(
+                !appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: commandR),
+                "A focusable portal sibling must remain browser chrome, not page focus"
+            )
+        }
+    }
+
+    @Test
+    func configuredShortcutIsDeliveredToFocusedPopupPageBeforeCloseHandling() throws {
+        let opener = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        defer { opener.close() }
+
+        let popupWebView = try #require(
+            opener.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            ) as? CmuxWebView
+        )
+        let popupWindow = try #require(popupWebView.window as? BrowserPopupPanel)
+        defer {
+            popupWindow.orderOut(nil)
+            popupWindow.close()
+        }
+
+        popupWindow.makeKeyAndOrderFront(nil)
+        #expect(popupWindow.makeFirstResponder(popupWebView))
+
+        let settingKey = KeyboardShortcutSettings.browserKeyboardShortcutCaptureSetting.userDefaultsKey
+        let previousSetting = UserDefaults.standard.object(forKey: settingKey)
+        defer {
+            if let previousSetting {
+                UserDefaults.standard.set(previousSetting, forKey: settingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: settingKey)
+            }
+        }
+        UserDefaults.standard.set(true, forKey: settingKey)
+
+        installCmuxUnitTestCmuxWebViewKeyDownOverride()
+        var browserKeyDownCount = 0
+        setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
+            if webView === popupWebView {
+                browserKeyDownCount += 1
+            }
+            return false
+        }, for: popupWebView)
+        defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: popupWebView) }
+
+        let commandR = try #require(makeKeyDownEvent(
+            key: "r",
+            modifiers: [.command],
+            keyCode: 15,
+            windowNumber: popupWindow.windowNumber
+        ))
+
+        #expect(popupWindow.performKeyEquivalent(with: commandR))
+        #expect(browserKeyDownCount == 1)
+        #expect(popupWindow.isVisible, "Page capture must run before popup Close Tab handling")
+    }
+
     private func withCaptureEnabled(
         _ body: (BrowserCaptureHarness) throws -> Void
     ) throws {
@@ -266,6 +347,17 @@ final class BrowserShortcutCaptureTests {
             panel: browserPanel,
             webView: webView
         )
+    }
+
+    private func ancestorSlot(for webView: NSView) -> WindowBrowserSlotView? {
+        var current: NSView? = webView
+        while let view = current {
+            if let slot = view as? WindowBrowserSlotView {
+                return slot
+            }
+            current = view.superview
+        }
+        return nil
     }
 
     private func window(withId windowId: UUID) -> NSWindow? {
