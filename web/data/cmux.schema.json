@@ -678,7 +678,7 @@
               "type": "string",
               "default": "",
               "descriptionKey": "schemaDescriptions.terminal.videoBackgroundSource",
-              "description": "A YouTube video or playlist URL (playlists loop and advance automatically), or a local .mp4/.m4v/.mov file path played with AVFoundation."
+              "description": "A YouTube video or playlist URL, a raw YouTube video or playlist ID, or a local .mp4/.m4v/.mov file path played with AVFoundation. Playlists loop and advance automatically."
             },
             "dimOpacity": {
               "type": "number",
