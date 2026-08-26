@@ -35,10 +35,10 @@ final class CloudTreeNode: NSObject {
     }
 
     let id: String
-    let kind: Kind
+    private(set) var kind: Kind
     private(set) var children: [CloudTreeNode]
     /// For workspace rows: everything the workspace holds, in the order it opens.
-    private let explicitDragGroup: SurfaceResourceGroup?
+    private var explicitDragGroup: SurfaceResourceGroup?
 
     init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
         self.id = id
@@ -48,6 +48,38 @@ final class CloudTreeNode: NSObject {
     }
 
     var isExpandable: Bool { !children.isEmpty }
+
+    /// The case of `kind` without its payload: what decides row height, menus,
+    /// expandability and drag-ability. Two trees with equal structure signatures
+    /// can be updated in place; a content-only change never needs `reloadData`.
+    var structureTag: String {
+        switch kind {
+        case .machine: return "machine"
+        case .localMachine: return "localMachine"
+        case .workspacesGroup: return "workspacesGroup"
+        case .workspace: return "workspace"
+        case .localWorkspace: return "localWorkspace"
+        case .terminal: return "terminal"
+        case .desktop: return "desktop"
+        case .browsersGroup: return "browsersGroup"
+        case .browser: return "browser"
+        case .portsGroup: return "portsGroup"
+        case .port: return "port"
+        case .placeholder: return "placeholder"
+        }
+    }
+
+    /// Copies the values of an equal-structure rebuild into this node (NSOutlineView keeps
+    /// the object it was handed; updating it in place keeps rows, expansion and the
+    /// selection untouched). Children are adopted pairwise — callers guarantee the
+    /// structure signature matched first.
+    func adopt(from other: CloudTreeNode) {
+        kind = other.kind
+        explicitDragGroup = other.explicitDragGroup
+        for (child, replacement) in zip(children, other.children) {
+            child.adopt(from: replacement)
+        }
+    }
 
     var machine: SurfaceMachineID {
         switch kind {
@@ -170,13 +202,19 @@ struct CloudTreeLocalWorkspace: Equatable {
 /// cloud machine (Workspaces → workspace → terminals; Desktop; Ports; Browsers);
 /// a machine without a connected link gets a single placeholder child.
 enum CloudTreeNodeBuilder {
+    /// Whether the tree shows this Mac's own terminals and browsers. Off for now: the
+    /// Cloud tab lists cloud machines only. Local resources stay in the catalog (the
+    /// CLI and socket still see them); this only gates the sidebar rows.
+    nonisolated(unsafe) static var includesLocalMachine = false
+
     static func nodes(
         machines: [MachineSnapshot],
         snapshot: SurfaceCatalogSnapshot,
-        localWorkspaces: [CloudTreeLocalWorkspace]
+        localWorkspaces: [CloudTreeLocalWorkspace],
+        includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
         var nodes: [CloudTreeNode] = []
-        if let local = snapshot.machines.first(where: { $0.id.isLocal }) {
+        if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -392,5 +430,16 @@ enum CloudTreeNodeBuilder {
     /// tests and by quick-search.
     static func flattened(_ nodes: [CloudTreeNode]) -> [CloudTreeNode] {
         nodes.flatMap { [$0] + flattened($0.children) }
+    }
+
+    /// Row identities, order and kinds — a change here needs `reloadData`.
+    static func structureSignature(_ nodes: [CloudTreeNode]) -> [String] {
+        flattened(nodes).map { "\($0.id)|\($0.structureTag)|\($0.children.count)" }
+    }
+
+    /// Everything a row displays — a change here with an equal structure signature is
+    /// applied to the existing rows in place.
+    static func contentSignature(_ nodes: [CloudTreeNode]) -> [String] {
+        flattened(nodes).map { "\($0.id)|\(String(describing: $0.kind))|\(String(describing: $0.dragGroup))" }
     }
 }

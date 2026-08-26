@@ -17,6 +17,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
+    /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
+    /// re-reads while a drag is in flight.
+    var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
 
@@ -41,6 +44,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
+        context.coordinator.onDragStateChange = onDragStateChange
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(machines: machines, snapshot: snapshot, localWorkspaces: localWorkspaces))
     }
 
@@ -54,10 +58,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
-        private var signature: [String] = []
+        private var structureSignature: [String] = []
+        private var contentSignature: [String] = []
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: (id: UUID, registration: TabDragTransferRegistration)?
+        /// A drag session owns the outline until it ends: no reloads, no in-place
+        /// updates. The latest tree handed in meanwhile is applied once at drag end.
+        private(set) var isDragging = false
+        private var deferredNodes: [CloudTreeNode]?
+        var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
 
         init(
             machineActions: MachineRowActions,
@@ -73,13 +83,36 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: Snapshot application
 
-        /// Reloads only when the flattened tree actually changed, then restores
-        /// expansion (from the store) and the selection (by node id).
+        /// Three outcomes, cheapest first: nothing changed → no work; only row contents
+        /// changed (titles, cwd, open markers, stats) → the existing node objects adopt the
+        /// new values and the visible rows re-render in place, keeping expansion and the
+        /// selection; the structure changed (rows added/removed/reordered/re-kinded) →
+        /// `reloadData` plus expansion/selection restore. During a drag everything is
+        /// deferred until the session ends.
         func apply(nodes: [CloudTreeNode]) {
-            let nextSignature = Self.signature(of: nodes)
-            guard nextSignature != signature else { return }
+            if isDragging {
+                deferredNodes = nodes
+                return
+            }
+            let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
+            let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
+            guard nextStructure != structureSignature || nextContent != contentSignature else { return }
+            contentSignature = nextContent
+            if nextStructure == structureSignature, !self.nodes.isEmpty {
+                for (existing, replacement) in zip(self.nodes, nodes) {
+                    existing.adopt(from: replacement)
+                }
+                guard let outlineView, outlineView.numberOfRows > 0 else { return }
+                withProgrammaticUpdate {
+                    outlineView.reloadData(
+                        forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
+                        columnIndexes: IndexSet(integer: 0)
+                    )
+                }
+                return
+            }
             self.nodes = nodes
-            signature = nextSignature
+            structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
                 outlineView.reloadData()
@@ -88,8 +121,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        private static func signature(of nodes: [CloudTreeNode]) -> [String] {
-            CloudTreeNodeBuilder.flattened(nodes).map { "\($0.id)|\(String(describing: $0.kind))" }
+        private func setDragging(_ dragging: Bool) {
+            guard isDragging != dragging else { return }
+            isDragging = dragging
+            onDragStateChange(dragging)
+            if !dragging, let deferred = deferredNodes {
+                deferredNodes = nil
+                apply(nodes: deferred)
+            }
         }
 
         private func restoreExpansion(in outlineView: NSOutlineView) {
@@ -427,7 +466,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return registration.pasteboardItem
         }
 
+        func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
+            setDragging(true)
+        }
+
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+            defer { setDragging(false) }
             guard let activeDrag else { return }
 #if DEBUG
             cmuxDebugLog("surfaces.drag.end drag=\(activeDrag.id.uuidString.prefix(5)) operation=\(operation.rawValue)")

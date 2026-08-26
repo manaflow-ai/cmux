@@ -378,7 +378,8 @@ final class MachinesPanelModelTests: XCTestCase {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "vivid-newt")],
             snapshot: snapshot,
-            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)]
+            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)],
+            includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
         XCTAssertEqual(ids, [
@@ -419,7 +420,7 @@ final class MachinesPanelModelTests: XCTestCase {
             resources: [browser],
             projections: [SurfaceProjection(resource: browser.id, workspaceID: local, panelID: UUID())]
         )
-        let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "web", isSelected: false)])
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "web", isSelected: false)], includeLocalMachine: true)
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
         XCTAssertEqual(ids, ["machine:local", "machine:local/placeholder", "machine:local/browsers", "resource:local/browser/BBB"])
         if case .browser(let row) = CloudTreeNodeBuilder.flattened(nodes)[3].kind {
@@ -494,7 +495,8 @@ final class MachinesPanelModelTests: XCTestCase {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "m", image: "blaxel/base-image:latest")],
             snapshot: snapshot,
-            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true), CloudTreeLocalWorkspace(id: other, title: "notes", isSelected: false)]
+            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true), CloudTreeLocalWorkspace(id: other, title: "notes", isSelected: false)],
+            includeLocalMachine: true
         )
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -581,7 +583,8 @@ final class MachinesPanelModelTests: XCTestCase {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "vivid-newt")],
             snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.local), machineInfo(.cloud("vivid-newt"))], resources: [terminal(.cloud("vivid-newt"), "term_1")], projections: []),
-            localWorkspaces: []
+            localWorkspaces: [],
+            includeLocalMachine: true
         )
         let localNode = nodes[0], machineNode = nodes[1], group = machineNode.children[0]
         XCTAssertTrue(store.isExpanded(localNode))
@@ -608,5 +611,69 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(destination(.split(targetPane: pane, orientation: .vertical, insertFirst: false)), .split(workspaceID: workspace, paneID: pane.id.uuidString, direction: .down))
         XCTAssertEqual(destination(.insert(targetPane: pane, targetIndex: 2)), .tab(workspaceID: workspace, paneID: pane.id.uuidString, index: 2))
         XCTAssertEqual(destination(.insert(targetPane: pane, targetIndex: nil)).workspaceID, workspace)
+    }
+}
+
+
+/// The Cloud tab is cloud-only for now, and the outline updates rows in place unless the
+/// tree's structure changed.
+@MainActor
+final class CloudTreeScopeAndSignatureTests: XCTestCase {
+    private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", cwd: String? = "/root") -> SurfaceResource {
+        SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: cwd, lifecycle: .running, agent: nil, remoteWorkspace: SurfaceRemoteWorkspace(id: "ws_0", name: "0", index: 0, focused: true), port: nil, url: nil)
+    }
+
+    private func info(_ machine: SurfaceMachineID) -> SurfaceMachineInfo {
+        SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: "blaxel/xfce-vnc:latest", hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: machine.isLocal ? .notApplicable : .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
+    }
+
+    private func machine(_ id: String) -> MachineSnapshot {
+        MachineSnapshot(id: id, provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
+    }
+
+    func testTreeIsCloudOnlyByDefault() {
+        XCTAssertFalse(CloudTreeNodeBuilder.includesLocalMachine)
+        let local = UUID()
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(.local), info(.cloud("vivid-newt"))],
+            resources: [terminal(.local, "AAA"), terminal(.cloud("vivid-newt"), "term_1")],
+            projections: [SurfaceProjection(resource: SurfaceResourceID(machine: .local, kind: .terminal, key: "AAA"), workspaceID: local, panelID: UUID())]
+        )
+        let workspaces = [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)]
+        let cloudOnly = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces))
+        XCTAssertEqual(cloudOnly.first?.id, "machine:vivid-newt")
+        XCTAssertFalse(cloudOnly.contains { $0.machine.isLocal }, "no This Mac rows while the tree is cloud-only")
+        XCTAssertTrue(cloudOnly.contains { $0.id == "resource:vivid-newt/terminal/term_1" })
+
+        let withLocal = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces, includeLocalMachine: true))
+        XCTAssertEqual(withLocal.first?.id, "machine:local")
+    }
+
+    func testContentChangesKeepTheStructureSignature() {
+        let snapshot = SurfaceCatalogSnapshot(machines: [info(.cloud("m"))], resources: [terminal(.cloud("m"), "term_1", title: "vim")], projections: [])
+        let before = CloudTreeNodeBuilder.nodes(machines: [machine("m")], snapshot: snapshot, localWorkspaces: [])
+        var retitled = snapshot
+        retitled.resources[0].title = "cargo test"
+        retitled.projections = [SurfaceProjection(resource: retitled.resources[0].id, workspaceID: UUID(), panelID: UUID())]
+        let after = CloudTreeNodeBuilder.nodes(machines: [machine("m")], snapshot: retitled, localWorkspaces: [])
+        XCTAssertEqual(CloudTreeNodeBuilder.structureSignature(before), CloudTreeNodeBuilder.structureSignature(after), "a title/open-marker change is content, not structure")
+        XCTAssertNotEqual(CloudTreeNodeBuilder.contentSignature(before), CloudTreeNodeBuilder.contentSignature(after))
+
+        var grown = retitled
+        grown.resources.append(terminal(.cloud("m"), "term_2"))
+        let bigger = CloudTreeNodeBuilder.nodes(machines: [machine("m")], snapshot: grown, localWorkspaces: [])
+        XCTAssertNotEqual(CloudTreeNodeBuilder.structureSignature(before), CloudTreeNodeBuilder.structureSignature(bigger), "a new row is structure")
+    }
+
+    func testAdoptCopiesContentIntoExistingNodes() {
+        let snapshot = SurfaceCatalogSnapshot(machines: [info(.cloud("m"))], resources: [terminal(.cloud("m"), "term_1", title: "vim")], projections: [])
+        let existing = CloudTreeNodeBuilder.nodes(machines: [machine("m")], snapshot: snapshot, localWorkspaces: [])
+        var retitled = snapshot
+        retitled.resources[0].title = "make"
+        let replacement = CloudTreeNodeBuilder.nodes(machines: [machine("m")], snapshot: retitled, localWorkspaces: [])
+        for (node, other) in zip(existing, replacement) { node.adopt(from: other) }
+        let terminalRow = CloudTreeNodeBuilder.flattened(existing).first { $0.id == "resource:m/terminal/term_1" }
+        if case .terminal(let row)? = terminalRow?.kind { XCTAssertEqual(row.resource.title, "make") } else { XCTFail("terminal row missing") }
+        XCTAssertEqual(CloudTreeNodeBuilder.contentSignature(existing), CloudTreeNodeBuilder.contentSignature(replacement))
     }
 }

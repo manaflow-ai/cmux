@@ -369,9 +369,38 @@ final class MachinesPanelViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.readCatalog()
+            self?.scheduleCatalogRead()
+        }
+    }
+
+    /// Catalog changes arrive in bursts (a link snapshot upserts dozens of resources, a
+    /// projection records, titles tick). Collapse them to one `readCatalog()` per
+    /// main-runloop turn, and none at all while the outline is being dragged — the
+    /// suppressed read runs once when the drag ends.
+    private var pendingCatalogRead = false
+    private var catalogReadSuppressedByDrag = false
+    private(set) var isTreeDragging = false
+
+    func scheduleCatalogRead() {
+        guard !pendingCatalogRead else { return }
+        pendingCatalogRead = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingCatalogRead = false
+            if self.isTreeDragging {
+                self.catalogReadSuppressedByDrag = true
+                return
             }
+            self.readCatalog()
+        }
+    }
+
+    func setTreeDragging(_ dragging: Bool) {
+        guard isTreeDragging != dragging else { return }
+        isTreeDragging = dragging
+        if !dragging, catalogReadSuppressedByDrag {
+            catalogReadSuppressedByDrag = false
+            readCatalog()
         }
     }
 

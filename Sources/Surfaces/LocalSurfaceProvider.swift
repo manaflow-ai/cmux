@@ -105,12 +105,32 @@ final class LocalSurfaceProvider: SurfaceProvider {
     }
 
     /// Title or working directory changed for a pane that projects a local resource.
+    /// A busy shell retitles many times per second; changes are coalesced to one pass
+    /// per main-runloop turn and only pushed to the catalog when the resource actually
+    /// differs from what it already holds.
     func panelDidChange(panelID: UUID, in workspace: Workspace) {
-        guard let projection = catalog.projection(forPanel: panelID), projection.resource.machine.isLocal,
-              let panel = workspace.panels[panelID],
-              let resource = resource(for: panel, in: workspace) else { return }
-        if catalog.resources[resource.id] != resource {
-            catalog.upsert(resource)
+        pendingChanges[panelID] = workspace
+        guard !changeFlushScheduled else { return }
+        changeFlushScheduled = true
+        Task { @MainActor [weak self] in
+            self?.flushPendingChanges()
+        }
+    }
+
+    private var pendingChanges: [UUID: Workspace] = [:]
+    private var changeFlushScheduled = false
+
+    private func flushPendingChanges() {
+        changeFlushScheduled = false
+        let changes = pendingChanges
+        pendingChanges.removeAll()
+        for (panelID, workspace) in changes {
+            guard let projection = catalog.projection(forPanel: panelID), projection.resource.machine.isLocal,
+                  let panel = workspace.panels[panelID],
+                  let resource = resource(for: panel, in: workspace) else { continue }
+            if catalog.resources[resource.id] != resource {
+                catalog.upsert(resource)
+            }
         }
     }
 

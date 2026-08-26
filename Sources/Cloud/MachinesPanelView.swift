@@ -287,7 +287,8 @@ struct MachinesPanelView: View {
             localWorkspaces: viewModel.localWorkspaces,
             machineActions: machineActions,
             nodeActions: nodeActions,
-            expansionStore: expansionStore
+            expansionStore: expansionStore,
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
