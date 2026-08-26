@@ -178984,13 +178984,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reachable addresses yet. Iroh routes need this Mac signed in; Tailscale routes need Tailscale running on this Mac."
+            "value": "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "到達可能なアドレスがまだありません。Iroh 経路にはこの Mac へのサインインが、Tailscale 経路にはこの Mac で Tailscale が動作していることが必要です。"
+            "value": "到達可能なアドレスがまだありません。Iroh 経路にはこの Mac が cmux アカウントにサインインしていることが、Tailscale 経路にはこの Mac で Tailscale が動作していることが必要です。"
           }
         }
       }

@@ -499,7 +499,7 @@ public struct MobileSection: View {
             if snapshot.routes.isEmpty {
                 SettingsCardNote(String(
                     localized: "settings.mobile.routes.empty",
-                    defaultValue: "No reachable addresses yet. Iroh routes need this Mac signed in; Tailscale routes need Tailscale running on this Mac."
+                    defaultValue: "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
                 ))
             } else {
                 VStack(alignment: .leading, spacing: 4) {
