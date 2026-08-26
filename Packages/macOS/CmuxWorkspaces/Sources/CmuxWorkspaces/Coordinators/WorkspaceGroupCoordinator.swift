@@ -496,10 +496,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     private func applyWorkspaceGroupSlotOrderToTabs() {
-        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: model.workspaceGroups.compactMap { group in
-            group.liveAnchorWorkspaceId.map { ($0, group) }
+        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: model.workspaceGroups.map {
+            ($0.anchorWorkspaceId, $0)
         })
-        let topLevelIds = model.sidebarTopLevelWorkspaceIds()
+        let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
         let tabsById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
 
         var pinnedTopLevelIds: [UUID] = []
@@ -534,7 +534,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         var pinnedAnchorIndex = 0
         var unpinnedAnchorIndex = 0
         let desiredIds = tieredTopLevelIds.map { id -> UUID in
-            guard let group = groupsByAnchorId[id] else { return id }
+            guard let group = groupsByAnchorId[id], !group.isEmpty else { return id }
             if group.isPinned, pinnedAnchorIndex < pinnedAnchors.count {
                 defer { pinnedAnchorIndex += 1 }
                 return pinnedAnchors[pinnedAnchorIndex]
@@ -546,7 +546,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             return id
         }
         model.normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
-        model.syncWorkspaceGroupsOrderToAnchorOrder()
+        model.syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: desiredIds)
     }
 
     // MARK: - Creation placement

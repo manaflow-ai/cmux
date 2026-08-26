@@ -9,6 +9,12 @@ extension WorkspacesModel {
         workspaceGroups.contains { $0.liveAnchorWorkspaceId == workspaceId }
     }
 
+    /// Whether an id identifies a visible group header, including a durable
+    /// header-only group's stable identity.
+    func isWorkspaceGroupHeader(_ workspaceId: UUID) -> Bool {
+        workspaceGroups.contains { $0.anchorWorkspaceId == workspaceId }
+    }
+
     /// The top-level sidebar row id for each given workspace (its group's
     /// anchor when grouped, itself when ungrouped), deduplicated in order.
     func topLevelWorkspaceIds(for workspaces: [Tab]) -> [UUID] {
@@ -187,6 +193,28 @@ extension WorkspacesModel {
         })
     }
 
+    /// The pinned subset of the top-level row ids including durable empty
+    /// group headers.
+    func sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups(
+        promotingWorkspaceId: UUID? = nil
+    ) -> Set<UUID> {
+        let groupsByAnchorId = Dictionary(
+            uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) }
+        )
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        return Set(
+            sidebarTopLevelWorkspaceIdsIncludingEmptyGroups(
+                promotingWorkspaceId: promotingWorkspaceId
+            ).filter { id in
+                topLevelWorkspaceIdIsPinned(
+                    id,
+                    tabsById: tabsById,
+                    groupsByAnchorId: groupsByAnchorId
+                )
+            }
+        )
+    }
+
     private func promotedTopLevelInsertionIndex(
         ids: [UUID],
         groupIndex: Int,
@@ -219,10 +247,12 @@ extension WorkspacesModel {
         forWorkspaceId workspaceId: UUID,
         targetIndex: Int,
         topLevelIds: [UUID],
-        promotingWorkspaceId: UUID? = nil
+        promotingWorkspaceId: UUID? = nil,
+        pinnedTopLevelIds overridePinnedTopLevelIds: Set<UUID>? = nil
     ) -> Int {
         let clamped = max(0, min(targetIndex, max(0, topLevelIds.count - 1)))
-        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId)
+        let pinnedIds = overridePinnedTopLevelIds
+            ?? sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId)
         let pinnedCount = topLevelIds.reduce(into: 0) { count, id in
             if pinnedIds.contains(id) {
                 count += 1

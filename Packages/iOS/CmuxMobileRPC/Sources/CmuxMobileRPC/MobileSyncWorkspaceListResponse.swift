@@ -114,6 +114,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.simulators = simulators
         }
 
+        /// Decodes a workspace row while accepting legacy optional fields.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
@@ -227,6 +228,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case isEmpty = "is_empty"
         }
 
+        /// Decodes a group row from both legacy and empty-group payloads.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
@@ -255,7 +257,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.isPinned = isPinned
             self.iconSymbol = iconSymbol
             self.anchorWorkspaceID = anchorWorkspaceID
-            self.isEmpty = isEmpty
+            self.isEmpty = isEmpty || anchorWorkspaceID == nil
         }
     }
 

@@ -208,6 +208,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.simulators = simulators
     }
 
+    /// Decodes a workspace record, accepting frames from before optional fields were added.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -304,10 +305,11 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.isPinned = isPinned
         self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
-        self.isEmpty = isEmpty
+        self.isEmpty = isEmpty || anchorWorkspaceID == nil
         self.sortIndex = sortIndex
     }
 
+    /// Decodes a group record, accepting frames from before empty-group support.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -321,6 +323,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
     }
 
+    /// Encodes a group record while retaining the established anchor wire key.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)

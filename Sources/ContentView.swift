@@ -14131,7 +14131,18 @@ struct VerticalTabsSidebar: View, Equatable {
     private func crossWindowRawInsertIndex(forTopLevelSlot slot: Int, topLevelIds: [UUID]) -> Int {
         guard slot < topLevelIds.count else { return tabManager.tabs.count }
         let topLevelId = topLevelIds[slot]
-        return tabManager.tabs.firstIndex { $0.id == topLevelId } ?? tabManager.tabs.count
+        if let liveIndex = tabManager.tabs.firstIndex(where: { $0.id == topLevelId }) {
+            return liveIndex
+        }
+        // Empty group headers occupy visual top-level slots but have no tab
+        // row. Attach immediately before the next live slot so cross-window
+        // insertion does not silently jump to the end.
+        for nextId in topLevelIds.dropFirst(slot + 1) {
+            if let nextIndex = tabManager.tabs.firstIndex(where: { $0.id == nextId }) {
+                return nextIndex
+            }
+        }
+        return tabManager.tabs.count
     }
 
     private func syncSidebarSelectionAfterWorkspaceReorder(
@@ -17006,7 +17017,15 @@ struct SidebarTabDropDelegate: DropDelegate {
     private func crossWindowRawInsertIndex(forTopLevelSlot slot: Int, topLevelIds: [UUID]) -> Int {
         guard slot < topLevelIds.count else { return tabManager.tabs.count }
         let topLevelId = topLevelIds[slot]
-        return tabManager.tabs.firstIndex { $0.id == topLevelId } ?? tabManager.tabs.count
+        if let liveIndex = tabManager.tabs.firstIndex(where: { $0.id == topLevelId }) {
+            return liveIndex
+        }
+        for nextId in topLevelIds.dropFirst(slot + 1) {
+            if let nextIndex = tabManager.tabs.firstIndex(where: { $0.id == nextId }) {
+                return nextIndex
+            }
+        }
+        return tabManager.tabs.count
     }
 
     /// Mirror a foreign drag's identity into this window's `SidebarDragState`
@@ -17065,6 +17084,13 @@ struct SidebarTabDropDelegate: DropDelegate {
                 targetWorkspaceId: targetTabId,
                 workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
             )
+            if tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == targetTabId }) {
+                return tabManager.sidebarReorderWorkspaceIds(
+                    forDraggedWorkspaceId: draggedTabId,
+                    targetWorkspaceId: targetTabId,
+                    usesTopLevelRows: true
+                ).contains(targetTabId)
+            }
             return tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedTabId,
                 targetWorkspaceId: targetTabId,

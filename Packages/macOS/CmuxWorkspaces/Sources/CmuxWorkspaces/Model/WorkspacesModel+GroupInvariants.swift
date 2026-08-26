@@ -105,14 +105,16 @@ extension WorkspacesModel {
             tab.groupId = nil
         }
         let topLevelIds = preferredTopLevelIds ?? sidebarTopLevelWorkspaceIds()
-        let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
+        let pinnedTopLevelIds = preferredTopLevelIds == nil
+            ? sidebarTopLevelPinnedWorkspaceIds()
+            : sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
         let desiredIds = topLevelIds.filter { pinnedTopLevelIds.contains($0) }
             + topLevelIds.filter { !pinnedTopLevelIds.contains($0) }
         // Always reassign so SwiftUI consumers re-evaluate row modifiers that
         // depend on `Workspace.groupId` even when the array contents are
         // unchanged.
         normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
-        syncWorkspaceGroupsOrderToAnchorOrder()
+        syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: preferredTopLevelIds)
     }
 
     /// Ensure the group containing the newly-selected workspace is expanded, so the
@@ -137,7 +139,25 @@ extension WorkspacesModel {
     /// the order its anchor occupies in `tabs[]`. Call this after an anchor
     /// reorder so later group-slot commands observe the same order the user
     /// sees in the sidebar.
-    func syncWorkspaceGroupsOrderToAnchorOrder() {
+    func syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: [UUID]? = nil) {
+        if let preferredTopLevelIds {
+            let groupsByAnchorId = Dictionary(
+                uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) }
+            )
+            var orderedGroups: [WorkspaceGroup] = []
+            var emittedGroupIds = Set<UUID>()
+            for id in preferredTopLevelIds {
+                guard let group = groupsByAnchorId[id], emittedGroupIds.insert(group.id).inserted else {
+                    continue
+                }
+                orderedGroups.append(group)
+            }
+            orderedGroups.append(contentsOf: workspaceGroups.filter {
+                !emittedGroupIds.contains($0.id)
+            })
+            workspaceGroups = orderedGroups
+            return
+        }
         let anchorIndex: [UUID: Int] = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($1.id, $0) })
         guard workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId != nil }) else { return }
         // Empty groups have no tab index. Keep their existing group slots while
