@@ -309,6 +309,39 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.first?.surfaceId == fixture.panelId)
     }
 
+    @Test("Policy-suppressed delivery does not expose a dismiss handle")
+    func policySuppressedDeliveryOmitsNotificationID() async throws {
+        let fixture = try makeFixture(
+            policyHookCommand: #"sed 's/"record":true/"record":false/'"#
+        )
+        defer { fixture.restore() }
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: fixture.source.id,
+            surfaceID: nil,
+            paneID: nil
+        )
+        let result = TerminalController.shared.controlNotificationCreateForTarget(
+            routing: routing,
+            workspaceID: fixture.source.id,
+            surfaceID: fixture.panelId,
+            title: "Suppressed",
+            subtitle: "",
+            body: "No stored notification"
+        )
+
+        guard case .delivered(_, _, _, let notificationID) = result else {
+            Issue.record("Expected policy-suppressed delivery, got \(result)")
+            return
+        }
+        #expect(notificationID == nil)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(fixture.store.notifications.allSatisfy { $0.title != "Suppressed" })
+    }
+
     @Test("Policy-delayed relay delivery stays in its authorized workspace")
     func policyDelayedRelayDeliveryDoesNotCrossWorkspaceBoundary() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")

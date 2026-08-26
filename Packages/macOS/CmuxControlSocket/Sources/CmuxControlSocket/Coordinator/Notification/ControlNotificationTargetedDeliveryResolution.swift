@@ -22,7 +22,9 @@ public enum ControlNotificationTargetedDeliveryResolution: Sendable, Equatable {
     case surfaceNotFound(UUID)
     /// The notification was delivered. Carries the resolved workspace id, the
     /// target surface id, the resolved window id (which may be absent), and the
-    /// stable notification id allocated for the delivery admission.
+    /// stable notification id when the notification is synchronously stored.
+    /// The id is omitted while asynchronous policy evaluation is pending or
+    /// when policy suppresses persistence.
     case delivered(
         workspaceID: UUID,
         surfaceID: UUID,

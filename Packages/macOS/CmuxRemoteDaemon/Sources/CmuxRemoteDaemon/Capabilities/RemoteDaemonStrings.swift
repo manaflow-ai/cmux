@@ -11,14 +11,33 @@ public struct RemoteDaemonStrings: Sendable, Equatable {
     /// "remote daemon is missing required functionality; reconnect the remote
     /// workspace to update cmux".
     public let missingRequiredFunctionality: String
+    /// Invalid workspace selector in a cloud notification clear request.
+    public let cloudNotificationClearWorkspaceInvalid: String
+    /// Cross-workspace cloud notification clear rejection.
+    public let cloudNotificationClearWorkspaceDenied: String
+    /// Invalid surface selector in a cloud notification clear request.
+    public let cloudNotificationClearSurfaceInvalid: String
 
     /// Creates the strings bundle from pre-resolved localized strings.
+    ///
+    /// - Parameters:
+    ///   - missingPersistentPTYCapability: Message for missing persistent PTY support.
+    ///   - missingRequiredFunctionality: Message for other missing daemon functionality.
+    ///   - cloudNotificationClearWorkspaceInvalid: Message for an invalid clear workspace.
+    ///   - cloudNotificationClearWorkspaceDenied: Message for a cross-workspace clear.
+    ///   - cloudNotificationClearSurfaceInvalid: Message for an invalid clear surface.
     public init(
         missingPersistentPTYCapability: String,
-        missingRequiredFunctionality: String
+        missingRequiredFunctionality: String,
+        cloudNotificationClearWorkspaceInvalid: String,
+        cloudNotificationClearWorkspaceDenied: String,
+        cloudNotificationClearSurfaceInvalid: String
     ) {
         self.missingPersistentPTYCapability = missingPersistentPTYCapability
         self.missingRequiredFunctionality = missingRequiredFunctionality
+        self.cloudNotificationClearWorkspaceInvalid = cloudNotificationClearWorkspaceInvalid
+        self.cloudNotificationClearWorkspaceDenied = cloudNotificationClearWorkspaceDenied
+        self.cloudNotificationClearSurfaceInvalid = cloudNotificationClearSurfaceInvalid
     }
 
     /// The message shown when the daemon's `hello` lacks required

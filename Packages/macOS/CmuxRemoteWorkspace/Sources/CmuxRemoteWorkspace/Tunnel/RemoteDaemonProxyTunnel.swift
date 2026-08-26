@@ -238,7 +238,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return nil
         }
         return { request in
-            switch validateCloudCLIRequest(request, ownerWorkspaceID: configuration.ownerWorkspaceID) {
+            switch validateCloudCLIRequest(
+                request,
+                ownerWorkspaceID: configuration.ownerWorkspaceID,
+                strings: strings
+            ) {
             case .forward(let forwardedRequest):
                 return try roundTripUnixSocket(socketPath: localSocketPath, request: forwardedRequest)
             case .reject(let response):
@@ -255,7 +259,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Validates VM-originated CLI bridge requests before they hit the local
     /// app socket. The websocket lease authenticates the daemon; this method
     /// keeps VM processes from becoming arbitrary local cmux socket clients.
-    internal static func validateCloudCLIRequest(_ request: Data, ownerWorkspaceID: UUID?) -> CloudCLIRequestValidation {
+    internal static func validateCloudCLIRequest(
+        _ request: Data,
+        ownerWorkspaceID: UUID?,
+        strings: RemoteDaemonStrings
+    ) -> CloudCLIRequestValidation {
         let requestLimitBytes = 64 * 1024
         guard request.count <= requestLimitBytes else {
             return .reject(cloudCLIErrorResponse(
@@ -332,7 +340,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return validateCloudCLINotificationClear(
                 requestID: requestID,
                 params: params,
-                ownerWorkspaceID: ownerWorkspaceID
+                ownerWorkspaceID: ownerWorkspaceID,
+                strings: strings
             )
         default:
             return .reject(cloudCLIErrorResponse(
@@ -434,7 +443,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     private static func validateCloudCLINotificationClear(
         requestID: Any?,
         params: [String: Any],
-        ownerWorkspaceID: UUID
+        ownerWorkspaceID: UUID,
+        strings: RemoteDaemonStrings
     ) -> CloudCLIRequestValidation {
         let workspaceRaw: String?
         let surfaceRaw: String?
@@ -451,14 +461,14 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
                 code: "invalid_params",
-                message: "Cloud CLI notification clear requires a valid workspace_id"
+                message: strings.cloudNotificationClearWorkspaceInvalid
             ))
         }
         guard requestedWorkspaceID == ownerWorkspaceID else {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
                 code: "remote_cli_workspace_denied",
-                message: "Cloud CLI notification clear target does not match this workspace"
+                message: strings.cloudNotificationClearWorkspaceDenied
             ))
         }
         guard let surfaceRaw = surfaceRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -466,7 +476,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
                 code: "invalid_params",
-                message: "Cloud CLI notification clear requires a valid surface_id"
+                message: strings.cloudNotificationClearSurfaceInvalid
             ))
         }
 

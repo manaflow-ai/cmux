@@ -199,7 +199,10 @@ extension ControlNotificationContext {
         callerTTY: String?,
         preferTTY: Bool
     ) -> ControlNotificationClearResolution {
-        .cleared(workspaceID: preferredWorkspaceID, surfaceID: preferredSurfaceID)
+        guard let preferredWorkspaceID else {
+            return .workspaceNotFound(workspaceID: nil)
+        }
+        return .cleared(workspaceID: preferredWorkspaceID, surfaceID: preferredSurfaceID)
     }
 
     var notificationStrings: ControlNotificationStrings {
@@ -210,7 +213,14 @@ extension ControlNotificationContext {
             markReadSelectorRequired: "",
             surfaceIDInvalid: "",
             surfaceIDRequiresWorkspace: "",
-            targetNotFound: ""
+            targetNotFound: "",
+            clearCallerInvalid: "Missing or invalid caller",
+            clearCallerSelectorsRequireCaller: "caller-only selectors require caller=true",
+            clearCallerScopeConflict: "",
+            clearPreferredWorkspaceIDInvalid: "",
+            clearPreferredSurfaceIDInvalid: "",
+            clearSurfaceIDRequiresWorkspace: "",
+            clearWorkspaceIDInvalid: ""
         )
     }
 }

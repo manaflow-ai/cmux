@@ -376,6 +376,34 @@ extension TerminalController: ControlNotificationContext {
             targetNotFound: String(
                 localized: "socket.notification.targetNotFound",
                 defaultValue: "Notification target not found"
+            ),
+            clearCallerInvalid: String(
+                localized: "socket.notification.clear.callerInvalid",
+                defaultValue: "Missing or invalid caller"
+            ),
+            clearCallerSelectorsRequireCaller: String(
+                localized: "socket.notification.clear.callerSelectorsRequireCaller",
+                defaultValue: "caller-only selectors require caller=true"
+            ),
+            clearCallerScopeConflict: String(
+                localized: "socket.notification.clear.callerScopeConflict",
+                defaultValue: "caller clear cannot be combined with workspace_id or surface_id"
+            ),
+            clearPreferredWorkspaceIDInvalid: String(
+                localized: "socket.notification.clear.preferredWorkspaceIdInvalid",
+                defaultValue: "Missing or invalid preferred_workspace_id"
+            ),
+            clearPreferredSurfaceIDInvalid: String(
+                localized: "socket.notification.clear.preferredSurfaceIdInvalid",
+                defaultValue: "Missing or invalid preferred_surface_id"
+            ),
+            clearSurfaceIDRequiresWorkspace: String(
+                localized: "socket.notification.clear.surfaceIdRequiresWorkspace",
+                defaultValue: "surface_id requires workspace_id"
+            ),
+            clearWorkspaceIDInvalid: String(
+                localized: "socket.notification.clear.workspaceIdInvalid",
+                defaultValue: "Missing or invalid workspace_id"
             )
         )
     }

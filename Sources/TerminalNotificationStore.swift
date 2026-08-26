@@ -1506,7 +1506,6 @@ final class TerminalNotificationStore: ObservableObject {
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
-
     private struct NotificationFocusState {
         let isAppFocused: Bool
         let isActiveTab: Bool
@@ -1536,6 +1535,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
+    @discardableResult
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
@@ -1545,9 +1545,9 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction?,
         notificationID: UUID,
         policyRequestId: UUID?
-    ) {
+    ) -> Bool {
         let payload = envelope.notification
-        applyNotification(
+        return applyNotification(
             request: TerminalNotificationPolicyRequest(
                 tabId: request.tabId,
                 surfaceId: request.surfaceId,
@@ -1574,6 +1574,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
+    @discardableResult
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
@@ -1583,15 +1584,18 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction?,
         notificationID: UUID,
         policyRequestId: UUID? = nil
-    ) {
-        guard inFlightPolicyRequests.claim(policyRequestId) else { return }
-        guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
+    ) -> Bool {
+        guard inFlightPolicyRequests.claim(policyRequestId) else { return false }
+        guard let request = notificationPolicyRequestAtLiveOwner(request) else {
+            restoreCooldownReservation(cooldownReservation)
+            return false
+        }
         // Workspace mute is an admission gate, not merely an external-delivery
         // preference: it must prevent history, unread projections, commands,
         // sounds, pane flashes, reordering, and phone forwarding alike.
         guard !isWorkspaceNotificationsMuted(forTabId: request.tabId) else {
             restoreCooldownReservation(cooldownReservation)
-            return
+            return false
         }
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
@@ -1623,7 +1627,7 @@ final class TerminalNotificationStore: ObservableObject {
                 now: now,
                 cooldownReservation: cooldownReservation
             )
-            return
+            return true
         }
 
 #if DEBUG
@@ -1646,6 +1650,7 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
+        return false
     }
     private func recordNotification(
         _ notification: TerminalNotification,

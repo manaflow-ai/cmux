@@ -50,7 +50,10 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
-# Notify specific tab/panel
+# Notify a specific workspace/surface
+cmux notify --title "Done" --workspace workspace:1 --surface surface:1
+
+# Compatibility form for older scripts
 cmux notify --title "Done" --tab 0 --panel 1
 
 # Capture the returned id and dismiss exactly that notification
@@ -59,6 +62,9 @@ cmux dismiss-notification --id "$notification_id"
 
 # Clear notifications for the posting surface (same caller resolution as notify)
 cmux notify --clear
+
+# Clear a workspace or surface in a specific window
+cmux clear-notifications --window window:1 --workspace workspace:1 --surface surface:1
 ```
 
 ## Navigation

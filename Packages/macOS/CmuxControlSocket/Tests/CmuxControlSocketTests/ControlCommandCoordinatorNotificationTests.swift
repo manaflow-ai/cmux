@@ -159,4 +159,54 @@ struct ControlCommandCoordinatorNotificationTests {
         }
         #expect(payload["workspace_id"] == .string(context.workspaceID.uuidString))
     }
+
+    @Test func clearRejectsMalformedCallerSelector() throws {
+        let context = NotificationControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = try #require(coordinator.handle(request("notification.clear", [
+            "caller": .object(["unexpected": .bool(true)]),
+        ])))
+
+        guard case let .err(code, message, data) = result else {
+            Issue.record("malformed caller selector was not rejected: \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message == "Missing or invalid caller")
+        #expect(data == nil)
+        #expect(context.clearCallerWorkspaceID == nil)
+    }
+
+    @Test func clearRejectsCallerOnlySelectorWhenCallerIsOmitted() throws {
+        let context = NotificationControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = try #require(coordinator.handle(request("notification.clear", [
+            "preferred_workspace_id": .string(context.workspaceID.uuidString),
+        ])))
+
+        guard case let .err(code, message, _) = result else {
+            Issue.record("caller-only selector without caller=true was accepted: \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message == "caller-only selectors require caller=true")
+        #expect(context.clearCallerWorkspaceID == nil)
+    }
+
+    @Test func clearRejectsCallerOnlySelectorWhenCallerIsFalse() throws {
+        let context = NotificationControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = try #require(coordinator.handle(request("notification.clear", [
+            "caller": .bool(false),
+            "prefer_tty": .bool(true),
+        ])))
+
+        guard case let .err(code, message, _) = result else {
+            Issue.record("caller-only selector with caller=false was accepted: \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message == "caller-only selectors require caller=true")
+        #expect(context.clearCallerWorkspaceID == nil)
+    }
 }

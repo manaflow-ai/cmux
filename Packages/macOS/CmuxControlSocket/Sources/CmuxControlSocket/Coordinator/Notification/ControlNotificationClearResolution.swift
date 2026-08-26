@@ -9,8 +9,7 @@ public enum ControlNotificationClearResolution: Sendable, Equatable {
     case workspaceNotFound(workspaceID: UUID?)
     /// The requested surface was not found in the resolved workspace.
     case surfaceNotFound(UUID)
-    /// The clear was accepted. A `nil` workspace/surface pair represents the
-    /// legacy unscoped clear; a non-`nil` workspace scopes the clear to that
-    /// workspace and an optional surface narrows it further.
-    case cleared(workspaceID: UUID?, surfaceID: UUID?)
+    /// The clear was accepted for a workspace, optionally narrowed to a surface.
+    /// A surface identifier can never be returned without its owning workspace.
+    case cleared(workspaceID: UUID, surfaceID: UUID?)
 }

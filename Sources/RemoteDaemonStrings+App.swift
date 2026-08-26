@@ -17,6 +17,18 @@ extension RemoteDaemonStrings {
             missingRequiredFunctionality: String(
                 localized: "remoteDaemon.error.missingRequiredFunctionality",
                 defaultValue: "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
+            ),
+            cloudNotificationClearWorkspaceInvalid: String(
+                localized: "remoteDaemon.error.cloudNotificationClearWorkspaceInvalid",
+                defaultValue: "Cloud CLI notification clear requires a valid workspace_id"
+            ),
+            cloudNotificationClearWorkspaceDenied: String(
+                localized: "remoteDaemon.error.cloudNotificationClearWorkspaceDenied",
+                defaultValue: "Cloud CLI notification clear target does not match this workspace"
+            ),
+            cloudNotificationClearSurfaceInvalid: String(
+                localized: "remoteDaemon.error.cloudNotificationClearSurfaceInvalid",
+                defaultValue: "Cloud CLI notification clear requires a valid surface_id"
             )
         )
     }
