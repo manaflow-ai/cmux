@@ -178,6 +178,8 @@ struct ClaudeHookSessionRecord: Codable {
             self.displayCommand = Self.redactedPreview(for: normalized)
             self.toolUseId = toolUseId
             self.notificationCorrelationKey = notificationCorrelationKey
+                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
+                ?? UUID().uuidString.lowercased()
             self.createdAt = createdAt
             self.requiresToolUseId = requiresToolUseId
         }
@@ -241,7 +243,8 @@ struct ClaudeHookSessionRecord: Codable {
             }
             toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
             let decodedCorrelationKey = try container.decodeIfPresent(String.self, forKey: .notificationCorrelationKey)
-            notificationCorrelationKey = decodedCorrelationKey.flatMap { UUID(uuidString: $0) != nil ? $0 : nil }
+            notificationCorrelationKey = decodedCorrelationKey
+                .flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
                 ?? UUID().uuidString.lowercased()
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
@@ -2313,39 +2316,50 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
         var state = try loadUnlocked()
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
         pruneExpired(&state)
         if !state.pendingCursorApprovalIndexInitialized {
             reconcileCursorPendingIndex(&state)
             state.pendingCursorApprovalIndexInitialized = true
         }
         pruneCursorPendingIndex(&state)
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
         let result = try body(&state)
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
         if persist {
-            if let deadline, Date.now >= deadline {
-                throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
-            }
             try saveUnlocked(state)
         }
         return result
     }
 
-    /// Acquires a session-scoped ordering lease for Cursor approval state/UI.
+    /// Acquires a surface-scoped ordering lease for Cursor approval state/UI.
     ///
     /// The state lock is released before socket I/O; this separate lease keeps
-    /// one session's creation and completion mutations ordered without
-    /// serializing unrelated Cursor sessions. The fixed shared lock file uses
-    /// byte-range fcntl locks, so session count cannot create unbounded lock
-    /// files. This lock is a cross-process ordering carve-out for synchronous
-    /// hook callbacks; it guards only a short, bounded reconciliation section.
+    /// approval creation, completion, and shared-status reconciliation ordered
+    /// for one surface, so a sibling session cannot publish a newer wait
+    /// between the pending check and its completion status update. When no
+    /// surface is known, the session id remains the compatibility identity.
+    /// The fixed shared lock file uses byte-range fcntl locks, so session count
+    /// cannot create unbounded lock files. This lock is a cross-process
+    /// ordering carve-out for synchronous hook callbacks; it guards only a
+    /// short, bounded reconciliation section.
     func acquireCursorShellApprovalReconciliationLock(
         sessionId: String,
+        surfaceId: String? = nil,
         deadline: Date? = nil
     ) throws -> CursorShellApprovalReconciliationLease {
         let normalizedSession = normalizeSessionId(sessionId)
         guard !normalizedSession.isEmpty else {
             throw CLIError(message: "Cursor approval reconciliation requires a session")
         }
-        let digest = Array(SHA256.hash(data: Data(normalizedSession.utf8)))
+        let lockIdentity = normalizeOptional(surfaceId) ?? normalizedSession
+        let digest = Array(SHA256.hash(data: Data(lockIdentity.utf8)))
         var rawOffset: UInt64 = 0
         for byte in digest.prefix(MemoryLayout<UInt64>.size) {
             rawOffset = (rawOffset << 8) | UInt64(byte)
@@ -32986,11 +33000,12 @@ export default CMUXSessionRestore;
         }
         var cursorLifecycleLease: ClaudeHookSessionStore.CursorShellApprovalReconciliationLease?
         defer { cursorLifecycleLease?.release() }
-        func acquireCursorLifecycleLease() -> Bool {
+        func acquireCursorLifecycleLease(surfaceId: String? = nil) -> Bool {
             guard def.name == "cursor", !sessionId.isEmpty else { return true }
             if cursorLifecycleLease != nil { return true }
             guard let lease = try? store.acquireCursorShellApprovalReconciliationLock(
                 sessionId: sessionId,
+                surfaceId: surfaceId,
                 deadline: cursorShellDeadline
             ) else {
                 telemetry.breadcrumb("cursor-hook.reconciliation-lock-unavailable")
@@ -33672,11 +33687,11 @@ export default CMUXSessionRestore;
                 )
             }
 
-            // Hold the session-scoped lease through resume publication and
-            // the authoritative journal append below. Approval creation uses
-            // the same lease, so a newer request cannot be overwritten by
-            // this completion's Running event.
-            guard acquireCursorLifecycleLease() else { return }
+            // Hold the surface-scoped lease through resume publication and the
+            // authoritative journal append below. Approval creation from any
+            // sibling session uses the same lease, so a newer request cannot
+            // be overwritten by this completion's Running event.
+            guard acquireCursorLifecycleLease(surfaceId: surfaceId) else { return }
             let resolution = try? store.resolveCursorShellApproval(
                 sessionId: sessionId,
                 command: command,
@@ -33950,7 +33965,7 @@ export default CMUXSessionRestore;
             var cursorPromptApprovalNotificationKeys: [String] = []
             var cursorPromptShouldPreservePendingState = false
             if def.name == "cursor", !sessionId.isEmpty {
-                guard acquireCursorLifecycleLease() else {
+                guard acquireCursorLifecycleLease(surfaceId: surfaceId) else {
                     print("{}")
                     return
                 }
@@ -34528,7 +34543,7 @@ export default CMUXSessionRestore;
                 env: env
             ) || staleIdleStopHasNewerRunningSession
             if def.name == "cursor", !sessionId.isEmpty {
-                guard acquireCursorLifecycleLease() else {
+                guard acquireCursorLifecycleLease(surfaceId: surfaceId) else {
                     print("{}")
                     return
                 }
@@ -34927,7 +34942,7 @@ export default CMUXSessionRestore;
 
             var cursorApprovalNotificationCorrelationKey: String?
             if cursorShellNeedsApproval {
-                guard acquireCursorLifecycleLease() else {
+                guard acquireCursorLifecycleLease(surfaceId: surfaceId) else {
                     print(hookResponse)
                     return
                 }
@@ -35345,13 +35360,16 @@ export default CMUXSessionRestore;
                 break
             }
             // A non-turn-boundary session-end is a genuine teardown.
+            let endingSession = sessionId.isEmpty
+                ? nil
+                : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
             if def.name == "cursor", !sessionId.isEmpty {
-                guard acquireCursorLifecycleLease() else {
+                guard acquireCursorLifecycleLease(surfaceId: endingSession?.surfaceId) else {
                     print("{}")
                     return
                 }
             }
-            if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+            if let ending = endingSession {
                 emitJournal(
                     .sessionEnded,
                     workspaceId: ending.workspaceId,
@@ -35368,13 +35386,16 @@ export default CMUXSessionRestore;
             }
 
         case .sessionFinalize:
+            let endingSession = sessionId.isEmpty
+                ? nil
+                : (try? store.lookup(sessionId: sessionId, deadline: cursorShellDeadline))
             if def.name == "cursor", !sessionId.isEmpty {
-                guard acquireCursorLifecycleLease() else {
+                guard acquireCursorLifecycleLease(surfaceId: endingSession?.surfaceId) else {
                     print("{}")
                     return
                 }
             }
-            if let ending = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+            if let ending = endingSession {
                 emitJournal(
                     .sessionEnded,
                     workspaceId: ending.workspaceId,

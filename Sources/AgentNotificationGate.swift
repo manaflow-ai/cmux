@@ -74,8 +74,8 @@ struct AgentNotificationMeta {
         }
         if index < fields.count, fields[index].hasPrefix("k=") {
             let key = String(fields[index].dropFirst(2))
-            guard Self.isValidCorrelationKey(key) else { return nil }
-            correlationKey = key
+            guard let uuid = UUID(uuidString: key) else { return nil }
+            correlationKey = uuid.uuidString.lowercased()
             index += 1
         }
         guard index == fields.count else { return nil }

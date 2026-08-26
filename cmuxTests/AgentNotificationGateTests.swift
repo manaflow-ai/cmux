@@ -137,6 +137,10 @@ import Testing
             meta: "c=needs-permission;p=0;a=cursor;n=0;k=\(key)"
         )
         #expect(parsed?.correlationKey == key)
+        #expect(
+            AgentNotificationMeta(meta: "c=needs-permission;p=0;k=AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")?.correlationKey
+                == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        )
         #expect(AgentNotificationMeta.isValidCorrelationKey(key))
         #expect(!AgentNotificationMeta.isValidCorrelationKey("not-a-uuid"))
         #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;k=not-a-uuid") == nil)

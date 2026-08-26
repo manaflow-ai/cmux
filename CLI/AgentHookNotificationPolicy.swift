@@ -43,7 +43,7 @@ enum AgentHookNotifyCategory: String {
             segment += ";n=\(isSubagent ? 1 : 0)"
         }
         if let correlationKey, Self.isValidCorrelationKey(correlationKey) {
-            segment += ";k=\(correlationKey)"
+            segment += ";k=\(UUID(uuidString: correlationKey)?.uuidString.lowercased() ?? correlationKey)"
         }
         return segment
     }

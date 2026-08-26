@@ -114,6 +114,12 @@ struct AgentHookNotificationPolicyTests {
         #expect(AgentHookNotifyCategory.turnComplete.metaSegment(
             pending: false, agentKind: "Not A Slug", isSubagent: false
         ) == "c=turn-complete;p=0;n=0")
+        #expect(AgentHookNotifyCategory.turnComplete.metaSegment(
+            pending: false,
+            agentKind: nil,
+            isSubagent: nil,
+            correlationKey: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+        ) == "c=turn-complete;p=0;k=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
         #expect(AgentHookNotifyCategory.other.metaSegment(
             pending: false, agentKind: "claude", isSubagent: true
         ) == nil)
