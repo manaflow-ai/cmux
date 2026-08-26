@@ -50,7 +50,7 @@ extension CmxTransportModeError {
             return String(format: L10n.string(
                 "mobile.transportMode.routeClassMismatch",
                 defaultValue: "The selected %@ mode cannot use a %@ route."
-            ), expected.rawValue, actual.rawValue)
+            ), expected.displayName, actual.displayName)
         }
     }
 
