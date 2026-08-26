@@ -33662,6 +33662,24 @@ mod tests {
     }
 
     #[test]
+    fn kitty_budget_failures_do_not_replace_the_user_status_message() {
+        let mux = Mux::new("kitty-status-preservation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.status_message = Some("command completed".to_string());
+
+        for retry_exhausted in [false, true] {
+            app.handle(AppEvent::Mux(MuxEvent::GraphicsStatus(
+                cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                    retry_exhausted,
+                    summary: Arc::<str>::from("surface 7: host did not acknowledge limits"),
+                },
+            )))
+            .unwrap();
+            assert_eq!(app.status_message.as_deref(), Some("command completed"));
+        }
+    }
+
+    #[test]
     fn first_input_for_missing_mirror_is_deferred_through_attach() {
         let mux = Mux::new("missing-mirror-input-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
