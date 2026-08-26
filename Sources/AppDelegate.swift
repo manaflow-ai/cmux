@@ -1615,6 +1615,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
+        // Retires panes left claiming to work by a turn that never emitted a
+        // Stop hook. Starts after hibernation so its first tick sees settled
+        // lifecycle state rather than mid-restore state.
+        AgentStateScannerRunner.shared.start()
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
 
