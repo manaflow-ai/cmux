@@ -32,12 +32,14 @@ extension Workspace {
                         focus: shouldFocusNewTabs
                     )
                 } else {
-                    panel = newMarkdownSurface(
-                        inPane: paneId,
-                        filePath: filePath,
-                        focus: shouldFocusNewTabs,
-                        targetIndex: nextIndex
-                    )
+                    panel = withNewTabZoomPolicy(inPane: paneId, applyPolicy: shouldFocusNewTabs) {
+                        newMarkdownSurface(
+                            inPane: paneId,
+                            filePath: filePath,
+                            focus: shouldFocusNewTabs,
+                            targetIndex: nextIndex
+                        )
+                    }
                 }
             } else if reuseExisting {
                 panel = openOrFocusFilePreviewSurface(

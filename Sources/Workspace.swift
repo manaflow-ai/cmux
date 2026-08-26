@@ -9118,7 +9118,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return withNewTabZoomPolicy(inPane: targetPane) {
+                newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            }
         }
 
         return newMarkdownSplit(
@@ -9313,7 +9315,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+            newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        }
     }
 
     @discardableResult
@@ -11802,6 +11806,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard let launch = entry.resumeLaunch else { return false }
         switch destination {
         case .insert(let paneId, _):
+            // Remote mirrors cannot replay a Vault launch payload through the
+            // tmux new-window route; reject it instead of acknowledging a
+            // blank remote window as a successful resume.
+            guard !isRemoteTmuxMirror else { return false }
             switch withNewTerminalTabZoomPolicy(inPane: paneId, {
                 newTerminalSurfaceOutcome(
                     inPane: paneId,
@@ -11814,9 +11822,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             case .created:
                 return true
             case .routedToRemote:
-                // The tmux window was accepted and will arrive through the mirror;
-                // treat the drop as handled so the drag source is finalized once.
-                return true
+                return false
             case .failed:
                 return false
             }

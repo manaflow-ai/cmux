@@ -15397,11 +15397,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        return workspace.newSidebarExtensionBrowserSurface(
-            inPane: paneId,
-            title: title,
-            focus: true
-        )?.id
+        return workspace.withNewTabZoomPolicy(inPane: paneId) {
+            workspace.newSidebarExtensionBrowserSurface(
+                inPane: paneId,
+                title: title,
+                focus: true
+            )
+        }?.id
     }
 
     @discardableResult
