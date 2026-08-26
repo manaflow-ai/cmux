@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import Foundation
 import GhosttyKit
 import Testing
