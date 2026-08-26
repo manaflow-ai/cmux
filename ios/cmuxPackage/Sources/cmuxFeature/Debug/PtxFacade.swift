@@ -97,11 +97,30 @@ final class PtxFacade {
 
     /// The live admitted v2 connection for this request's Mac, or nil.
     /// A synchronous read of the owner's current truth: never dials, never
+    /// ptx serves the PRIMARY session: the foreground control connection and
+    /// the feature lanes sharing it. Background/secondary and probe requests
+    /// stay legacy: a physical Mac runs several tagged app instances sharing
+    /// one device id, the request's device id is the facade's only routing
+    /// key, and the secondary status sweep probes EVERY stored instance —
+    /// hijacking those onto the (single-instance) ptx session made the
+    /// instance-tag authority reject it in a permanent retry storm.
+    /// Instance-precise routing needs a route-level fingerprint; until then,
+    /// purposes that are cross-instance by design keep their legacy path.
+    private func purposeRidesPtx(_ request: CmxByteTransportRequest) -> Bool {
+        switch request.sessionPurpose {
+        case .foregroundControl, .featureLane:
+            return true
+        case .backgroundControl, .probe:
+            return false
+        }
+    }
+
     /// blocks on a dial, never returns a closed connection.
     func admittedConnection(
         for request: CmxByteTransportRequest
     ) async -> PtxConnection? {
         guard isEnabled, let macID = request.expectedPeerDeviceID else { return nil }
+        guard purposeRidesPtx(request) else { return nil }
         guard routing(macID: macID) == .ptx else { return nil }
         guard let client = ensureClient(macID: macID) else { return nil }
         return await client.liveConnection()
@@ -111,6 +130,7 @@ final class PtxFacade {
     /// bridge and fail hard while the owner reconnects.
     func requiresBridge(for request: CmxByteTransportRequest) -> Bool {
         guard isEnabled, let macID = request.expectedPeerDeviceID else { return false }
+        guard purposeRidesPtx(request) else { return false }
         return routing(macID: macID) == .ptx
     }
 
