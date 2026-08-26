@@ -397,6 +397,12 @@ struct WorkspaceSwitchCoordinatorTests {
         coordinator.sourceDidRetire(workspaceID: mountedSourceWorkspaceID)
 
         #expect(protectedRequestIDs.count == 1)
+        #expect(releasedRequestIDs.isEmpty)
+
+        coordinator.noteTerminalPortalPresented(
+            surfaceID: targetSurfaceID,
+            renderedFrameSequence: 1
+        )
         #expect(releasedRequestIDs == protectedRequestIDs)
         coordinator.cancel()
         #expect(releasedRequestIDs == protectedRequestIDs)

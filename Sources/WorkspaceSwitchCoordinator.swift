@@ -187,6 +187,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.portalPresented = true
         transaction.readiness = readiness
+        releaseRendererProtectionIfTargetIsPresented(&transaction)
         signposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
         finishIfPossible(&transaction)
@@ -200,6 +201,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.portalPresented = true
         transaction.readiness = readiness
+        releaseRendererProtectionIfTargetIsPresented(&transaction)
         signposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
         finishIfPossible(&transaction)
@@ -286,21 +288,16 @@ final class WorkspaceSwitchCoordinator {
         transaction.portalHideInterval = nil
         transaction.sourceRetired = true
         // Source retirement is the authoritative end of the mount handoff.
-        // A cold destination may never produce a drawable frame, so do not
-        // keep its observer or local render-demand lease alive for the rest of
-        // the window. The remaining intervals are diagnostic only.
-        finishFrameObservation(&transaction)
-        // Once mount reconciliation has made the destination authoritative,
-        // normal portal visibility owns renderer reclamation again. Visual
-        // diagnostics may continue without extending the switch-path lease.
-        releaseRendererProtection(&transaction)
+        // Keep the target's request-scoped protection and frame observation
+        // until its portal is actually presented; this covers the asynchronous
+        // layout pass that follows mount reconciliation.
+        releaseRendererProtectionIfTargetIsPresented(&transaction)
         guard transaction.readiness?.presentationIsReady == true else {
-            // Mount reconciliation has completed, so an unresolved visual
-            // signal is diagnostic-only. End the transaction here rather than
-            // leaving an active signpost/interaction state waiting for a frame
-            // whose observer was deliberately released above.
-            endAllIntervals(in: transaction)
-            finishTransaction()
+            // Mount reconciliation has completed, but retain the transaction
+            // until the destination portal presents. This keeps renderer
+            // protection across the asynchronous layout follow-up while the
+            // frame observer remains request-scoped and cancellable.
+            active = transaction
             return
         }
         finishIfPossible(&transaction)
@@ -423,6 +420,7 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private func finishIfPossible(_ transaction: inout WorkspaceSwitchActiveTransaction) {
+        releaseRendererProtectionIfTargetIsPresented(&transaction)
         guard transaction.sourceRetired,
               transaction.readiness?.presentationIsReady == true,
               transaction.readiness?.interactionIsReady == true else {
@@ -443,6 +441,16 @@ final class WorkspaceSwitchCoordinator {
         guard transaction.rendererProtectionActive else { return }
         endRendererProtection(transaction.requestID)
         transaction.rendererProtectionActive = false
+    }
+
+    private func releaseRendererProtectionIfTargetIsPresented(
+        _ transaction: inout WorkspaceSwitchActiveTransaction
+    ) {
+        guard transaction.sourceRetired,
+              transaction.readiness?.portalPresented == true else {
+            return
+        }
+        releaseRendererProtection(&transaction)
     }
 
     private func endAllIntervals(in transaction: WorkspaceSwitchActiveTransaction) {
