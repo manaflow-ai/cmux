@@ -2917,9 +2917,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         }
     }
 
-    /// The signed policy bootstrap includes a fresh relay credential. Tests
-    /// that suspend automatic credential renewal must therefore suspend this
-    /// lane as well as the credential coordinator's timer.
+    /// Tests that suspend automatic relay refresh suspend this signed-policy
+    /// refresh lane (the env knob keeps its historical name).
     nonisolated static func shouldScheduleRelayPolicyRefresh(
         automaticRelayCredentialRefreshEnabled: Bool,
         serviceAvailable: Bool,
