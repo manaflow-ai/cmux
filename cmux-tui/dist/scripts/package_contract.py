@@ -288,13 +288,15 @@ def validate_npm_tree(
         raise _error("cmux: files must contain only bin/cmux.js")
     if launcher_metadata.get("bin") != {"cmux": "bin/cmux.js"}:
         raise _error("cmux: bin mapping is incorrect")
-    expected_dependencies = {target.name: package_version for target in targets}
-    if launcher_metadata.get("optionalDependencies") != expected_dependencies:
-        raise _error(
-            "cmux: optionalDependencies mismatch: "
-            f"expected {expected_dependencies}, "
-            f"found {launcher_metadata.get('optionalDependencies')}"
-        )
+    # The launcher must have no dependencies of any kind: the shim downloads
+    # the platform binary at runtime, and an empty npx cache tree is what
+    # keeps `npx cmux` upgrades away from npm's ENOTEMPTY reify bug.
+    for forbidden in ("dependencies", "optionalDependencies", "peerDependencies"):
+        if launcher_metadata.get(forbidden):
+            raise _error(
+                f"cmux: launcher must not declare {forbidden}, "
+                f"found {launcher_metadata.get(forbidden)}"
+            )
     _require_executable(launcher_dir / "bin/cmux.js", "cmux launcher")
 
     relay_launcher_dir = packages_dir / "cmux-relay"

@@ -187,9 +187,14 @@ def package_launcher(version: str, out_dir: Path, include_windows: bool) -> None
     package_json_path = launcher_dir / "package.json"
     package_json = json.loads(package_json_path.read_text())
     package_json["version"] = version
-    targets = TARGETS if include_windows else [t for t in TARGETS if t["os"] != "win32"]
+    # The cmux launcher deliberately has NO optionalDependencies: the shim
+    # downloads the platform package at runtime with registry integrity
+    # verification. Keeping platform binary packages out of the npx cache
+    # tree is what protects `npx cmux` upgrades from npm's ENOTEMPTY reify
+    # bug (https://github.com/npm/cli/issues/4622).
+    if "optionalDependencies" in package_json or "dependencies" in package_json:
+        raise SystemExit("cmux launcher template must not declare dependencies")
     relay_targets = RELAY_TARGETS if include_windows else [t for t in RELAY_TARGETS if t["os"] != "win32"]
-    package_json["optionalDependencies"] = {target["package"]: version for target in targets}
     write_json(package_json_path, package_json)
 
     launcher_bin = launcher_dir / "bin" / "cmux.js"

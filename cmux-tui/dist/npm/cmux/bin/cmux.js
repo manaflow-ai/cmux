@@ -2,54 +2,460 @@
 "use strict";
 
 // Launcher for `npx cmux` / a global `cmux` install. The actual TUI is a
-// prebuilt Rust binary shipped in a per-platform optional dependency
-// (cmux-tui-<platform>); npm installs only the one matching os+cpu. This shim
-// resolves that binary and execs it, forwarding argv, stdio, exit code, and
-// signals so cmux behaves exactly like the native binary.
+// prebuilt Rust binary published as per-platform npm packages
+// (cmux-tui-<platform>). This shim resolves that binary and execs it,
+// forwarding argv, stdio, exit code, and signals.
+//
+// The platform packages are NOT optionalDependencies. npm's npx cache has a
+// long-standing ENOTEMPTY reify bug that fires when `npx cmux@latest`
+// upgrades a cached tree containing per-platform binary packages
+// (https://github.com/npm/cli/issues/4622). Instead, the shim downloads the
+// platform package tarball from the npm registry on first run, verifies the
+// registry's sha512 integrity for it, and extracts the binaries into a
+// versioned launcher cache outside npm's control. `cmux update` moves that
+// cache to the latest published version without npm ever reifying anything,
+// so routine upgrades cannot hit the npx cache bug.
+//
+// Resolve order for the binary:
+//   1. CMUX_TUI_BIN (explicit override, development and debugging)
+//   2. an installed platform package (require.resolve) whose version matches
+//      the wanted version exactly -- this keeps offline installs working:
+//      `npm install -g cmux cmux-tui-<platform>` never needs the network
+//   3. the launcher cache entry for the wanted version
+//   4. download the wanted version into the launcher cache
+//   5. fall back to any installed platform package or newest cached version,
+//      with a warning, when the download fails
+//
+// Wanted version = max(shim's own package version, version recorded by
+// `cmux update`), compared by semver so a nightly shim is not downgraded by
+// an older stable `update` record.
 
 const { spawnSync } = require("child_process");
+const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const zlib = require("zlib");
 
 const PACKAGE_BY_PLATFORM = {
   "darwin-arm64": "cmux-tui-darwin-arm64",
   "darwin-x64": "cmux-tui-darwin-x64",
   "linux-x64": "cmux-tui-linux-x64",
   "linux-arm64": "cmux-tui-linux-arm64",
-  "win32-x64": "cmux-tui-win32-x64",
+  // win32-x64 pending: ghostty vt headers fail bindgen under mingw clang.
 };
 
-const key = `${process.platform}-${process.arch}`;
-const pkg = PACKAGE_BY_PLATFORM[key];
+const EXE = process.platform === "win32" ? ".exe" : "";
+const BIN_NAME = `cmux-tui${EXE}`;
 
-if (!pkg) {
-  console.error(
-    `cmux: no prebuilt binary for ${key}. Supported: ${Object.keys(PACKAGE_BY_PLATFORM).join(", ")}.`
+function fail(message) {
+  console.error(`cmux: ${message}`);
+  process.exit(1);
+}
+
+function platformPackage() {
+  const key = `${process.platform}-${process.arch}`;
+  const pkg = PACKAGE_BY_PLATFORM[key];
+  if (!pkg) {
+    fail(
+      `no prebuilt binary for ${key}. Supported: ${Object.keys(PACKAGE_BY_PLATFORM).join(", ")}.`
+    );
+  }
+  return pkg;
+}
+
+function shimVersion() {
+  const version = require("../package.json").version;
+  if (process.env.CMUX_TUI_LAUNCHER_VERSION) {
+    return process.env.CMUX_TUI_LAUNCHER_VERSION;
+  }
+  return version;
+}
+
+function isManagedPlaceholder(version) {
+  return version === "0.0.0-managed";
+}
+
+// Minimal semver comparison, enough for the version shapes this repo
+// publishes (X.Y.Z, X.Y.Z-rc.N, X.Y.Z-nightly.YYYYMMDD.N). Returns
+// negative/zero/positive like a comparator. Prerelease sorts before the
+// release with the same triple.
+function compareVersions(a, b) {
+  const parse = (v) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(v);
+    if (!m) return null;
+    return {
+      nums: [Number(m[1]), Number(m[2]), Number(m[3])],
+      pre: m[4] ? m[4].split(".") : null,
+    };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  if (!pa || !pb) return String(a).localeCompare(String(b));
+  for (let i = 0; i < 3; i++) {
+    if (pa.nums[i] !== pb.nums[i]) return pa.nums[i] - pb.nums[i];
+  }
+  if (!pa.pre && !pb.pre) return 0;
+  if (!pa.pre) return 1;
+  if (!pb.pre) return -1;
+  for (let i = 0; i < Math.max(pa.pre.length, pb.pre.length); i++) {
+    const x = pa.pre[i];
+    const y = pb.pre[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const xn = /^\d+$/.test(x);
+    const yn = /^\d+$/.test(y);
+    if (xn && yn) {
+      if (Number(x) !== Number(y)) return Number(x) - Number(y);
+    } else if (xn !== yn) {
+      return xn ? -1 : 1;
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+function cacheRoot() {
+  if (process.env.CMUX_TUI_LAUNCHER_CACHE) {
+    return process.env.CMUX_TUI_LAUNCHER_CACHE;
+  }
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+    return path.join(base, "cmux-tui-launcher");
+  }
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Caches", "cmux-tui-launcher");
+  }
+  const base = process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache");
+  return path.join(base, "cmux-tui-launcher");
+}
+
+function statePath() {
+  return path.join(cacheRoot(), "state.json");
+}
+
+function readState() {
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath(), "utf8"));
+    if (state && typeof state.version === "string") return state;
+  } catch {}
+  return null;
+}
+
+function writeState(state) {
+  const target = statePath();
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
+  fs.renameSync(tmp, target);
+}
+
+function cachedBinDir(version) {
+  return path.join(cacheRoot(), "v", version, "bin");
+}
+
+function cachedBinary(version) {
+  const bin = path.join(cachedBinDir(version), BIN_NAME);
+  return fs.existsSync(bin) ? bin : null;
+}
+
+function newestCachedVersion() {
+  let versions;
+  try {
+    versions = fs.readdirSync(path.join(cacheRoot(), "v"));
+  } catch {
+    return null;
+  }
+  versions = versions.filter((v) => cachedBinary(v)).sort(compareVersions);
+  return versions.length ? versions[versions.length - 1] : null;
+}
+
+// Resolve an installed cmux-tui-<platform> package (global or local install).
+// Returns { binPath, version } or null.
+function installedPackage(pkg) {
+  try {
+    const packageJsonPath = require.resolve(`${pkg}/package.json`);
+    const binPath = path.join(path.dirname(packageJsonPath), "bin", BIN_NAME);
+    if (!fs.existsSync(binPath)) return null;
+    const version = require(packageJsonPath).version;
+    return { binPath, version };
+  } catch {
+    return null;
+  }
+}
+
+function registryBase() {
+  const raw =
+    process.env.CMUX_NPM_REGISTRY ||
+    process.env.npm_config_registry ||
+    "https://registry.npmjs.org";
+  return raw.replace(/\/+$/, "");
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`GET ${url} failed: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// Parse one pax extended header block into { path } overrides.
+function parsePaxRecords(buffer) {
+  const records = {};
+  let offset = 0;
+  while (offset < buffer.length) {
+    const space = buffer.indexOf(0x20, offset);
+    if (space === -1) break;
+    const length = Number(buffer.toString("utf8", offset, space));
+    if (!Number.isFinite(length) || length <= 0) break;
+    const record = buffer.toString("utf8", space + 1, offset + length - 1);
+    const eq = record.indexOf("=");
+    if (eq !== -1) records[record.slice(0, eq)] = record.slice(eq + 1);
+    offset += length;
+  }
+  return records;
+}
+
+// Minimal ustar/pax reader for npm registry tarballs: returns
+// [{ name, data }] for regular files under package/bin/.
+function extractBinEntries(tarBuffer) {
+  const entries = [];
+  let offset = 0;
+  let paxPath = null;
+  let gnuLongName = null;
+  while (offset + 512 <= tarBuffer.length) {
+    const header = tarBuffer.subarray(offset, offset + 512);
+    if (header.every((b) => b === 0)) break;
+    const rawName = header.toString("utf8", 0, 100).replace(/\0.*$/, "");
+    const prefix = header.toString("utf8", 345, 500).replace(/\0.*$/, "");
+    const size = parseInt(header.toString("utf8", 124, 136).replace(/\0.*$/, "").trim(), 8) || 0;
+    const typeflag = String.fromCharCode(header[156]);
+    const dataStart = offset + 512;
+    const data = tarBuffer.subarray(dataStart, dataStart + size);
+    offset = dataStart + Math.ceil(size / 512) * 512;
+
+    if (typeflag === "x" || typeflag === "g") {
+      const records = parsePaxRecords(data);
+      if (typeflag === "x" && records.path) paxPath = records.path;
+      continue;
+    }
+    if (typeflag === "L") {
+      gnuLongName = data.toString("utf8").replace(/\0.*$/, "");
+      continue;
+    }
+    let name = paxPath || gnuLongName || (prefix ? `${prefix}/${rawName}` : rawName);
+    paxPath = null;
+    gnuLongName = null;
+    if (typeflag !== "0" && typeflag !== "\0") continue;
+    if (!name.startsWith("package/bin/")) continue;
+    const base = name.slice("package/bin/".length);
+    // Flat bin/ payload only; refuse anything that could escape the dir.
+    if (!base || base.includes("/") || base.includes("\\") || base === "." || base === "..") {
+      continue;
+    }
+    entries.push({ name: base, data: Buffer.from(data) });
+  }
+  return entries;
+}
+
+function verifyIntegrity(buffer, integrity) {
+  const match = /^sha512-([A-Za-z0-9+/=]+)$/.exec(integrity || "");
+  if (!match) {
+    throw new Error(`registry did not provide a sha512 integrity value (got: ${integrity})`);
+  }
+  const actual = crypto.createHash("sha512").update(buffer).digest("base64");
+  if (actual !== match[1]) {
+    throw new Error("tarball integrity check failed (sha512 mismatch)");
+  }
+}
+
+// Download pkg@version from the registry, verify integrity, extract bin/
+// into the launcher cache. Returns the binary path.
+async function downloadVersion(pkg, version) {
+  const meta = await fetchJson(`${registryBase()}/${pkg}/${version}`);
+  const tarballUrl = meta && meta.dist && meta.dist.tarball;
+  const integrity = meta && meta.dist && meta.dist.integrity;
+  if (!tarballUrl) {
+    throw new Error(`registry metadata for ${pkg}@${version} has no tarball URL`);
+  }
+  console.error(`cmux: downloading ${pkg}@${version}...`);
+  const response = await fetch(tarballUrl);
+  if (!response.ok) {
+    throw new Error(`GET ${tarballUrl} failed: ${response.status} ${response.statusText}`);
+  }
+  const tgz = Buffer.from(await response.arrayBuffer());
+  verifyIntegrity(tgz, integrity);
+  const tar = zlib.gunzipSync(tgz);
+  const entries = extractBinEntries(tar);
+  if (!entries.some((entry) => entry.name === BIN_NAME)) {
+    throw new Error(`tarball for ${pkg}@${version} does not contain bin/${BIN_NAME}`);
+  }
+
+  const finalDir = cachedBinDir(version);
+  const stagingDir = path.join(
+    cacheRoot(),
+    "tmp",
+    `${version}-${process.pid}-${Date.now().toString(36)}`
   );
-  process.exit(1);
+  fs.mkdirSync(path.join(stagingDir, "bin"), { recursive: true });
+  for (const entry of entries) {
+    fs.writeFileSync(path.join(stagingDir, "bin", entry.name), entry.data, { mode: 0o755 });
+  }
+  fs.mkdirSync(path.dirname(finalDir), { recursive: true });
+  try {
+    fs.renameSync(path.join(stagingDir, "bin"), finalDir);
+  } catch (error) {
+    // A concurrent launcher won the race; its extraction is byte-identical
+    // because both verified the same registry integrity.
+    if (!cachedBinary(version)) throw error;
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
+  const binPath = cachedBinary(version);
+  if (!binPath) throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
+  return binPath;
 }
 
-const binName = process.platform === "win32" ? "cmux-tui.exe" : "cmux-tui";
-
-let binPath;
-try {
-  binPath = require.resolve(`${pkg}/bin/${binName}`);
-} catch {
-  console.error(
-    `cmux: platform package ${pkg} is not installed. Reinstall cmux, ` +
-      `or set npm to install optional dependencies (--include=optional). ` +
-      `Under npx, a stale cache can also cause this (or an ENOTEMPTY rename ` +
-      `error during install): run \`rm -rf ~/.npm/_npx\` and retry.`
-  );
-  process.exit(1);
+function pruneCache(keepVersion) {
+  let versions;
+  const root = path.join(cacheRoot(), "v");
+  try {
+    versions = fs.readdirSync(root);
+  } catch {
+    return;
+  }
+  for (const version of versions) {
+    if (version === keepVersion) continue;
+    // Best effort: on Windows a running binary cannot be deleted.
+    try {
+      fs.rmSync(path.join(root, version), { recursive: true, force: true });
+    } catch {}
+  }
+  try {
+    fs.rmSync(path.join(cacheRoot(), "tmp"), { recursive: true, force: true });
+  } catch {}
 }
 
-const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit" });
+function wantedVersion(pkg) {
+  const pinned = shimVersion();
+  const state = readState();
+  if (isManagedPlaceholder(pinned)) {
+    if (state) return state.version;
+    const installed = installedPackage(pkg);
+    if (installed) return installed.version;
+    fail(
+      "this launcher is an unpublished development copy with no pinned " +
+        "version. Set CMUX_TUI_BIN to a built binary, or " +
+        "CMUX_TUI_LAUNCHER_VERSION to a published version."
+    );
+  }
+  if (state && compareVersions(state.version, pinned) > 0) {
+    return state.version;
+  }
+  return pinned;
+}
 
-if (result.error) {
-  console.error(`cmux: failed to launch ${binPath}: ${result.error.message}`);
-  process.exit(1);
+async function resolveBinary(pkg) {
+  const override = process.env.CMUX_TUI_BIN;
+  if (override) {
+    if (!fs.existsSync(override)) fail(`CMUX_TUI_BIN does not exist: ${override}`);
+    return override;
+  }
+
+  const wanted = wantedVersion(pkg);
+  const installed = installedPackage(pkg);
+  if (installed && installed.version === wanted) {
+    return installed.binPath;
+  }
+  const cached = cachedBinary(wanted);
+  if (cached) return cached;
+
+  try {
+    return await downloadVersion(pkg, wanted);
+  } catch (error) {
+    if (installed) {
+      console.error(
+        `cmux: download of ${pkg}@${wanted} failed (${error.message}); ` +
+          `falling back to installed ${pkg}@${installed.version}.`
+      );
+      return installed.binPath;
+    }
+    const newest = newestCachedVersion();
+    if (newest) {
+      console.error(
+        `cmux: download of ${pkg}@${wanted} failed (${error.message}); ` +
+          `falling back to cached ${newest}.`
+      );
+      return cachedBinary(newest);
+    }
+    fail(
+      `could not obtain the cmux-tui binary (${error.message}). ` +
+        `Check network access to ${registryBase()}, or install the platform ` +
+        `package directly: npm install -g ${pkg}`
+    );
+  }
 }
-if (result.signal) {
-  process.kill(process.pid, result.signal);
-  return;
+
+// `cmux update`: move the launcher to the latest published version without
+// npm reifying anything, which is what makes upgrades immune to the npx
+// cache ENOTEMPTY bug. The shim stays as-is; only the binary moves.
+async function runUpdate(pkg, args) {
+  const checkOnly = args.includes("--check");
+  const unknown = args.filter((a) => a !== "--check");
+  if (unknown.length) {
+    fail(`unknown arguments for update: ${unknown.join(" ")}. Usage: cmux update [--check]`);
+  }
+  const current = wantedVersion(pkg);
+  const latestMeta = await fetchJson(`${registryBase()}/cmux/latest`);
+  const latest = latestMeta && latestMeta.version;
+  if (!latest) fail("could not determine the latest published cmux version");
+  if (compareVersions(latest, current) <= 0) {
+    console.log(`cmux ${current} is up to date (latest is ${latest}).`);
+    return;
+  }
+  if (checkOnly) {
+    console.log(`cmux ${latest} is available (current: ${current}). Run: cmux update`);
+    return;
+  }
+  await downloadVersion(pkg, latest);
+  writeState({
+    version: latest,
+    updatedAt: new Date().toISOString(),
+  });
+  pruneCache(latest);
+  console.log(`cmux updated: ${current} -> ${latest}. The new version runs on the next start.`);
 }
-process.exit(result.status === null ? 1 : result.status);
+
+async function main() {
+  const pkg = platformPackage();
+  const args = process.argv.slice(2);
+
+  // Owned by the shim, not the Rust CLI: `update` must work even when no
+  // binary is present, and must never go through npm. spec/cli.md has no
+  // top-level `update` verb, so nothing is shadowed.
+  if (args[0] === "update") {
+    try {
+      await runUpdate(pkg, args.slice(1));
+    } catch (error) {
+      fail(`update failed: ${error.message}`);
+    }
+    return;
+  }
+
+  const binPath = await resolveBinary(pkg);
+  const result = spawnSync(binPath, args, { stdio: "inherit" });
+  if (result.error) {
+    fail(`failed to launch ${binPath}: ${result.error.message}`);
+  }
+  if (result.signal) {
+    process.kill(process.pid, result.signal);
+    return;
+  }
+  process.exit(result.status === null ? 1 : result.status);
+}
+
+main().catch((error) => fail(error.message));

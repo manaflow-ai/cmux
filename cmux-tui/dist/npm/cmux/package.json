@@ -17,12 +17,5 @@
   },
   "files": [
     "bin/cmux.js"
-  ],
-  "optionalDependencies": {
-    "cmux-tui-darwin-arm64": "0.0.0-managed",
-    "cmux-tui-darwin-x64": "0.0.0-managed",
-    "cmux-tui-linux-x64": "0.0.0-managed",
-    "cmux-tui-linux-arm64": "0.0.0-managed",
-    "cmux-tui-win32-x64": "0.0.0-managed"
-  }
+  ]
 }
