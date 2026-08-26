@@ -431,7 +431,7 @@ extension CmuxEventBus {
                 lifecycleName = "agent.session.started"
             case .sessionEnd:
                 lifecycleName = "agent.session.ended"
-            case .userPromptSubmit, .stop:
+            case .userPromptSubmit, .postToolUse, .stop:
                 lifecycleName = "agent.session.state_changed"
             default:
                 lifecycleName = nil

@@ -45,6 +45,7 @@ final class CmuxPluginProcessSupervisor {
 
     private var processes: [String: RunningProcess] = [:]
     private var launchingPluginIDs: Set<String> = []
+    private var pendingReconciliationPluginIDs: Set<String> = []
 
     init(snapshotter: CmuxPluginExecutionSnapshotter? = nil) {
         self.snapshotter = snapshotter ?? CmuxPluginExecutionSnapshotter()
@@ -93,14 +94,25 @@ final class CmuxPluginProcessSupervisor {
                 return
             }
             let pluginID = descriptor.plugin.manifest.id
-            guard processes[pluginID] == nil,
-                  launchingPluginIDs.insert(pluginID).inserted else { continue }
+            guard processes[pluginID] == nil else { continue }
+            guard launchingPluginIDs.insert(pluginID).inserted else {
+                pendingReconciliationPluginIDs.insert(pluginID)
+                continue
+            }
             do {
                 // A second same-generation reconciliation can arrive while
                 // snapshot verification awaits disk. Claiming the id before
                 // that await keeps only one launch path eligible; the claim is
                 // released on every success, failure, or cancellation path.
-                defer { launchingPluginIDs.remove(pluginID) }
+                defer {
+                    launchingPluginIDs.remove(pluginID)
+                    if pendingReconciliationPluginIDs.remove(pluginID) != nil {
+                        // The newer reconciliation skipped this in-flight claim.
+                        // Queue one bounded latest-state reload after the claim
+                        // releases so an enabled plugin cannot remain unlaunched.
+                        runtime.reload()
+                    }
+                }
                 guard let sessionToken = sessionTokens[pluginID] else {
                     reportError(
                         pluginID,
@@ -160,6 +172,7 @@ final class CmuxPluginProcessSupervisor {
         }
         processes.removeAll()
         launchingPluginIDs.removeAll()
+        pendingReconciliationPluginIDs.removeAll()
     }
 
     private func launch(
@@ -298,7 +311,10 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
-            terminateProcess(process, processGroupID: process.processIdentifier)
+            terminateProcess(
+                process,
+                processGroupID: process.processIdentifier
+            )
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -339,7 +355,11 @@ final class CmuxPluginProcessSupervisor {
             try? launchGate.fileHandleForWriting.close()
             integrityMonitor.cancel()
             integrityTask.cancel()
-            terminateProcess(process, processGroupID: process.processIdentifier)
+            terminateProcess(
+                process,
+                processGroupID: process.processIdentifier,
+                identity: authorizationIdentity
+            )
             Task { await snapshotter.remove(executionSnapshot) }
             reportError(
                 pluginID,
@@ -361,7 +381,11 @@ final class CmuxPluginProcessSupervisor {
             integrityMonitor.cancel()
             integrityTask.cancel()
             Task { await snapshotter.remove(executionSnapshot) }
-            terminateProcess(process, processGroupID: process.processIdentifier)
+            terminateProcess(
+                process,
+                processGroupID: process.processIdentifier,
+                identity: authorizationIdentity
+            )
             pluginProcessLogger.error(
                 "Plugin \(pluginID, privacy: .public) launch gate failed: \(String(describing: error), privacy: .private)"
             )
@@ -422,7 +446,11 @@ final class CmuxPluginProcessSupervisor {
             running.processID,
             identity: running.authorizationIdentity
         )
-        terminateProcess(running.process, processGroupID: running.processGroupID)
+        terminateProcess(
+            running.process,
+            processGroupID: running.processGroupID,
+            identity: running.authorizationIdentity
+        )
         Task { await snapshotter.remove(running.snapshot) }
         reportError(
             pluginID,
@@ -455,7 +483,11 @@ final class CmuxPluginProcessSupervisor {
             processID,
             identity: running.authorizationIdentity
         )
-        terminateProcess(running.process, processGroupID: running.processGroupID)
+        terminateProcess(
+            running.process,
+            processGroupID: running.processGroupID,
+            identity: running.authorizationIdentity
+        )
         runtime.processDidExit(processID, generation: processGeneration)
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
@@ -496,14 +528,29 @@ final class CmuxPluginProcessSupervisor {
         running.integrityMonitor.cancel()
         running.integrityTask.cancel()
         Task { await snapshotter.remove(running.snapshot) }
-        terminateProcess(running.process, processGroupID: running.processGroupID)
+        terminateProcess(
+            running.process,
+            processGroupID: running.processGroupID,
+            identity: running.authorizationIdentity
+        )
         pluginProcessLogger.debug("Stopped plugin \(pluginID, privacy: .public)")
     }
 
     /// Revocation is a security boundary: terminate the private process group
     /// and immediately escalate so descendants cannot retain the plugin token.
-    private func terminateProcess(_ process: Process, processGroupID: pid_t) {
+    private func terminateProcess(
+        _ process: Process,
+        processGroupID: pid_t,
+        identity: CmuxPluginProcessIdentity? = nil
+    ) {
         guard processGroupID > 1 else { return }
+        if let expectedStart = identity?.startMicroseconds,
+           let currentStart = CmuxPluginRuntime.processStartMicroseconds(processGroupID),
+           currentStart != expectedStart {
+            // A new process has reused the root PID/PGID. Never signal it.
+            return
+        }
+        guard process.isRunning || identity != nil else { return }
         _ = Darwin.kill(-processGroupID, SIGTERM)
         _ = Darwin.kill(-processGroupID, SIGKILL)
         if process.isRunning {
