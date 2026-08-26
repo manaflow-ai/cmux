@@ -12952,7 +12952,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -12989,7 +12990,8 @@ class TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -13042,7 +13044,8 @@ class TerminalController {
                         pending: meta?.pending ?? false,
                         agentKind: meta?.agentKind,
                         isSubagent: meta?.isSubagent
-                    )
+                    ),
+                    correlationKey: meta?.correlationKey
                 )
                 return "OK"
             }
@@ -13072,7 +13075,8 @@ class TerminalController {
                     pending: meta?.pending ?? false,
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
-                )
+                ),
+                correlationKey: meta?.correlationKey
             )
             return "OK"
         }
@@ -13116,7 +13120,8 @@ class TerminalController {
             category: meta?.category,
             pending: meta?.pending ?? false,
             agentKind: meta?.agentKind,
-            isSubagent: meta?.isSubagent
+            isSubagent: meta?.isSubagent,
+            correlationKey: meta?.correlationKey
         ) else {
 #if DEBUG
             if let meta {
@@ -13176,20 +13181,54 @@ class TerminalController {
         let parsed = parseOptions(trimmed)
         guard let tabOption = parsed.options["tab"],
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "ERROR: Usage: clear_notifications [--tab=X] [--panel=ID]"
+            let usage = String(
+                localized: "cli.error.clearNotificationsUsage",
+                defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            )
+            return "ERROR: Usage: \(usage)"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: Tab not found"
         }
-        let usage = "clear_notifications [--tab=X] [--panel=ID]"
+        let usage = String(
+            localized: "cli.error.clearNotificationsUsage",
+            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+        )
         let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
             return error
         }
+        let correlationKey: String?
+        if let rawCorrelationKey = parsed.options["correlation-key"] {
+            let normalized = rawCorrelationKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let uuid = UUID(uuidString: normalized) else {
+                return "ERROR: " + String(
+                    localized: "cli.error.clearNotificationsCorrelationKeyInvalid",
+                    defaultValue: "Invalid notification correlation key"
+                )
+            }
+            correlationKey = uuid.uuidString.lowercased()
+            guard panelResolution.panelId != nil else {
+                return "ERROR: " + String(
+                    localized: "cli.error.clearNotificationsCorrelationKeyRequiresPanel",
+                    defaultValue: "--correlation-key requires --panel"
+                )
+            }
+        } else {
+            correlationKey = nil
+        }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
-                TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+                if let correlationKey {
+                    TerminalMutationBus.shared.enqueueClearNotifications(
+                        forTabId: tabId,
+                        surfaceId: panelId,
+                        correlationKey: correlationKey
+                    )
+                } else {
+                    TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+                }
             } else {
                 TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
             }
@@ -13199,16 +13238,30 @@ class TerminalController {
                 guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }
                 if let panelId = panelResolution.panelId {
                     guard tab.panels.keys.contains(panelId) else { return }
-                    TerminalMutationBus.shared.discardPendingNotifications(
-                        forTabId: tab.id,
-                        surfaceId: panelId,
-                        through: clearBoundary
-                    )
-                    TerminalNotificationStore.shared.clearNotifications(
-                        forTabId: tab.id,
-                        surfaceId: panelId,
-                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
-                    )
+                    if let correlationKey {
+                        TerminalMutationBus.shared.discardPendingNotifications(
+                            forSurfaceId: panelId,
+                            correlationKey: correlationKey,
+                            through: clearBoundary
+                        )
+                        TerminalNotificationStore.shared.clearNotifications(
+                            forTabId: tab.id,
+                            surfaceId: panelId,
+                            correlationKey: correlationKey,
+                            throughNotificationGeneration: clearBoundary
+                        )
+                    } else {
+                        TerminalMutationBus.shared.discardPendingNotifications(
+                            forTabId: tab.id,
+                            surfaceId: panelId,
+                            through: clearBoundary
+                        )
+                        TerminalNotificationStore.shared.clearNotifications(
+                            forTabId: tab.id,
+                            surfaceId: panelId,
+                            discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
+                        )
+                    }
                 } else {
                     TerminalMutationBus.shared.discardPendingNotifications(
                         forTabId: tab.id,

@@ -37700,6 +37700,57 @@
         }
       }
     },
+    "cli.error.clearNotificationsCorrelationKeyInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid notification correlation key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知相関キーが無効です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsCorrelationKeyRequiresPanel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key requires --panel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--correlation-key には --panel が必要です"
+          }
+        }
+      }
+    },
+    "cli.error.clearNotificationsUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+          }
+        }
+      }
+    },
     "cli.error.markNotificationReadSelector": {
       "extractionState": "manual",
       "localizations": {
@@ -54117,6 +54168,23 @@
         }
       }
     },
+    "cli.ssh.autoReconnect.inputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 切断中に入力した内容は破棄されます。"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.recovered": {
       "extractionState": "manual",
       "localizations": {
@@ -55560,6 +55628,23 @@
         }
       }
     },
+    "cli.sshPtyAttach.bridgeClosedReattachingInputDiscard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s). Input typed while disconnected is discarded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。切断中に入力した内容は破棄されます。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.reconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -55628,6 +55713,40 @@
         }
       }
     },
+    "cli.sshPtyAttach.flushInputUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal SSH input flush does not accept arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部 SSH 入力フラッシュは引数を受け付けません。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.flushInputFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルの入力を安全に破棄できませんでした。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
       "extractionState": "manual",
       "localizations": {
@@ -55692,6 +55811,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputTransitionFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalInputGuardFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reattach stopped because queued terminal input could not be protected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューに入ったターミナル入力を保護できなかったため、SSH の再接続を停止しました。"
           }
         }
       }
@@ -264131,6 +264284,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "close_workspaces はブール値である必要があります"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.cannotDeleteEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete every workspace in a window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ内のすべてのワークスペースは削除できません"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.couldNotCloseEveryWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not close every workspace in the group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内のすべてのワークスペースを閉じられませんでした"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.emptyPinnedCannotUngroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pinned empty group can only be removed with Delete Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のピン留めグループは「グループを削除」でのみ削除できます"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.noWorkspacesToClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group has no workspaces to close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループに閉じるワークスペースがありません"
           }
         }
       }

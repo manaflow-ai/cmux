@@ -29,6 +29,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
             closeWorkspacesMustBeBoolean: String(
                 localized: "workspaceGroup.error.closeWorkspacesMustBeBoolean",
                 defaultValue: "close_workspaces must be a boolean"
+            ),
+            emptyPinnedCannotUngroup: String(
+                localized: "workspaceGroup.error.emptyPinnedCannotUngroup",
+                defaultValue: "A pinned empty group can only be removed with Delete Group"
             )
         )
     }
@@ -46,7 +50,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
             name: group.name,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
-            anchorWorkspaceID: group.anchorWorkspaceId,
+            anchorWorkspaceID: group.liveAnchorWorkspaceId,
             customColor: group.customColor,
             iconSymbol: group.iconSymbol,
             memberWorkspaceIDs: memberIds
@@ -87,7 +91,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .childWorkspaceNotFound(missing)
         }
         if !childWorkspaceIDs.isEmpty {
-            let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+            let existingAnchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
             let ineligible: [String] = childWorkspaceIDs.compactMap { id in
                 existingAnchorIds.contains(id) ? id.uuidString : nil
             }
@@ -117,7 +121,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
         groupID: UUID
     ) -> Int? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }
-        guard tabManager.workspaceGroups.contains(where: { $0.id == groupID }) else { return -1 }
+        guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else { return -1 }
+        if group.isPinned && group.isEmpty { return -2 }
         let keptCount = tabManager.tabs.lazy.filter { $0.groupId == groupID }.count
         tabManager.ungroupWorkspaceGroup(groupId: groupID)
         return keptCount
@@ -194,7 +199,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         if tab.groupId == groupID {
             return .added
         }
-        if tabManager.workspaceGroups.contains(where: { $0.id != groupID && $0.anchorWorkspaceId == workspaceID }) {
+        if tabManager.workspaceGroups.contains(where: { $0.id != groupID && $0.liveAnchorWorkspaceId == workspaceID }) {
             return .workspaceIsOtherGroupAnchor
         }
         return .notFound
@@ -246,7 +251,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
             return .notFound
         }
-        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let anchorCwd = group.liveAnchorWorkspaceId
+            .flatMap { anchorId in
+                tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
+            }
         let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         let placement = explicitPlacement
@@ -330,7 +338,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .tabManagerUnavailable
         }
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }),
-              let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
+              let anchorId = group.liveAnchorWorkspaceId,
+              let anchor = tabManager.tabs.first(where: { $0.id == anchorId }) else {
             return .notFound
         }
         if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
