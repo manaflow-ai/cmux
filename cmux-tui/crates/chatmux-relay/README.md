@@ -72,7 +72,7 @@ release have completed.
    env, hard process-group timeouts, the v5 process-credential runtime,
    and the reconciled-trust gate (observe = read-only verbs only).
    Slices 2 and 3, plus the v6 pane verbs, are included; the advertised
-   dialect is **7**. Version 7 gates the additive PTY operational error codes.
+   dialect is **6**.
 4. **Wire-v6 pane verbs + preview proxy (DONE)** — fs/git/watch verbs and
    the chobitsu-injecting preview proxy. These verbs have no JS
    implementation; they are Rust-first by decision.
@@ -84,9 +84,8 @@ release have completed.
 
 ### Intentional divergences from the JS relay (still open)
 
-- The advertised relay protocol is **v7**. PTY and exec remain capability
-  gated at v4 and v3; workspace/watch/preview use v6. PTY operational errors
-  use the v7 outer feature gate and downgrade to `failed` for older Workers.
+- The advertised relay protocol is **v6**. PTY and exec remain capability
+  gated at v4 and v3; workspace/watch/preview use v6.
 - `--code` prints the `chatmux://pair` link without the terminal QR
   graphic (QR rendering comes with a later slice; the link carries the
   same payload).

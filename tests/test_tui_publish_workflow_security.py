@@ -1577,6 +1577,22 @@ def test_relay_launcher_rc_fallback_never_relaxes_stable() -> None:
     assert text.count("cmux-relay --version") == 1
 
 
+def test_relay_attestations_survive_a_skipped_windows_build() -> None:
+    text = workflow("cmux-tui-build-package.yml")
+
+    # A skipped optional build-windows poisons the implicit success() on
+    # transitive dependents. verify-linux-packages and attest-npm-packages
+    # must carry always() plus explicit needs.result gates so a Unix-only
+    # release tag still attests binaries for its own commit; without this,
+    # the publish job's --source-digest verification can only ever match a
+    # stale attestation from an older byte-identical build (rc.3 regression,
+    # run 32935658524).
+    for job_anchor in ("  verify-linux-packages:", "  attest-npm-packages:"):
+        section = text.split(job_anchor, 1)[1].split("runs-on:", 1)[0]
+        assert "always() &&" in section
+        assert "needs.package.result == 'success'" in section
+
+
 def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
     builder = ROOT / "cmux-tui" / "dist" / "scripts" / "package_npm.py"
     namespace = runpy.run_path(str(builder), run_name="cmux_tui_package_npm_test")

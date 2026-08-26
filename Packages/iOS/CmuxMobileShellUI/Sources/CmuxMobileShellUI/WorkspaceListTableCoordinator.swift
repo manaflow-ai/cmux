@@ -910,9 +910,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     /// Group actions are owned by the Mac connection, not by a particular
     /// workspace row. The group snapshot carries that Mac-scoped capability,
-    /// including when the group has no live anchor row. Internal (not
-    /// fileprivate): the context-menu actions extension in
-    /// `WorkspaceListTableCoordinator+Actions.swift` calls it.
+    /// including when the group has no live anchor row.
     func groupActionCapabilities(
         for group: MobileWorkspaceGroupPreview
     ) -> MobileWorkspaceActionCapabilities {

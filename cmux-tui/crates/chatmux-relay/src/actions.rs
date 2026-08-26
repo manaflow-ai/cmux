@@ -853,44 +853,6 @@ pub struct RuntimeFile {
     pub path_hint: String,
 }
 
-/// Return unique runtime values in longest-first order. The values are
-/// credentials supplied for one process and must never cross the relay wire.
-fn runtime_redactions(runtime: &ProcessRuntime) -> Vec<String> {
-    let mut values: Vec<String> =
-        runtime.environment.values().filter(|value| !value.is_empty()).cloned().collect();
-    values.sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
-    values.dedup();
-    values
-}
-
-fn redact_runtime_text(text: &str, redactions: &[String], capture_truncated: bool) -> String {
-    if redactions.is_empty() {
-        return text.to_owned();
-    }
-    let mut partial_length = 0;
-    if capture_truncated {
-        for secret in redactions {
-            let limit = secret.len().saturating_sub(1).min(text.len());
-            for length in (1..=limit).rev() {
-                if secret.is_char_boundary(length)
-                    && text.is_char_boundary(text.len() - length)
-                    && text.ends_with(&secret[..length])
-                {
-                    partial_length = partial_length.max(length);
-                    break;
-                }
-            }
-        }
-    }
-    let captured = if partial_length == 0 {
-        text.to_owned()
-    } else {
-        let split = text.len() - partial_length;
-        format!("{}[REDACTED_SECRET]", &text[..split])
-    };
-    redactions.iter().fold(captured, |current, secret| current.replace(secret, "[REDACTED_SECRET]"))
-}
-
 /// Validate the secret-bearing frame field without returning secret text in
 /// errors (v5 one-call process credentials).
 pub fn process_runtime(frame_runtime: Option<&Value>) -> Result<ProcessRuntime, String> {
@@ -938,9 +900,7 @@ pub fn process_runtime(frame_runtime: Option<&Value>) -> Result<ProcessRuntime, 
         let path_hint = file.get("pathHint").and_then(Value::as_str);
         if !valid_environment_name(&content)
             || !valid_environment_name(&path_var)
-            || content == path_var
             || path_hint.is_none()
-            || path_hint.is_some_and(|hint| hint.len() > 128 || hint.chars().any(char::is_control))
             || !environment.contains_key(&content)
         {
             return Err("process runtime file is invalid".to_owned());
@@ -1005,7 +965,7 @@ enum RunSpec<'a> {
 
 enum RunOutcome {
     Done { exit_code: i64, output: String },
-    TimedOut { output: String },
+    TimedOut,
     Failed { message: String },
 }
 
@@ -1038,7 +998,6 @@ async fn run_spec(
     cwd_fd: Option<ScopedCwdFd>,
     timeout_ms: u64,
     env: &HashMap<String, String>,
-    redactions: &[String],
 ) -> RunOutcome {
     use tokio::io::AsyncReadExt as _;
     let mut command = match &spec {
@@ -1106,8 +1065,7 @@ async fn run_spec(
     #[cfg(unix)]
     let mut process_group_guard = ProcessGroupGuard { pid, armed: true };
     // Collect a little past the char cap (bytes over-approximate chars).
-    let redaction_room = redactions.iter().map(String::len).sum::<usize>();
-    let byte_cap = MAX_OUTPUT_CHARS.saturating_add(redaction_room.max(10_000)).saturating_mul(4);
+    let byte_cap = (MAX_OUTPUT_CHARS + 10_000) * 4;
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
     let mut output: Vec<u8> = Vec::new();
@@ -1280,7 +1238,7 @@ async fn run_spec(
         process_group_guard.armed = false;
     }
     if timed_out {
-        return RunOutcome::TimedOut { output: String::from_utf8_lossy(&output).into_owned() };
+        return RunOutcome::TimedOut;
     }
     let text = String::from_utf8_lossy(&output);
     RunOutcome::Done { exit_code: exited.unwrap_or(0), output: text.into_owned() }
@@ -1441,32 +1399,22 @@ fn run_reply(
     limit: Option<&Value>,
     default_limit: Option<i64>,
     timeout_ms: u64,
-    redactions: &[String],
 ) -> Value {
     let default_value = default_limit.map(Value::from);
     let limit = limit.or(default_value.as_ref());
     match outcome {
-        RunOutcome::Failed { message } => fail_result(
-            version,
-            action_id,
-            "failed",
-            &redact_runtime_text(&message, redactions, false),
-        ),
-        RunOutcome::TimedOut { output } => {
+        RunOutcome::Failed { message } => fail_result(version, action_id, "failed", &message),
+        RunOutcome::TimedOut => {
             let seconds = (timeout_ms as f64 / 1000.0).round() as u64;
-            let safe_output = redact_runtime_text(&output, redactions, true);
-            let tail: String =
-                safe_output.chars().rev().take(2_000).collect::<String>().chars().rev().collect();
-            let message = if tail.trim().is_empty() {
-                format!("command timed out after {seconds}s")
-            } else {
-                format!("command timed out after {seconds}s; output tail:\n{tail}")
-            };
-            fail_result(version, action_id, "timeout", &message)
+            fail_result(
+                version,
+                action_id,
+                "timeout",
+                &format!("command timed out after {seconds}s"),
+            )
         }
         RunOutcome::Done { exit_code, output } => {
-            let safe_output = redact_runtime_text(&output, redactions, true);
-            let bounded = truncate_output(&safe_output, MAX_OUTPUT_CHARS);
+            let bounded = truncate_output(&output, MAX_OUTPUT_CHARS);
             let (capped, truncated) = cap_lines(&bounded.output, bounded.truncated, limit);
             let mut result = Map::new();
             result.insert("exitCode".to_owned(), Value::from(exit_code));
@@ -1529,10 +1477,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     let home = context.home.clone();
     let server_roots = match frame_roots(frame) {
         Ok(roots) => roots,
-        // RelayActionErrorCode deliberately has no request-shape variant;
-        // malformed roots are a value-free failed action, not a new wire
-        // code that older Workers would reject.
-        Err(message) => return fail("failed", message),
+        Err(message) => return fail("bad_request", message),
     };
     let root_lists: RootLists<'_> = [context.local_roots.as_deref(), server_roots.as_deref()];
     if let Err(message) = ensure_scoped_file_roots_available(cfg!(unix), &root_lists) {
@@ -1553,7 +1498,6 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     }
     let mut env = context.env.clone();
     env.extend(runtime.environment.clone());
-    let redactions = runtime_redactions(&runtime);
     let first_roots = root_lists.iter().flatten().find(|roots| !roots.is_empty());
     let workdir = match first_roots {
         Some(roots) => expand_path(&roots[0], &home, &home).display().to_string(),
@@ -1698,18 +1642,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 command_cwd_fd,
                 timeout_ms,
                 &env,
-                &redactions,
             )
             .await;
-            run_reply(
-                version,
-                &action_id,
-                outcome,
-                args.get("limit"),
-                Some(200),
-                timeout_ms,
-                &redactions,
-            )
+            run_reply(version, &action_id, outcome, args.get("limit"), Some(200), timeout_ms)
         }
         "find" => {
             let raw =
@@ -1741,7 +1676,6 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                     args.get("limit"),
                     Some(500),
                     timeout_ms,
-                    &redactions,
                 );
             }
             #[cfg(not(unix))]
@@ -1779,18 +1713,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 command_cwd_fd,
                 timeout_ms,
                 &env,
-                &redactions,
             )
             .await;
-            run_reply(
-                version,
-                &action_id,
-                outcome,
-                args.get("limit"),
-                Some(500),
-                timeout_ms,
-                &redactions,
-            )
+            run_reply(version, &action_id, outcome, args.get("limit"), Some(500), timeout_ms)
         }
         "exec" => {
             let command = args.get("command").and_then(Value::as_str).unwrap_or_default();
@@ -1829,10 +1754,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 scoped_cwd_fd,
                 timeout_ms,
                 &env,
-                &redactions,
             )
             .await;
-            run_reply(version, &action_id, outcome, None, None, timeout_ms, &redactions)
+            run_reply(version, &action_id, outcome, None, None, timeout_ms)
         }
         _ => fail("unsupported_verb", &format!("verb \"{verb}\" fell through")),
     }
@@ -2231,11 +2155,11 @@ mod tests {
         let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env, &[]),
+            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env),
         )
         .await
         .expect("timeout cleanup must not wait for a descendant pipe");
-        assert!(matches!(outcome, RunOutcome::TimedOut { .. }));
+        assert!(matches!(outcome, RunOutcome::TimedOut));
     }
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
@@ -2251,34 +2175,7 @@ mod tests {
             &context,
         )
         .await;
-        assert_eq!(exec["result"]["output"], "[REDACTED_SECRET]");
-        assert!(!exec.to_string().contains("abc123"));
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn timeout_result_never_reflects_runtime_secret() {
-        let root = scratch("procenv-timeout");
-        let roots = vec![root.display().to_string()];
-        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
-        context.env =
-            scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
-        let result = perform_action(
-            &json!({
-                "verb": "exec",
-                "actionId": "timeout-secret",
-                "allowedRoots": roots,
-                "args": { "command": "printf '%s' \"$TIMEOUT_SECRET\"; sleep 5" },
-                "timeoutMs": 1000,
-                "runtime": { "environment": { "TIMEOUT_SECRET": "timeout-private-value" }, "files": [] }
-            }),
-            &context,
-        )
-        .await;
-        assert_eq!(result["ok"], false);
-        assert_eq!(result["code"], "timeout");
-        assert!(!result.to_string().contains("timeout-private-value"));
+        assert_eq!(exec["result"]["output"], "abc123");
         std::fs::remove_dir_all(&root).ok();
     }
 
