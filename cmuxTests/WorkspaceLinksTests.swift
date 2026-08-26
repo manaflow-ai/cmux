@@ -266,4 +266,42 @@ struct WorkspaceLinksTests {
         #expect(originalWorkspace.linksState.entries.isEmpty)
         #expect(currentWorkspace.linksState.entries.map(\.url) == ["https://example.com/moved"])
     }
+
+    @MainActor
+    @Test
+    func disablingCaptureResetsSequenceBeforeReenable() throws {
+        let suiteName = "WorkspaceLinksTests.capture-reset.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: LinksCaptureSettings.enabledKey)
+
+        let workspace = Workspace()
+        let gate = TerminalLinkCaptureSettingsGate(
+            settings: LinksCaptureSettings(defaults: defaults),
+            notificationCenter: NotificationCenter()
+        )
+        let ingress = TerminalLinkCaptureIngress { _, _ in workspace }
+        let context = TerminalOutputTeeContext(
+            workspaceID: workspace.id,
+            surfaceID: UUID(),
+            agentDefinitions: [],
+            linkCaptureSettingsGate: gate,
+            linkCaptureIngress: ingress
+        )
+        defer { context.prepareForRelease() }
+
+        Array("\u{1B}]8;;https://example.com/spanning".utf8).withUnsafeBufferPointer {
+            context.consumeLinks($0)
+        }
+        defaults.set(false, forKey: LinksCaptureSettings.enabledKey)
+        gate.refresh()
+        context.noteLinkCaptureDisabled()
+        defaults.set(true, forKey: LinksCaptureSettings.enabledKey)
+        gate.refresh()
+        Array("\u{1B}\\\n".utf8).withUnsafeBufferPointer {
+            context.consumeLinks($0)
+        }
+
+        #expect(workspace.linksState.entries.isEmpty)
+    }
 }

@@ -7,7 +7,12 @@ public struct CapturedLinkHostPolicy: Sendable {
     private let addressPolicy: NetworkAddressPolicy
 
     /// Creates a host policy backed by the shared network-address classifier.
-    public init(addressPolicy: NetworkAddressPolicy = NetworkAddressPolicy()) {
+    public init() {
+        self.init(addressPolicy: NetworkAddressPolicy())
+    }
+
+    /// Creates a host policy with an injected network-address classifier.
+    init(addressPolicy: NetworkAddressPolicy) {
         self.addressPolicy = addressPolicy
     }
 
