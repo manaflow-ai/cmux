@@ -111,14 +111,11 @@ extension CMUXCLI {
             let taskSyncScanIdentity = Data(
                 "\(sessionID.utf8.count):\(sessionID)\((agentID ?? "").utf8.count):\(agentID ?? "")".utf8
             ).base64EncodedString()
-            // Agent-qualified hooks are Claude's shared-team mutations; keep
-            // their expensive first identity scan single-flight. Unqualified
-            // hooks may be independent personal sessions, so retain a
-            // per-session scan scope until their owner is known.
-            let usesSharedTeamScan = agentID != nil
-            let taskSyncScanScope = usesSharedTeamScan
-                ? taskSyncLockScope + ":<task-sync-scan>"
-                : taskSyncLockScope + ":<task-sync-scan>:" + taskSyncScanIdentity
+            // Until the authoritative task list is known, every hook keeps an
+            // identity-qualified scan scope. Independent automatic teams must
+            // not supersede one another's first snapshot.
+            let taskSyncScanScope = taskSyncLockScope
+                + ":<task-sync-scan>:" + taskSyncScanIdentity
             let initialCoalescingScope = coalescingTaskListID.map {
                 taskSyncLockScope + ":" + $0
             } ?? taskSyncScanScope
@@ -276,6 +273,7 @@ extension CMUXCLI {
                             return
                         }
                         if let matchingRecord,
+                           matchingRecord.binding.taskStoreIdentity != nil,
                            let currentTeamBinding,
                            try teamTaskResolver.taskListBindingWasReused(
                                matchingRecord.binding,
