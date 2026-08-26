@@ -35,6 +35,7 @@ public final class ArtifactSidebarModel {
     private var latestWorkspaceTitle: (id: String, title: String?)?
     private var watcherReloadInFlight = false
     private var watcherReloadPending = false
+    private var watcherEventGeneration: UInt64 = 0
 
     /// Creates a sidebar model with injected filesystem and capture seams.
     ///
@@ -122,6 +123,7 @@ public final class ArtifactSidebarModel {
         tasks.cancelAll()
         watcherReloadInFlight = false
         watcherReloadPending = false
+        watcherEventGeneration = 0
         workspace = nil
         projectRoot = nil
         nodes = []
@@ -213,23 +215,39 @@ public final class ArtifactSidebarModel {
         revision: UInt64
     ) {
         tasks.replaceWatcher {
-            Task { [weak self] in
-                for await _ in changes {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { break }
-                    self.watcherReloadPending = true
-                    guard !self.watcherReloadInFlight else { continue }
+            Task { @MainActor [weak self] in
+                let signals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                let eventTask = Task { @MainActor [weak self] in
+                    for await _ in changes {
+                        guard !Task.isCancelled, let self else { break }
+                        self.watcherEventGeneration &+= 1
+                        self.watcherReloadPending = true
+                        if !self.watcherReloadInFlight {
+                            signals.continuation.yield(())
+                        }
+                    }
+                    signals.continuation.finish()
+                }
+                defer {
+                    eventTask.cancel()
+                    signals.continuation.finish()
+                }
+
+                for await _ in signals.stream {
+                    guard !Task.isCancelled, let self else { break }
                     self.watcherReloadInFlight = true
                     repeat {
                         self.watcherReloadPending = false
+                        let generation = self.watcherEventGeneration
                         do {
                             try await self.watcherClock.sleep(for: self.watcherDebounce)
                         } catch {
                             break
                         }
                         guard !Task.isCancelled else { break }
+                        guard generation == self.watcherEventGeneration else { continue }
                         await self.reload(projectRoot: projectRoot, revision: revision)
-                    } while self.watcherReloadPending && !Task.isCancelled
+                    } while self.watcherEventGeneration != generation && !Task.isCancelled
                     self.watcherReloadInFlight = false
                 }
             }
