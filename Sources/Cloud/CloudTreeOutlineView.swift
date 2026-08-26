@@ -149,14 +149,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(24) }
+            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.rowHeight) }
             switch node.kind {
             case .machine(let machine):
-                return GlobalFontMagnification.scaledSize(machine.stats == nil ? 38 : 50)
-            case .workspacesGroup, .portsGroup:
-                return GlobalFontMagnification.scaledSize(22)
-            case .workspace, .terminal, .desktop, .port, .placeholder:
-                return GlobalFontMagnification.scaledSize(24)
+                let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
+                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineRowHeight(hasStats: hasStats))
+            case .workspacesGroup, .portsGroup, .workspace, .terminal, .desktop, .port, .placeholder:
+                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.rowHeight)
             }
         }
 
@@ -441,7 +440,9 @@ final class CloudTreeContainerView: NSView {
         outlineView.style = .plain
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .custom
-        outlineView.indentationPerLevel = 14
+        // One 16pt slot per level: the disclosure chevron lives in the last slot
+        // before a row's content, and leaves keep the slot so glyphs form a column.
+        outlineView.indentationPerLevel = CloudTreeRowGrid.disclosureSlot
         outlineView.allowsMultipleSelection = false
         outlineView.autoresizesOutlineColumn = true
         outlineView.floatsGroupRows = false

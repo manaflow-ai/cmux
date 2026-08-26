@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 /// The Cloud tab's outline: animation-free disclosure, the right-sidebar
 /// keyboard vocabulary (j/k, h/l, arrows, Return opens, `/` quick-search), and
@@ -118,15 +119,30 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         NSAnimationContext.endGrouping()
     }
 
+    /// How far `frameOfCell` moves content past AppKit's default; the cell adds the
+    /// rest of `CloudTreeRowGrid.disclosureGap` so every row's content starts 6pt
+    /// after the 16pt disclosure slot (`indentationPerLevel`).
+    static let cellShift: CGFloat = leadingMargin - 6
+
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         var frame = super.frameOfOutlineCell(atRow: row)
         frame.origin.x += Self.leadingMargin
+        if let node = item(atRow: row) as? CloudTreeNode, case .machine = node.kind {
+            // Multi-line machine rows: the chevron centers on the name line (first
+            // line, after the row's top padding), not on the row's vertical middle,
+            // so it reads with the name and the status dot. NSTableView is flipped.
+            let rowFrame = rect(ofRow: row)
+            let nameLineCenter = rowFrame.minY
+                + GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineVerticalPadding)
+                + GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineNameLineHeight) / 2
+            frame.origin.y = (nameLineCenter - frame.height / 2).rounded()
+        }
         return frame
     }
 
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var frame = super.frameOfCell(atColumn: column, row: row)
-        let cellShift: CGFloat = Self.leadingMargin - 6
+        let cellShift = Self.cellShift
         frame.origin.x += cellShift
         frame.size.width -= cellShift
         return frame

@@ -21,11 +21,17 @@ final class CloudTreeCellView: NSTableCellView {
         identifier = Self.identifier
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
+        // The outline's `frameOfCell` already shifted this cell 2pt past the 16pt
+        // disclosure slot; the remaining 4pt completes `CloudTreeRowGrid.disclosureGap`.
+        // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
-            displayHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            displayHost.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: CloudTreeRowGrid.disclosureGap - CloudTreeNSOutlineView.cellShift
+            ),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
-            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
         ])
     }
 
@@ -57,9 +63,10 @@ final class CloudTreeCellView: NSTableCellView {
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
         NSLayoutConstraint.activate([
-            host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            host.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: host.leadingAnchor, constant: -4),
+            host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            // Buttons sit on the name line, like the chevron and the status dot.
+            host.topAnchor.constraint(equalTo: topAnchor, constant: CloudTreeRowGrid.machineVerticalPadding),
+            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: host.leadingAnchor, constant: -CloudTreeRowGrid.trailingGap),
         ])
         buttonsHost = host
         return host
