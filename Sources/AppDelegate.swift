@@ -13754,7 +13754,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
         ) {
-            NSApp.terminate(nil)
+            AppTerminationRequest.schedule()
             return true
         }
 
@@ -13767,7 +13767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Mark as confirmed so applicationShouldTerminate does not show a
                 // second alert when NSApp.terminate re-enters the delegate callback.
                 self?.isQuitWarningConfirmed = true
-                NSApp.terminate(nil)
+                AppTerminationRequest.schedule()
             } else {
                 onCancel?()
             }
@@ -19561,3 +19561,19 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+// MARK: - App termination requests
+
+/// The shared terminate request used by the quit shortcut path (keyboard
+/// Cmd+Q routing, socket-driven `simulate_shortcut`, and the quit
+/// confirmation alert reply).
+@MainActor
+enum AppTerminationRequest {
+    /// Requests app termination. `terminate` is injectable for tests;
+    /// production callers use the default `NSApp.terminate`.
+    static func schedule(
+        _ terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }
+    ) {
+        terminate()
+    }
+}
