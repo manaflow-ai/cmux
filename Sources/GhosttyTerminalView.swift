@@ -3581,15 +3581,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                app?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil {
                 return true
             }
-            guard pasteboard.types?.contains(sidebarTabReorderPasteboardType) == true,
-                  let currentSessionId = app?.sidebarWorkspaceDragRegistry.currentSessionId,
-                  let raw = SidebarTabDragPayload.pasteboardString(from: pasteboard),
-                  let payloadSessionId = SidebarTabDragPayload.sessionId(
-                      fromPasteboardString: raw
-                  ) else {
+            guard pasteboard.types?.contains(sidebarTabReorderPasteboardType) == true else {
                 return false
             }
-            return payloadSessionId == currentSessionId
+            return SidebarTabDragPayload.hasLiveSession(
+                in: pasteboard,
+                currentSessionId: app?.sidebarWorkspaceDragRegistry.currentSessionId
+            )
         }
     }
 

@@ -12242,10 +12242,10 @@ class TerminalController {
             shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pb.types,
                 eventType: eventType,
-                hasLiveTabTransfer: (
-                    pb.types?.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType) == true
-                        || pb.types?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true
-                ) && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pb) != nil
+                hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
+                    in: pb,
+                    resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                )
             )
         }
         return shouldPassThrough ? "true" : "false"

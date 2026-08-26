@@ -22,7 +22,10 @@ struct SidebarTabDragPayload {
         guard let sessionId else {
             return "\(Self.prefix)\(tabId.uuidString)"
         }
-        return "\(Self.prefix)\(tabId.uuidString)#\(sessionId.uuidString)"
+        return SidebarWorkspaceDragSession(
+            id: sessionId,
+            workspaceId: tabId
+        ).pasteboardValue
     }
 
     /// Recovers the dragged workspace id from a legacy or tokenized payload.

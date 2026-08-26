@@ -12129,14 +12129,16 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
                 return group.isEmpty ? group.id : group.anchorWorkspaceId
             },
-            currentWorkspaceDragSessionId: { dragState.currentWorkspaceDragSessionId },
-            finishWorkspaceDrag: { sessionId, capabilityValue in
-                dragState.finishDrag(
-                    sessionId: sessionId,
-                    capabilityValue: capabilityValue
-                )
-                dragAutoScrollController.stop()
-            }
+            nativeWorkspaceDragLifecycle: SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle(
+                currentSessionId: { dragState.currentWorkspaceDragSessionId },
+                finish: { sessionId, capabilityValue in
+                    dragState.finishDrag(
+                        sessionId: sessionId,
+                        capabilityValue: capabilityValue
+                    )
+                    dragAutoScrollController.stop()
+                }
+            )
         )
 
     }
@@ -13852,12 +13854,10 @@ struct VerticalTabsSidebar: View, Equatable {
     /// A sidebar UTI can outlive its AppKit source. Only the tokenized value
     /// belonging to the registry's current session may arm the reorder overlay.
     private func hasLiveWorkspaceDragForCurrentPasteboard() -> Bool {
-        guard let currentSessionId = dragState.currentWorkspaceDragSessionId else {
-            return false
-        }
-        return SidebarTabDragPayload.sessionId(
-            from: NSPasteboard(name: .drag)
-        ) == currentSessionId
+        SidebarTabDragPayload.hasLiveSession(
+            in: NSPasteboard(name: .drag),
+            currentSessionId: dragState.currentWorkspaceDragSessionId
+        )
     }
 
     private func activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: UUID? = nil) -> Bool {
@@ -13870,11 +13870,10 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
             return false
         }
-        if let currentSessionId = dragState.currentWorkspaceDragSessionId,
-           let pasteboardSessionId = SidebarTabDragPayload.sessionId(
-               from: NSPasteboard(name: .drag)
-           ),
-           pasteboardSessionId != currentSessionId {
+        if !SidebarTabDragPayload.hasLiveSession(
+            in: NSPasteboard(name: .drag),
+            currentSessionId: dragState.currentWorkspaceDragSessionId
+        ) {
 #if DEBUG
             cmuxDebugLog("sidebar.drag.activate rejected reason=sessionMismatch")
 #endif
@@ -14031,7 +14030,11 @@ struct VerticalTabsSidebar: View, Equatable {
             return currentSessionId == sessionId
                 && dragState.currentWorkspaceDragId == workspaceId
         }
-        return true
+        // A compatibility registry that has no active session and no retained
+        // completion history cannot prove that this deferred payload belongs to
+        // the drag that produced it. Fail closed instead of applying a stale
+        // workspace reorder.
+        return false
     }
 
     private func workspaceReorderPlan(
@@ -16915,13 +16918,10 @@ struct SidebarTabDropDelegate: DropDelegate {
     /// token as the registry's current native workspace session, otherwise a
     /// late payload from an older drag could be applied to a newer one.
     private func acceptsLiveSidebarPayload() -> Bool {
-        guard let currentSessionId = dragState.currentWorkspaceDragSessionId,
-              let payloadSessionId = SidebarTabDragPayload.sessionId(
-                  from: NSPasteboard(name: .drag)
-              ) else {
-            return false
-        }
-        return payloadSessionId == currentSessionId
+        SidebarTabDragPayload.hasLiveSession(
+            in: NSPasteboard(name: .drag),
+            currentSessionId: dragState.currentWorkspaceDragSessionId
+        )
     }
 
     /// The destination's top-level sidebar ids (each group is represented by its

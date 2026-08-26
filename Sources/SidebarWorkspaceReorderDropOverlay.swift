@@ -24,7 +24,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         performPendingDrop: ((SidebarWorkspaceReorderPendingDrop, [Target]) -> Bool)? = nil,
         clearDropIndicator: @escaping () -> Void,
         setWorkspaceDropTargetCollectionActive: @escaping (Bool) -> Void,
-        hasLiveWorkspaceDrag: @escaping () -> Bool = { false },
+        hasLiveWorkspaceDrag: @escaping () -> Bool,
         pointOffset: CGSize = .zero
     ) {
         self.targetBridge = targetBridge

@@ -86,7 +86,7 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering
         // AppKit begins delivering hit-tests. This removes the provider
         // materialization race while keeping the payload fenced to this
         // generation.
-        let dragPasteboard = NSPasteboard(name: .drag)
+        let dragPasteboard = dragPasteboardProvider()
         dragPasteboard.clearContents()
         guard dragPasteboard.setString(capabilityValue, forType: payloadType) else {
             return false

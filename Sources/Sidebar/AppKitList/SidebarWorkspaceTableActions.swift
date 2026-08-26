@@ -25,6 +25,15 @@ struct SidebarWorkspaceTableReorderDropUpdate {
 /// Closure bundle routing table input and drag operations to existing sidebar actions.
 @MainActor
 struct SidebarWorkspaceTableActions {
+    /// Native session capability owned by the AppKit source.
+    ///
+    /// Keeping the identity reader and terminal callback together prevents a
+    /// partially wired action bundle from falling back to unscoped cleanup.
+    struct NativeWorkspaceDragLifecycle {
+        let currentSessionId: () -> UUID?
+        let finish: (UUID, String) -> Void
+    }
+
     let attachScrollView: (NSScrollView) -> Void
     let closeWorkspace: (UUID) -> Void
     let createWorkspaceAtEnd: () -> Void
@@ -56,10 +65,8 @@ struct SidebarWorkspaceTableActions {
     /// headers use the durable group id; grouped members keep their workspace
     /// id so member drags never accidentally move the anchor.
     let workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)?
-    /// Reads the token for the currently prepared native sidebar drag.
-    let currentWorkspaceDragSessionId: (() -> UUID?)?
-    /// Ends a specific native session without touching a newer session.
-    let finishWorkspaceDrag: ((UUID, String) -> Void)?
+    /// Native source ownership, when this bundle supports tokenized completion.
+    let nativeWorkspaceDragLifecycle: NativeWorkspaceDragLifecycle?
 
     init(
         attachScrollView: @escaping (NSScrollView) -> Void,
@@ -85,8 +92,7 @@ struct SidebarWorkspaceTableActions {
         setBonsplitDropTargetCollectionActive: @escaping (Bool) -> Void,
         setBonsplitDropIndicator: @escaping (SidebarDropIndicator?) -> Void,
         workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)? = nil,
-        currentWorkspaceDragSessionId: (() -> UUID?)? = nil,
-        finishWorkspaceDrag: ((UUID, String) -> Void)? = nil
+        nativeWorkspaceDragLifecycle: NativeWorkspaceDragLifecycle? = nil
     ) {
         self.attachScrollView = attachScrollView
         self.closeWorkspace = closeWorkspace
@@ -111,7 +117,6 @@ struct SidebarWorkspaceTableActions {
         self.setBonsplitDropTargetCollectionActive = setBonsplitDropTargetCollectionActive
         self.setBonsplitDropIndicator = setBonsplitDropIndicator
         self.workspaceIdForDrag = workspaceIdForDrag
-        self.currentWorkspaceDragSessionId = currentWorkspaceDragSessionId
-        self.finishWorkspaceDrag = finishWorkspaceDrag
+        self.nativeWorkspaceDragLifecycle = nativeWorkspaceDragLifecycle
     }
 }

@@ -2092,12 +2092,13 @@ final class CmuxWebView: WKWebView {
                 from: pasteboard
             ) != nil
             let hasLiveSidebarDrag: Bool = {
-                guard types?.contains(DragOverlayRoutingPolicy.sidebarTabReorderType) == true,
-                      let currentSessionId = AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId,
-                      let payloadSessionId = SidebarTabDragPayload.sessionId(from: pasteboard) else {
+                guard types?.contains(DragOverlayRoutingPolicy.sidebarTabReorderType) == true else {
                     return false
                 }
-                return payloadSessionId == currentSessionId
+                return SidebarTabDragPayload.hasLiveSession(
+                    in: pasteboard,
+                    currentSessionId: AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId
+                )
             }()
             return hasLiveTabTransfer || hasLiveSidebarDrag
         }

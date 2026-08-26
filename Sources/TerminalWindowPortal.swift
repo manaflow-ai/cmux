@@ -165,12 +165,10 @@ final class WindowTerminalHostView: NSView {
                     pasteboardTypes: dragPasteboardTypes,
                     eventType: eventType,
                     hasActiveDropDrag: hasActivePaneDropDrag,
-                    hasLiveTabTransfer: (
-                        dragPasteboardTypes.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
-                            || dragPasteboardTypes.contains(DragOverlayRoutingPolicy.filePreviewTransferType)
-                    ) && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
-                        from: dragPasteboard
-                    ) != nil
+                    hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
+                        in: dragPasteboard,
+                        resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                    )
                 )
                 if shouldPassThrough {
                     let hitView = super.hitTest(point)

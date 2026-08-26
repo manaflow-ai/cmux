@@ -198,6 +198,20 @@ enum DragOverlayRoutingPolicy {
         return pasteboardTypes.contains(bonsplitTabTransferType)
     }
 
+    /// Resolves an internal tab capability only when its advertised type and
+    /// live registry entry agree. Residual UTIs therefore remain inert.
+    @MainActor
+    static func hasLiveTabTransfer(
+        in pasteboard: NSPasteboard,
+        resolver: LiveTabDragCapabilityResolver?
+    ) -> Bool {
+        let types = pasteboard.types
+        guard hasBonsplitTabTransfer(types) || hasFilePreviewTransfer(types) else {
+            return false
+        }
+        return resolver?.resolve(from: pasteboard) != nil
+    }
+
     static func hasFilePreviewTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let pasteboardTypes else { return false }
         return pasteboardTypes.contains(filePreviewTransferType)

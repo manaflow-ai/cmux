@@ -903,10 +903,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 rowConfiguration.id,
                 rowConfiguration.workspaceId
             ) ?? rowConfiguration.workspaceId
-            let currentSessionId = actions?.currentWorkspaceDragSessionId?()
+            let currentSessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId()
             if pendingWorkspaceDragSessionId == nil || pendingWorkspaceDragSessionId != currentSessionId {
                 actions?.beginWorkspaceDrag(workspaceId)
-                pendingWorkspaceDragSessionId = actions?.currentWorkspaceDragSessionId?()
+                pendingWorkspaceDragSessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId()
                 pendingWorkspaceDragWorkspaceId = workspaceId
             }
             let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
@@ -1056,10 +1056,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 sessionId: sessionId
             ).pasteboardValue
         }()
-        if let sessionId,
-           let capabilityValue,
-           let finishWorkspaceDrag = actions?.finishWorkspaceDrag {
-            finishWorkspaceDrag(sessionId, capabilityValue)
+        if let nativeWorkspaceDragLifecycle = actions?.nativeWorkspaceDragLifecycle {
+            // A tokenized bundle owns completion. If AppKit omitted either
+            // value, leave the registry untouched rather than invoking a
+            // legacy unscoped end callback.
+            if let sessionId, let capabilityValue {
+                nativeWorkspaceDragLifecycle.finish(sessionId, capabilityValue)
+            }
         } else {
             actions?.endWorkspaceDrag()
         }
@@ -1889,11 +1892,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             actions.isValidWorkspaceDrag()
         }
         reorder.hasLiveWorkspaceDrag = {
-            if let currentWorkspaceDragSessionId = actions.currentWorkspaceDragSessionId {
-                guard let sessionId = currentWorkspaceDragSessionId() else { return false }
-                return SidebarTabDragPayload.sessionId(
-                    from: NSPasteboard(name: .drag)
-                ) == sessionId
+            if let nativeWorkspaceDragLifecycle = actions.nativeWorkspaceDragLifecycle {
+                guard let sessionId = nativeWorkspaceDragLifecycle.currentSessionId() else { return false }
+                return SidebarTabDragPayload.hasLiveSession(
+                    in: NSPasteboard(name: .drag),
+                    currentSessionId: sessionId
+                )
             }
             // Compatibility action bundles predate the tokenized registry; in
             // those isolated clients the validity closure is their only live
