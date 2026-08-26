@@ -157,6 +157,20 @@ extension ReconnectRouteSelectionTests {
         #expect(store.connectionErrorGuidance == modeError.mobileGuidance)
     }
 
+    @Test func routeClassMismatchMessageUsesLocalizedTransportNames() {
+        let modeError = CmxTransportModeError.routeClassMismatch(
+            expected: .lan,
+            actual: .tailscale
+        )
+
+        let message = modeError.mobileMessage
+
+        #expect(message.contains(CmxTransportClass.lan.displayName))
+        #expect(message.contains(CmxTransportClass.tailscale.displayName))
+        #expect(!message.contains(CmxTransportClass.lan.rawValue))
+        #expect(!message.contains(CmxTransportClass.tailscale.rawValue))
+    }
+
     @Test func legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
