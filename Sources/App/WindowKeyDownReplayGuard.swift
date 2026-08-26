@@ -287,7 +287,10 @@ extension NSWindow {
         appDelegate: AppDelegate
     ) -> Bool {
         guard appDelegate.shortcutPrefixChordCoordinator.isEnabled,
-              let prefixResult = appDelegate.routePrefixChordEvent(event) else {
+            let prefixResult = appDelegate.routePrefixChordEvent(
+                event,
+                dispatchWindow: self
+            ) else {
             return false
         }
         return prefixResult
@@ -303,7 +306,10 @@ extension NSWindow {
               appDelegate.shortcutPrefixChordCoordinator.isEnabled else {
             return nil
         }
-        if let prefixResult = appDelegate.routePrefixChordEvent(event) {
+        if let prefixResult = appDelegate.routePrefixChordEvent(
+            event,
+            dispatchWindow: self
+        ) {
             return prefixResult
         }
         return appDelegate.handleConfiguredShortcutKeyEquivalent(event) ? true : nil

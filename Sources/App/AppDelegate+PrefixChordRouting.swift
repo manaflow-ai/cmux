@@ -10,6 +10,9 @@ extension AppDelegate {
         for event: NSEvent,
         fallbackWindow: NSWindow? = nil
     ) -> Int {
+        if let fallbackWindow, fallbackWindow.windowNumber > 0 {
+            return fallbackWindow.windowNumber
+        }
         if let window = event.window {
             return window.windowNumber
         }
@@ -47,7 +50,10 @@ extension AppDelegate {
     /// shortcut routing should continue; a Boolean is the local-monitor return
     /// value for an event that was consumed or must be passed through without
     /// another cmux/menu attempt.
-    func routePrefixChordEvent(_ event: NSEvent) -> Bool? {
+    func routePrefixChordEvent(
+        _ event: NSEvent,
+        dispatchWindow: NSWindow? = nil
+    ) -> Bool? {
         // A mismatch marker outlives the first local-monitor offer until the
         // complete AppKit sendEvent/key-equivalent stack unwinds. Check it
         // before the cached prefix state: a settings edit can disable the
@@ -73,7 +79,7 @@ extension AppDelegate {
                 return true
             case .mismatchPassThrough:
                 if event.type == .keyDown {
-                    markPrefixChordPassThrough(event)
+                    markPrefixChordPassThrough(event, dispatchWindow: dispatchWindow)
                 }
                 return false
             case .duplicatePassThrough:
@@ -88,7 +94,7 @@ extension AppDelegate {
             return true
         case .mismatchPassThrough:
             if event.type == .keyDown {
-                markPrefixChordPassThrough(event)
+                markPrefixChordPassThrough(event, dispatchWindow: dispatchWindow)
             }
             return false
         case .duplicatePassThrough:
@@ -107,7 +113,7 @@ extension AppDelegate {
                 // the suffix reach the focused responder unchanged. The
                 // marker also protects the later AppKit replay seam.
                 if event.type == .keyDown {
-                    markPrefixChordPassThrough(event)
+                    markPrefixChordPassThrough(event, dispatchWindow: dispatchWindow)
                 }
                 return false
             }
@@ -117,8 +123,14 @@ extension AppDelegate {
         }
     }
 
-    private func markPrefixChordPassThrough(_ event: NSEvent) {
-        let windowNumber = prefixChordWindowNumber(for: event)
+    private func markPrefixChordPassThrough(
+        _ event: NSEvent,
+        dispatchWindow: NSWindow? = nil
+    ) {
+        let windowNumber = prefixChordWindowNumber(
+            for: event,
+            fallbackWindow: dispatchWindow
+        )
         prefixChordPassThroughCoordinator.mark(event, windowNumber: windowNumber)
     }
 

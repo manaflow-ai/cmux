@@ -1,6 +1,33 @@
 import AppKit
 import CmuxSettings
 
+extension KeyboardShortcutSettings.Action {
+    var isRightSidebarModeAction: Bool {
+        switch self {
+        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed,
+             .switchRightSidebarToDock:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isAdjacentNavigationAction: Bool {
+        switch self {
+        case .nextSurface, .prevSurface,
+             .moveSurfaceLeft, .moveSurfaceRight,
+             .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
+             .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
+             .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
+             .moveWorkspaceUp, .moveWorkspaceDown:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 /// Executes a binding after ``ShortcutPrefixChordCoordinator`` has consumed
 /// its leader stroke.
 ///

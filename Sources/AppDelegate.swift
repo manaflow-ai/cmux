@@ -14352,8 +14352,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteResponderActiveInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteResponderActive(in: $0)
         } ?? false
+        let resolvedCommandPaletteNavigation = activeResolvedPrefixChordActionID
+            == KeyboardShortcutSettings.Action.commandPaletteNext.rawValue
+            || activeResolvedPrefixChordActionID
+            == KeyboardShortcutSettings.Action.commandPalettePrevious.rawValue
         let commandPaletteInteractiveInTargetWindow =
-            !isResolvedPrefixChord
+            (!isResolvedPrefixChord || resolvedCommandPaletteNavigation)
             && (commandPaletteVisibleInTargetWindow
             || commandPaletteOverlayVisibleInTargetWindow
             || commandPaletteResponderActiveInTargetWindow)
@@ -14674,7 +14678,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event) &&
             numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil
 
-        if !isResolvedPrefixChord,
+        let resolvedSidebarModeAction = activeResolvedPrefixChordActionID.map {
+            KeyboardShortcutSettings.Action(rawValue: $0)?.isRightSidebarModeAction == true
+        } ?? false
+        if (!isResolvedPrefixChord || resolvedSidebarModeAction),
            !canvasSurfaceDigitShortcutIsActive,
            let mode = rightSidebarModeShortcut(for: event),
            let rightSidebarWindow = mainWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow,
@@ -14846,7 +14853,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if !isResolvedPrefixChord, handleSavedLayoutShortcut(event) { return true }
+        if (!isResolvedPrefixChord
+            || activeResolvedPrefixChordActionID
+                == KeyboardShortcutSettings.Action.saveLayoutTemplate.rawValue),
+           handleSavedLayoutShortcut(event) { return true }
 
         if !hasFocusedAddressBarInShortcutContext,
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
@@ -15032,7 +15042,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if !isResolvedPrefixChord, handleAdjacentNavigationShortcut(event: event) { return true }
+        if !isResolvedPrefixChord
+            || activeResolvedPrefixChordActionID.map({ actionID in
+                KeyboardShortcutSettings.Action(rawValue: actionID)?.isAdjacentNavigationAction == true
+            }) == true,
+           handleAdjacentNavigationShortcut(event: event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             if performFocusedDockShortcut(
