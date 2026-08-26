@@ -61,6 +61,7 @@ actor CmxConnectivityPeerSession {
     private var nextDiagnosticSessionID = 0
     private var pendingConnection: PendingConnection?
     private var retiredDialDrains: [UUID: Task<Void, Never>] = [:]
+    private var retiredDialPendingTasks: [UUID: Task<any CmxConnectivitySession, any Error>] = [:]
     // Timed-out drains remain owned by a bounded cleanup set until their
     // wrapper observes the canceled dial. New dialing pauses at the cap so
     // repeated wedges cannot accumulate unowned tasks.
@@ -206,10 +207,7 @@ actor CmxConnectivityPeerSession {
             if let pendingConnection {
                 pending = pendingConnection
             } else {
-                guard retiredDialCleanupTasks.count + retiredDialDrains.count
-                    < Self.maximumRetiredDialCleanupCount else {
-                    throw CmxConnectivityEngineError.superseded
-                }
+                pruneRetiredDialCleanupTasksIfNeeded()
                 connectionGeneration &+= 1
                 failure = .none
                 let buildSession = buildSession
@@ -530,6 +528,7 @@ actor CmxConnectivityPeerSession {
         // retirement generation so it cannot clear a replacement drain.
         retiredDialGeneration &+= 1
         let drainID = UUID()
+        retiredDialPendingTasks[drainID] = pending.task
         retiredDialDrains[drainID] = Task { [weak self] in
             let orphan = try? await pending.task.value
             if let self {
@@ -548,6 +547,7 @@ actor CmxConnectivityPeerSession {
             await orphan.close()
         }
         retiredDialDrains[id] = nil
+        retiredDialPendingTasks[id] = nil
         retiredDialCleanupTasks[id] = nil
         guard retiredDialDrains.isEmpty else { return }
         let waiters = retiredDialWaiters.values
@@ -562,6 +562,12 @@ actor CmxConnectivityPeerSession {
     }
 
     private func waitForRetiredDials() async {
+        while !Task.isCancelled, !retiredDialDrains.isEmpty {
+            await waitForOneRetiredDialGeneration()
+        }
+    }
+
+    private func waitForOneRetiredDialGeneration() async {
         guard !retiredDialDrains.isEmpty else { return }
         let waiterID = UUID()
         retiredDialWaiterGenerations[waiterID] = retiredDialGeneration
@@ -610,13 +616,17 @@ actor CmxConnectivityPeerSession {
     }
 
     private func expireRetiredDialWait(id: UUID) {
-        guard !Task.isCancelled, retiredDialWaiterGenerations[id] != nil else {
+        guard !Task.isCancelled, let generation = retiredDialWaiterGenerations[id] else {
             return
         }
-        // A newer retirement may have arrived while this waiter was asleep.
-        // Apply the one-shot timeout to the current drain set instead of
-        // abandoning the continuation with the stale generation.
-        retiredDialWaiterGenerations[id] = retiredDialGeneration
+        guard generation == retiredDialGeneration else {
+            if let continuation = retiredDialWaiters.removeValue(forKey: id) {
+                continuation.resume()
+            } else {
+                expiredRetiredDialWaiters.insert(id)
+            }
+            return
+        }
         let timedOutDrains = retiredDialDrains
         retiredDialDrains.removeAll()
         for (drainID, drain) in timedOutDrains {
@@ -641,6 +651,16 @@ actor CmxConnectivityPeerSession {
             for continuation in waiters {
                 continuation.resume()
             }
+        }
+    }
+
+    private func pruneRetiredDialCleanupTasksIfNeeded() {
+        while retiredDialCleanupTasks.count >= Self.maximumRetiredDialCleanupCount {
+            guard let oldestID = retiredDialCleanupTasks.keys.first else { break }
+            retiredDialPendingTasks[oldestID]?.cancel()
+            retiredDialCleanupTasks[oldestID]?.cancel()
+            retiredDialPendingTasks.removeValue(forKey: oldestID)
+            retiredDialCleanupTasks.removeValue(forKey: oldestID)
         }
     }
 
