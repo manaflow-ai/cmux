@@ -8,10 +8,28 @@ import CryptoKit
 import Foundation
 import OSLog
 
+#if DEBUG
+import CmuxPeerTransport
+import CmuxPeerTransportBridge
+#endif
+
 nonisolated private let mobileIrohLog = Logger(
     subsystem: "dev.cmux.ios",
     category: "iroh-runtime"
 )
+
+#if DEBUG
+/// Compact lane-kind name for peer-transport v2 bridge log lines.
+nonisolated private func ptxLaneKindName(_ lane: CmxIrohLane) -> String {
+    switch lane {
+    case .control: return "control"
+    case .serverEvents: return "server-events"
+    case .terminal: return "terminal"
+    case .artifact: return "artifact"
+    case .simulatorStream: return "simulator-stream"
+    }
+}
+#endif
 
 /// Resume-once guard for the forget deadline race: whichever racer claims
 /// first owns the continuation, and the loser's late completion is discarded.
@@ -221,6 +239,12 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
+    #if DEBUG
+    /// The resolved legacy-broker origin, reused by the DEBUG peer-transport
+    /// v2 dial path so a home-screen launch (no dev env) mints relay
+    /// credentials for its v2 identity through the app's signed-in session.
+    private var ptxBrokerBaseURL: URL?
+    #endif
     private var connectivityInvalidationSubscriber:
         CmxConnectivityInvalidationSubscriber?
     private var connectivityInvalidationAccountID: String?
@@ -442,6 +466,9 @@ public final class MobileIrohRuntimeComposition:
             diagnosticLog: diagnosticLog,
             debugDefaults: defaults
         )
+        #if DEBUG
+        ptxBrokerBaseURL = baseURL
+        #endif
     }
 
     init(
@@ -557,6 +584,16 @@ public final class MobileIrohRuntimeComposition:
         connectivityInvalidationBaseURL: URL? = nil
     ) {
         self.auth = auth
+        #if DEBUG
+        // Peer transport v2: the dial environment mints relay credentials
+        // through this signed-in session, against the same broker origin the
+        // legacy transport uses, keyed to the app's durable device id.
+        PtxDialEnvironment.shared.install(
+            brokerBaseURL: ptxBrokerBaseURL,
+            durableDeviceID: deviceID,
+            auth: auth
+        )
+        #endif
         if let connectivityInvalidationBaseURL {
             connectivityInvalidationSubscriber = CmxConnectivityInvalidationSubscriber(
                 serviceBaseURL: connectivityInvalidationBaseURL,
@@ -691,6 +728,26 @@ public final class MobileIrohRuntimeComposition:
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
+        #if DEBUG
+        // Peer transport v2 lane routing: a v2 Mac carries control over the
+        // bridge and FAILS HARD while its session reconnects — the reconnect
+        // owner inside the facade's dial client is the sole redial
+        // authority. Legacy serves only non-v2 Macs and re-credentialing.
+        PtxFacade.installProbeHook()
+        if let connection = await PtxFacade.shared.admittedConnection(for: request) {
+            PtxFacade.shared.noteServedPath(
+                kind: "control", macID: request.expectedPeerDeviceID, outcome: "ptx")
+            return try await PtxBridgeDialer.openControlTransport(on: connection)
+        }
+        if PtxFacade.shared.requiresBridge(for: request) {
+            PtxFacade.shared.noteServedPath(
+                kind: "control", macID: request.expectedPeerDeviceID,
+                outcome: "fail-hard")
+            throw PtxUnavailableError()
+        }
+        PtxFacade.shared.noteServedPath(
+            kind: "control", macID: request.expectedPeerDeviceID, outcome: "legacy")
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try runtime.transportFactory.makeTransport(for: request)
     }
@@ -707,6 +764,24 @@ public final class MobileIrohRuntimeComposition:
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
+        #if DEBUG
+        if let connection = await PtxFacade.shared.admittedConnection(for: request) {
+            PtxFacade.shared.noteServedPath(
+                kind: ptxLaneKindName(lane),
+                macID: request.expectedPeerDeviceID, outcome: "ptx")
+            return try await PtxBridgeDialer.openLane(
+                on: connection, lane: lane, priority: priority)
+        }
+        if PtxFacade.shared.requiresBridge(for: request) {
+            PtxFacade.shared.noteServedPath(
+                kind: ptxLaneKindName(lane),
+                macID: request.expectedPeerDeviceID, outcome: "fail-hard")
+            throw PtxUnavailableError()
+        }
+        PtxFacade.shared.noteServedPath(
+            kind: ptxLaneKindName(lane),
+            macID: request.expectedPeerDeviceID, outcome: "legacy")
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.openBidirectionalLane(
             for: request,
@@ -781,6 +856,67 @@ public final class MobileIrohRuntimeComposition:
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
+        #if DEBUG
+        if let connection = await PtxFacade.shared.admittedConnection(for: request) {
+            PtxFacade.shared.noteServedPath(
+                kind: "server-events", macID: request.expectedPeerDeviceID,
+                outcome: "ptx")
+            let acceptor = await PtxFacade.shared.acceptor(for: connection)
+            let (_, stream) = try await acceptor.acceptServerEventStream()
+            let log = PtxDialEnvironment.shared.log
+            // Pump the host-opened bridged stream into the legacy shape:
+            // 64KiB chunks into the independent event byte stream.
+            return AsyncThrowingStream { continuation in
+                let pump = Task {
+                    var chunks = 0
+                    var bytes = 0
+                    log.emit(PtxEventKind.bridgeEvent, reason: "server-events-pump-start")
+                    do {
+                        while let chunk = try await stream.receiveStream.receive(
+                            maximumByteCount: 1 << 16)
+                        {
+                            chunks += 1
+                            bytes += chunk.count
+                            continuation.yield(chunk)
+                        }
+                        log.emit(
+                            PtxEventKind.bridgeEvent,
+                            reason: "server-events-pump-eof",
+                            detail: [
+                                "chunks": String(chunks), "bytes": String(bytes),
+                            ])
+                        continuation.finish()
+                    } catch {
+                        log.emit(
+                            PtxEventKind.bridgeEvent,
+                            reason: "server-events-pump-error",
+                            detail: [
+                                "error": String(describing: error),
+                                "chunks": String(chunks), "bytes": String(bytes),
+                            ])
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { reason in
+                    log.emit(
+                        PtxEventKind.bridgeEvent,
+                        reason: "server-events-pump-terminated",
+                        detail: ["cause": String(describing: reason)])
+                    pump.cancel()
+                    Task { await stream.receiveStream.stop(errorCode: 0) }
+                }
+            }
+        }
+        if PtxFacade.shared.requiresBridge(for: request) {
+            PtxFacade.shared.noteServedPath(
+                kind: "server-events", macID: request.expectedPeerDeviceID,
+                outcome: "fail-hard")
+            throw PtxUnavailableError()
+        }
+        PtxFacade.shared.noteServedPath(
+            kind: "server-events", macID: request.expectedPeerDeviceID,
+            outcome: "legacy")
+        #endif
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.serverEventByteStream(for: request)
     }
@@ -969,6 +1105,12 @@ public final class MobileIrohRuntimeComposition:
         // The user is looking at the app: any armed activation backoff resets
         // to its floor so recovery is immediate rather than mid-nap.
         clearActivationRetryBackoff()
+        #if DEBUG
+        // Peer transport v2: a real foreground return revalidates relay
+        // credentials immediately (the app may have slept past token expiry;
+        // waiting for the renew tick would leave the relay route dead).
+        PtxDialEnvironment.shared.refreshCredentialsOnForeground()
+        #endif
         guard signOutPhase.allowsLifecycle else { return true }
         permissionRefreshTask?.cancel()
         permissionRefreshTask = nil
