@@ -402,15 +402,23 @@ struct CmuxSystemSymbolImage: View {
         } else if RenderableSystemSymbol.isRenderable(systemName) {
             // A transient blank materialization gets the same AppKit lifecycle
             // owner and forced-appearance retry instead of a lazy SwiftUI provider.
-            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
-                source: .systemSymbol(
-                    name: systemName,
-                    accessibilityDescription: nil
-                ),
-                size: NSSize(width: rasterSize, height: rasterSize),
-                symbolWeight: RenderableSystemSymbol.nsFontWeight(for: weight)
-            ))
-            .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+            // The mask keeps the caller's foreground color/style semantics while
+            // the AppKit view remains the only symbol lifecycle owner.
+            Rectangle()
+                .fill(.foreground)
+                .frame(width: rasterSize, height: rasterSize)
+                .mask(
+                    CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                        source: .systemSymbol(
+                            name: systemName,
+                            accessibilityDescription: nil
+                        ),
+                        size: NSSize(width: rasterSize, height: rasterSize),
+                        symbolWeight: RenderableSystemSymbol.nsFontWeight(for: weight)
+                    ))
+                    .frame(width: rasterSize, height: rasterSize)
+                )
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
         } else {
             Color.clear
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)
