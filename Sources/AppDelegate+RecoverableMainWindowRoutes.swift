@@ -161,14 +161,26 @@ extension AppDelegate {
 
     private func currentMainWindowsByWindowId() -> [UUID: NSWindow] {
         var windowsByWindowId: [UUID: NSWindow] = [:]
-        for window in NSApp.windows {
-            guard let windowId = mainWindowId(from: window) else { continue }
+
+        func appendExactWindow(_ window: NSWindow?, for windowId: UUID) {
+            guard let window,
+                  NSApp.windows.contains(where: { $0 === window }),
+                  mainWindowId(from: window) == windowId else {
+                return
+            }
             windowsByWindowId[windowId] = window
         }
+
+        // A recoverable route's cached object identity is authoritative during
+        // context replacement. Do not promote an unrelated NSWindow merely
+        // because it reused the same stable identifier.
+        for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
+            appendExactWindow(route.window, for: route.windowId)
+        }
+
+        // Registered contexts take precedence over any stale orphan projection.
         for context in mainWindowLifecycleCoordinator.registeredContexts {
-            if let window = context.window {
-                windowsByWindowId[context.windowId] = window
-            }
+            appendExactWindow(context.window, for: context.windowId)
         }
         return windowsByWindowId
     }
@@ -416,9 +428,19 @@ extension AppDelegate {
             }
             // A timed-out fresh scan must retain the last cached agent projection;
             // only its process-detected surface bindings are unavailable.
-            let restorableAgentIndex = resumeIndexes?.restorableAgentIndex
-                ?? SharedLiveAgentIndex.shared.index
-                ?? .empty
+            let restorableAgentIndex: RestorableAgentSessionIndex
+            if let detectedAgentIndex = resumeIndexes?.restorableAgentIndex {
+                restorableAgentIndex = detectedAgentIndex
+            } else if let cachedAgentIndex = SharedLiveAgentIndex.shared.index {
+                restorableAgentIndex = cachedAgentIndex
+            } else {
+                // A cold cache still has a persisted projection. Refresh it
+                // off the interactive path before falling back to empty; the
+                // process-detected surface bindings remain fail-closed.
+                restorableAgentIndex = await SharedLiveAgentIndex.shared
+                    .indexRefreshingNow() ?? .empty
+            }
+            guard !Task.isCancelled else { return }
             let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
             self?.freezeWindowlessRecoverableMainWindowRoute(
                 route,
@@ -1096,24 +1118,6 @@ extension AppDelegate {
             tabManager: snapshot.tabManager,
             window: window
         )
-    }
-
-    /// Filters the route's creation-time identity snapshot against current
-    /// ownership before detaching remote mirrors. Workspaces can move to a new
-    /// manager while the old SwiftUI context is recoverable; those moved IDs
-    /// must not be torn down when the stale route later retires.
-    private func recoverableRouteWorkspaceIdsForRemoteTeardown(
-        _ route: RecoverableMainWindowRoute
-    ) -> [UUID] {
-        let workspaceIds = route.tabManager?.tabs.map(\.id) ?? []
-        return workspaceIds.filter { workspaceId in
-            guard let currentOwner = tabManagerFor(tabId: workspaceId) else {
-                // No current owner means the mirror is orphaned; include it
-                // even while the old manager object is still being released.
-                return true
-            }
-            return currentOwner === route.tabManager
-        }
     }
 
     func scriptableMainWindowForTab(_ tabId: UUID) -> ScriptableMainWindowState? {
