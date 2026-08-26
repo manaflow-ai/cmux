@@ -70,8 +70,15 @@ extension MobileShellComposite {
 
     func beginTerminalReplayBarrier(
         surfaceID: String,
-        preservingFollowUpCount: Bool = false
+        preservingFollowUpCount: Bool = false,
+        preservingOverloadReplacement: Bool = false
     ) -> UUID {
+        // The overload marker describes still-unreconciled dropped work, not a
+        // particular barrier token. Carry it when a live barrier is replaced;
+        // otherwise a superseding resync could accept a compatibility payload
+        // as though it covered the discarded queue.
+        let carryOverloadReplacement = preservingOverloadReplacement
+            || terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
         cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
@@ -93,6 +100,9 @@ extension MobileShellComposite {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
+        if carryOverloadReplacement {
+            terminalReplayOverloadReplacementSurfaceIDs.insert(surfaceID)
+        }
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -111,11 +121,15 @@ extension MobileShellComposite {
         surfaceID: String,
         forceReplacementReplay: Bool = false
     ) -> UUID {
+        let preservingOverloadReplacement = terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
         let owesReplacementReplay = forceReplacementReplay
             || !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
             || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
             || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
-        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        let replayBarrierToken = beginTerminalReplayBarrier(
+            surfaceID: surfaceID,
+            preservingOverloadReplacement: preservingOverloadReplacement
+        )
         if owesReplacementReplay {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
             // A forced replacement (notably an output-queue overload) has

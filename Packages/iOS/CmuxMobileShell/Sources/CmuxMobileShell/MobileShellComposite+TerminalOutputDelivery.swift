@@ -525,6 +525,8 @@ extension MobileShellComposite {
             let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
             if droppedOutputDuringBarrier, needsFollowUpReplay {
                 if claimTerminalReplayBarrierFollowUp(surfaceID: surfaceID) {
+                    let preservingOverloadReplacement =
+                        terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
                     let baselineReplayRequestCount = missingBaselineReplayBarrier
                         ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
                         : nil
@@ -539,7 +541,8 @@ extension MobileShellComposite {
                     terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     let replayBarrierToken = beginTerminalReplayBarrier(
                         surfaceID: surfaceID,
-                        preservingFollowUpCount: true
+                        preservingFollowUpCount: true,
+                        preservingOverloadReplacement: preservingOverloadReplacement
                     )
                     if coldAttachReplayBarrier {
                         terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
