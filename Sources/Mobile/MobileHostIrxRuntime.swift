@@ -172,21 +172,27 @@ final class MobileHostIrxRuntime {
             let pilot = IrxRelayCredentialAutopilot(
                 broker: broker, endpoint: supervisor, journal: Self.journal)
             autopilot = pilot
-            let credentials = try await pilot.usableCredentials()
-            let relayHint = credentials.first?.relayURL
+            // Registration FIRST: non-legacy namespaces need the binding
+            // authorization it establishes before any other broker call
+            // (relay minting, discovery) is accepted.
             let binding = try await broker.register(
                 pairingEnabled: true,
-                relayURLHint: relayHint
+                relayURLHint: nil
             )
             localBinding = binding
+            let credentials = try await pilot.usableCredentials()
             _ = try await broker.discover()
 
             guard generationToken == token else { return }
             _ = try await supervisor.readyEndpoint(credentials: credentials)
+            // Advertise the relay the endpoint ACTUALLY homes on, then
+            // refresh the binding so registry consumers see it too.
+            let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
+            _ = try? await broker.register(pairingEnabled: true, relayURLHint: homeRelay)
             await pilot.start()
             registry = IrxServerSessionRegistry(journal: Self.journal)
 
-            publishRoute(identity: identity, relayURL: relayHint)
+            publishRoute(identity: identity, relayURL: homeRelay)
             startAcceptLoop(token: token)
             Self.journal.record(
                 "host-runtime", "active",

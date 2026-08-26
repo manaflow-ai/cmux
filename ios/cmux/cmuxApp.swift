@@ -89,9 +89,7 @@ struct cmuxApp: App {
         let registrations = [
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
-                factory: irxEnabled
-                    ? CmxConnectivityDeferredTransportFactory(provider: irx)
-                    : iroh.transportFactory
+                factory: irxEnabled ? irx.transportFactory : iroh.transportFactory
             ),
         ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory

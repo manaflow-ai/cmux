@@ -1,9 +1,9 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 import CmuxAuthRuntime
-import CmuxIrohTransport
+public import CmuxIrohTransport
 import CmuxIrxTransport
-import CmuxMobileRPC
-import Foundation
+public import CmuxMobileRPC
+public import Foundation
 
 /// iOS composition root for the irx transport (the from-scratch iroh rebuild
 /// in `CmuxIrxTransport`). DEBUG-only, default-off: when `cmux.irx.enabled`
@@ -56,6 +56,11 @@ public actor MobileIrxRuntimeComposition {
             journalFileURL: documents?.appendingPathComponent("irx-journal.jsonl")
         )
     }()
+
+    /// The stable factory cmuxApp registers for `.iroh` routes in irx mode.
+    public nonisolated var transportFactory: CmxConnectivityDeferredTransportFactory {
+        CmxConnectivityDeferredTransportFactory(provider: self)
+    }
 
     private let brokerBaseURL: URL?
     private let clientNamespace: String
@@ -227,9 +232,11 @@ public actor MobileIrxRuntimeComposition {
         let pilot = IrxRelayCredentialAutopilot(
             broker: broker, endpoint: supervisor, journal: Self.journal)
         autopilot = pilot
-        // Warm everything off the dial path.
-        _ = try await pilot.usableCredentials()
+        // Warm everything off the dial path. Registration FIRST: non-legacy
+        // namespaces need its binding authorization before relay minting or
+        // discovery are accepted.
         _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
+        _ = try await pilot.usableCredentials()
         _ = try? await broker.discover()
         await pilot.start()
         return broker

@@ -88,6 +88,13 @@ public actor IrxEndpointSupervisor {
         return driver
     }
 
+    /// The relay this endpoint actually homes on (post-`online`), the URL
+    /// peers should dial first. Never assume it equals any credential's URL.
+    public func homeRelayURL() -> String? {
+        guard let driver, !driver.isClosed() else { return nil }
+        return driver.addr().relayUrl()
+    }
+
     /// Accepts the next inbound connection as an irx connection, or nil when
     /// the endpoint is closed/unbound (callers rebind via `readyEndpoint`).
     public func acceptNextIrxConnection() async -> IrxConnection? {
