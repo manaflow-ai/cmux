@@ -69,6 +69,40 @@ struct ClaudeTaskSyncHookTests {
         #expect(!shouldApply)
     }
 
+    @Test("An unresolved SessionEnd boundary leaves a current generation intact")
+    func preservesCurrentGenerationForUnresolvedSessionEndBoundary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-end-unresolved-generation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appendingPathComponent("sessions.json")
+        let sessionId = "unresolved-generation-session"
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ])
+        _ = try store.upsert(
+            sessionId: sessionId,
+            workspaceId: "0a0a0a0a-0a0a-0a0a-0a0a-0a0a0a0a0a0a",
+            surfaceId: "0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b",
+            cwd: root.path,
+            markActive: true
+        )
+        let currentRecord = try #require(try store.lookup(sessionId: sessionId))
+        let boundary = try store.recordClaudeSessionEndBoundary(
+            sessionId: sessionId,
+            workspaceId: nil,
+            surfaceId: nil,
+            turnId: nil,
+            requireNoExistingSessionRecord: true,
+            deadlineUptime: ProcessInfo.processInfo.systemUptime + 5
+        )
+        #expect(boundary == nil)
+        let preservedRecord = try #require(try store.lookup(sessionId: sessionId))
+        #expect(preservedRecord.startedAt == currentRecord.startedAt)
+        #expect(try !store.isClaudeSessionEnded(sessionId))
+    }
+
     @Test("Task ownership survives an older writer rewriting the main hook store")
     func preservesTaskOwnershipAcrossLegacyStoreRewrite() throws {
         let root = FileManager.default.temporaryDirectory
