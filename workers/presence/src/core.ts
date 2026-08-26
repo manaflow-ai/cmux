@@ -25,8 +25,8 @@ export const OFFLINE_TIMEOUT_MS = 45_000;
 export const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /** One attach route as the registry stores it (`device_app_instances.routes`
- * jsonb). Legacy kinds remain opaque. Iroh routes cross a server privacy
- * boundary and are reduced to EndpointID plus an approved managed relay URL. */
+ * jsonb). Route kinds remain opaque to the worker; retired iroh routes are
+ * dropped at every boundary (see routePrivacy.ts). */
 export type PresenceRoute = Record<string, unknown>;
 
 export interface PresenceInstance {

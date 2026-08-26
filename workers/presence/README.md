@@ -27,10 +27,10 @@ The heartbeat response returns `heartbeatIntervalMs` (15s) and
 hardcoding it. An instance that misses heartbeats for the timeout window is
 flipped offline by the Durable Object alarm with `reason: "timeout"`.
 
-Every server boundary reduces Iroh routes to the EndpointID plus an exact
-managed relay URL. Direct addresses and private-network hints remain on the
-device or move endpoint-to-endpoint after admission. Existing LAN, Tailscale,
-and custom-network route bodies pass through unchanged for compatibility.
+Every server boundary drops routes for the retired iroh transport (old Macs
+still publish them, and their bodies can carry private direct-address hints).
+Existing LAN, Tailscale, and custom-network route bodies pass through
+unchanged for compatibility.
 
 Presence still sends the full sanitized route body in `online`, `routes`, and
 snapshot frames. Current iOS clients write that body into their paired-Mac store
@@ -43,15 +43,16 @@ user to announce a `deviceId` owns it, and a heartbeat for that device from a
 different team member is rejected with `403 device_owner_mismatch`, so a
 co-member cannot forge another member's device online or goodbye it offline.
 
-Connectivity invalidation is separate from team presence because Iroh routes
-belong to the personal Stack account even when two devices select different
-teams. The worker derives a dedicated Durable Object id from the verified user
-id, pins that same id in every socket attachment, and accepts only one bounded
-wire shape: `{type:"connectivity.invalidate", protocolVersion:1, revision, at}`.
-No route, binding, endpoint, or path data crosses this channel. Mac and iPhone
-use the revision only to fetch and atomically install the complete
-`/api/connectivity/v2/sync` snapshot. Delivery is best-effort, so sleeping
-devices and reordered frames affect refresh latency rather than correctness.
+Connectivity invalidation is separate from team presence because it belongs to
+the personal Stack account even when two devices select different teams. The
+worker derives a dedicated Durable Object id from the verified user id, pins
+that same id in every socket attachment, and accepts only one bounded wire
+shape: `{type:"connectivity.invalidate", protocolVersion:1, revision, at}`.
+No route, binding, endpoint, or path data crosses this channel. The phone
+inline-reply relay depends on this lane: a posted reply lands in the account
+DO's inbox and the connected Mac is nudged with `connectivity.invalidate` to
+sweep it (see `src/replies.ts`). Delivery is best-effort, so sleeping devices
+and reordered frames affect refresh latency rather than correctness.
 Publication also requires the server-only
 `X-Cmux-Connectivity-Publisher-Secret`, matched against the Worker's
 `CONNECTIVITY_INVALIDATION_SECRET`; a native client access token cannot forge

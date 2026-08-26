@@ -102,9 +102,9 @@ export const MAX_ROUTES_TOTAL_BYTES = 2048;
 export const MAX_PAIRED_MAC_BACKUP_BYTES =
   MAX_BACKUP_OPS * (MAX_ROUTES_TOTAL_BYTES + 1024) + 2048;
 
-/** The backup payload mirrors the iOS `MobilePairedMac` row. Legacy routes stay
- * opaque, while Iroh routes are reduced to EndpointID plus an approved managed
- * relay URL before persistence and again before restore. */
+/** The backup payload mirrors the iOS `MobilePairedMac` row. Routes stay
+ * opaque to the worker, except retired iroh routes, which are dropped before
+ * persistence and again before restore. */
 export interface PairedMacBackupRecord {
   macDeviceID: string;
   displayName?: string;

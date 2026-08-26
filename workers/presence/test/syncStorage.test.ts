@@ -582,7 +582,7 @@ describe("deriveDeviceRecord edge cases", () => {
     expect(rec!.instances.map((i) => i.tag)).toEqual(["b", "a"]); // newest-first
   });
 
-  it("never projects private Iroh hints into the team device collection", () => {
+  it("never projects retired iroh routes into the team device collection", () => {
     const legacy = { kind: "tailscale", endpoint: { host: "100.64.1.2", port: 49152 } };
     const rec = deriveDeviceRecord(
       "dev-A",
@@ -606,21 +606,11 @@ describe("deriveDeviceRecord edge cases", () => {
       ],
       "user-1",
     );
-    expect(rec?.instances[0]?.routes).toEqual([
-      legacy,
-      {
-        id: "iroh",
-        kind: "iroh",
-        endpoint: {
-          type: "peer",
-          id: "a".repeat(64),
-          relay_url: "https://use4.relay.cmux.dev/",
-        },
-      },
-    ]);
+    expect(rec?.instances[0]?.routes).toEqual([legacy]);
+    expect(JSON.stringify(rec)).not.toContain("iroh");
   });
 
-  it("scrubs pre-hardening Iroh hints from stored team sync frames", () => {
+  it("drops retired iroh routes from stored team sync frames", () => {
     const frame = sanitizeDeviceSyncFrame({
       type: "sync.delta",
       collection: "devices",
@@ -649,6 +639,7 @@ describe("deriveDeviceRecord edge cases", () => {
         }),
       }],
     });
+    expect(JSON.stringify(frame)).not.toContain("iroh");
     expect(JSON.stringify(frame)).not.toContain("192.168.1.20");
     expect(JSON.stringify(frame)).not.toContain("legacy-private-relay-hint");
   });

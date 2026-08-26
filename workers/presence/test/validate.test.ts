@@ -3,7 +3,6 @@ import { MAX_REQUEST_BYTES, MAX_ROUTES, parseHeartbeat, readBoundedJson } from "
 
 const DEVICE_ID = "11111111-2222-4333-8444-555555555555";
 const IROH_ENDPOINT_ID = "a".repeat(64);
-const APPROVED_IROH_RELAY = "https://use4.relay.cmux.dev/";
 
 function postRequest(
   body: string | ReadableStream<Uint8Array>,
@@ -204,11 +203,16 @@ describe("parseHeartbeat routes", () => {
     expect(result.beat.routes).toHaveLength(MAX_ROUTES);
   });
 
-  it("strips private Iroh hints at ingestion while preserving legacy routes", () => {
+  it("drops retired iroh routes at ingestion while passing other kinds through", () => {
     const legacy = {
       id: "legacy",
       kind: "tailscale",
       endpoint: { type: "host_port", host: "100.64.1.2", port: 49152 },
+    };
+    const unknownKind = {
+      id: "future",
+      kind: "carrier_pigeon",
+      endpoint: { type: "host_port", host: "100.77.7.7", port: 49153 },
     };
     const result = parseHeartbeat(body([
       legacy,
@@ -221,33 +225,12 @@ describe("parseHeartbeat routes", () => {
           id: IROH_ENDPOINT_ID,
           direct_addrs: ["192.168.1.20:49152", "100.64.1.2:49152"],
           relay_hint: "legacy-private-relay-hint",
-          relay_url: APPROVED_IROH_RELAY,
         },
       },
-      {
-        id: "iroh-unmanaged",
-        kind: "iroh",
-        endpoint: {
-          type: "peer",
-          id: IROH_ENDPOINT_ID,
-          relay_url: "https://attacker.example/relay",
-        },
-      },
+      unknownKind,
     ]));
     if (!result.ok) throw new Error(result.error);
-    expect(result.beat.routes).toEqual([
-      legacy,
-      {
-        id: "iroh",
-        kind: "iroh",
-        priority: 1,
-        endpoint: { type: "peer", id: IROH_ENDPOINT_ID, relay_url: APPROVED_IROH_RELAY },
-      },
-      {
-        id: "iroh-unmanaged",
-        kind: "iroh",
-        endpoint: { type: "peer", id: IROH_ENDPOINT_ID },
-      },
-    ]);
+    expect(result.beat.routes).toEqual([legacy, unknownKind]);
+    expect(JSON.stringify(result.beat.routes)).not.toContain("iroh");
   });
 });
