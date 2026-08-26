@@ -346,10 +346,16 @@ public actor MobileIrxRuntimeComposition {
                 "direct": String(routesByPeer[peerHex]?.directAddresses.count ?? 0),
             ]
         )
-        guard let relayURL else {
-            // Without the target's home relay a relay-only dial is a black
-            // hole; fail fast with an attributed error instead of a 30s hang.
-            throw CompositionError.peerNotDiscovered
+        if relayURL == nil {
+            // Stale/missing hint (e.g. the Mac's registered hint lapsed):
+            // fall back to our own relay rather than refusing outright; the
+            // fleet is small enough that co-homing is common, and a wrong
+            // guess fails in one dial timeout instead of stranding the peer.
+            relayURL = credentials.first?.relayURL
+            Self.journal.record(
+                "client-dial", "relay-fallback",
+                ["peer": String(peerHex.prefix(12)), "relay": relayURL ?? "-"]
+            )
         }
         let address = try supervisor.dialAddress(
             peerEndpointIDHex: peerHex,

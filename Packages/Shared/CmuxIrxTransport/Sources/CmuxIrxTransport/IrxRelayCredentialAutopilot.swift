@@ -11,6 +11,9 @@ public actor IrxRelayCredentialAutopilot {
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
     private var loop: Task<Void, Never>?
+    /// Runs after every successful rotation. Hosts re-register here so their
+    /// advertised relay hint (server-capped at a 1h lifetime) never expires.
+    public var onRotation: (@Sendable () async -> Void)?
 
     public init(
         broker: IrxBrokerService,
@@ -20,6 +23,10 @@ public actor IrxRelayCredentialAutopilot {
         self.broker = broker
         self.endpoint = endpoint
         self.journal = journal
+    }
+
+    public func setOnRotation(_ handler: @escaping @Sendable () async -> Void) {
+        onRotation = handler
     }
 
     /// Usable credentials for binding/dialing RIGHT NOW: cached when fresh
@@ -73,6 +80,7 @@ public actor IrxRelayCredentialAutopilot {
             do {
                 let minted = try await broker.mintRelayCredentials()
                 await endpoint.rotateCredentials(minted)
+                await onRotation?()
             } catch {
                 let expiry = credentials.map(\.expiresAt).max() ?? Date()
                 let delay = IrxRelayCredentialPolicy.retryDelay(expiresAt: expiry, now: Date())

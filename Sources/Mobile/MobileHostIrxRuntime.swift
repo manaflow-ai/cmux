@@ -193,6 +193,13 @@ final class MobileHostIrxRuntime {
             // refresh the binding so registry consumers see it too.
             let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
             _ = try? await broker.register(pairingEnabled: true, relayURLHint: homeRelay)
+            // Relay hints are server-capped at 1h; refresh the registration on
+            // every credential rotation so the advertised hint never expires.
+            await pilot.setOnRotation { [weak broker, weak supervisor] in
+                guard let broker, let supervisor else { return }
+                let relay = await supervisor.homeRelayURL()
+                _ = try? await broker.register(pairingEnabled: true, relayURLHint: relay)
+            }
             await pilot.start()
             registry = IrxServerSessionRegistry(journal: Self.journal)
 
