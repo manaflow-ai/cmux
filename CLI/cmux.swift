@@ -722,6 +722,26 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Returns the wall-clock generation boundary that retired a task list.
+    ///
+    /// A task hook may re-admit a retired list only when its session generation
+    /// or a live automatic-team binding proves that it began after this
+    /// boundary.
+    func claudeTaskListRetiredAt(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> TimeInterval? {
+        let normalizedTaskListID = taskListID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTaskListID.isEmpty else { return nil }
+        let key = claudeTaskListStorageKey(
+            taskListID: normalizedTaskListID,
+            taskStoreIdentity: taskStoreIdentity
+        )
+        return try withLockedState { state in
+            state.retiredClaudeTaskLists[key]
+        }
+    }
+
     /// Returns namespaced destination proofs retained for a deleted task list.
     func retiredClaudeTaskListDestinationRecords(
         taskStoreIdentity: ClaudeTaskStoreIdentity
