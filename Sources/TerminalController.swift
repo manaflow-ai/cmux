@@ -4253,6 +4253,9 @@ class TerminalController {
                 }
                 return false
             }()
+            if remotePanelOwnershipBlocked {
+                terminalSkip = true
+            }
             if workspace.effectiveCustomTitleSource == .user ||
                (expectedWorkspaceTitle != nil &&
                 (reconciliationCAS

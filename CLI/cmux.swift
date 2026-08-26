@@ -347,6 +347,18 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Releases a detached-worker reservation when launch or early setup fails.
+    func releaseAutoNamingSpawn(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            record.autoNameSpawnLeaseAt = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
     /// Records the hook-observed permission mode on an existing session record.
     /// The already-current check happens INSIDE the lock: an unlocked pre-check
     /// can race an overlapping hook's write and skip persisting the newest mode,
@@ -2101,28 +2113,28 @@ final class ClaudeHookSessionStore {
         expected: ClaudeHookSessionRecord,
         incomingPID: Int?
     ) -> Bool {
-        if let expectedSeconds = expected.pidStartSeconds,
-           let expectedMicroseconds = expected.pidStartMicroseconds,
-           let existingSeconds = existing.pidStartSeconds,
-           let existingMicroseconds = existing.pidStartMicroseconds {
-            guard (expectedSeconds, expectedMicroseconds) == (existingSeconds, existingMicroseconds) else {
-                return false
-            }
+        let expectedGeneration = expected.pidStartSeconds.flatMap { seconds in
+            expected.pidStartMicroseconds.map { (seconds, $0) }
+        }
+        let existingGeneration = existing.pidStartSeconds.flatMap { seconds in
+            existing.pidStartMicroseconds.map { (seconds, $0) }
+        }
+        if let expectedGeneration {
+            guard existingGeneration == expectedGeneration else { return false }
         } else if let expectedPID = expected.pid,
                   let existingPID = existing.pid,
                   expectedPID != existingPID {
             return false
         }
-        if let incomingPID,
-           let existingPID = existing.pid,
-           incomingPID != existingPID {
+        if let incomingPID, let existingGeneration {
             guard let incomingIdentity = processStartIdentity(pid: incomingPID),
-                  let existingSeconds = existing.pidStartSeconds,
-                  let existingMicroseconds = existing.pidStartMicroseconds else {
+                  (incomingIdentity.seconds, incomingIdentity.microseconds) == existingGeneration else {
                 return false
             }
-            return (incomingIdentity.seconds, incomingIdentity.microseconds)
-                == (existingSeconds, existingMicroseconds)
+        } else if let incomingPID,
+                  let existingPID = existing.pid,
+                  incomingPID != existingPID {
+            return false
         }
         return true
     }

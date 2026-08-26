@@ -222,6 +222,8 @@ extension CMUXCLI {
         do {
             try process.run()
         } catch {
+            try? ClaudeHookSessionStore(processEnv: spawnEnv)
+                .releaseAutoNamingSpawn(sessionId: sessionId)
             telemetry.breadcrumb("\(def.name)-hook.auto-name.spawn-failed")
             return
         }
@@ -256,6 +258,7 @@ extension CMUXCLI {
         let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("codex-hook.auto-name.stale")
             return

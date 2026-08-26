@@ -155,6 +155,7 @@ extension CMUXCLI {
         let workspaceUserOwned = probe["workspace_user_owned"] as? Bool == true
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        try? sessionStore.releaseAutoNamingSpawn(sessionId: sessionId)
         let mapped = try? sessionStore.lookup(sessionId: sessionId)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.stale")
