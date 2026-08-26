@@ -1899,11 +1899,16 @@ mod tests {
         while let Ok(cue) = cues.try_recv() {
             assert!(matches!(cue, FlushWake::Arm), "an in-flight POST defers the next flush");
         }
-        let pool = shared.pool.lock().expect("lock pool");
-        assert!(pool.flush_again);
-        let total = pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
-        assert_eq!(total, MAX_BATCH_RECORDS);
-        drop(pool);
+        // Block scope, not drop(): clippy's await_holding_lock reasons
+        // about lexical scope, so an explicit drop before the await still
+        // trips it (rust-clippy#6446).
+        {
+            let pool = shared.pool.lock().expect("lock pool");
+            assert!(pool.flush_again);
+            let total =
+                pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
+            assert_eq!(total, MAX_BATCH_RECORDS);
+        }
         remove_cursor_test_path(&root).await;
     }
 
@@ -1970,10 +1975,12 @@ mod tests {
         assert_eq!(cursors.get("alpha"), Some(&cursor("gen_a", "2")));
         assert_eq!(cursors.get("beta"), Some(&cursor("gen_b", "3")));
         drop(cursors);
-        let pool = shared.pool.lock().expect("lock pool");
-        assert!(pool.pending.is_empty());
-        assert!(!pool.flushing);
-        drop(pool);
+        // Block scope, not drop(): see the await_holding_lock note above.
+        {
+            let pool = shared.pool.lock().expect("lock pool");
+            assert!(pool.pending.is_empty());
+            assert!(!pool.flushing);
+        }
         remove_cursor_test_path(&root).await;
     }
 
