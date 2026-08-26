@@ -155,6 +155,42 @@ describe("POST /api/relay/allow", () => {
     expect(response.status).toBe(401);
   });
 
+  test("400 when the unsigned header conflicts with the signed body", async () => {
+    // The HMAC covers only the body, so replaying a captured body-signed
+    // request with a different X-Iroh-NodeId must not redirect the decision.
+    const text = JSON.stringify({ endpointId: ACTIVE_ID });
+    const request = new Request("https://cmux.dev/api/relay/allow", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Iroh-NodeId": UNKNOWN_ID,
+        [RELAY_ALLOW_SIGNATURE_HEADER]:
+          relayAllowSignature(SECRET, Buffer.from(text, "utf8")),
+      },
+      body: text,
+    });
+    const response = await handleRelayAllowRequest(request, deps());
+    expect(response.status).toBe(400);
+    expect(await response.text()).not.toBe("true");
+  });
+
+  test("admits when the header and the signed body agree", async () => {
+    const text = JSON.stringify({ endpointId: ACTIVE_ID });
+    const request = new Request("https://cmux.dev/api/relay/allow", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Iroh-NodeId": ACTIVE_ID,
+        [RELAY_ALLOW_SIGNATURE_HEADER]:
+          relayAllowSignature(SECRET, Buffer.from(text, "utf8")),
+      },
+      body: text,
+    });
+    const response = await handleRelayAllowRequest(request, deps());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("true");
+  });
+
   test("503 when the shared secret is unset (fail closed)", async () => {
     const response = await handleRelayAllowRequest(
       relayShapedRequest(ACTIVE_ID),

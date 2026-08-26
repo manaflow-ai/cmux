@@ -124,13 +124,11 @@ function extractEndpointId(
   bodyBytes: Uint8Array,
 ): string | Response {
   const header = request.headers.get(ENDPOINT_ID_HEADER)?.trim().toLowerCase();
-  if (header) {
-    return ENDPOINT_ID_RE.test(header)
-      ? header
-      : jsonResponse({ error: "invalid_endpoint_id" }, 400);
+  if (header && !ENDPOINT_ID_RE.test(header)) {
+    return jsonResponse({ error: "invalid_endpoint_id" }, 400);
   }
   if (bodyBytes.byteLength === 0) {
-    return jsonResponse({ error: "missing_endpoint_id" }, 400);
+    return header ? header : jsonResponse({ error: "missing_endpoint_id" }, 400);
   }
   let parsed: unknown;
   try {
@@ -145,9 +143,17 @@ function extractEndpointId(
     return jsonResponse({ error: "missing_endpoint_id" }, 400);
   }
   const endpointId = candidate.trim().toLowerCase();
-  return ENDPOINT_ID_RE.test(endpointId)
-    ? endpointId
-    : jsonResponse({ error: "invalid_endpoint_id" }, 400);
+  if (!ENDPOINT_ID_RE.test(endpointId)) {
+    return jsonResponse({ error: "invalid_endpoint_id" }, 400);
+  }
+  // The HMAC covers only the raw body, so a non-empty signed body is the
+  // authoritative identity source. An unsigned header that disagrees would
+  // let a captured body-signed request be re-targeted to a different
+  // endpoint; reject the conflict instead of picking either side.
+  if (header && header !== endpointId) {
+    return jsonResponse({ error: "conflicting_endpoint_id" }, 400);
+  }
+  return endpointId;
 }
 
 function admissionResponse(admission: RelayAllowAdmission): Response {
