@@ -7,6 +7,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openAttachEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { captureVmAttachCompleted } from "../../../../../services/vms/productAnalytics";
 
 
 export async function POST(
@@ -18,7 +19,7 @@ export async function POST(
     "/api/vm/[id]/attach-endpoint",
     { "cmux.vm.operation": "open_attach" },
     "/api/vm/[id]/attach-endpoint failed",
-    async ({ user, span }) => {
+    async ({ user, span, routeStartedAtMs }) => {
       const { id } = await params;
       const body = await parseAttachBody(request);
       const requireDaemon = body.requireDaemon === true || body.require_daemon === true;
@@ -49,9 +50,24 @@ export async function POST(
           options: { requireDaemon, sessionId, attachmentId },
         }));
         setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
+        captureVmAttachCompleted({
+          userId: user.id,
+          reattach: !!sessionId || !!attachmentId,
+          requireDaemon,
+          transport: endpoint.transport,
+          status: 200,
+          durationMs: performance.now() - routeStartedAtMs,
+        });
         return jsonResponse(endpoint);
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
+        captureVmAttachCompleted({
+          userId: user.id,
+          reattach: !!sessionId || !!attachmentId,
+          requireDaemon,
+          status: 502,
+          durationMs: performance.now() - routeStartedAtMs,
+        });
         throw err;
       }
     },

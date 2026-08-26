@@ -65,6 +65,8 @@ export function setSpanAttributes(span: Span, attributes: MaybeAttributes): void
 }
 
 export function recordSpanError(span: Span, err: unknown): void {
+  const errorTag = errorTagOf(err);
+  if (errorTag) span.setAttribute("cmux.error_tag", errorTag);
   if (err instanceof Error) {
     span.recordException(err);
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
@@ -81,6 +83,15 @@ export function recordSpanError(span: Span, err: unknown): void {
     "cmux.error_name": "NonError",
     "cmux.error_message": message,
   });
+}
+
+/** Effect tagged errors (Data.TaggedError) carry their type in `_tag`. */
+function errorTagOf(err: unknown): string | undefined {
+  if (typeof err === "object" && err !== null && "_tag" in err) {
+    const tag = (err as { _tag?: unknown })._tag;
+    if (typeof tag === "string" && tag.length > 0) return tag;
+  }
+  return undefined;
 }
 
 function cleanAttributes(attributes: MaybeAttributes): Attributes {

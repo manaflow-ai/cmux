@@ -112,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
           createdAt: restored.createdAt,
         });
       } catch (err) {
-        const response = createLikeErrorResponse(err, entitlements.planId);
+        const response = createLikeErrorResponse(err, entitlements.planId, user.id);
         if (response) return response;
         throw err;
       }
@@ -181,7 +181,7 @@ function idempotencyKeyFromRequest(request: Request): string | undefined {
   return raw ? raw.slice(0, 128) : undefined;
 }
 
-function createLikeErrorResponse(err: unknown, planId: string): Response | null {
+function createLikeErrorResponse(err: unknown, planId: string, userId?: string): Response | null {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -204,6 +204,7 @@ function createLikeErrorResponse(err: unknown, planId: string): Response | null 
     return vmActiveLimitExceededResponse({
       limit: err.limit,
       planId,
+      userId,
       retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
     });
   }

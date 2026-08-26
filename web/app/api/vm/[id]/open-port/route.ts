@@ -9,6 +9,7 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openVmPort, runVmWorkflow } from "../../../../../services/vms/workflows";
 import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
+import { captureVmDesktopOpened } from "../../../../../services/vms/productAnalytics";
 
 
 export async function POST(
@@ -74,6 +75,7 @@ export async function POST(
           token: endpoint.token,
           expiresAtMs: endpoint.expiresAtMs,
         });
+        captureVmDesktopOpened({ userId: user.id, port, wrapped: !!wrapped });
         return jsonResponse(wrapped ? { ...endpoint, openUrl: wrapped } : endpoint);
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

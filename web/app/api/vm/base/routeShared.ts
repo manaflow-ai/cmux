@@ -115,7 +115,7 @@ export async function runBaseRoute(input: {
         : openBaseVm(programInput),
     );
   } catch (err) {
-    const response = baseWorkflowErrorResponse(err, input.operation, entitlements.planId);
+    const response = baseWorkflowErrorResponse(err, input.operation, entitlements.planId, input.user.id);
     if (response) return response;
     throw err;
   }
@@ -136,7 +136,7 @@ export async function runBaseRoute(input: {
   });
 }
 
-function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string): Response | null {
+function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planId: string, userId?: string): Response | null {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_base_create_in_progress",
@@ -164,6 +164,7 @@ function baseWorkflowErrorResponse(err: unknown, operation: BaseOperation, planI
     return vmActiveLimitExceededResponse({
       limit: err.limit,
       planId,
+      userId,
       retryAction: operation === "reset"
         ? "Stop or delete another active Cloud VM, then retry Base reset. The current Base is still retained."
         : "Stop or delete another active Cloud VM, then retry opening Base.",

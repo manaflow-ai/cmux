@@ -53,6 +53,7 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
+import { captureVmCreateCompleted } from "../../../services/vms/productAnalytics";
 
 
 export async function GET(request: Request): Promise<Response> {
@@ -126,7 +127,18 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      // Filled in as the handler resolves them; read by the response finalizer.
+      const analyticsContext: { provider?: string; image?: string; planId?: string; memoryMb?: number } = {};
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmCreateCompleted({
+          userId: user.id,
+          status: response.status,
+          durationMs: performance.now() - routeStartedAtMs,
+          timings: timing.snapshot(),
+          ...analyticsContext,
+        });
+      });
       let user: AuthedUser = initialUser;
       {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
@@ -277,6 +289,8 @@ export async function POST(request: Request): Promise<Response> {
           ""
         ).trim();
         const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
+        analyticsContext.provider = provider;
+        analyticsContext.image = image;
         setSpanAttributes(span, {
           "cmux.vm.provider": provider,
           "cmux.vm.image_set": image.length > 0,
@@ -334,6 +348,7 @@ export async function POST(request: Request): Promise<Response> {
           }
           throw err;
         }
+        analyticsContext.planId = entitlements.planId;
         setSpanAttributes(span, {
           "cmux.billing.team_id_set": !!entitlements.billingTeamId,
           "cmux.billing.customer_type": entitlements.billingCustomerType,
@@ -360,6 +375,7 @@ export async function POST(request: Request): Promise<Response> {
             details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
           });
         }
+        analyticsContext.memoryMb = memoryMb;
         setSpanAttributes(span, {
           "cmux.vm.memory_mb": memoryMb,
           "cmux.vm.max_memory_mb": maxMemoryMb,
@@ -410,6 +426,7 @@ export async function POST(request: Request): Promise<Response> {
             return vmActiveLimitExceededResponse({
               limit: err.limit,
               planId: entitlements.planId,
+              userId: user.id,
               retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
             });
           }

@@ -1,11 +1,37 @@
-import { registerOTel } from "@vercel/otel";
+import { OTLPHttpJsonTraceExporter, registerOTel } from "@vercel/otel";
 import {
   scrubSentryEvent,
   shouldSendCoderouterSentryEvent,
 } from "./services/sentry";
 
+/**
+ * OTLP/HTTP span export to Axiom (https://axiom.co/docs/send-data/opentelemetry).
+ * Gated on AXIOM_TOKEN + AXIOM_DATASET: with either absent, registerOTel keeps
+ * its default exporter behavior and nothing changes. The VM control plane's
+ * spans (withAuthedVmApiRoute / withVmSpan) carry per-stage create timings as
+ * `cmux.vm.timing.<stage>_ms` attributes, so create latency is analyzable in
+ * Axiom per stage.
+ */
+function axiomTraceExporter(): OTLPHttpJsonTraceExporter | undefined {
+  const token = process.env.AXIOM_TOKEN?.trim();
+  const dataset = process.env.AXIOM_DATASET?.trim();
+  if (!token || !dataset) return undefined;
+  const domain = process.env.AXIOM_DOMAIN?.trim() || "api.axiom.co";
+  return new OTLPHttpJsonTraceExporter({
+    url: `https://${domain}/v1/traces`,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Axiom-Dataset": dataset,
+    },
+  });
+}
+
 export async function register() {
-  registerOTel({ serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web" });
+  const traceExporter = axiomTraceExporter();
+  registerOTel({
+    serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web",
+    ...(traceExporter ? { traceExporter } : {}),
+  });
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.SENTRY_DSN) {
     const Sentry = await import("@sentry/nextjs");
     Sentry.init({
