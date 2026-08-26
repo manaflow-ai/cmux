@@ -1298,6 +1298,8 @@ async function revokeActiveBindings(
       directPortV6: null,
       pathHints: [],
       pathHintsNextExpiry: null,
+      relayAttachedUrl: null,
+      relayAttachReportedAt: null,
       updatedAt: input.now,
     })
     .where(and(
@@ -1424,6 +1426,7 @@ async function drainIrohRetention(input: {
               path_hints_next_expiry is not null
               or direct_port_v4 is not null
               or direct_port_v6 is not null
+              or relay_attached_url is not null
             )
           order by revoked_at, id
           limit ${limit}
@@ -1434,6 +1437,8 @@ async function drainIrohRetention(input: {
               path_hints_next_expiry = null,
               direct_port_v4 = null,
               direct_port_v6 = null,
+              relay_attached_url = null,
+              relay_attach_reported_at = null,
               updated_at = ${nowIso}::timestamptz
           from candidates
           where binding.id = candidates.id

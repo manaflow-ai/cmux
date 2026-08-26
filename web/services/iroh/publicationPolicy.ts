@@ -57,6 +57,19 @@ export function accountPrivateIrohPathHints<T extends PathHintLike>(
   });
 }
 
+/**
+ * May a server-observed relay attachment be published to the account's other
+ * devices? Same trust rule as endpoint-reported relay hints: only an exact
+ * managed-catalog URL or a relay the account has saved. Re-checked at read
+ * time so deleting a saved custom relay also stops serving its attach route.
+ */
+export function isPublishableAttachedRelayURL(
+  url: string,
+  savedCustomRelayURLs: ReadonlySet<string>,
+): boolean {
+  return MANAGED_RELAY_URL_SET.has(url) || savedCustomRelayURLs.has(url);
+}
+
 function plainRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
