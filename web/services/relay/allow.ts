@@ -165,6 +165,17 @@ function admissionClient(): AdmissionClientState {
   const key = cloudDbConfigKey(config);
   const cached = globalForAdmission.__cmuxRelayAllowAdmission;
   if (cached?.key === key) return cached;
+  if (cached) {
+    // The database config rotated within this runtime: drop the stale client
+    // and close it so its pool is not retained alongside the replacement.
+    // In-flight lookups hold their own reference and settle under their phase
+    // deadlines; close() (pool.end / sql.end) waits for them, so this cannot
+    // interrupt an admission already running.
+    globalForAdmission.__cmuxRelayAllowAdmission = undefined;
+    void cached.close().catch(() => {
+      // Best-effort teardown; the replacement client is unaffected.
+    });
+  }
 
   let state: AdmissionClientState;
   if (config.driver === "aws-rds-iam") {
