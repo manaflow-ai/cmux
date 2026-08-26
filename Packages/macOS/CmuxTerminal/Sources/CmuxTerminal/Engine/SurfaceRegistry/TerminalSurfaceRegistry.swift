@@ -18,33 +18,58 @@ public import GhosttyKit
 /// the legacy call contract exactly; only the route-retire notification hops
 /// to the main actor, as it always did.
 public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable {
+    private static let deadRegistrationSweepBudget = 8
+    // A weak load is a temporary strong retain. Keep every loaded surface in
+    // the returned snapshot until after `lock` is released so a last-reference
+    // deinit can synchronously unregister without re-entering this lock.
+    private typealias LiveRegistrationSnapshot = (
+        registration: TerminalSurfaceWeakRegistration,
+        surface: any TerminalSurfacing
+    )
+    private typealias DeadRegistrationSweepResult = (
+        liveRegistrations: [LiveRegistrationSnapshot],
+        removedDeadRegistration: Bool
+    )
+    private typealias LifecycleLookupResult = (
+        surface: (any TerminalSurfacing)?,
+        liveRegistrations: [LiveRegistrationSnapshot],
+        removedDeadRegistration: Bool
+    )
+
+    // Synchronous `deinit` retirement cannot await an actor hop, so the
+    // registry keeps its short, non-suspending mutations behind one lock.
     private let lock = NSLock()
-    // SAFETY: every access is guarded by `lock`.
-    nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
-    // SAFETY: synchronous `deinit` callers cannot await an actor; `lock`
-    // serializes every access from those callers and the main actor.
+    // SAFETY: all mutable registry state is guarded by `lock`; callers arrive
+    // on the main actor and from nonisolated `deinit` paths.
+    nonisolated(unsafe) private var registrationsByObjectId: [
+        ObjectIdentifier: TerminalSurfaceWeakRegistration
+    ] = [:]
+    // SAFETY: every membership read and write is guarded by `lock`.
+    nonisolated(unsafe) private var registeredObjectIdsBySurfaceId: [
+        UUID: Set<ObjectIdentifier>
+    ] = [:]
+    // SAFETY: every process-generation read and write is guarded by `lock`.
+    nonisolated(unsafe) private var terminalLifecycleIdByObjectId: [
+        ObjectIdentifier: UUID
+    ] = [:]
+    // SAFETY: every process-generation index read and write is guarded by `lock`.
+    nonisolated(unsafe) private var registrationByTerminalLifecycleId: [
+        UUID: TerminalSurfaceWeakRegistration
+    ] = [:]
+    // SAFETY: every sweep-cursor read and write is guarded by `lock`.
+    nonisolated(unsafe) private var nextDeadRegistrationSweepObjectId: ObjectIdentifier?
+    // SAFETY: every registration-sequence read and write is guarded by `lock`.
+    nonisolated(unsafe) private var nextRegistrationSequence: UInt64 = 0
+    // SAFETY: every traversal-head read and write is guarded by `lock`.
     nonisolated(unsafe) private var incrementalTraversalHead:
-        TerminalSurfaceRegistryWeakNode?
-    // SAFETY: synchronous `deinit` callers cannot await an actor; `lock`
-    // serializes every access from those callers and the main actor.
-    nonisolated(unsafe) private var incrementalTraversalNodes:
-        [ObjectIdentifier: TerminalSurfaceRegistryWeakNode] = [:]
-    // SAFETY: every read and write is guarded by `lock`; weak nodes prevent
-    // the route index from extending a surface lifetime.
-    nonisolated(unsafe) private var currentSurfaceNodesByID:
-        [UUID: TerminalSurfaceRegistryWeakNode] = [:]
-    // SAFETY: every read and write is guarded by `lock`; weak nodes prevent
-    // lifecycle lookup from extending any registered surface lifetime.
-    nonisolated(unsafe) private var surfaceNodesByTerminalLifecycleID:
-        [UUID: TerminalSurfaceRegistryWeakNode] = [:]
+        TerminalSurfaceWeakRegistration?
     // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
-    // SAFETY: every access is guarded by `lock`.
-    nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every read and write is guarded by `lock`.
     nonisolated(unsafe) private var generation: UInt64 = 0
     // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private weak var routeRetirer: (any MainWindowRouteRetiring)?
+    nonisolated(unsafe) private var routeRetireSweepScheduled = false
 
     /// Creates an empty registry.
     public init() {}
@@ -57,7 +82,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     }
 
     /// Attaches the collaborator notified when a surface unregisters, so
-    /// recoverable main-window routes without surfaces can be retired.
+    /// recoverable main-window route lifecycle can be audited.
     public func attachRouteRetirer(_ routeRetirer: any MainWindowRouteRetiring) {
         lock.lock()
         self.routeRetirer = routeRetirer
@@ -73,38 +98,47 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         terminalLifecycleID: UUID
     ) {
         lock.lock()
-        defer { lock.unlock() }
-        surfaces.add(surface)
-        let identity = ObjectIdentifier(surface)
-        if let existingNode =
-                incrementalTraversalNodes[identity],
-           existingNode.isRegistered,
-           existingNode.surface === surface {
-            clearTerminalLifecycleIndex(for: existingNode)
-            existingNode.terminalLifecycleID = terminalLifecycleID
-            setCurrentSurfaceNode(existingNode)
-            surfaceFocusPlacements[surface.id] =
-                surface.focusPlacement
+        let objectId = ObjectIdentifier(surface)
+        var existingSurface: (any TerminalSurfacing)?
+        if let existing = registrationsByObjectId[objectId] {
+            existingSurface = existing.surface
+            if existingSurface === surface {
+                // Reinsert the exact model as the newest registration so a
+                // deliberate re-registration regains current ownership for a
+                // stable surface id without reviving its prior generation.
+                removeRegistrationLocked(existing)
+            }
+        }
+
+        var removedDeadRegistration = false
+        if let stale = registrationsByObjectId[objectId] {
+            removeRegistrationLocked(stale)
             generation &+= 1
-            return
+            removedDeadRegistration = true
         }
-        if let replacedNode =
-            incrementalTraversalNodes.removeValue(
-                forKey: identity
-            ) {
-            removeRegisteredNode(replacedNode)
-        }
-        let node = TerminalSurfaceRegistryWeakNode(
+        nextRegistrationSequence &+= 1
+        let registration = TerminalSurfaceWeakRegistration(
             surface: surface,
-            terminalLifecycleID: terminalLifecycleID,
-            next: incrementalTraversalHead
+            sequence: nextRegistrationSequence
         )
-        incrementalTraversalHead?.previous = node
-        incrementalTraversalHead = node
-        incrementalTraversalNodes[identity] = node
-        setCurrentSurfaceNode(node)
-        surfaceFocusPlacements[surface.id] = surface.focusPlacement
+        registrationsByObjectId[objectId] = registration
+        registeredObjectIdsBySurfaceId[surface.id, default: []].insert(objectId)
+        setTerminalLifecycleLocked(terminalLifecycleID, for: registration)
+        insertIntoDeadRegistrationSweepLocked(registration)
+        registration.nextTraversalRegistration = incrementalTraversalHead
+        incrementalTraversalHead?.previousTraversalRegistration = registration
+        incrementalTraversalHead = registration
         generation &+= 1
+
+        let sweep = pruneDeadRegistrationsLocked(
+            limit: Self.deadRegistrationSweepBudget
+        )
+        removedDeadRegistration = sweep.removedDeadRegistration || removedDeadRegistration
+        let shouldScheduleRouteRetireSweep =
+            removedDeadRegistration && claimRouteRetireSweepLocked()
+        lock.unlock()
+        withExtendedLifetime((existingSurface, sweep.liveRegistrations)) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
     }
 
     /// Atomically retires the registered surface's current process generation.
@@ -115,17 +149,18 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     ) -> UUID {
         let terminalLifecycleID = UUID()
         lock.lock()
-        defer { lock.unlock() }
-        guard let node = incrementalTraversalNodes[
-                  ObjectIdentifier(surface)
-              ],
-              node.isRegistered,
-              node.surface === surface else {
+        let registration = registrationsByObjectId[ObjectIdentifier(surface)]
+        let registeredSurface = registration?.surface
+        guard let registration,
+              registration.isTraversalRegistered,
+              registeredSurface === surface else {
+            lock.unlock()
+            withExtendedLifetime(registeredSurface) {}
             return terminalLifecycleID
         }
-        clearTerminalLifecycleIndex(for: node)
-        node.terminalLifecycleID = terminalLifecycleID
-        surfaceNodesByTerminalLifecycleID[terminalLifecycleID] = node
+        setTerminalLifecycleLocked(terminalLifecycleID, for: registration)
+        lock.unlock()
+        withExtendedLifetime(registeredSurface) {}
         return terminalLifecycleID
     }
 
@@ -134,32 +169,230 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// main-window routes.
     public func unregister(_ surface: any TerminalSurfacing) {
         lock.lock()
-        let surfaceId = surface.id
-        surfaces.remove(surface)
-        if let node = incrementalTraversalNodes.removeValue(
-            forKey: ObjectIdentifier(surface)
-        ) {
-            let wasCurrent = currentSurfaceNodesByID[surfaceId] === node
-            removeRegisteredNode(node)
-            if wasCurrent {
-                _ = currentSurface(id: surfaceId)
-            }
+        let objectId = ObjectIdentifier(surface)
+        guard let registration = registrationsByObjectId[objectId],
+              registration.surfaceId == surface.id else {
+            lock.unlock()
+            return
         }
-        let stillRegistered = surfaces.allObjects
-            .compactMap { $0 as? any TerminalSurfacing }
-            .contains { $0 !== surface && $0.id == surfaceId }
-        if !stillRegistered {
-            surfaceFocusPlacements.removeValue(forKey: surfaceId)
+        let registeredSurface = registration.surface
+        guard registeredSurface == nil || registeredSurface === surface else {
+            lock.unlock()
+            withExtendedLifetime(registeredSurface) {}
+            return
         }
+        removeRegistrationLocked(registration)
         generation &+= 1
-        let routeRetirer = routeRetirer
+        let shouldScheduleRouteRetireSweep = claimRouteRetireSweepLocked()
         lock.unlock()
+        withExtendedLifetime(registeredSurface) {}
 
-        Task { @MainActor in
-            routeRetirer?.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
+    }
+
+    /// Removes an exact registration and its per-surface-id membership.
+    private func removeRegistrationLocked(
+        _ registration: TerminalSurfaceWeakRegistration
+    ) {
+        unlinkIncrementalTraversalRegistrationLocked(registration)
+        removeFromDeadRegistrationSweepLocked(registration)
+        clearTerminalLifecycleIndexLocked(for: registration)
+        registrationsByObjectId.removeValue(forKey: registration.objectId)
+        registeredObjectIdsBySurfaceId[registration.surfaceId]?.remove(registration.objectId)
+        if registeredObjectIdsBySurfaceId[registration.surfaceId]?.isEmpty == true {
+            registeredObjectIdsBySurfaceId.removeValue(forKey: registration.surfaceId)
+        }
+    }
+
+    /// Replaces the process-generation index owned by `registration`.
+    private func setTerminalLifecycleLocked(
+        _ terminalLifecycleID: UUID,
+        for registration: TerminalSurfaceWeakRegistration
+    ) {
+        clearTerminalLifecycleIndexLocked(for: registration)
+        terminalLifecycleIdByObjectId[registration.objectId] = terminalLifecycleID
+        registrationByTerminalLifecycleId[terminalLifecycleID] = registration
+    }
+
+    /// Removes a generation index only while `registration` still owns it.
+    private func clearTerminalLifecycleIndexLocked(
+        for registration: TerminalSurfaceWeakRegistration
+    ) {
+        guard let terminalLifecycleID = terminalLifecycleIdByObjectId.removeValue(
+            forKey: registration.objectId
+        ) else {
+            return
+        }
+        if registrationByTerminalLifecycleId[terminalLifecycleID] === registration {
+            registrationByTerminalLifecycleId.removeValue(forKey: terminalLifecycleID)
+        }
+    }
+
+    /// Unlinks a registration from new traversals while preserving its next
+    /// pointer for an in-flight traversal already parked on this entry.
+    private func unlinkIncrementalTraversalRegistrationLocked(
+        _ registration: TerminalSurfaceWeakRegistration
+    ) {
+        guard registration.isTraversalRegistered else { return }
+        registration.isTraversalRegistered = false
+        let previous = registration.previousTraversalRegistration
+        let next = registration.nextTraversalRegistration
+        if let previous {
+            previous.nextTraversalRegistration = next
+        } else if incrementalTraversalHead === registration {
+            incrementalTraversalHead = next
+        }
+        next?.previousTraversalRegistration = previous
+        registration.previousTraversalRegistration = nil
+    }
+
+    /// Adds a registration to the circular dead-entry sweep list.
+    private func insertIntoDeadRegistrationSweepLocked(
+        _ registration: TerminalSurfaceWeakRegistration
+    ) {
+        guard let cursorId = nextDeadRegistrationSweepObjectId,
+              let cursor = registrationsByObjectId[cursorId],
+              let tail = registrationsByObjectId[cursor.previousSweepObjectId] else {
+            registration.previousSweepObjectId = registration.objectId
+            registration.nextSweepObjectId = registration.objectId
+            nextDeadRegistrationSweepObjectId = registration.objectId
+            return
+        }
+
+        registration.previousSweepObjectId = tail.objectId
+        registration.nextSweepObjectId = cursor.objectId
+        tail.nextSweepObjectId = registration.objectId
+        cursor.previousSweepObjectId = registration.objectId
+    }
+
+    /// Removes a registration from the circular dead-entry sweep list.
+    private func removeFromDeadRegistrationSweepLocked(
+        _ registration: TerminalSurfaceWeakRegistration
+    ) {
+        let previousId = registration.previousSweepObjectId
+        let nextId = registration.nextSweepObjectId
+        if nextId == registration.objectId {
+            nextDeadRegistrationSweepObjectId = nil
+            return
+        }
+
+        registrationsByObjectId[previousId]?.nextSweepObjectId = nextId
+        registrationsByObjectId[nextId]?.previousSweepObjectId = previousId
+        if nextDeadRegistrationSweepObjectId == registration.objectId {
+            nextDeadRegistrationSweepObjectId = nextId
+        }
+    }
+
+    /// Periodically prunes dead registrations so abandoned conformers cannot
+    /// grow the identity ledger without bound.
+    private func pruneAllDeadRegistrationsLocked() -> DeadRegistrationSweepResult {
+        pruneDeadRegistrationsLocked(limit: registrationsByObjectId.count)
+    }
+
+    /// Inspects at most `limit` registrations, rotating the cursor so repeated
+    /// calls eventually visit every live or abandoned registration.
+    private func pruneDeadRegistrationsLocked(limit: Int) -> DeadRegistrationSweepResult {
+        var remaining = min(limit, registrationsByObjectId.count)
+        var removed = false
+        var liveRegistrations: [LiveRegistrationSnapshot] = []
+        liveRegistrations.reserveCapacity(remaining)
+        while remaining > 0,
+              let objectId = nextDeadRegistrationSweepObjectId,
+              let registration = registrationsByObjectId[objectId] {
+            nextDeadRegistrationSweepObjectId = registration.nextSweepObjectId
+            if let surface = registration.surface {
+                liveRegistrations.append((registration, surface))
+            } else {
+                removeRegistrationLocked(registration)
+                generation &+= 1
+                removed = true
+            }
+            remaining -= 1
+        }
+        return (liveRegistrations, removed)
+    }
+
+    /// Returns live registrations for an id after removing dead weak entries.
+    private func liveRegistrationsLocked(
+        for surfaceId: UUID
+    ) -> (
+        liveRegistrations: [LiveRegistrationSnapshot],
+        removedDeadRegistration: Bool
+    ) {
+        guard let objectIds = registeredObjectIdsBySurfaceId[surfaceId] else {
+            return ([], false)
+        }
+        var liveRegistrations: [LiveRegistrationSnapshot] = []
+        liveRegistrations.reserveCapacity(objectIds.count)
+        var removedDeadRegistration = false
+        for objectId in objectIds {
+            guard let registration = registrationsByObjectId[objectId] else {
+                registeredObjectIdsBySurfaceId[surfaceId]?.remove(objectId)
+                if registeredObjectIdsBySurfaceId[surfaceId]?.isEmpty == true {
+                    registeredObjectIdsBySurfaceId.removeValue(forKey: surfaceId)
+                }
+                removedDeadRegistration = true
+                continue
+            }
+            guard let surface = registration.surface else {
+                removeRegistrationLocked(registration)
+                generation &+= 1
+                removedDeadRegistration = true
+                continue
+            }
+            liveRegistrations.append((registration, surface))
+        }
+        return (liveRegistrations, removedDeadRegistration)
+    }
+
+    /// Returns a current surface only when its stable and generation identities agree.
+    private func currentSurfaceLocked(
+        terminalLifecycleID: UUID,
+        matchingSurfaceID: UUID?
+    ) -> LifecycleLookupResult {
+        guard let registration = registrationByTerminalLifecycleId[terminalLifecycleID],
+              registrationsByObjectId[registration.objectId] === registration,
+              terminalLifecycleIdByObjectId[registration.objectId] == terminalLifecycleID,
+              matchingSurfaceID == nil || registration.surfaceId == matchingSurfaceID else {
+            return (nil, [], false)
+        }
+        let live = liveRegistrationsLocked(for: registration.surfaceId)
+        let current = live.liveRegistrations.max(
+            by: { $0.registration.sequence < $1.registration.sequence }
+        )
+        guard current?.registration === registration else {
+            return (nil, live.liveRegistrations, live.removedDeadRegistration)
+        }
+        return (current?.surface, live.liveRegistrations, live.removedDeadRegistration)
+    }
+
+    /// Claims the coalesced main-actor cleanup task while the lock is held.
+    private func claimRouteRetireSweepLocked() -> Bool {
+        guard !routeRetireSweepScheduled else { return false }
+        routeRetireSweepScheduled = true
+        return true
+    }
+
+    /// Schedules the claimed route cleanup outside the registry lock.
+    private func scheduleRouteRetireSweepIfNeeded(_ shouldSchedule: Bool) {
+        guard shouldSchedule else { return }
+        Task { @MainActor [weak self] in
+            let routeRetirer = self?.beginScheduledRouteRetireSweep()
+            routeRetirer?.retireInactiveRecoverableMainWindowRoutes(
                 reason: "terminalSurface.unregister"
             )
         }
+    }
+
+    /// Consumes the scheduled bit as the main-actor sweep begins. Clearing it
+    /// before the callback lets an unregister performed by that callback queue
+    /// the required follow-up sweep without fanning out synchronous bulk close.
+    private func beginScheduledRouteRetireSweep() -> (any MainWindowRouteRetiring)? {
+        lock.lock()
+        routeRetireSweepScheduled = false
+        let routeRetirer = routeRetirer
+        lock.unlock()
+        return routeRetirer
     }
 
     /// Records `ownerId` as the owner of a live runtime surface pointer.
@@ -188,18 +421,30 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// The registered surface with the given id, if it is still alive.
     public func surface(id: UUID) -> (any TerminalSurfacing)? {
         lock.lock()
-        let object = currentSurface(id: id)
+        let live = liveRegistrationsLocked(for: id)
+        let shouldScheduleRouteRetireSweep =
+            live.removedDeadRegistration && claimRouteRetireSweepLocked()
+        let object = live.liveRegistrations
+            .max(by: { $0.registration.sequence < $1.registration.sequence })?
+            .surface
         lock.unlock()
+        withExtendedLifetime(live.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
         return object
     }
 
     /// The current terminal process generation for a live surface identity.
     public func terminalLifecycleID(surfaceID: UUID) -> UUID? {
         lock.lock()
-        let terminalLifecycleID = currentSurfaceNode(
-            id: surfaceID
-        )?.terminalLifecycleID
+        let live = liveRegistrationsLocked(for: surfaceID)
+        let shouldScheduleRouteRetireSweep =
+            live.removedDeadRegistration && claimRouteRetireSweepLocked()
+        let terminalLifecycleID = live.liveRegistrations
+            .max(by: { $0.registration.sequence < $1.registration.sequence })
+            .flatMap { terminalLifecycleIdByObjectId[$0.registration.objectId] }
         lock.unlock()
+        withExtendedLifetime(live.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
         return terminalLifecycleID
     }
 
@@ -208,12 +453,16 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         terminalLifecycleID: UUID
     ) -> (any TerminalSurfacing)? {
         lock.lock()
-        let object = currentSurface(
+        let lookup = currentSurfaceLocked(
             terminalLifecycleID: terminalLifecycleID,
             matchingSurfaceID: nil
         )
+        let shouldScheduleRouteRetireSweep =
+            lookup.removedDeadRegistration && claimRouteRetireSweepLocked()
         lock.unlock()
-        return object
+        withExtendedLifetime(lookup.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
+        return lookup.surface
     }
 
     /// Atomically retrieves the current surface when both identities match.
@@ -222,48 +471,64 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         terminalLifecycleID: UUID
     ) -> (any TerminalSurfacing)? {
         lock.lock()
-        let object = currentSurface(
+        let lookup = currentSurfaceLocked(
             terminalLifecycleID: terminalLifecycleID,
             matchingSurfaceID: id
         )
+        let shouldScheduleRouteRetireSweep =
+            lookup.removedDeadRegistration && claimRouteRetireSweepLocked()
         lock.unlock()
-        return object
+        withExtendedLifetime(lookup.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
+        return lookup.surface
     }
 
     /// Whether a current surface is registered for `id` and, when supplied,
     /// owns the terminal-process generation.
-    ///
-    /// This synchronous check lets socket telemetry reject caller-supplied
-    /// stale generations before they occupy the ordered mutation queue. The
-    /// delivery path checks again because the surface can still be replaced
-    /// after enqueue.
-    ///
-    /// - Parameters:
-    ///   - id: The stable surface identity.
-    ///   - terminalLifecycleID: The reported process generation, or `nil` for
-    ///     a compatibility caller that only requires a live surface.
-    /// - Returns: Whether the report targets the current registered surface.
     public func isCurrentSurface(
         id: UUID,
         terminalLifecycleID: UUID?
     ) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
-        guard let terminalLifecycleID else {
-            return currentSurfaceNode(id: id) != nil
+        let liveRegistrations: [LiveRegistrationSnapshot]
+        let removedDeadRegistration: Bool
+        let isCurrent: Bool
+        if let terminalLifecycleID {
+            let lookup = currentSurfaceLocked(
+                terminalLifecycleID: terminalLifecycleID,
+                matchingSurfaceID: id
+            )
+            liveRegistrations = lookup.liveRegistrations
+            removedDeadRegistration = lookup.removedDeadRegistration
+            isCurrent = lookup.surface != nil
+        } else {
+            let live = liveRegistrationsLocked(for: id)
+            liveRegistrations = live.liveRegistrations
+            removedDeadRegistration = live.removedDeadRegistration
+            isCurrent = !live.liveRegistrations.isEmpty
         }
-        return currentSurface(
-            terminalLifecycleID: terminalLifecycleID,
-            matchingSurfaceID: id
-        ) != nil
+        let shouldScheduleRouteRetireSweep =
+            removedDeadRegistration && claimRouteRetireSweepLocked()
+        lock.unlock()
+        withExtendedLifetime(liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
+        return isCurrent
     }
 
     /// Whether the surface with the given id is placed in the right-sidebar
     /// dock.
     public func isRightSidebarDockSurface(id: UUID) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
-        return surfaceFocusPlacements[id] == .rightSidebarDock
+        let live = liveRegistrationsLocked(for: id)
+        let shouldScheduleRouteRetireSweep =
+            live.removedDeadRegistration && claimRouteRetireSweepLocked()
+        let isRightSidebarDock = live.liveRegistrations
+            .max(by: { $0.registration.sequence < $1.registration.sequence })?
+            .registration.focusPlacement == .rightSidebarDock
+        lock.unlock()
+        withExtendedLifetime(live.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
+        return isRightSidebarDock
     }
 
     /// Re-records the focus placement for a live surface that moved between the
@@ -271,32 +536,40 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// currently registered, so a stale move cannot resurrect a dropped entry.
     public func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {
         lock.lock()
-        defer { lock.unlock() }
-        guard surfaceFocusPlacements[id] != nil else { return }
-        surfaceFocusPlacements[id] = placement
+        let live = liveRegistrationsLocked(for: id)
+        let shouldScheduleRouteRetireSweep =
+            live.removedDeadRegistration && claimRouteRetireSweepLocked()
+        for snapshot in live.liveRegistrations {
+            snapshot.registration.focusPlacement = placement
+        }
+        lock.unlock()
+        withExtendedLifetime(live.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
     }
 
     /// A bounded count snapshot for leak diagnostics and crash/app-hang telemetry.
     public func diagnosticSnapshot() -> TerminalSurfaceRegistryDiagnosticSnapshot {
         lock.lock()
-        let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
+        let sweep = pruneAllDeadRegistrationsLocked()
+        let shouldScheduleRouteRetireSweep =
+            sweep.removedDeadRegistration && claimRouteRetireSweepLocked()
         let runtimeSurfaceCount = runtimeSurfaceOwners.count
         var workspaceSurfaceCount = 0
         var rightSidebarDockSurfaceCount = 0
-        for object in objects {
-            switch surfaceFocusPlacements[object.id] {
+        for snapshot in sweep.liveRegistrations {
+            switch snapshot.registration.focusPlacement {
             case .workspace:
                 workspaceSurfaceCount += 1
             case .rightSidebarDock:
                 rightSidebarDockSurfaceCount += 1
-            case .none:
-                break
             }
         }
         lock.unlock()
+        withExtendedLifetime(sweep.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
 
         return TerminalSurfaceRegistryDiagnosticSnapshot(
-            registeredSurfaceCount: objects.count,
+            registeredSurfaceCount: sweep.liveRegistrations.count,
             workspaceSurfaceCount: workspaceSurfaceCount,
             rightSidebarDockSurfaceCount: rightSidebarDockSurfaceCount,
             runtimeSurfaceCount: runtimeSurfaceCount
@@ -315,8 +588,13 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// use this snapshot to avoid sorting the registry twice.
     public func allSurfacesUnordered() -> [any TerminalSurfacing] {
         lock.lock()
-        let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
+        let sweep = pruneAllDeadRegistrationsLocked()
+        let shouldScheduleRouteRetireSweep =
+            sweep.removedDeadRegistration && claimRouteRetireSweepLocked()
+        let objects = sweep.liveRegistrations.map(\.surface)
         lock.unlock()
+        withExtendedLifetime(sweep.liveRegistrations) {}
+        scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
         return objects
     }
 
@@ -338,15 +616,14 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         _ surface: any TerminalSurfacing
     ) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
-        guard let node =
-                incrementalTraversalNodes[
-                    ObjectIdentifier(surface)
-                ],
-              node.isRegistered else {
-            return false
-        }
-        return node.surface === surface
+        let registration = registrationsByObjectId[ObjectIdentifier(surface)]
+        let registeredSurface = registration?.surface
+        let isRegistered =
+            registration?.isTraversalRegistered == true
+            && registeredSurface === surface
+        lock.unlock()
+        withExtendedLifetime(registeredSurface) {}
+        return isRegistered
     }
 
     func nextVisit(
@@ -354,169 +631,32 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
             TerminalSurfaceRegistryIncrementalTraversal
     ) -> TerminalSurfaceRegistryIncrementalVisit? {
         lock.lock()
-        defer { lock.unlock() }
         guard !traversal.isFinished else {
+            lock.unlock()
             return nil
         }
-        guard let node = traversal.cursor else {
+        guard let registration = traversal.cursor else {
             traversal.isFinished = true
+            lock.unlock()
             return nil
         }
-        traversal.cursor = node.next
-        guard node.isRegistered, let surface = node.surface else {
-            if node.isRegistered {
-                let wasCurrent =
-                    currentSurfaceNodesByID[node.surfaceID] === node
-                removeRegisteredNode(node)
-                if wasCurrent {
-                    _ = currentSurfaceNode(id: node.surfaceID)
-                }
+        traversal.cursor = registration.nextTraversalRegistration
+        guard registration.isTraversalRegistered else {
+            lock.unlock()
+            return TerminalSurfaceRegistryIncrementalVisit(surface: nil)
+        }
+        guard let surface = registration.surface else {
+            var shouldScheduleRouteRetireSweep = false
+            if registrationsByObjectId[registration.objectId] === registration {
+                removeRegistrationLocked(registration)
+                generation &+= 1
+                shouldScheduleRouteRetireSweep = claimRouteRetireSweepLocked()
             }
-            return TerminalSurfaceRegistryIncrementalVisit(
-                surface: nil
-            )
+            lock.unlock()
+            scheduleRouteRetireSweepIfNeeded(shouldScheduleRouteRetireSweep)
+            return TerminalSurfaceRegistryIncrementalVisit(surface: nil)
         }
-        return TerminalSurfaceRegistryIncrementalVisit(
-            surface: surface
-        )
-    }
-
-    /// Returns the most recently registered live surface with `id`.
-    /// Callers must hold `lock`.
-    private func currentSurface(id: UUID) -> (any TerminalSurfacing)? {
-        currentSurfaceNode(id: id)?.surface
-    }
-
-    /// Returns a retained current surface for one child generation.
-    /// Callers must hold `lock`.
-    private func currentSurface(
-        terminalLifecycleID: UUID,
-        matchingSurfaceID: UUID?
-    ) -> (any TerminalSurfacing)? {
-        guard let node = surfaceNodesByTerminalLifecycleID[
-                  terminalLifecycleID
-              ],
-              node.isRegistered,
-              node.terminalLifecycleID == terminalLifecycleID,
-              matchingSurfaceID == nil
-                || node.surfaceID == matchingSurfaceID else {
-            return nil
-        }
-        guard let surface = node.surface else {
-            let surfaceID = node.surfaceID
-            let wasCurrent = currentSurfaceNodesByID[surfaceID] === node
-            removeRegisteredNode(node)
-            if wasCurrent {
-                _ = currentSurfaceNode(id: surfaceID)
-            }
-            return nil
-        }
-        guard currentSurfaceNode(id: node.surfaceID) === node else {
-            return nil
-        }
-        return surface
-    }
-
-    /// Returns the most recently registered live node with `id`.
-    /// Callers must hold `lock`.
-    private func currentSurfaceNode(
-        id: UUID
-    ) -> TerminalSurfaceRegistryWeakNode? {
-        if let node = currentSurfaceNodesByID[id],
-           node.isRegistered,
-           node.surface != nil {
-            setCurrentSurfaceNode(node)
-            return node
-        }
-        if let node = currentSurfaceNodesByID[id] {
-            if node.isRegistered, node.surface == nil {
-                removeRegisteredNode(node)
-            } else {
-                clearCurrentSurfaceIndex(for: node)
-            }
-        }
-        var node = incrementalTraversalHead
-        while let current = node {
-            let next = current.next
-            if current.isRegistered, current.surface == nil {
-                removeRegisteredNode(current)
-                node = next
-                continue
-            }
-            if current.isRegistered,
-               current.surfaceID == id {
-                setCurrentSurfaceNode(current)
-                return current
-            }
-            node = next
-        }
-        currentSurfaceNodesByID.removeValue(forKey: id)
-        return nil
-    }
-
-    /// Makes `node` the current registration for its stable surface identity.
-    /// Callers must hold `lock`.
-    private func setCurrentSurfaceNode(
-        _ node: TerminalSurfaceRegistryWeakNode
-    ) {
-        currentSurfaceNodesByID[node.surfaceID] = node
-        surfaceNodesByTerminalLifecycleID[
-            node.terminalLifecycleID
-        ] = node
-    }
-
-    /// Removes `node` from the current-owner index without unlinking it.
-    /// Callers must hold `lock`.
-    private func clearCurrentSurfaceIndex(
-        for node: TerminalSurfaceRegistryWeakNode
-    ) {
-        if currentSurfaceNodesByID[node.surfaceID] === node {
-            currentSurfaceNodesByID.removeValue(forKey: node.surfaceID)
-        }
-    }
-
-    /// Removes `node`'s generation index only when it still owns that entry.
-    /// Callers must hold `lock`.
-    private func clearTerminalLifecycleIndex(
-        for node: TerminalSurfaceRegistryWeakNode
-    ) {
-        if surfaceNodesByTerminalLifecycleID[
-            node.terminalLifecycleID
-        ] === node {
-            surfaceNodesByTerminalLifecycleID.removeValue(
-                forKey: node.terminalLifecycleID
-            )
-        }
-    }
-
-    /// Drops every registry index for `node` and unlinks its weak-list entry.
-    /// Callers must hold `lock`.
-    private func removeRegisteredNode(
-        _ node: TerminalSurfaceRegistryWeakNode
-    ) {
-        guard node.isRegistered else { return }
-        if incrementalTraversalNodes[node.identity] === node {
-            incrementalTraversalNodes.removeValue(forKey: node.identity)
-        }
-        clearCurrentSurfaceIndex(for: node)
-        clearTerminalLifecycleIndex(for: node)
-        unlinkIncrementalTraversalNode(node)
-    }
-
-    private func unlinkIncrementalTraversalNode(
-        _ node: TerminalSurfaceRegistryWeakNode
-    ) {
-        guard node.isRegistered else { return }
-        node.isRegistered = false
-        let previous = node.previous
-        let next = node.next
-        if let previous {
-            previous.next = next
-        } else if incrementalTraversalHead === node {
-            incrementalTraversalHead = next
-        }
-        next?.previous = previous
-        node.previous = nil
-        // Preserve `next` for traversals already parked on this node.
+        lock.unlock()
+        return TerminalSurfaceRegistryIncrementalVisit(surface: surface)
     }
 }

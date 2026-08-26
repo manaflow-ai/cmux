@@ -13,7 +13,7 @@ use crate::kitty::{
     KittyInFlightTracker, KittyPlacement, KittyPlacementAnchor, KittyReplaySnapshot,
     MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
 };
-use crate::mouse::{MouseModeProbe, MouseModeSignature};
+use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
 use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
@@ -247,6 +247,9 @@ pub struct TerminalPointerSemanticSnapshot {
     pub terminal_instance_id: u64,
     pub mouse_mode_revision: u64,
     pub mouse_tracking: bool,
+    /// Last-set-wins active coordinate wire format (xterm semantics), from
+    /// Ghostty's own encoder behavior rather than the boolean mode flags.
+    pub active_mouse_format: MouseWireFormat,
     pub active_screen: Screen,
     pub cols: u16,
     pub rows: u16,
@@ -798,6 +801,7 @@ pub struct Terminal {
     mouse_mode_bits: u8,
     mouse_mode_signature: MouseModeSignature,
     mouse_mode_probe: MouseModeProbe,
+    active_mouse_format: MouseWireFormat,
     mouse_mode_change_detector: MouseModeChangeDetector,
     vt_boundary: VtBoundaryTracker,
     prompt_semantic: PromptSemanticTracker,
@@ -976,9 +980,9 @@ impl VtBoundaryState {
 }
 
 /// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
-/// state, while PTYs can still emit the 8-bit OSC/APC/ST forms. Normalize only
-/// standalone C1 control bytes; continuation bytes inside UTF-8 text remain
-/// byte-for-byte unchanged.
+/// state, while PTYs can still emit 8-bit C1 control-string forms. Normalize
+/// only standalone C1 control bytes; continuation bytes inside UTF-8 text
+/// remain byte-for-byte unchanged.
 #[derive(Default)]
 struct C1Normalizer {
     utf8_remaining: u8,
@@ -996,7 +1000,10 @@ impl C1Normalizer {
                 false
             };
             let replacement = (!continuation).then_some(byte).and_then(|byte| match byte {
+                0x90 => Some(b'P'),
+                0x98 => Some(b'X'),
                 0x9d => Some(b']'),
+                0x9e => Some(b'^'),
                 0x9f => Some(b'_'),
                 0x9c => Some(b'\\'),
                 _ => None,
@@ -1891,6 +1898,7 @@ impl Terminal {
             mouse_mode_bits: 0,
             mouse_mode_signature: MouseModeSignature::default(),
             mouse_mode_probe,
+            active_mouse_format: MouseWireFormat::default(),
             mouse_mode_change_detector: MouseModeChangeDetector::default(),
             vt_boundary: VtBoundaryTracker::default(),
             prompt_semantic: PromptSemanticTracker::default(),
@@ -1977,8 +1985,9 @@ impl Terminal {
     }
 
     /// Feed VT-encoded bytes and return the exact byte stream accepted by
-    /// Ghostty. Standalone 8-bit OSC/ST controls are returned in their 7-bit
-    /// forms, while UTF-8 continuation bytes remain unchanged across calls.
+    /// Ghostty. Standalone 8-bit control-string/ST controls are returned in
+    /// their 7-bit forms, while UTF-8 continuation bytes remain unchanged
+    /// across calls.
     ///
     /// Process hosts should publish this returned stream so every frontend
     /// parses the same bytes as the authoritative terminal.
@@ -2032,8 +2041,11 @@ impl Terminal {
         // A bit tuple is sufficient when at most one tracking and wire-format
         // mode is active. When modes overlap, query Ghostty's encoder because
         // its parsed last-set precedence is not represented by the bits.
+        // Overlapping wire formats stay ambiguous even with tracking off:
+        // the active format must be current before tracking is re-enabled
+        // or a replay is serialized.
         let behavior_can_be_ambiguous =
-            tracking_bits.count_ones() > 1 || tracking_bits != 0 && format_bits.count_ones() > 1;
+            tracking_bits.count_ones() > 1 || format_bits.count_ones() > 1;
         if !bits_changed && !behavior_can_be_ambiguous {
             return;
         }
@@ -2043,6 +2055,17 @@ impl Terminal {
         }
         self.mouse_mode_bits = next_bits;
         self.mouse_mode_signature = next_signature;
+        if let Some(format) = self.mouse_mode_probe.classify_wire_format(self.raw) {
+            self.active_mouse_format = format;
+        }
+    }
+
+    /// Last-set-wins active coordinate wire format (xterm semantics).
+    ///
+    /// This mirrors Ghostty's parsed precedence, which the boolean DEC mode
+    /// flags cannot represent when several format modes are flagged at once.
+    pub fn active_mouse_format(&self) -> MouseWireFormat {
+        self.active_mouse_format
     }
 
     fn current_mouse_mode_bits(&self) -> u8 {
@@ -2782,6 +2805,7 @@ impl Terminal {
             terminal_instance_id: self.instance_id,
             mouse_mode_revision: self.mouse_mode_revision,
             mouse_tracking: self.mouse_tracking(),
+            active_mouse_format: self.active_mouse_format,
             active_screen: self.active_screen(),
             cols: self.cols(),
             rows: self.rows(),
@@ -3071,7 +3095,13 @@ impl Terminal {
     /// text or completed graphics truncation. Callers can use this before a
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
-        self.kitty_inflight.replay_prefix_fits(max_bytes)
+        self.kitty_inflight.replay_prefix_fits(max_bytes)?;
+        let suffix_len = self.mouse_format_replay_suffix().len();
+        let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
+        if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
+            return Err(Error::OutOfSpace);
+        }
+        Ok(())
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -3108,13 +3138,55 @@ impl Terminal {
         self.vt_replay_bounded_with_palette(max_bytes, false)
     }
 
+    /// Correction bytes appended to a serialized replay so the replayed
+    /// terminal ends with the same ACTIVE extended mouse coordinate format as
+    /// this one. The formatter emits mode flags in numeric order (1005, 1006,
+    /// 1015, 1016), so whenever more than one format flag is set, or the
+    /// flags alone would replay a different format than the last-set-wins
+    /// value, the suffix resets the non-active format flags and re-asserts
+    /// the active selector last. Replays therefore carry only the active
+    /// selector; the inactive flags are deliberately dropped because they
+    /// have no encoding semantics.
+    fn mouse_format_replay_suffix(&self) -> Vec<u8> {
+        const FORMAT_MODES: [(u16, MouseWireFormat); 4] = [
+            (1005, MouseWireFormat::Utf8),
+            (1006, MouseWireFormat::Sgr),
+            (1015, MouseWireFormat::Urxvt),
+            (1016, MouseWireFormat::SgrPixels),
+        ];
+        let active = self.active_mouse_format;
+        let set_modes: Vec<(u16, MouseWireFormat)> =
+            FORMAT_MODES.into_iter().filter(|(mode, _)| self.mode(*mode, false)).collect();
+        // What a numeric-order flag dump would leave active: the highest
+        // numbered set format flag.
+        let dump_would_activate =
+            set_modes.last().map(|(_, format)| *format).unwrap_or(MouseWireFormat::X10);
+        if set_modes.len() <= 1 && dump_would_activate == active {
+            return Vec::new();
+        }
+        let mut suffix = Vec::new();
+        for (mode, format) in &set_modes {
+            if *format != active {
+                suffix.extend_from_slice(format!("\x1b[?{mode}l").as_bytes());
+            }
+        }
+        if let Some(mode) = active.dec_mode() {
+            suffix.extend_from_slice(format!("\x1b[?{mode}h").as_bytes());
+        }
+        suffix
+    }
+
     fn vt_replay_bounded_with_palette(
         &mut self,
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<VtReplay> {
         let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
-        let remaining = max_bytes.checked_sub(inflight.len()).ok_or(Error::OutOfSpace)?;
+        let mouse_format_suffix = self.mouse_format_replay_suffix();
+        let remaining = max_bytes
+            .checked_sub(inflight.len())
+            .and_then(|remaining| remaining.checked_sub(mouse_format_suffix.len()))
+            .ok_or(Error::OutOfSpace)?;
         let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
         let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
         self.kitty_replay_pixel_cache.0 = pixel_cache;
@@ -3153,6 +3225,7 @@ impl Terminal {
             .len()
             .checked_add(interleaved.len())
             .and_then(|total| total.checked_add(inflight.len()))
+            .and_then(|total| total.checked_add(mouse_format_suffix.len()))
             .ok_or(Error::OutOfSpace)?;
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
@@ -3165,6 +3238,11 @@ impl Terminal {
             bytes.extend_from_slice(&graphics.image_bytes);
             bytes.extend_from_slice(&interleaved);
         }
+        // The formatter dumps DEC modes in numeric order, which destroys the
+        // last-set-wins semantics of the extended mouse coordinate formats.
+        // Reduce the flag dump to the single active selector so replay
+        // reproduces the semantic, not the numeric flag order.
+        bytes.extend_from_slice(&mouse_format_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
         Ok(VtReplay {
@@ -4272,8 +4350,8 @@ mod tests {
     };
 
     use super::{
-        Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector, PaletteOsc,
-        PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
+        C1Normalizer, Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector,
+        PaletteOsc, PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
         kitty_replay_image_encodings, kitty_replay_image_len, kitty_replay_placement,
         reset_kitty_replay_image_encodings, vt_replay_row_window,
     };
@@ -4415,6 +4493,117 @@ mod tests {
             probes_after_modes,
             "synchronized-output framing must not run synthetic mouse encodes"
         );
+    }
+
+    /// Encode a left press, its release, and a wheel-up through encoders
+    /// synced from `terminal`, exactly like a scoped attach client forwarding
+    /// host clicks to the inner PTY.
+    fn synced_mouse_bytes(terminal: &Terminal) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        use crate::key::Mods;
+        use crate::mouse::{MouseAction, MouseButton, MouseEncoders, MouseInput};
+
+        let input = |action, button, any_button_pressed| MouseInput {
+            action,
+            button,
+            mods: Mods::default(),
+            position: (36.5, 20.5),
+            screen_size: (80, 24),
+            cell_size: (1, 1),
+            any_button_pressed,
+        };
+        let mut encoders = MouseEncoders::new().unwrap();
+        encoders.sync_from_terminal(terminal);
+        let (mut press, mut release, mut wheel) = (Vec::new(), Vec::new(), Vec::new());
+        encoders
+            .encode_press_pair(
+                input(MouseAction::Press, Some(MouseButton::Left), true),
+                input(MouseAction::Release, Some(MouseButton::Left), false),
+                &mut press,
+                &mut release,
+            )
+            .unwrap();
+        encoders
+            .encode(input(MouseAction::Press, Some(MouseButton::WheelUp), false), &mut wheel)
+            .unwrap();
+        (press, release, wheel)
+    }
+
+    fn replayed_mirror(inner_mode_bytes: &[u8]) -> Terminal {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(inner_mode_bytes);
+        let replay = host.vt_replay().unwrap();
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&replay).unwrap();
+        mirror
+    }
+
+    /// btop enables 1002h, 1015h, 1006h in that order: SGR is set last, so
+    /// last-set-wins makes SGR the active extended-coordinate encoding.
+    /// Replay must reproduce that semantic, not a numeric flag dump that
+    /// re-enables urxvt (1015) after SGR (1006) and flips the active encoding.
+    #[test]
+    fn replay_preserves_sgr_mouse_encoding_when_sgr_is_set_last() {
+        let mirror = replayed_mirror(b"\x1b[?1002h\x1b[?1015h\x1b[?1006h");
+        let (press, release, wheel) = synced_mouse_bytes(&mirror);
+        assert_eq!(press, b"\x1b[<0;37;21M", "press must stay SGR after replay");
+        assert_eq!(release, b"\x1b[<0;37;21m", "release must stay SGR after replay");
+        assert_eq!(wheel, b"\x1b[<64;37;21M", "wheel must stay SGR after replay");
+    }
+
+    /// The mirror case: an application that deliberately sets urxvt last must
+    /// keep urxvt across replay.
+    #[test]
+    fn replay_preserves_urxvt_mouse_encoding_when_urxvt_is_set_last() {
+        let mirror = replayed_mirror(b"\x1b[?1002h\x1b[?1006h\x1b[?1015h");
+        let (press, release, wheel) = synced_mouse_bytes(&mirror);
+        assert_eq!(press, b"\x1b[32;37;21M", "press must stay urxvt after replay");
+        assert_eq!(release, b"\x1b[35;37;21M", "release must stay urxvt after replay");
+        assert_eq!(wheel, b"\x1b[96;37;21M", "wheel must stay urxvt after replay");
+    }
+
+    /// The active wire format is a single last-set-wins selector; resetting
+    /// the active selector falls back to X10 even while other format flags
+    /// stay set (xterm semantics, mirrored by Ghostty's stream handler).
+    #[test]
+    fn active_mouse_format_tracks_last_set_wins() {
+        use crate::mouse::MouseWireFormat;
+
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::X10);
+        terminal.vt_write(b"\x1b[?1005h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Utf8);
+        terminal.vt_write(b"\x1b[?1015h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Urxvt);
+        terminal.vt_write(b"\x1b[?1006h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::Sgr);
+        assert_eq!(terminal.pointer_semantic_snapshot().active_mouse_format, MouseWireFormat::Sgr);
+        terminal.vt_write(b"\x1b[?1016h");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::SgrPixels);
+        terminal.vt_write(b"\x1b[?1016l");
+        assert_eq!(terminal.active_mouse_format(), MouseWireFormat::X10);
+    }
+
+    /// A single-format application must not grow a correction suffix: its
+    /// numeric flag dump already replays the right active encoding.
+    #[test]
+    fn single_format_replay_carries_no_mouse_format_suffix() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b[?1002h\x1b[?1006h");
+        assert!(host.mouse_format_replay_suffix().is_empty());
+        let replay = host.vt_replay_bytes().unwrap();
+        let text = String::from_utf8_lossy(&replay);
+        assert!(!text.contains("[?1006l"), "suffix must not reset the only format");
+        assert_eq!(text.matches("[?1006h").count(), 1, "active selector emitted once");
+    }
+
+    #[test]
+    fn replay_preflight_reserves_mouse_suffix_at_exact_boundary() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1006h\x1b[?1015h\x1b[?1006h");
+        let suffix_len = terminal.mouse_format_replay_suffix().len();
+        assert!(suffix_len > 0);
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len).is_ok());
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len - 1).is_err());
     }
 
     #[test]
@@ -5110,6 +5299,32 @@ mod tests {
             terminal.kitty_inflight.replay_prefix(usize::MAX).is_empty(),
             "a UTF-8 continuation byte that Ghostty parsed as text became a replayable Kitty APC"
         );
+    }
+
+    #[test]
+    fn c1_control_string_introducers_normalize_to_escape_forms() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(b"a\x90b"), b"a\x1bPb".as_slice());
+        assert_eq!(normalizer.normalize(b"a\x98b"), b"a\x1bXb".as_slice());
+        assert_eq!(normalizer.normalize(b"a\x9eb"), b"a\x1b^b".as_slice());
+    }
+
+    #[test]
+    fn c1_control_string_normalization_handles_split_sequences_and_st() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(b"\x90payload"), b"\x1bPpayload".as_slice());
+        assert_eq!(normalizer.normalize(b"\x9c"), b"\x1b\\".as_slice());
+
+        assert_eq!(normalizer.normalize(b"\x98part"), b"\x1bXpart".as_slice());
+        assert_eq!(normalizer.normalize(b"ial\x9e"), b"ial\x1b^".as_slice());
+        assert_eq!(normalizer.normalize(b"body\x9c"), b"body\x1b\\".as_slice());
+    }
+
+    #[test]
+    fn c1_control_string_continuation_bytes_are_not_normalized() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(&[0xe2]).as_ref(), &[0xe2]);
+        assert_eq!(normalizer.normalize(&[0x98, 0x80]).as_ref(), &[0x98, 0x80]);
     }
 
     #[test]

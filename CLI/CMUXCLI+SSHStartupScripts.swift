@@ -307,6 +307,7 @@ extension CMUXCLI {
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .startup)
         let terminalModeReset = shellQuote(SSHTerminalModeResetSequence().shellPrintfFormat)
+        let reconnectNote = shellQuote(sshAutoReconnectNoteFormat(discardsInput: retryPTYAttachStatus))
         let terminalExitPrompt = shellQuote(sshTerminalExitPromptFormat())
         let reconnectRecoveredNote = shellQuote(sshAutoReconnectRecoveredNoteFormat())
         let terminalExitPromptCommand = [
@@ -454,7 +455,7 @@ extension CMUXCLI {
         scriptLines += [
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
             "  \(backoffBuilder.terminalInputModeResetLine)",
-            "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "  cmux_ssh_note \(reconnectNote) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
         ]
         scriptLines += backoffBuilder.waitLines
         if retryPTYAttachStatus {
