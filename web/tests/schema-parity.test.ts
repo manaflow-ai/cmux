@@ -146,9 +146,11 @@ describe("bundled migrations", () => {
 });
 
 describe("schema-parity route against a migrated database", () => {
+  // The route's GET additionally awaits connection(), which needs a Next
+  // request scope; the deployed handler is exercised on Vercel instead.
   dbTest("reports ok with matching heads once migrations are applied", async () => {
-    const { GET } = await import("../app/api/health/schema-parity/route");
-    const response = await GET();
+    const { schemaParityResponse } = await import("../services/health/schemaParity");
+    const response = await schemaParityResponse();
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       status: string;

@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { jsonResponse } from "../vms/routeHelpers";
 
 /**
  * Schema parity: compares the migrations bundled with the deployed code
@@ -184,4 +185,27 @@ export async function schemaParityReport(): Promise<SchemaParityReport> {
   // Hashes are only needed to disambiguate legacy nameless rows.
   const hashByName = rows.some((row) => !row.name) ? bundledMigrationHashes(code) : undefined;
   return compareSchemaParity(code, rows, hashByName);
+}
+
+/**
+ * Full response body of GET /api/health/schema-parity, free of Next
+ * request-scope APIs so tests can drive it directly. Failures respond with a
+ * generic "unavailable" (plus codeHead when the bundled migrations are
+ * readable); connection and error details never reach the public body.
+ */
+export async function schemaParityResponse(): Promise<Response> {
+  let report: SchemaParityReport;
+  try {
+    report = await schemaParityReport();
+  } catch (error) {
+    console.error("schema-parity health check failed", error);
+    let codeHead: string | null = null;
+    try {
+      codeHead = listBundledMigrations().at(-1) ?? null;
+    } catch {
+      // The migrations folder is missing from the serverless bundle.
+    }
+    return jsonResponse({ status: "unavailable", codeHead }, 503);
+  }
+  return jsonResponse(report, report.status === "behind" ? 503 : 200);
 }

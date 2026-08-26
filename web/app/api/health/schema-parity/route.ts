@@ -1,9 +1,5 @@
-import {
-  listBundledMigrations,
-  schemaParityReport,
-  type SchemaParityReport,
-} from "../../../../services/health/schemaParity";
-import { jsonResponse } from "../../../../services/vms/routeHelpers";
+import { connection } from "next/server";
+import { schemaParityResponse } from "../../../../services/health/schemaParity";
 
 /**
  * Public, unauthenticated drift check between the migrations bundled in the
@@ -15,25 +11,13 @@ import { jsonResponse } from "../../../../services/vms/routeHelpers";
  *
  * 200 {"status":"ok"|"ahead",...} when the database is not lagging the code;
  * 503 {"status":"behind","pending":[...]} when applied migrations lag;
- * 503 {"status":"unavailable"} when the database cannot be queried (codeHead
- * is still reported when the bundled migrations are readable, so deployments
- * without a database, e.g. previews, still prove the route and file tracing
- * work). The body only ever contains migration names, never connection or
- * error details.
+ * 503 {"status":"unavailable"} when the database cannot be queried. The body
+ * only ever contains migration names, never connection or error details.
  */
 export async function GET(): Promise<Response> {
-  let report: SchemaParityReport;
-  try {
-    report = await schemaParityReport();
-  } catch (error) {
-    console.error("schema-parity health check failed", error);
-    let codeHead: string | null = null;
-    try {
-      codeHead = listBundledMigrations().at(-1) ?? null;
-    } catch {
-      // The migrations folder is missing from the serverless bundle.
-    }
-    return jsonResponse({ status: "unavailable", codeHead }, 503);
-  }
-  return jsonResponse(report, report.status === "behind" ? 503 : 200);
+  // Cache Components is enabled, so a GET handler can be prerendered at build
+  // time (`export const dynamic` no longer exists). Parity must be measured
+  // per request, never baked into the build.
+  await connection();
+  return schemaParityResponse();
 }
