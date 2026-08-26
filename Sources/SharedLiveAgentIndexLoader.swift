@@ -120,12 +120,21 @@ struct SharedLiveAgentIndexLoader {
                 "hibernation",
                 key.workspaceId.uuidString,
                 key.panelId.uuidString,
-                scope.panelProcessIDs.sorted().map(String.init).joined(separator: ","),
-                scope.terminationProcessIDs.sorted().map(String.init).joined(separator: ","),
+                boundedProcessIDFingerprint(scope.panelProcessIDs),
+                boundedProcessIDFingerprint(scope.terminationProcessIDs),
                 scope.containsUnrelatedProcess ? "unrelated" : "exclusive"
             ].joined(separator: "|")
         })
         return fingerprint
+    }
+
+    /// Avoids sorting or materializing oversized scopes that cannot be signaled.
+    private static func boundedProcessIDFingerprint(_ processIDs: Set<Int>) -> String {
+        guard processIDs.count <=
+            AgentHibernationController.maximumScopedProcessTerminationCount else {
+            return "over-limit:\(processIDs.count)"
+        }
+        return processIDs.sorted().map(String.init).joined(separator: ",")
     }
 
     /// Fingerprints every authorized termination generation so a PID reuse or
@@ -134,17 +143,23 @@ struct SharedLiveAgentIndexLoader {
         from index: RestorableAgentSessionIndex
     ) -> Set<String> {
         Set(index.forkValidationEntries().map { key, entry in
-            let identities = entry.terminationProcessIdentities
-                .sorted { $0.key < $1.key }
-                .map { processID, identity in
-                    "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
-                }
-                .joined(separator: ",")
+            let identities: String
+            if entry.terminationProcessIDs.count >
+                AgentHibernationController.maximumScopedProcessTerminationCount {
+                identities = "over-limit:\(entry.terminationProcessIDs.count)"
+            } else {
+                identities = entry.terminationProcessIdentities
+                    .sorted { $0.key < $1.key }
+                    .map { processID, identity in
+                        "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
+                    }
+                    .joined(separator: ",")
+            }
             return [
                 "hibernation-identities",
                 key.workspaceId.uuidString,
                 key.panelId.uuidString,
-                entry.terminationProcessIDs.sorted().map(String.init).joined(separator: ","),
+                boundedProcessIDFingerprint(entry.terminationProcessIDs),
                 identities
             ].joined(separator: "|")
         })

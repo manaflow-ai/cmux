@@ -190,11 +190,10 @@ final class AgentHibernationController {
         let plannerInputs = records.map { record in
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
-            let processSafetyAllowsHibernation =
-                record.processSafetyAllowsHibernation(for: trigger)
+            let processSafetyAllowsHibernation = record.processSafetyAllowsHibernation
             if record.hasLiveProcess {
                 let scheduledProcessIsUnsafe =
-                    !record.processSafetyAllowsHibernation(for: .scheduled)
+                    !record.processSafetyAllowsHibernation
                 if trigger == .systemMemoryPressure || scheduledProcessIsUnsafe {
                     tailFingerprintSamples.removeValue(forKey: record.key)
                 }
@@ -282,7 +281,7 @@ final class AgentHibernationController {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
-              record.processSafetyAllowsHibernation(for: trigger),
+              record.processSafetyAllowsHibernation,
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)

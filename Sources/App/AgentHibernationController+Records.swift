@@ -10,15 +10,9 @@ extension AgentHibernationRecord {
             processIdentities.count == processIDs.count
     }
 
-    /// Scheduled reclaim may terminate a live process only with the same
-    /// complete scope evidence required by the critical-pressure path.
-    func processSafetyAllowsHibernation(for trigger: AgentHibernationReclaimTrigger) -> Bool {
-        switch trigger {
-        case .scheduled:
-            return !hasLiveProcess || hasPressureSafeProcessEvidence
-        case .systemMemoryPressure:
-            return !hasLiveProcess || hasPressureSafeProcessEvidence
-        }
+    /// Reclaim may terminate a live process only with complete scope evidence.
+    var processSafetyAllowsHibernation: Bool {
+        !hasLiveProcess || hasPressureSafeProcessEvidence
     }
 }
 
