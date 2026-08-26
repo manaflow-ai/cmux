@@ -15,6 +15,7 @@ extension Workspace {
     /// the request is dispatched; the async open reports failures through the
     /// service.
     @discardableResult
+    @MainActor
     func handleCloudSurfaceDrop(
         item: CloudTreeDragItem,
         destination: BonsplitController.ExternalTabDropRequest.Destination,
