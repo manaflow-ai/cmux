@@ -11706,19 +11706,17 @@ class TerminalController {
             // Reads the nonisolated static ring directly: no main-actor hop, so
             // the verb keeps working when the main thread is wedged (the case
             // connection diagnostics exist for). The wait blocks only on the
-            // log's own drain actor and the relay mirror actor, and the
-            // execution policy keeps this command off the main thread, so the
-            // wait cannot self-deadlock.
+            // log's own drain actor, and the execution policy keeps this
+            // command off the main thread, so the wait cannot self-deadlock.
             let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
-            let reportText = String(decoding: report.humanReadableExport(), as: UTF8.self)
-            // Appended outside the report so relay URLs never enter the
-            // privacy-safe DiagnosticLog pipeline.
-            let relayText = await MobileHostIrohRuntime.relayDiagReportText()
-            export = reportText + "\n" + relayText + "\n"
+            export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }
         semaphore.wait()
-        return export
+        // Appended outside the report so relay URLs never enter the
+        // privacy-safe DiagnosticLog pipeline; the mirror read is serialized
+        // and main-actor-free.
+        return export + "\n" + MobileHostIrohRuntime.relayDiagReportText() + "\n"
     }
 
     private nonisolated func readScreenText(_ args: String) -> String {

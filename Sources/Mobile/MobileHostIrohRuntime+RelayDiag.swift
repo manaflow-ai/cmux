@@ -1,5 +1,6 @@
 import CmuxIrohTransport
 import Foundation
+import os
 
 /// Relay lines for the `iroh_diag` socket verb.
 ///
@@ -14,17 +15,23 @@ extension MobileHostIrohRuntime {
         let relayURLs: [String]
     }
 
-    nonisolated static let relayDiagMirror = MobileHostRelayDiagMirror()
-
-    /// Monotonic write order for ``relayDiagMirror``, owned by the main
-    /// actor because every ``relayPolicyEffective`` write happens there.
-    private static var relayDiagRevision: UInt64 = 0
+    /// Mirror of the relay policy most recently installed by the account
+    /// pipeline. A lock rather than an actor, deliberately (matching the
+    /// `AgentChatThemeSync` precedent and the `hostDiagnosticLog` design):
+    /// the write must be visible synchronously when the
+    /// `relayPolicyEffective` didSet returns (an actor write would be a
+    /// detached hop, letting a concurrent `iroh_diag` read report the
+    /// previous policy after installation), and the read must stay off the
+    /// main actor so the verb keeps working when the main thread is wedged.
+    /// Both critical sections are tiny value copies with no reentrancy.
+    private nonisolated static let relayDiagMirror = OSAllocatedUnfairLock<RelayDiagState?>(
+        initialState: nil
+    )
 
     /// The single write funnel, called from `relayPolicyEffective`'s
-    /// `didSet` so every installation and clearing site is mirrored.
+    /// `didSet` so every installation and clearing site is mirrored before
+    /// the property write returns.
     static func publishRelayDiagMirror(from policy: CmxIrohEffectiveRelayPolicy?) {
-        relayDiagRevision &+= 1
-        let revision = relayDiagRevision
         let state = policy.map {
             RelayDiagState(
                 source: $0.source,
@@ -32,9 +39,11 @@ extension MobileHostIrohRuntime {
                 relayURLs: $0.endpointRelayProfile.allowedRelayURLs.sorted()
             )
         }
-        Task {
-            await relayDiagMirror.apply(revision: revision, state: state)
-        }
+        relayDiagMirror.withLock { $0 = state }
+    }
+
+    nonisolated static func currentRelayDiagState() -> RelayDiagState? {
+        relayDiagMirror.withLock { $0 }
     }
 
     /// The relay section appended to `iroh_diag` output: the profile the
@@ -42,9 +51,9 @@ extension MobileHostIrohRuntime {
     /// catalog, a custom profile, or the debug override. The override is
     /// consulted first because every profile installation funnel replaces
     /// the installed profile with it while it is active.
-    nonisolated static func relayDiagReportText() async -> String {
+    nonisolated static func relayDiagReportText() -> String {
         relayDiagReport(
-            policy: await relayDiagMirror.current(),
+            policy: currentRelayDiagState(),
             debugOverrideRelayURL: CmxIrohDebugRelayOverrideDiagnostics().activeRelayURL
         )
     }
