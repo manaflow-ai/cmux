@@ -50,6 +50,55 @@ extension GhosttySurfaceView {
         enqueueScrollToBottom()
         debugScrollScriptDone = true
     }
+
+    /// Scroll-smoothness audit: logs the display's max rate once, then one
+    /// per-second summary of achieved display-link cadence while a scroll
+    /// gesture or its deceleration is active. `scroll_fps` is what the app
+    /// achieved, `link_fps` is the rate Core Animation currently grants, and
+    /// `missed` counts ticks that arrived over 1.6x the granted frame time.
+    func debugRecordScrollFrameRateTick(now: CFTimeInterval) {
+        if !debugScrollFrameRateStats.loggedDisplayInfo,
+           let screen = window?.windowScene?.screen {
+            debugScrollFrameRateStats.loggedDisplayInfo = true
+            MobileDebugLog.anchormux(
+                "perf.display max_fps=\(screen.maximumFramesPerSecond)"
+            )
+        }
+        guard scrollInteractionActive else {
+            debugScrollFrameRateStats.windowStart = 0
+            debugScrollFrameRateStats.ticks = 0
+            debugScrollFrameRateStats.missed = 0
+            debugScrollFrameRateStats.maxGapMs = 0
+            return
+        }
+        if debugScrollFrameRateStats.windowStart == 0 {
+            debugScrollFrameRateStats.windowStart = now
+            debugScrollFrameRateStats.lastTick = now
+            return
+        }
+        let gap = now - debugScrollFrameRateStats.lastTick
+        debugScrollFrameRateStats.lastTick = now
+        debugScrollFrameRateStats.ticks += 1
+        debugScrollFrameRateStats.maxGapMs = max(
+            debugScrollFrameRateStats.maxGapMs,
+            gap * 1000
+        )
+        let grantedDuration = displayLink?.duration ?? 0
+        if grantedDuration > 0, gap > grantedDuration * 1.6 {
+            debugScrollFrameRateStats.missed += 1
+        }
+        let windowElapsed = now - debugScrollFrameRateStats.windowStart
+        guard windowElapsed >= 1.0 else { return }
+        let fps = Double(debugScrollFrameRateStats.ticks) / windowElapsed
+        let linkFps = grantedDuration > 0 ? Int((1.0 / grantedDuration).rounded()) : 0
+        MobileDebugLog.anchormux(
+            "perf.refresh scroll_fps=\(Int(fps.rounded())) link_fps=\(linkFps) missed=\(debugScrollFrameRateStats.missed) max_gap_ms=\(Int(debugScrollFrameRateStats.maxGapMs))"
+        )
+        debugScrollFrameRateStats.windowStart = now
+        debugScrollFrameRateStats.ticks = 0
+        debugScrollFrameRateStats.missed = 0
+        debugScrollFrameRateStats.maxGapMs = 0
+    }
 }
 #endif
 #endif
