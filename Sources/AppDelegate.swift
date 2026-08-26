@@ -8704,7 +8704,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
             ?? (workspace.isRemoteTmuxMirror ? nil : {
                 guard let paneId = workspace.bonsplitController.focusedPaneId else { return nil }
-                return workspace.withNewTerminalTabZoomPolicy(inPane: paneId) {
+                return workspace.withNewTerminalTabZoomPolicy(inPane: paneId, applyPolicy: shouldBringToFront) {
                     workspace.newTerminalSurfaceInFocusedPaneOutcome(focus: shouldBringToFront)
                 }.panel
             }())
