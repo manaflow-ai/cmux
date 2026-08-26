@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+public import Foundation
 
 /// Reclaims expired editor handoff copies while enforcing bounded temporary storage.
 public struct ProjectFileTemporaryCopyCleaner {

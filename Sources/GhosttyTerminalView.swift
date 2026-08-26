@@ -4619,11 +4619,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Resolves renderer visibility from AppKit state and the headless display-test contract.
     static func effectiveRendererWindowVisibility(
         occlusionVisible: Bool,
-        isKeyWindow: Bool,
         isVisible: Bool,
         displayUITestRenderingEnabled: Bool
     ) -> Bool {
-        occlusionVisible || isKeyWindow || (displayUITestRenderingEnabled && isVisible)
+        occlusionVisible || (displayUITestRenderingEnabled && isVisible)
     }
 
     private func effectiveRendererWindowVisibility(for window: NSWindow) -> Bool {
@@ -4636,7 +4635,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
         return Self.effectiveRendererWindowVisibility(
             occlusionVisible: window.occlusionState.contains(.visible),
-            isKeyWindow: window.isKeyWindow,
             isVisible: window.isVisible,
             displayUITestRenderingEnabled: displayUITestRenderingEnabled
         )
