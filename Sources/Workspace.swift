@@ -10146,6 +10146,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         var detached = splitLayout.takeDetachedTransfer(tabId)
         if detached == nil {
+            (sourcePanel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(
                 workspaceId: id,
                 panelId: panelId
