@@ -829,7 +829,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
-    var chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator?
+    /// Latest immutable palette snapshot supplied by the app composition root.
+    var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
+    /// Factory for independent palette-update streams owned by the composition root.
+    var makeChromePaletteUpdates: (@MainActor () -> AsyncStream<ChromePalette>)?
+    /// Lifecycle refresh callback supplied by the composition root.
+    var refreshChromePalette: (@MainActor () -> Void)?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -917,7 +922,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
-        layoutModel: titlebarControlsLayoutModel
+        layoutModel: titlebarControlsLayoutModel,
+        makeChromePaletteUpdates: makeChromePaletteUpdates
     )
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
@@ -1406,7 +1412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
-        chromePaletteRuntimeCoordinator?.refresh()
+        refreshChromePalette?()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
@@ -2358,7 +2364,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             TerminalController.shared.startSimulatorMutationRecovery()
         }
         auth.start()
-        configureChromePaletteRuntime(runtime: settingsRuntime)
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
@@ -9279,7 +9284,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. The palette host
             // exposes the runtime to settings descendants.
-            .chromePaletteHost(initialPalette: chromePalette, settingsRuntime: settingsRuntime)
+            .chromePaletteHost(
+                initialPalette: chromePalette,
+                settingsRuntime: settingsRuntime,
+                updates: makeChromePaletteUpdates
+            )
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N

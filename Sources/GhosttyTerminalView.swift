@@ -8747,7 +8747,13 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
         dropZoneOverlayView.wantsLayer = true
-        chromePaletteObservation = ChromePaletteDropOverlayObservation(overlay: dropZoneOverlayView)
+        let appDelegate = AppDelegate.shared
+        chromePaletteObservation = ChromePaletteDropOverlayObservation(
+            overlay: dropZoneOverlayView,
+            initialPalette: appDelegate?.chromePalette
+                ?? ChromePaletteRuntimeResolver(runtime: appDelegate?.settingsRuntime).resolve(),
+            updates: appDelegate?.makeChromePaletteUpdates
+        )
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true

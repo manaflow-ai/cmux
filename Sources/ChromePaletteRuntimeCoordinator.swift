@@ -9,11 +9,12 @@ import CmuxSettingsUI
 final class ChromePaletteRuntimeCoordinator {
     private let runtime: SettingsRuntime
     private let resolver: ChromePaletteRuntimeResolver
-    private let onPaletteChange: @MainActor (ChromePalette) -> Void
+    private var onPaletteChange: @MainActor (ChromePalette) -> Void
     private var themeTask: Task<Void, Never>?
     private var overridesTask: Task<Void, Never>?
     private var appearanceTask: Task<Void, Never>?
     private var systemAppearanceTask: Task<Void, Never>?
+    private var updateSubscribers: [UUID: AsyncStream<ChromePalette>.Continuation] = [:]
 
     private var theme: ChromeThemeID
     private var overrides: ChromeTokenOverrides
@@ -27,7 +28,7 @@ final class ChromePaletteRuntimeCoordinator {
     ///   - onPaletteChange: Main-actor sink for each effective palette change.
     init(
         runtime: SettingsRuntime,
-        onPaletteChange: @escaping @MainActor (ChromePalette) -> Void
+        onPaletteChange: @escaping @MainActor (ChromePalette) -> Void = { _ in }
     ) {
         self.runtime = runtime
         self.resolver = ChromePaletteRuntimeResolver(runtime: runtime)
@@ -43,11 +44,46 @@ final class ChromePaletteRuntimeCoordinator {
         )
     }
 
+    /// Installs the application sink after composition-root dependencies are
+    /// initialized. Keeping this separate from ``init`` lets an `App` wire the
+    /// coordinator to its `NSApplicationDelegateAdaptor` without capturing the
+    /// partially initialized `App` value.
+    ///
+    /// - Parameter handler: Main-actor callback invoked for each new palette.
+    func setPaletteChangeHandler(
+        _ handler: @escaping @MainActor (ChromePalette) -> Void
+    ) {
+        onPaletteChange = handler
+    }
+
     deinit {
         themeTask?.cancel()
         overridesTask?.cancel()
         appearanceTask?.cancel()
         systemAppearanceTask?.cancel()
+        for continuation in updateSubscribers.values {
+            continuation.finish()
+        }
+    }
+
+    /// Creates a stream of immutable palette snapshots for one UI consumer.
+    ///
+    /// The current palette is yielded immediately, followed by every later
+    /// change. Each caller receives an independent stream, so consumers do not
+    /// share a notification channel or mutable palette state.
+    func makeUpdateStream() -> AsyncStream<ChromePalette> {
+        let subscriberID = UUID()
+        let (stream, continuation) = AsyncStream<ChromePalette>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        updateSubscribers[subscriberID] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.removeUpdateSubscriber(subscriberID)
+            }
+        }
+        continuation.yield(palette)
+        return stream
     }
 
     /// Starts the three typed setting streams and the system-appearance feed.
@@ -122,6 +158,13 @@ final class ChromePaletteRuntimeCoordinator {
         )
         guard next != palette else { return }
         palette = next
+        for continuation in updateSubscribers.values {
+            continuation.yield(next)
+        }
         onPaletteChange(next)
+    }
+
+    private func removeUpdateSubscriber(_ id: UUID) {
+        updateSubscribers.removeValue(forKey: id)?.finish()
     }
 }

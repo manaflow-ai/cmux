@@ -4,12 +4,18 @@ import CmuxSettings
 /// Keeps an AppKit-owned drop overlay synchronized with the app-wide chrome palette.
 @MainActor
 final class ChromePaletteDropOverlayObservation {
+    typealias UpdateStreamFactory = @MainActor () -> AsyncStream<ChromePalette>
+
     private let applyPalette: @MainActor (ChromePalette) -> Void
+    private let makeUpdates: UpdateStreamFactory?
     private var observationTask: Task<Void, Never>?
 
-    init(overlay: NSView) {
-        let initialPalette = AppDelegate.shared?.chromePalette
-            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
+    init(
+        overlay: NSView,
+        initialPalette: ChromePalette,
+        updates: UpdateStreamFactory?
+    ) {
+        makeUpdates = updates
         applyPalette = { [weak overlay] palette in
             overlay?.layer?.backgroundColor = palette.cmuxAccentNSColor
                 .withAlphaComponent(0.25)
@@ -22,8 +28,10 @@ final class ChromePaletteDropOverlayObservation {
 
     init(
         initialPalette: ChromePalette,
+        updates: UpdateStreamFactory?,
         apply: @escaping @MainActor (ChromePalette) -> Void
     ) {
+        makeUpdates = updates
         applyPalette = apply
         applyPalette(initialPalette)
         startObserving()
@@ -34,13 +42,10 @@ final class ChromePaletteDropOverlayObservation {
     }
 
     private func startObserving() {
-        observationTask = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: .cmuxChromePaletteDidChange
-            )
-            for await notification in notifications {
+        guard let makeUpdates else { return }
+        observationTask = Task { @MainActor [weak self, makeUpdates] in
+            for await palette in makeUpdates() {
                 guard !Task.isCancelled else { break }
-                guard let palette = notification.object as? ChromePalette else { continue }
                 self?.applyPalette(palette)
             }
         }

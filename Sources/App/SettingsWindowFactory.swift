@@ -22,13 +22,19 @@ enum SettingsWindowFactory {
     /// through the shared singleton, so test presenters using this real
     /// factory drain their own pending navigation).
     static func makeSettingsWindow(onContentAppear: @escaping @MainActor () -> Void) -> NSWindow {
-        if AppDelegate.shared?.settingsRuntime == nil {
+        let appDelegate = AppDelegate.shared
+        if appDelegate?.settingsRuntime == nil {
             // ``SettingsWindowHostRoot`` presents a visible, localized error
             // in this state — loud, never a silent no-op (issue #7777).
             log.fault("settings.window.factory settingsRuntime unavailable; presenting fallback content")
         }
         let hostingController = NSHostingController(
-            rootView: SettingsWindowHostRoot(onContentAppear: onContentAppear)
+            rootView: SettingsWindowHostRoot(
+                onContentAppear: onContentAppear,
+                initialPalette: appDelegate?.chromePalette
+                    ?? ChromePaletteRuntimeResolver(runtime: appDelegate?.settingsRuntime).resolve(),
+                updates: appDelegate?.makeChromePaletteUpdates
+            )
         )
         // Bridge only the navigation title. `.toolbars` is deliberately
         // absent: the scene bridge never materializes NavigationSplitView's
@@ -145,6 +151,8 @@ struct SettingsWindowHostRoot: View {
     /// main-actor hop (so the content's restore navigation cannot clobber
     /// it) and guards it against being superseded by a newer targeted show.
     let onContentAppear: @MainActor () -> Void
+    let initialPalette: ChromePalette
+    let updates: (@MainActor () -> AsyncStream<ChromePalette>)?
 
     @AppStorage(AppearanceSettings.appearanceModeKey)
     private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -161,9 +169,9 @@ struct SettingsWindowHostRoot: View {
         if let runtime = AppDelegate.shared?.settingsRuntime {
             SettingsWindowRoot(runtime: runtime)
                 .chromePaletteHost(
-                    initialPalette: AppDelegate.shared?.chromePalette
-                        ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
-                    settingsRuntime: runtime
+                    initialPalette: initialPalette,
+                    settingsRuntime: runtime,
+                    updates: updates
                 )
         } else {
             // Unreachable in a normally-launched app (the runtime is created

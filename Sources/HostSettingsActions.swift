@@ -226,8 +226,14 @@ final class HostSettingsActions: SettingsHostActions {
         }
 
         let appearanceMode = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
-        let runtime = AppDelegate.shared?.settingsRuntime
-        let root = ConfigSettingsView().chromePaletteHost(initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(), settingsRuntime: runtime)
+        let appDelegate = AppDelegate.shared
+        let runtime = appDelegate?.settingsRuntime
+        let root = ConfigSettingsView().chromePaletteHost(
+            initialPalette: appDelegate?.chromePalette
+                ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
+            settingsRuntime: runtime,
+            updates: appDelegate?.makeChromePaletteUpdates
+        )
             .cmuxAppearanceColorScheme(appearanceMode)
         let hostingController = NSHostingController(rootView: root)
         let window = NSWindow(contentViewController: hostingController)

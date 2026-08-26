@@ -55,6 +55,8 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    /// Owns palette resolution and update streams at the app composition root.
+    private let chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore: ClosedItemHistoryStore
@@ -198,6 +200,8 @@ struct cmuxApp: App {
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
             chromePalette: ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
         )
+        let chromePaletteRuntimeCoordinator = ChromePaletteRuntimeCoordinator(runtime: settingsRuntime)
+        self.chromePaletteRuntimeCoordinator = chromePaletteRuntimeCoordinator
         _tabManager = StateObject(wrappedValue: tabManager)
         _notificationStore = StateObject(wrappedValue: notificationStore)
         _closedItemHistoryStore = StateObject(wrappedValue: closedItemHistoryStore)
@@ -238,6 +242,20 @@ struct cmuxApp: App {
             settingsRuntime: settingsRuntime,
             auth: authComposition
         )
+        let configuredAppDelegate = appDelegate
+        chromePaletteRuntimeCoordinator.setPaletteChangeHandler { [weak configuredAppDelegate] palette in
+            configuredAppDelegate?.applyChromePaletteToOpenWindows(palette)
+        }
+        appDelegate.configureChromePaletteRuntime(
+            initialPalette: chromePaletteRuntimeCoordinator.palette,
+            makeUpdates: { @MainActor in
+                chromePaletteRuntimeCoordinator.makeUpdateStream()
+            },
+            refresh: { @MainActor in
+                chromePaletteRuntimeCoordinator.refresh()
+            }
+        )
+        chromePaletteRuntimeCoordinator.start()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
 
@@ -911,7 +929,11 @@ struct cmuxApp: App {
         // restart (https://github.com/manaflow-ai/cmux/issues/7777).
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
-                .chromePaletteHost(initialPalette: appDelegate.chromePalette, settingsRuntime: settingsRuntime)
+                .chromePaletteHost(
+                    initialPalette: appDelegate.chromePalette,
+                    settingsRuntime: settingsRuntime,
+                    updates: { @MainActor in chromePaletteRuntimeCoordinator.makeUpdateStream() }
+                )
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
@@ -2494,7 +2516,13 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarDebug")
         window.center()
         let runtime = AppDelegate.shared?.settingsRuntime
-        window.contentView = NSHostingView(rootView: SidebarDebugView().chromePaletteHost(initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(), settingsRuntime: runtime))
+        window.contentView = NSHostingView(
+            rootView: SidebarDebugView().chromePaletteHost(
+                initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
+                settingsRuntime: runtime,
+                updates: AppDelegate.shared?.makeChromePaletteUpdates
+            )
+        )
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }

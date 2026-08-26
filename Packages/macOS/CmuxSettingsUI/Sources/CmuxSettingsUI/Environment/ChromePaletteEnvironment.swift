@@ -37,12 +37,15 @@ extension View {
     ///   - initialPalette: The coordinator snapshot current at mount time.
     ///   - settingsRuntime: The settings runtime to expose to descendants, or
     ///     `nil` when the hierarchy does not provide settings controls.
+    ///   - updates: A factory for the coordinator's per-consumer update stream.
+    ///     Pass `nil` for static previews that do not need live updates.
     @MainActor
     public func chromePaletteHost(
         initialPalette: ChromePalette,
-        settingsRuntime: SettingsRuntime?
+        settingsRuntime: SettingsRuntime?,
+        updates: (@MainActor () -> AsyncStream<ChromePalette>)? = nil
     ) -> some View {
-        ChromePaletteHost(initialPalette: initialPalette) { self }
+        ChromePaletteHost(initialPalette: initialPalette, updates: updates) { self }
             .environment(\.settingsRuntime, settingsRuntime)
     }
 }
@@ -53,15 +56,23 @@ extension View {
 @MainActor
 public struct ChromePaletteHost<Content: View>: View {
     @State private var palette: ChromePalette
+    private let updates: (@MainActor () -> AsyncStream<ChromePalette>)?
     private let content: Content
 
     /// Creates a host seeded with the coordinator's current snapshot.
     ///
     /// - Parameters:
     ///   - initialPalette: The coordinator snapshot current at mount time.
+    ///   - updates: A factory for a per-consumer coordinator update stream, or
+    ///     `nil` for a static preview.
     ///   - content: The view hierarchy that consumes the palette.
-    public init(initialPalette: ChromePalette, @ViewBuilder content: () -> Content) {
+    public init(
+        initialPalette: ChromePalette,
+        updates: (@MainActor () -> AsyncStream<ChromePalette>)? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
         _palette = State(initialValue: initialPalette)
+        self.updates = updates
         self.content = content()
     }
 
@@ -70,12 +81,9 @@ public struct ChromePaletteHost<Content: View>: View {
             .chromePalette(palette)
             .tint(palette.accent.swiftUIColor)
             .task {
-                let notifications = NotificationCenter.default.notifications(
-                    named: .cmuxChromePaletteDidChange
-                )
-                for await notification in notifications {
+                guard let updates else { return }
+                for await next in updates() {
                     guard !Task.isCancelled else { break }
-                    guard let next = notification.object as? ChromePalette else { continue }
                     palette = next
                 }
             }

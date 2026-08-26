@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import ObjectiveC
 import SwiftUI
 import WebKit
@@ -1238,7 +1239,13 @@ final class WindowBrowserSlotView: NSView {
         paneDropTargetView.slotView = self
 
         dropZoneOverlayView.wantsLayer = true
-        chromePaletteObservation = ChromePaletteDropOverlayObservation(overlay: dropZoneOverlayView)
+        let appDelegate = AppDelegate.shared
+        chromePaletteObservation = ChromePaletteDropOverlayObservation(
+            overlay: dropZoneOverlayView,
+            initialPalette: appDelegate?.chromePalette
+                ?? ChromePaletteRuntimeResolver(runtime: appDelegate?.settingsRuntime).resolve(),
+            updates: appDelegate?.makeChromePaletteUpdates
+        )
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true

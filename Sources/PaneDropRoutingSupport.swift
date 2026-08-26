@@ -203,16 +203,18 @@ final class PaneDropZoneOverlayAnimator {
     private var displayedZone: DropZone?
     private var animationGeneration: UInt64 = 0
 
-    init(overlayView: NSView) {
+    init(
+        overlayView: NSView,
+        initialPalette: ChromePalette,
+        updates: ChromePaletteDropOverlayObservation.UpdateStreamFactory?
+    ) {
         self.overlayView = overlayView
-        let initialPalette = AppDelegate.shared?.chromePalette
-            ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         Self.applyStyle(to: overlayView, palette: initialPalette)
         chromePaletteObservation = ChromePaletteDropOverlayObservation(
-            initialPalette: initialPalette
-        ) { [weak self] palette in
-            self?.applyChromePalette(palette)
-        }
+            overlay: overlayView,
+            initialPalette: initialPalette,
+            updates: updates
+        )
     }
 
     static func applyStyle(to view: NSView, palette: ChromePalette) {
@@ -222,13 +224,6 @@ final class PaneDropZoneOverlayAnimator {
         view.layer?.borderWidth = 2
         view.layer?.cornerRadius = 8
         view.isHidden = true
-    }
-
-    private func applyChromePalette(_ palette: ChromePalette) {
-        overlayView.layer?.backgroundColor = palette.cmuxAccentNSColor
-            .withAlphaComponent(0.25)
-            .cgColor
-        overlayView.layer?.borderColor = palette.cmuxAccentNSColor.cgColor
     }
 
     func hideImmediately() {
