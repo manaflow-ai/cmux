@@ -15,9 +15,14 @@ extension CMUXCLI {
         let clients = parseLocalTmuxClients(
             (try? runner.run(arguments: builder.listClientsArguments()).stdout) ?? ""
         )
+        let recordsByName = Dictionary(uniqueKeysWithValues: records.map { ($0.name, $0) })
+        var clientCountsBySession: [String: Int] = [:]
+        for client in clients {
+            clientCountsBySession[client.sessionName, default: 0] += 1
+        }
         var rows: [[String: Any]] = []
         for session in liveSessions {
-            let record = records.first(where: { $0.name == session.name })
+            let record = recordsByName[session.name]
             rows.append([
                 "id": record?.id.uuidString ?? NSNull(),
                 "session_name": session.name,
@@ -25,7 +30,7 @@ extension CMUXCLI {
                 "socket_path": builder.socketPath,
                 "windows": session.windows,
                 "created": session.created,
-                "clients": clients.filter { $0.sessionName == session.name }.count,
+                "clients": clientCountsBySession[session.name] ?? 0,
                 "managed": record != nil,
                 "workspace_id": record?.workspaceID ?? NSNull(),
                 "workspace_title": record?.workspaceTitle ?? NSNull(),
@@ -128,12 +133,11 @@ extension CMUXCLI {
         } else if localTmuxListingIndicatesStoppedServer(listed, builder: builder) {
             liveNames = []
         } else {
-            let detail = listed.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             let message = String(
                 localized: "cli.localTmux.error.cleanupListFailed",
                 defaultValue: "local-tmux cleanup could not list sessions; the registry was left unchanged."
             )
-            throw CLIError(message: detail.isEmpty ? message : "\(message) \(detail)")
+            throw CLIError(message: message)
         }
         let stale = records.filter { !liveNames.contains($0.name) }
         let staleIDs = Set(stale.map(\.id))
@@ -171,10 +175,18 @@ extension CMUXCLI {
         _ result: LocalTmuxProcessResult,
         builder: LocalTmuxCommandBuilder
     ) -> Bool {
-        guard !FileManager.default.fileExists(atPath: builder.socketPath) else { return false }
         let detail = result.stderr.lowercased()
-        return detail.contains("no server running")
-            || (detail.contains("error connecting") && detail.contains("no such file or directory"))
+        if detail.contains("no server running")
+            || (detail.contains("error connecting") && detail.contains("no such file or directory")) {
+            return true
+        }
+        guard detail.contains("error connecting"), detail.contains("connection refused") else {
+            return false
+        }
+        var info = stat()
+        return lstat(builder.socketPath, &info) == 0
+            && info.st_uid == getuid()
+            && info.st_mode & 0o077 == 0
     }
 
     func closeLocalTmuxSession(
@@ -187,9 +199,8 @@ extension CMUXCLI {
     ) throws {
         let result = try runner.run(arguments: builder.killSessionArguments(record.name))
         guard result.succeeded || result.stderr.localizedCaseInsensitiveContains("no server running") || result.stderr.localizedCaseInsensitiveContains("session not found") else {
-            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             let message = String(localized: "cli.localTmux.error.closeFailed", defaultValue: "local-tmux close failed")
-            throw CLIError(message: detail.isEmpty ? message : "\(message): \(detail)")
+            throw CLIError(message: message)
         }
         _ = try registry.remove(id: record.id)
         let payload: [String: Any] = [
@@ -295,7 +306,7 @@ extension CMUXCLI {
             process.waitUntilExit()
         } catch {
             let message = String(localized: "cli.localTmux.error.interactiveStart", defaultValue: "local-tmux could not start an interactive client")
-            throw CLIError(message: "\(message): \(error)", exitCode: 127)
+            throw CLIError(message: message, exitCode: 127)
         }
         guard process.terminationStatus == 0 else {
             throw CLIError(message: String.localizedStringWithFormat(

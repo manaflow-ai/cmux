@@ -50,7 +50,7 @@ struct LocalTmuxProcessRunner {
             try process.run()
         } catch {
             let message = String(localized: "cli.localTmux.error.runFailed", defaultValue: "local-tmux could not run tmux")
-            throw CLIError(message: "\(message): \(error)", exitCode: 127)
+            throw CLIError(message: message, exitCode: 127)
         }
 
         let stdoutFileHandle = stdoutPipe.fileHandleForReading
@@ -150,13 +150,12 @@ struct LocalTmuxProcessRunner {
     func requireSuccess(_ arguments: [String], context: String) throws -> LocalTmuxProcessResult {
         let result = try run(arguments: arguments)
         guard result.succeeded else {
-            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             let message = String.localizedStringWithFormat(
                 String(localized: "cli.localTmux.error.operationFailed", defaultValue: "local-tmux %@ failed (exit %d)"),
                 context,
                 result.status
             )
-            throw CLIError(message: detail.isEmpty ? message : "\(message): \(detail)")
+            throw CLIError(message: message)
         }
         return result
     }

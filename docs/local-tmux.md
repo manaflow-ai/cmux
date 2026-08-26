@@ -37,10 +37,12 @@ replayed only when it has the `TMUX= CMUX_LOCAL_TMUX=1` marker.
 New sessions receive a bounded 10,000-line tmux history limit.
 
 The registry stores a stable logical UUID, the tmux name/socket, cwd, and
-workspace title/cwd hints. Runtime workspace and surface IDs are hints only:
-reattach matches the durable title/cwd association and validates any live
-surface before reusing it. `--new-client` deliberately creates another cmux
-client instead of reusing a restored one.
+workspace/surface identifiers. Reattach first resolves those durable IDs
+against the live control plane; title/cwd and marker matching are migration
+fallbacks only for records written before those identifiers existed. A missing
+authoritative target fails closed instead of silently selecting the current
+workspace. `--new-client` deliberately creates another cmux client instead of
+reusing a restored one.
 
 ## Discovery, cleanup, and safety
 
@@ -70,7 +72,7 @@ state directory or socket with another Unix user.
   or terminal emulator-specific device protocol may need its own reconnect
   handling; tmux preserves bytes and processes, not those external resources.
 - The profile uses one tmux server socket per Unix user. Names must match
-  `[A-Za-z0-9._:-]+` and are limited to 128 characters.
+  `[A-Za-z0-9_-]+` and are limited to 128 characters.
 - Closing a cmux surface does not kill the tmux session. Use `local-tmux close`
   when the durable owner should be terminated.
 

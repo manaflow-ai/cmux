@@ -35,6 +35,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("cleanup"), result.stdout)
     }
 
+    func testLocalTmuxSessionNamesRejectTmuxTargetDelimiters() {
+        XCTAssertNoThrow(try LocalTmuxSessionNameValidator().validate("work_1"))
+        XCTAssertThrowsError(try LocalTmuxSessionNameValidator().validate("work.name"))
+        XCTAssertThrowsError(try LocalTmuxSessionNameValidator().validate("work:name"))
+    }
+
     func testLocalTmuxDetachedLifecycleKeepsServerIndependentOfCmuxSocket() throws {
         let cliPath = try bundledCLIPath()
         let tmuxPath = [
@@ -55,6 +61,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_LOCAL_TMUX_STATE_DIR"] = stateRoot.path
         environment.removeValue(forKey: "CMUX_SOCKET_PATH")
         environment.removeValue(forKey: "CMUX_SOCKET")
+        defer {
+            _ = runProcess(
+                executablePath: cliPath,
+                arguments: ["local-tmux", "close", sessionName],
+                environment: environment,
+                timeout: 10
+            )
+        }
 
         let start = runProcess(
             executablePath: cliPath,
@@ -144,7 +158,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(cleanup.timedOut, cleanup.stderr)
         XCTAssertNotEqual(cleanup.status, 0, cleanup.stdout)
-        XCTAssertTrue(cleanup.stderr.contains("tmux unavailable"), cleanup.stderr)
+        XCTAssertTrue(cleanup.stderr.contains("registry was left unchanged"), cleanup.stderr)
+        XCTAssertFalse(cleanup.stderr.contains("tmux unavailable"), cleanup.stderr)
 
         environment["FAKE_TMUX_MODE"] = "start"
         let list = runProcess(

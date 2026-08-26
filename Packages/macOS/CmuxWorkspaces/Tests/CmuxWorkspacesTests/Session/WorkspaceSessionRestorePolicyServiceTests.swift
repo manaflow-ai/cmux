@@ -366,7 +366,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     @Test("cmux-generated local tmux attach commands are restorable")
     func restorableTmuxStartCommandAcceptsLocalTmuxMarker() {
         let service = makeService()
-        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S '/tmp/.cmux/local-tmux/server.sock' attach-session -t 'work'"
+        let command = "TMUX= CMUX_LOCAL_TMUX=1 exec '/usr/local/bin/tmux' -S '/tmp/.cmux/local-tmux/server.sock' attach-session -t '=work'"
 
         #expect(service.restorableTmuxStartCommand(command) == command)
         #expect(service.localTmuxStartCommand(command) == command)

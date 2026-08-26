@@ -21,55 +21,20 @@ extension CMUXCLI {
         let invocation = try LocalTmuxInvocation.parse(effectiveArguments)
         let registry = LocalTmuxSessionRegistry.live()
         let (_, builder, runner) = try localTmuxRuntime(registry: registry)
+        if try runLocalTmuxLifecycleAction(
+            invocation,
+            registry: registry,
+            builder: builder,
+            runner: runner,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        ) {
+            return
+        }
 
         switch invocation.action {
-        case .list:
-            try listLocalTmuxSessions(
-                registry: registry,
-                builder: builder,
-                runner: runner,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat
-            )
-        case .status:
-            let record = try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
-            try statusLocalTmuxSession(
-                record: record,
-                builder: builder,
-                runner: runner,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat
-            )
-        case .cleanup:
-            try cleanupLocalTmuxSessions(
-                registry: registry,
-                builder: builder,
-                runner: runner,
-                prune: invocation.prune,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat
-            )
-        case .close:
-            let record = try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
-            try closeLocalTmuxSession(
-                record: record,
-                registry: registry,
-                builder: builder,
-                runner: runner,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat
-            )
-        case .detach:
-            let record = try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
-            try detachLocalTmuxSession(
-                record: record,
-                invocation: invocation,
-                registry: registry,
-                builder: builder,
-                runner: runner,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat
-            )
+        case .list, .status, .cleanup, .close, .detach:
+            return
         case .start:
             let record = try startLocalTmuxSession(
                 invocation: invocation,
@@ -137,6 +102,41 @@ extension CMUXCLI {
         }
         let registry = LocalTmuxSessionRegistry.live()
         let (_, builder, runner) = try localTmuxRuntime(registry: registry)
+        _ = try runLocalTmuxLifecycleAction(
+            invocation,
+            registry: registry,
+            builder: builder,
+            runner: runner,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+        switch invocation.action {
+        case .list, .status, .cleanup, .close, .detach:
+            return
+        case .start:
+            let record = try startLocalTmuxSession(invocation: invocation, registry: registry, builder: builder, runner: runner)
+            if invocation.headless {
+                try runLocalTmuxInteractiveAttach(record: record, builder: builder)
+            } else {
+                printLocalTmuxRecord(record, jsonOutput: jsonOutput, idFormat: idFormat, state: "detached")
+            }
+        case .attach:
+            let record = try requireOrDiscoverLocalTmuxRecord(invocation, registry: registry, builder: builder, runner: runner)
+            try runLocalTmuxInteractiveAttach(record: record, builder: builder)
+        }
+    }
+
+    /// Executes lifecycle actions shared by GUI and headless entry points.
+    /// Returns `true` when the action was handled; start/attach remain in the
+    /// caller because only the GUI path can supply an authenticated client.
+    private func runLocalTmuxLifecycleAction(
+        _ invocation: LocalTmuxInvocation,
+        registry: LocalTmuxSessionRegistry,
+        builder: LocalTmuxCommandBuilder,
+        runner: LocalTmuxProcessRunner,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws -> Bool {
         switch invocation.action {
         case .list:
             try listLocalTmuxSessions(registry: registry, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -151,17 +151,10 @@ extension CMUXCLI {
         case .detach:
             let record = try requireLocalTmuxRecord(invocation, registry: registry, runner: runner, builder: builder)
             try detachLocalTmuxSession(record: record, invocation: invocation, registry: registry, builder: builder, runner: runner, jsonOutput: jsonOutput, idFormat: idFormat)
-        case .start:
-            let record = try startLocalTmuxSession(invocation: invocation, registry: registry, builder: builder, runner: runner)
-            if invocation.headless {
-                try runLocalTmuxInteractiveAttach(record: record, builder: builder)
-            } else {
-                printLocalTmuxRecord(record, jsonOutput: jsonOutput, idFormat: idFormat, state: "detached")
-            }
-        case .attach:
-            let record = try requireOrDiscoverLocalTmuxRecord(invocation, registry: registry, builder: builder, runner: runner)
-            try runLocalTmuxInteractiveAttach(record: record, builder: builder)
+        case .start, .attach:
+            return false
         }
+        return true
     }
 
     private func localTmuxRuntime(
@@ -178,7 +171,7 @@ extension CMUXCLI {
             path = LocalTmuxExecutableResolver().resolve(environmentPath: environment["PATH"])
         }
         guard let path, FileManager.default.isExecutableFile(atPath: path) else {
-            throw CLIError(message: String(localized: "cli.localTmux.error.tmuxMissing", defaultValue: "local-tmux requires tmux. Install tmux or set CMUX_LOCAL_TMUX_BIN to an executable tmux path"), exitCode: 127)
+            throw CLIError(message: String(localized: "cli.localTmux.error.tmuxMissing", defaultValue: "local-tmux requires tmux. Install tmux or configure an executable tmux path"), exitCode: 127)
         }
         let socketPath = registry.serverSocketURL.path
         guard socketPath.utf8.count < 100 else {
@@ -204,13 +197,27 @@ extension CMUXCLI {
         let cwd = try localTmuxWorkingDirectory(invocation.cwd)
         let existing = try runner.run(arguments: builder.hasSessionArguments(name))
         if existing.succeeded {
+            let existingPath = localTmuxSessionPath(name: name, builder: builder, runner: runner)
+            if let requestedCwd = invocation.cwd,
+               let existingPath,
+               URL(fileURLWithPath: resolvePath(requestedCwd)).standardizedFileURL.path != existingPath {
+                throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCwd", defaultValue: "local-tmux session already exists with a different working directory; use attach or close it first"))
+            }
+            if let command = invocation.command,
+               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCommand", defaultValue: "local-tmux session already exists; use attach or close it before supplying a new command"))
+            }
             if var record = try registry.load().first(where: { $0.name == name }) {
+                if let sessionPath = existingPath {
+                    record.cwd = sessionPath
+                }
                 record.socketPath = builder.socketPath
                 record.updatedAt = Date().timeIntervalSince1970
                 try registry.upsert(record)
                 return record
             }
-            let record = LocalTmuxSessionRecord(name: name, socketPath: builder.socketPath, cwd: cwd)
+            let sessionCwd = localTmuxSessionPath(name: name, builder: builder, runner: runner) ?? ""
+            let record = LocalTmuxSessionRecord(name: name, socketPath: builder.socketPath, cwd: sessionCwd)
             try registry.upsert(record)
             return record
         }
@@ -241,6 +248,18 @@ extension CMUXCLI {
             ))
         }
         return URL(fileURLWithPath: candidate).standardizedFileURL.path
+    }
+
+    private func localTmuxSessionPath(
+        name: String,
+        builder: LocalTmuxCommandBuilder,
+        runner: LocalTmuxProcessRunner
+    ) -> String? {
+        guard let result = try? runner.run(arguments: builder.sessionPathArguments(name)),
+              result.succeeded else { return nil }
+        let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private func requireLocalTmuxRecord(
@@ -318,6 +337,9 @@ extension CMUXCLI {
             record: originalRecord,
             client: client
         )
+        guard workspace.id != nil || (originalRecord.workspaceID == nil && originalRecord.workspaceTitle == nil) else {
+            throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
+        }
         let attachCommand = builder.attachCommand(sessionName: originalRecord.name)
         var payload: [String: Any]
         if !invocation.newClient,
@@ -325,9 +347,10 @@ extension CMUXCLI {
            let existingSurface = try findExistingLocalTmuxSurface(
                workspaceID: workspaceID,
                sessionName: originalRecord.name,
+               persistedSurfaceID: originalRecord.surfaceID,
                client: client
            ),
-           localTmuxSurfaceHasLiveClient(
+           try localTmuxSurfaceHasLiveClient(
                workspaceID: workspaceID,
                surfaceID: existingSurface,
                client: client
@@ -341,6 +364,13 @@ extension CMUXCLI {
                 "reattached": true,
                 "mode": "local-tmux",
             ]
+            if invocation.focus ?? true {
+                let focused = try client.sendV2(method: "surface.focus", params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": existingSurface,
+                ])
+                payload.merge(focused) { _, new in new }
+            }
         } else if let workspaceID = workspace.id {
             var params: [String: Any] = [
                 "type": "terminal",
@@ -353,6 +383,12 @@ extension CMUXCLI {
             if let paneRaw = invocation.pane,
                let paneID = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceID) {
                 params["pane_id"] = paneID
+            } else if let paneRaw = invocation.pane {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
+                    "pane",
+                    paneRaw
+                ))
             }
             if let surfaceRaw = invocation.surface,
                let surfaceID = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceID) {
@@ -361,10 +397,19 @@ extension CMUXCLI {
                 params.removeValue(forKey: "type")
                 params.removeValue(forKey: "initial_command")
                 payload = try client.sendV2(method: "surface.respawn", params: params)
+            } else if let surfaceRaw = invocation.surface {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
+                    "surface",
+                    surfaceRaw
+                ))
             } else {
                 payload = try client.sendV2(method: "surface.create", params: params)
             }
         } else {
+            guard invocation.pane == nil, invocation.surface == nil else {
+                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceRequiredForTarget", defaultValue: "local-tmux pane or surface targets require a workspace"))
+            }
             var createParams: [String: Any] = [
                 "title": workspace.title ?? "tmux:\(originalRecord.name)",
                 "cwd": originalRecord.cwd,
@@ -423,14 +468,40 @@ extension CMUXCLI {
         client: SocketClient
     ) throws -> (id: String?, title: String?, cwd: String?) {
         let windowID = try normalizeWindowHandle(invocation.window, client: client)
-        if let rawWorkspace = invocation.workspace,
-           let workspaceID = try normalizeWorkspaceHandle(rawWorkspace, client: client, windowHandle: windowID) {
-            return try workspaceSummary(workspaceID: workspaceID, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
+        if let rawWorkspace = invocation.workspace {
+            guard let workspaceID = try normalizeWorkspaceHandle(rawWorkspace, client: client, windowHandle: windowID) else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
+                    "workspace",
+                    rawWorkspace
+                ))
+            }
+            let summary = try workspaceSummary(workspaceID: workspaceID, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
+            guard summary.id != nil else {
+                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
+            }
+            return summary
         }
         if invocation.workspace == nil, invocation.window == nil,
            let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
            let workspaceID = try normalizeWorkspaceHandle(caller, client: client) {
-            return try workspaceSummary(workspaceID: workspaceID, windowID: nil, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
+            let summary = try workspaceSummary(workspaceID: workspaceID, windowID: nil, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
+            guard summary.id != nil else {
+                throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
+            }
+            return summary
+        }
+
+        if let persistedWorkspaceID = record.workspaceID,
+           let workspaceID = try normalizeWorkspaceHandle(persistedWorkspaceID, client: client) {
+            let summary = try workspaceSummary(
+                workspaceID: workspaceID,
+                windowID: windowID,
+                client: client,
+                fallbackTitle: record.workspaceTitle,
+                fallbackCwd: record.cwd
+            )
+            if summary.id != nil { return summary }
         }
 
         // Runtime IDs may be regenerated on relaunch. Match the durable hints
@@ -461,6 +532,9 @@ extension CMUXCLI {
                 ))
             }
         }
+        guard record.workspaceID == nil, record.workspaceTitle == nil else {
+            return (nil, record.workspaceTitle, record.cwd)
+        }
         var currentParams: [String: Any] = [:]
         if let windowID { currentParams["window_id"] = windowID }
         if let current = try? client.sendV2(method: "workspace.current", params: currentParams),
@@ -484,17 +558,24 @@ extension CMUXCLI {
         if let item = (response["workspaces"] as? [[String: Any]])?.first(where: { ($0["id"] as? String) == workspaceID }) {
             return (workspaceID, item["title"] as? String ?? fallbackTitle, item["current_directory"] as? String ?? fallbackCwd)
         }
-        return (workspaceID, fallbackTitle, fallbackCwd)
+        return (nil, fallbackTitle, fallbackCwd)
     }
 
     private func findExistingLocalTmuxSurface(
         workspaceID: String,
         sessionName: String,
+        persistedSurfaceID: String?,
         client: SocketClient
     ) throws -> String? {
         let response = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceID])
-        let marker = " -t '\(sessionName)'"
-        for surface in response["surfaces"] as? [[String: Any]] ?? [] {
+        let surfaces = response["surfaces"] as? [[String: Any]] ?? []
+        let candidates = if let persistedSurfaceID {
+            surfaces.filter { ($0["id"] as? String) == persistedSurfaceID }
+        } else {
+            surfaces
+        }
+        let marker = " -t '=\(sessionName)'"
+        for surface in candidates {
             let initial = surface["initial_command"] as? String ?? ""
             let start = surface["tmux_start_command"] as? String ?? ""
             guard (initial.contains(LocalTmuxCommandBuilder.restoreMarker) || start.contains(LocalTmuxCommandBuilder.restoreMarker)),
@@ -512,17 +593,17 @@ extension CMUXCLI {
         workspaceID: String,
         surfaceID: String,
         client: SocketClient
-    ) -> Bool {
-        guard let payload = try? client.sendV2(
+    ) throws -> Bool {
+        let payload = try client.sendV2(
             method: "system.top",
             params: [
                 "workspace_id": workspaceID,
                 "include_processes": true,
             ],
             responseTimeout: 2.0
-        ),
-        let windows = payload["windows"] as? [[String: Any]] else {
-            return false
+        )
+        guard let windows = payload["windows"] as? [[String: Any]] else {
+            throw CLIError(message: String(localized: "cli.localTmux.error.livenessUnavailable", defaultValue: "local-tmux could not verify the existing surface; no new client was created"))
         }
         for window in windows {
             for workspace in window["workspaces"] as? [[String: Any]] ?? [] {

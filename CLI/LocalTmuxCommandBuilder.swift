@@ -6,8 +6,8 @@ struct LocalTmuxSessionNameValidator {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty,
               name.count <= 128,
-              name.range(of: "^[A-Za-z0-9._:-]+$", options: .regularExpression) != nil else {
-            throw CLIError(message: String(localized: "cli.localTmux.error.invalidName", defaultValue: "local-tmux session names must contain only letters, numbers, dot, underscore, colon, or dash (1–128 characters)"))
+              name.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else {
+            throw CLIError(message: String(localized: "cli.localTmux.error.invalidName", defaultValue: "local-tmux session names must contain only letters, numbers, underscore, or dash (1–128 characters)"))
         }
         return name
     }
@@ -26,11 +26,15 @@ struct LocalTmuxCommandBuilder {
     }
 
     func attachCommand(sessionName: String) -> String {
-        "TMUX= \(Self.restoreMarker) exec \(shellQuote(tmuxPath)) -S \(shellQuote(socketPath)) attach-session -t \(shellQuote(sessionName))"
+        "TMUX= \(Self.restoreMarker) exec \(shellQuote(tmuxPath)) -S \(shellQuote(socketPath)) attach-session -t \(shellQuote(exactTarget(sessionName)))"
     }
 
     func hasSessionArguments(_ sessionName: String) -> [String] {
-        ["-S", socketPath, "has-session", "-t", sessionName]
+        ["-S", socketPath, "has-session", "-t", exactTarget(sessionName)]
+    }
+
+    func sessionPathArguments(_ sessionName: String) -> [String] {
+        ["-S", socketPath, "display-message", "-p", "-t", exactTarget(sessionName), "#{session_path}"]
     }
 
     func listSessionsArguments() -> [String] {
@@ -54,23 +58,32 @@ struct LocalTmuxCommandBuilder {
     }
 
     func attachArguments(sessionName: String) -> [String] {
-        ["-S", socketPath, "attach-session", "-t", sessionName]
+        ["-S", socketPath, "attach-session", "-t", exactTarget(sessionName)]
     }
 
     func historyLimitArguments(sessionName: String, lines: Int = 10_000) -> [String] {
-        ["-S", socketPath, "set-option", "-t", sessionName, "history-limit", String(lines)]
+        ["-S", socketPath, "set-window-option", "-t", exactTarget(sessionName), "history-limit", String(lines)]
     }
 
     func detachArguments(sessionName: String, clientID: String? = nil, all: Bool = false) -> [String] {
         var arguments = ["-S", socketPath, "detach-client"]
-        if all { arguments.append("-a") }
-        if let clientID { arguments.append(contentsOf: ["-t", clientID]) }
-        arguments.append(contentsOf: ["-s", sessionName])
+        if let clientID {
+            arguments.append(contentsOf: ["-t", clientID])
+        } else {
+            if all { arguments.append("-a") }
+            arguments.append(contentsOf: ["-s", exactTarget(sessionName)])
+        }
         return arguments
     }
 
     func killSessionArguments(_ sessionName: String) -> [String] {
-        ["-S", socketPath, "kill-session", "-t", sessionName]
+        ["-S", socketPath, "kill-session", "-t", exactTarget(sessionName)]
+    }
+
+    /// Prefixes a session target with `=` so tmux requires an exact match
+    /// instead of falling back to prefix/glob resolution.
+    private func exactTarget(_ sessionName: String) -> String {
+        "=\(sessionName)"
     }
 
     private func shellQuote(_ value: String) -> String {

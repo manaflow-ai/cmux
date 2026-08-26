@@ -39715,6 +39715,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --client/--all は detach でのみ使用できます" } }
       }
     },
+    "cli.localTmux.error.detachSelectorConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux detach accepts either --client or --all, not both" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux detach では --client と --all のどちらか一方を指定してください" } }
+      }
+    },
     "cli.localTmux.error.duplicateName": {
       "extractionState": "manual",
       "localizations": {
@@ -39750,6 +39757,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の対話クライアントを起動できませんでした" } }
       }
     },
+    "cli.localTmux.error.existingSessionCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session already exists; use attach or close it before supplying a new command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションは既に存在します。新しいコマンドを指定する前に attach または close を使用してください" } }
+      }
+    },
+    "cli.localTmux.error.existingSessionCwd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session already exists with a different working directory; use attach or close it first" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別の作業ディレクトリを持つ local-tmux セッションが既に存在します。先に attach または close を使用してください" } }
+      }
+    },
     "cli.localTmux.error.invalidFocus": {
       "extractionState": "manual",
       "localizations": {
@@ -39767,8 +39788,8 @@
     "cli.localTmux.error.invalidName": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session names must contain only letters, numbers, dot, underscore, colon, or dash (1–128 characters)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のセッション名には英数字、ドット、アンダースコア、コロン、ハイフンのみ使用できます（1～128文字）" } }
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session names must contain only letters, numbers, underscore, or dash (1–128 characters)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のセッション名には英数字、アンダースコア、ハイフンのみ使用できます（1～128文字）" } }
       }
     },
     "cli.localTmux.error.invalidState": {
@@ -39904,6 +39925,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態ディレクトリが Unix ソケットには長すぎます: %@" } }
       }
     },
+    "cli.localTmux.error.stateOperationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state could not be accessed safely" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態に安全にアクセスできませんでした" } }
+      }
+    },
     "cli.localTmux.error.startID": {
       "extractionState": "manual",
       "localizations": {
@@ -39935,8 +39963,36 @@
     "cli.localTmux.error.tmuxMissing": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "local-tmux requires tmux. Install tmux or set CMUX_LOCAL_TMUX_BIN to an executable tmux path" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux には tmux が必要です。tmux をインストールするか、実行可能な tmux のパスを CMUX_LOCAL_TMUX_BIN に設定してください" } }
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux requires tmux. Install tmux or configure an executable tmux path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux には tmux が必要です。tmux をインストールするか、実行可能な tmux のパスを設定してください" } }
+      }
+    },
+    "cli.localTmux.error.targetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not resolve %@ target %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で %@ の対象 %@ を解決できませんでした" } }
+      }
+    },
+    "cli.localTmux.error.livenessUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not verify the existing surface; no new client was created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で既存サーフェスを確認できなかったため、新しいクライアントは作成されませんでした" } }
+      }
+    },
+    "cli.localTmux.error.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux workspace target was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のワークスペース対象が見つかりません" } }
+      }
+    },
+    "cli.localTmux.error.workspaceRequiredForTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux pane or surface targets require a workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の pane または surface 対象にはワークスペースが必要です" } }
       }
     },
     "cli.localTmux.error.unexpectedArgument": {
@@ -40057,13 +40113,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]\n\nOpt-in local tmux sessions survive cmux quit, crash, and app updates. Ordinary cmux terminals are unchanged.\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>] [--workspace <id|ref|index>] [--focus <true|false>]\nlist [--json]\nstatus <name|--id <uuid>] [--json]\ndetach <name|--id <uuid>] [--client <id> | --all]\nclose <name|--id <uuid>]\ncleanup [--prune]\n\nThe registry and tmux server socket live under ~/.cmux/local-tmux with user-only permissions. `attach --headless` hands the terminal directly to tmux for a client outside the cmux GUI."
+            "value": "Usage: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]\n\nOpt-in local tmux sessions survive cmux quit, crash, and app updates. Ordinary cmux terminals are unchanged.\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nThe registry and tmux server socket live under ~/.cmux/local-tmux with user-only permissions. `attach --headless` hands the terminal directly to tmux for a client outside the cmux GUI."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [セッション] [オプション]\n\nオプトインしたローカル tmux セッションは cmux の終了、クラッシュ、アップデート後も維持されます。通常の cmux ターミナルの動作は変わりません。\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>] [--workspace <id|ref|index>] [--focus <true|false>]\nlist [--json]\nstatus <name|--id <uuid>] [--json]\ndetach <name|--id <uuid>] [--client <id> | --all]\nclose <name|--id <uuid>]\ncleanup [--prune]\n\nレジストリと tmux サーバーソケットは ~/.cmux/local-tmux にユーザー専用権限で保存されます。`attach --headless` は cmux GUI 外のクライアントを tmux に直接接続します。"
+            "value": "使い方: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [セッション] [オプション]\n\nオプトインしたローカル tmux セッションは cmux の終了、クラッシュ、アップデート後も維持されます。通常の cmux ターミナルの動作は変わりません。\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nレジストリと tmux サーバーソケットは ~/.cmux/local-tmux にユーザー専用権限で保存されます。`attach --headless` は cmux GUI 外のクライアントを tmux に直接接続します。"
           }
         }
       }

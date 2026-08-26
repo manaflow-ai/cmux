@@ -192,6 +192,9 @@ struct LocalTmuxInvocation {
         if action != .detach, clientID != nil || all {
             throw CLIError(message: String(localized: "cli.localTmux.error.detachOnly", defaultValue: "local-tmux --client/--all are only valid with detach"))
         }
+        if action == .detach, clientID != nil, all {
+            throw CLIError(message: String(localized: "cli.localTmux.error.detachSelectorConflict", defaultValue: "local-tmux detach accepts either --client or --all, not both"))
+        }
         if action != .cleanup, prune {
             throw CLIError(message: String(localized: "cli.localTmux.error.pruneOnly", defaultValue: "local-tmux --prune is only valid with cleanup"))
         }
@@ -229,11 +232,11 @@ struct LocalTmuxInvocation {
     Ordinary cmux terminals are unchanged.
 
     start <name> [--cwd <path>] [--command <shell>] [--detached]
-    attach <name|--id <uuid>] [--workspace <id|ref|index>] [--focus <true|false>]
+    attach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless]
     list [--json]
-    status <name|--id <uuid>] [--json]
-    detach <name|--id <uuid>] [--client <id> | --all]
-    close <name|--id <uuid>]
+    status <name|--id <uuid>> [--json]
+    detach <name|--id <uuid>> [--client <id> | --all]
+    close <name|--id <uuid>>
     cleanup [--prune]
 
     The registry and tmux server socket live under ~/.cmux/local-tmux with

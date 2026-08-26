@@ -49,23 +49,8 @@ enum LocalTmuxRegistryError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .insecurePath(let path):
-            return String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.insecurePath", defaultValue: "local-tmux state path is not owned by the current user or is group/world accessible: %@"),
-                path
-            )
-        case .cannotLock(let path):
-            return String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.lockFailed", defaultValue: "could not lock local-tmux state: %@"),
-                path
-            )
-        case .invalidState(let path):
-            return String.localizedStringWithFormat(
-                String(localized: "cli.localTmux.error.invalidState", defaultValue: "local-tmux state is invalid: %@"),
-                path
-            )
-        case .fileSystem(let message):
-            return message
+        case .insecurePath, .cannotLock, .invalidState, .fileSystem:
+            return String(localized: "cli.localTmux.error.stateOperationFailed", defaultValue: "local-tmux state could not be accessed safely")
         }
     }
 }
@@ -118,7 +103,7 @@ struct LocalTmuxSessionRegistry {
 
     func load() throws -> [LocalTmuxSessionRecord] {
         try ensureSecureStorage()
-        return try withLockedState { state in state.sessions }
+        return try withLockedState(write: false) { state in state.sessions }
     }
 
     func upsert(_ record: LocalTmuxSessionRecord) throws {
@@ -204,7 +189,10 @@ struct LocalTmuxSessionRegistry {
         }
     }
 
-    private func withLockedState<T>(_ body: (inout LocalTmuxRegistryFile) throws -> T) throws -> T {
+    private func withLockedState<T>(
+        write: Bool = true,
+        _ body: (inout LocalTmuxRegistryFile) throws -> T
+    ) throws -> T {
         let descriptor = open(lockURL.path, O_CREAT | O_RDWR, mode_t(0o600))
         guard descriptor >= 0 else {
             throw LocalTmuxRegistryError.cannotLock(lockURL.path)
@@ -217,7 +205,7 @@ struct LocalTmuxSessionRegistry {
 
         var state = try readUnlocked()
         let result = try body(&state)
-        try writeUnlocked(state)
+        if write { try writeUnlocked(state) }
         return result
     }
 
@@ -248,6 +236,7 @@ struct LocalTmuxSessionRegistry {
                 ".sessions.\(UUID().uuidString).tmp",
                 isDirectory: false
             )
+            defer { try? fileManager.removeItem(at: temporary) }
             guard fileManager.createFile(
                 atPath: temporary.path,
                 contents: data,

@@ -25,7 +25,7 @@ struct LocalTmuxRestoreCommandPolicy: Sendable {
               words[5].hasSuffix("/server.sock"),
               words[6] == "attach-session",
               words[7] == "-t",
-              words[8].range(of: "^[A-Za-z0-9._:-]{1,128}$", options: .regularExpression) != nil else {
+              words[8].range(of: "^=[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else {
             return nil
         }
         // The command is later evaluated by a login shell. Accept only the
