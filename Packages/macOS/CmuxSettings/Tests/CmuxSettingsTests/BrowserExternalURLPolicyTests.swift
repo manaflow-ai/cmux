@@ -115,4 +115,10 @@ struct BrowserExternalURLPolicyTests {
         let ordinaryPolicy = BrowserExternalURLPolicy(patterns: ["example.com"])
         #expect(!ordinaryPolicy.matches("https://example.com/\(String(repeating: "x", count: 16_384))"))
     }
+
+    @Test func longWildcardRulesRemainMatchableWithinThePolicyLimit() {
+        let literal = String(repeating: "a", count: 300)
+        let policy = BrowserExternalURLPolicy(patterns: ["*\(literal)*"])
+        #expect(policy.matches("https://example.com/\(literal)/path"))
+    }
 }
