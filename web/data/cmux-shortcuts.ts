@@ -72,7 +72,7 @@ export const shortcutCategories: ShortcutCategory[] = [
           es: "Alternar dictado por voz",
           fr: "Activer ou désactiver la dictée vocale",
           it: "Attiva/disattiva la dettatura vocale",
-          ja: "音声入力を切り替え",
+          ja: "音声入力の切り替え",
           km: "បិទ/បើកការសរសេរតាមសំឡេង",
           ko: "음성 받아쓰기 전환",
           no: "Slå stemmediktering av/på",
