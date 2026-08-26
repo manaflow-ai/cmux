@@ -127,35 +127,51 @@ final class RecoverableMainWindowRoute {
               context.sidebarSelectionState === sidebarSelection else {
             return false
         }
+        if let dock = context.detachWindowDockForContextReplacement() {
+            if let retainedWindowDock, retainedWindowDock !== dock {
+                retainedWindowDock.retire()
+            }
+            retainedWindowDock = dock
+        }
         retainedContext = context
-        retainedTabManager = nil
         return true
     }
 
-    /// Returns a live orphan's original context without tearing down its graph.
+    /// Returns a live orphan's original or proposed context without tearing down
+    /// its graph. Standalone compatibility routes have no original context, so a
+    /// value-matching replacement is adopted directly.
     func takeContextForRegistration(
         matching proposedContext: AppDelegate.MainWindowContext
     ) -> AppDelegate.MainWindowContext? {
-        guard let context = retainedContext,
-              proposedContext.windowId == windowId,
-              proposedContext.tabManager === context.tabManager,
-              proposedContext.sidebarState === context.sidebarState,
-              proposedContext.sidebarSelectionState === context.sidebarSelectionState else {
+        guard proposedContext.windowId == windowId,
+              let routeSidebar = sidebar,
+              let routeSelection = sidebarSelection,
+              let routeManager = tabManager,
+              proposedContext.tabManager === routeManager,
+              proposedContext.sidebarState.isVisible == routeSidebar.isVisible,
+              proposedContext.sidebarState.persistedWidth == routeSidebar.persistedWidth,
+              proposedContext.sidebarSelectionState.selection == routeSelection.selection else {
             return nil
         }
         if let routeWindow = window,
            routeWindow.isVisible || routeWindow.isMiniaturized {
             guard proposedContext.window === routeWindow else { return nil }
-        } else if let routeWindow,
-                  proposedContext.window !== routeWindow {
+        } else if let routeWindow, proposedContext.window !== routeWindow {
             // A hidden orphan can be replaced by a newly-created window with the
             // same stable id. Detach the old AppKit identity before the retained
             // context becomes live again so a later stale close cannot resolve the
             // replacement by identifier.
             routeWindow.identifier = nil
-            context.closeObserver = nil
         }
 
+        let context = retainedContext ?? proposedContext
+        if context !== proposedContext {
+            context.closeObserver = nil
+        }
+        if let retainedWindowDock {
+            context.adoptRecoveredWindowDock(retainedWindowDock)
+            self.retainedWindowDock = nil
+        }
         retainedContext = nil
         retainedTabManager = nil
         payload = .teardown

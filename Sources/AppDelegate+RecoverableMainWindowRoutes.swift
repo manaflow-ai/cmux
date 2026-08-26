@@ -74,9 +74,13 @@ extension AppDelegate {
     private func recoverableMainWindowRouteSnapshot(
         for route: RecoverableMainWindowRoute
     ) -> MainWindowRouteSnapshot? {
+        let cachedWindow = route.window ?? windowForMainWindowId(route.windowId)
         guard let manager = route.tabManager,
               tabManagerCanOwnRecoverableMainWindowRoute(manager),
-              let window = route.window ?? windowForMainWindowId(route.windowId) else {
+              let window = liveRecoverableMainWindow(
+                  windowId: route.windowId,
+                  cachedWindow: cachedWindow
+              ) else {
             return nil
         }
         route.window = window
@@ -897,6 +901,9 @@ extension AppDelegate {
     func transitionMainWindowContextToOrphaned(_ context: MainWindowContext) -> Bool {
         let windowId = context.windowId
         let window = context.window ?? windowForMainWindowId(windowId)
+        let retainsTabManager = context.tabManager.tabs.contains { workspace in
+            workspace.panels.values.contains { $0 is TerminalPanel }
+        }
         let route = RecoverableMainWindowRoute(
             windowId: windowId,
             tabManager: context.tabManager,
@@ -904,7 +911,7 @@ extension AppDelegate {
             sidebar: context.sidebarState,
             sidebarSelection: context.sidebarSelectionState,
             frozenWindowDockSnapshot: nil,
-            retainTabManager: true
+            retainTabManager: retainsTabManager
         )
         guard mainWindowLifecycleCoordinator.transitionToOrphaned(route, from: context) else {
             return false
