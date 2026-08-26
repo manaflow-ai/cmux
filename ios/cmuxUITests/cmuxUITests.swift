@@ -2685,6 +2685,22 @@ final class cmuxUITests: XCTestCase {
         waitForValue("0", on: hiddenToggle)
         assertUnifiedRowsRemainVisible()
 
+        let footer = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Turning a computer off")
+        ).firstMatch
+        XCTAssertTrue(
+            footer.waitForExistence(timeout: 3),
+            "The Computers modal should show its visibility explanation."
+        )
+        XCTAssertTrue(
+            footer.label.localizedCaseInsensitiveContains("this device"),
+            "The Computers footer must use device-neutral wording; got: \(footer.label)"
+        )
+        XCTAssertFalse(
+            footer.label.localizedCaseInsensitiveContains("this iPhone"),
+            "The Computers footer must not identify the host as an iPhone on iPadOS."
+        )
+
         shownToggle.tap()
         waitForLabel("hidden", on: shownPersistence)
         waitForValue("0", on: shownToggle)

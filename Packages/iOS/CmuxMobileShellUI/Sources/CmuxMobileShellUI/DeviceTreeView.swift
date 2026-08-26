@@ -102,7 +102,7 @@ struct DeviceTreeView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.connections.footer",
-                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
+                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this device; it stays signed in to your account."
                         ))
                     }
                 }
