@@ -521,6 +521,40 @@ import Testing
         #expect(snapshot.remoteVOutput?.contains("https://github.com/system-enabled/repo.git") == true)
     }
 
+    @Test func emptyGitConfigSystemDisablesDefaultSystemConfig() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let prefix = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-empty-system-\(UUID().uuidString)", isDirectory: true)
+        let execPath = prefix.appendingPathComponent("libexec/git-core", isDirectory: true)
+        let systemConfigURL = prefix.appendingPathComponent("etc/gitconfig")
+        try FileManager.default.createDirectory(at: execPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: systemConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: prefix) }
+        try """
+        [remote "origin"]
+            url = https://github.com/ignored-system/repo.git
+        """.write(to: systemConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "false",
+                "GIT_CONFIG_SYSTEM": "",
+                "GIT_EXEC_PATH": execPath.path,
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput == nil)
+    }
+
     @Test func emptyGitConfigGlobalDisablesDefaultGlobalFiles() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

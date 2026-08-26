@@ -213,6 +213,44 @@ import CmuxGit
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func passiveBranchChangeForcesCreationWatchDescriptorRefresh() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "initial",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1)
+        ))
+        var logIterator = logEvents.makeAsyncIterator()
+        _ = try #require(await logIterator.next())
+
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "feature/conditional-config",
+            isDirty: false
+        )
+
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: nil)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
+
     @Test func symlinkedCreationWatchAncestorNeverWatchesFilesystemRoot() async throws {
         let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
         let symlink = fixture.root.appendingPathComponent("root-link")
