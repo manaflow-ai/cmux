@@ -138,7 +138,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .kimi:
             return String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code")
         case .vibe:
-            return String(localized: "agent.vibe.displayName", defaultValue: "Mistral Vibe")
+            return "Mistral Vibe"
         case .ollama:
             return String(localized: "agent.ollama.displayName", defaultValue: "Ollama")
         case .custom(let id): return id
