@@ -4352,6 +4352,70 @@ struct CMUXCLI {
         return parts.joined(separator: " · ")
     }
 
+    /// Renders `cmux vm sessions <id>` as a table over the `vm.sessions` socket
+    /// payload (cloud_vm_sessions Postgres rows). This is last-known control-plane
+    /// state, not a live daemon probe: a daemon restart on the machine can leave
+    /// rows stale, so the output says so instead of implying live truth.
+    static func formatVMSessionsTable(vmId: String, sessions: [[String: Any]]) -> String {
+        func string(_ row: [String: Any], _ key: String) -> String? {
+            guard let value = row[key] as? String else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        func int(_ row: [String: Any], _ key: String) -> Int {
+            if let value = row[key] as? Int { return value }
+            if let value = row[key] as? NSNumber { return value.intValue }
+            return 0
+        }
+        func bytes(_ count: Int) -> String {
+            if count >= 1_048_576 { return String(format: "%.1f MB", Double(count) / 1_048_576) }
+            if count >= 1_024 { return String(format: "%.1f KB", Double(count) / 1_024) }
+            return "\(count) B"
+        }
+        func age(_ iso: String?) -> String {
+            guard let iso else { return "?" }
+            let plain = ISO8601DateFormatter()
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            guard let date = plain.date(from: iso) ?? fractional.date(from: iso) else { return "?" }
+            let seconds = max(0, Date().timeIntervalSince(date))
+            if seconds < 60 { return "\(Int(seconds))s ago" }
+            if seconds < 3_600 { return "\(Int(seconds / 60))m ago" }
+            if seconds < 86_400 { return "\(Int(seconds / 3_600))h ago" }
+            return "\(Int(seconds / 86_400))d ago"
+        }
+        let rows: [(String, String, String, String, String, String)] = sessions.map { session in
+            (
+                string(session, "session_id") ?? "?",
+                string(session, "title") ?? "",
+                string(session, "status") ?? "unknown",
+                String(int(session, "attachment_count")),
+                bytes(int(session, "scrollback_bytes")),
+                age(string(session, "created_at"))
+            )
+        }
+        func pad(_ text: String, _ width: Int) -> String {
+            text.count >= width ? text : text.padding(toLength: width, withPad: " ", startingAt: 0)
+        }
+        let hasTitles = rows.contains { !$0.1.isEmpty }
+        let sessionWidth = max(7, rows.map { $0.0.count }.max() ?? 7)
+        let titleWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
+        let statusWidth = max(6, rows.map { $0.2.count }.max() ?? 6)
+        let attachedWidth = 8
+        let scrollbackWidth = max(10, rows.map { $0.4.count }.max() ?? 10)
+        var lines: [String] = []
+        let titleHeader = hasTitles ? "\(pad("TITLE", titleWidth))  " : ""
+        lines.append("\(pad("SESSION", sessionWidth))  \(titleHeader)\(pad("STATUS", statusWidth))  \(pad("ATTACHED", attachedWidth))  \(pad("SCROLLBACK", scrollbackWidth))  CREATED")
+        for row in rows {
+            let titleCell = hasTitles ? "\(pad(row.1, titleWidth))  " : ""
+            lines.append("\(pad(row.0, sessionWidth))  \(titleCell)\(pad(row.2, statusWidth))  \(pad(row.3, attachedWidth))  \(pad(row.4, scrollbackWidth))  \(row.5)")
+        }
+        lines.append("")
+        lines.append("Last known from cmux Cloud; a daemon restart on the machine can leave rows stale.")
+        lines.append("Attach: cmux vm shell \(vmId) --session <session-id>")
+        return lines.joined(separator: "\n")
+    }
+
     private static let claudeCodeStatusKey = "claude_code"
 
     init(
@@ -5558,6 +5622,32 @@ struct CMUXCLI {
                 }
                 print(Self.formatVMStatsLine(id: vmId, payload: response))
 
+            case "sessions", "terminals":
+                guard let vmId = rest.first, !Self.isFlagToken(vmId) else {
+                    throw CLIError(message: """
+                        Usage: cmux vm sessions <id>
+
+                        List the machine's terminal sessions (daemon PTYs) as last
+                        recorded by cmux Cloud. Attach to one:
+                          cmux vm shell <id> --session <session-id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                let response = try client.sendV2(method: "vm.sessions", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let sessions = (response["sessions"] as? [[String: Any]]) ?? []
+                if sessions.isEmpty {
+                    print("No terminal sessions recorded for \(vmId).")
+                    print("Open one: cmux vm shell \(vmId)")
+                    break
+                }
+                print(Self.formatVMSessionsTable(vmId: vmId, sessions: sessions))
+
             case "base":
                 let baseAction = rest.first?.lowercased()
                 if baseAction == nil || baseAction == "open" {
@@ -5916,26 +6006,34 @@ struct CMUXCLI {
                 )
 
             case "shell", "attach":
-                let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
+                let (windowOpt, rem0) = parseOption(rest, name: "--window")
+                let (sessionOpt, vmArgs) = parseOption(rem0, name: "--session")
                 guard let vmId = vmArgs.first else {
                     throw CLIError(message: """
-                        Usage: cmux \(command) shell <id>
+                        Usage: cmux \(command) shell <id> [--session <session-id>]
 
                         Find an id:
                           cmux vm ls
+                        List sessions:
+                          cmux vm sessions <id>
                         """)
                 }
+                let sessionID = try Self.validatedVMSessionIdentifier(sessionOpt, flag: "--session")
                 let shellWorkspaceId = try vmOpenShell(
                     id: vmId,
                     workspaceName: "vm:\(vmId)",
                     windowRaw: windowOpt ?? windowId,
+                    sessionID: sessionID,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
-                if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
+                // Reattaching to an existing named session opens just that terminal;
+                // the desktop has its own row/verb (`cmux vm desktop <id>`).
+                if sessionID == nil,
+                   let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
                    let image = status["image"] as? String,
                    Self.cloudVMImageHasDesktop(image) {
                     // The screen belongs beside the shell it was opened with, not in
@@ -6140,12 +6238,13 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|status|sessions|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
 
                     Common commands:
                       cmux vm ls
                       cmux vm new
                       cmux vm status <id>
+                      cmux vm sessions <id>
                       cmux vm snapshot <id>
                       cmux vm fork <id>
                       cmux vm ssh <id>
@@ -12560,6 +12659,7 @@ struct CMUXCLI {
         workspaceName: String?,
         windowRaw: String?,
         targetWorkspaceId: String? = nil,
+        sessionID: String? = nil,
         forceSSH: Bool,
         shouldPinWorkspaceToTop: Bool,
         client: SocketClient,
@@ -12567,6 +12667,9 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws -> String? {
         if forceSSH {
+            if sessionID != nil {
+                throw CLIError(message: "vm ssh does not support --session. Use `cmux vm shell \(id) --session <session-id>`.")
+            }
             let sshInfoStartedAt = Date()
             let response = try client.sendV2(
                 method: "vm.ssh_info",
@@ -12600,7 +12703,8 @@ struct CMUXCLI {
         let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
             vmID: id,
             usesDefaultFreestyleSSHD: true,
-            client: client
+            client: client,
+            sessionID: sessionID
         )
         let transport = (response["transport"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12633,6 +12737,14 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
             )
+        }
+        if sessionID != nil {
+            throw CLIError(message: """
+                This machine attaches over SSH, which has no named terminal sessions.
+
+                Attach without --session:
+                  cmux vm shell \(id)
+                """)
         }
         let options = try vmSSHOptions(
             fromAttachInfo: response,
@@ -17782,7 +17894,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <base|new|ls|status|stats|rename|snapshot|fork|restore|rm|exec|shell|desktop|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|status|stats|sessions|rename|snapshot|fork|restore|rm|exec|shell|desktop|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -17810,7 +17922,10 @@ struct CMUXCLI {
               restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Restore a snapshot as a tracked Cloud VM.
               stats <id>                     CPU, memory, and disk right now (sleeping machines stay asleep)
-              shell <id> [--window <id|ref|index>]
+              sessions <id>             List the machine's terminal sessions as last
+                                        recorded by cmux Cloud (may lag a daemon
+                                        restart). Alias: `terminals`.
+              shell <id> [--session <session-id>] [--window <id|ref|index>]
               desktop <id> [--workspace <id|ref|index>]   Open the machine's noVNC desktop as a pane in your workspace
                                         Drop into an interactive shell on an existing VM.
                                         Alias: `attach <id>`. Machines with a desktop image
