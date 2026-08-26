@@ -16,6 +16,12 @@ extension CMUXCLI {
     /// Raw bytes per exec round trip. Base64 expands this ~4/3, staying well
     /// under control-plane request/response body limits.
     static let vmTransferChunkBytes = 512 * 1024
+    /// Push chunks ride inside the exec command line itself (`printf %s '<b64>'`),
+    /// and Linux caps a single argv string at 128 KiB (MAX_ARG_STRLEN): a 512 KiB
+    /// chunk base64-encodes to ~700 KB and fails with "argument list too long".
+    /// 64 KiB encodes to ~87 KB, comfortably under the cap. Pull is unaffected —
+    /// its chunks flow back through stdout, so it keeps the larger size.
+    static let vmTransferPushChunkBytes = 64 * 1024
     /// Hard cap for a single push/pull. Exec-chunked transfer is the wrong tool
     /// past this size; the error message points at better tools.
     static let vmTransferMaxBytes = 256 * 1024 * 1024
@@ -418,6 +424,16 @@ extension CMUXCLI {
 
     // MARK: - transfer plumbing
 
+    /// Chunk progress: rewrites one line on a TTY, but emits whole lines when
+    /// stderr is captured (agents, logs) so the counts do not run together.
+    private func vmTransferProgress(_ line: String, final: Bool) {
+        if isatty(STDERR_FILENO) != 0 {
+            cliWriteStderr("\r" + line + (final ? "\n" : ""))
+        } else {
+            cliWriteStderr(line + "\n")
+        }
+    }
+
     private func vmTransferExec(
         command: String,
         vmID: String,
@@ -465,11 +481,11 @@ extension CMUXCLI {
         let initResponse = try vmTransferExec(command: initCommand, vmID: vmID, client: client)
         try requireExecSuccess(initResponse, context: "preparing \(stagingPath)")
 
-        let totalChunks = max(1, (data.count + Self.vmTransferChunkBytes - 1) / Self.vmTransferChunkBytes)
+        let totalChunks = max(1, (data.count + Self.vmTransferPushChunkBytes - 1) / Self.vmTransferPushChunkBytes)
         var offset = 0
         var chunkIndex = 0
         while offset < data.count {
-            let end = min(offset + Self.vmTransferChunkBytes, data.count)
+            let end = min(offset + Self.vmTransferPushChunkBytes, data.count)
             let chunk = data.subdata(in: offset..<end)
             let encoded = chunk.base64EncodedString()
             let append = "printf %s '\(encoded)' | base64 -d >> \(quotedStaging)"
@@ -478,10 +494,7 @@ extension CMUXCLI {
             offset = end
             chunkIndex += 1
             if totalChunks > 1 {
-                cliWriteStderr("\rcmux vm push: \(chunkIndex)/\(totalChunks) chunks")
-                if chunkIndex == totalChunks {
-                    cliWriteStderr("\n")
-                }
+                vmTransferProgress("cmux vm push: \(chunkIndex)/\(totalChunks) chunks", final: chunkIndex == totalChunks)
             }
         }
 
@@ -545,10 +558,7 @@ extension CMUXCLI {
             }
             data.append(decoded)
             if totalChunks > 1 {
-                cliWriteStderr("\rcmux vm pull: \(chunkIndex + 1)/\(totalChunks) chunks")
-                if chunkIndex + 1 == totalChunks {
-                    cliWriteStderr("\n")
-                }
+                vmTransferProgress("cmux vm pull: \(chunkIndex + 1)/\(totalChunks) chunks", final: chunkIndex + 1 == totalChunks)
             }
         }
 
@@ -947,6 +957,9 @@ extension CMUXCLI {
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.arguments = arguments
+        // macOS tar otherwise emits AppleDouble `._*` sidecars for extended
+        // attributes, which land as junk files on the Linux machine.
+        tar.environment = ProcessInfo.processInfo.environment.merging(["COPYFILE_DISABLE": "1"]) { _, new in new }
         try cliRunProcess(tar)
         tar.waitUntilExit()
         guard tar.terminationStatus == 0 else {

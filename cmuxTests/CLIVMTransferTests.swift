@@ -61,7 +61,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             unlink(socketPath)
         }
 
-        // Three chunks at the CLI's 512 KiB chunk size.
+        // ~19 chunks at the CLI's 64 KiB push chunk size (argv-bound; see
+        // vmTransferPushChunkBytes).
         var payload = Data(count: 1_200_000)
         payload.withUnsafeMutableBytes { buffer in
             for index in buffer.indices {
