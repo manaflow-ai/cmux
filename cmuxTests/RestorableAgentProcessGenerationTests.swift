@@ -121,6 +121,35 @@ struct RestorableAgentProcessGenerationTests {
         )?.processLiveness == .running)
     }
 
+    @Test("A present mismatched hook PID is not pressure-safe")
+    func presentMismatchedHookPIDIsNotPressureSafe() throws {
+        let fixture = try makeFixture(prefix: "cmux-mismatched-present-pid")
+        defer { cleanup(fixture) }
+
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt - 1),
+            startMicroseconds: 0
+        )
+        let currentIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt + 1),
+            startMicroseconds: 0
+        )
+        try writeStoredProcessIdentity(recordedIdentity, to: fixture)
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: currentIdentity
+        )
+        let entry = try #require(
+            index.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)
+        )
+
+        #expect(entry.processLiveness == .exited)
+        #expect(entry.containsUnrelatedProcess)
+    }
+
     @Test("A current PID owner does not authenticate a record without stored generation identity")
     func currentPIDOwnerDoesNotAuthenticateRecordWithoutStoredGenerationIdentity() throws {
         let fixture = try makeFixture(prefix: "cmux-unbound-pid-generation")
