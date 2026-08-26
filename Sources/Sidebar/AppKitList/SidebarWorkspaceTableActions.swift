@@ -52,9 +52,61 @@ struct SidebarWorkspaceTableActions {
     /// Resolves the identity represented by a rendered row. Empty group
     /// headers use the durable group id; grouped members keep their workspace
     /// id so member drags never accidentally move the anchor.
-    let workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)? = nil
+    let workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)?
     /// Reads the token for the currently prepared native sidebar drag.
-    let currentWorkspaceDragSessionId: (() -> UUID?)? = nil
+    let currentWorkspaceDragSessionId: (() -> UUID?)?
     /// Ends a specific native session without touching a newer session.
-    let finishWorkspaceDrag: ((UUID, String) -> Void)? = nil
+    let finishWorkspaceDrag: ((UUID, String) -> Void)?
+
+    init(
+        attachScrollView: @escaping (NSScrollView) -> Void,
+        closeWorkspace: @escaping (UUID) -> Void,
+        createWorkspaceAtEnd: @escaping () -> Void,
+        createEmptyWorkspaceGroup: @escaping () -> Void,
+        beginWorkspaceDrag: @escaping (UUID) -> Void,
+        movingWorkspaceCount: ((UUID) -> Int)?,
+        endWorkspaceDrag: @escaping () -> Void,
+        isValidWorkspaceDrag: @escaping () -> Bool,
+        updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate?,
+        performWorkspaceDrop: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> Bool,
+        commitWorkspaceDropPlan: @escaping (SidebarWorkspaceReorderDropPlan) -> Bool,
+        clearWorkspaceDropIndicator: @escaping () -> Void,
+        currentDropIndicator: @escaping () -> SidebarDropIndicator?,
+        currentDropIndicatorScope: @escaping () -> SidebarWorkspaceReorderDropIndicatorScope,
+        canPerformBonsplitAction: @escaping (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool,
+        moveBonsplitToExistingWorkspace: @escaping (UUID, BonsplitTabDragPayload.Transfer) -> Bool,
+        moveBonsplitToNewWorkspace: @escaping (Int, BonsplitTabDragPayload.Transfer) -> UUID?,
+        didMoveBonsplitToWorkspace: @escaping (UUID) -> Void,
+        updateDragAutoscroll: @escaping () -> Void,
+        setBonsplitDropTargetCollectionActive: @escaping (Bool) -> Void,
+        setBonsplitDropIndicator: @escaping (SidebarDropIndicator?) -> Void,
+        workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)? = nil,
+        currentWorkspaceDragSessionId: (() -> UUID?)? = nil,
+        finishWorkspaceDrag: ((UUID, String) -> Void)? = nil
+    ) {
+        self.attachScrollView = attachScrollView
+        self.closeWorkspace = closeWorkspace
+        self.createWorkspaceAtEnd = createWorkspaceAtEnd
+        self.createEmptyWorkspaceGroup = createEmptyWorkspaceGroup
+        self.beginWorkspaceDrag = beginWorkspaceDrag
+        self.movingWorkspaceCount = movingWorkspaceCount
+        self.endWorkspaceDrag = endWorkspaceDrag
+        self.isValidWorkspaceDrag = isValidWorkspaceDrag
+        self.updateWorkspaceDrag = updateWorkspaceDrag
+        self.performWorkspaceDrop = performWorkspaceDrop
+        self.commitWorkspaceDropPlan = commitWorkspaceDropPlan
+        self.clearWorkspaceDropIndicator = clearWorkspaceDropIndicator
+        self.currentDropIndicator = currentDropIndicator
+        self.currentDropIndicatorScope = currentDropIndicatorScope
+        self.canPerformBonsplitAction = canPerformBonsplitAction
+        self.moveBonsplitToExistingWorkspace = moveBonsplitToExistingWorkspace
+        self.moveBonsplitToNewWorkspace = moveBonsplitToNewWorkspace
+        self.didMoveBonsplitToWorkspace = didMoveBonsplitToWorkspace
+        self.updateDragAutoscroll = updateDragAutoscroll
+        self.setBonsplitDropTargetCollectionActive = setBonsplitDropTargetCollectionActive
+        self.setBonsplitDropIndicator = setBonsplitDropIndicator
+        self.workspaceIdForDrag = workspaceIdForDrag
+        self.currentWorkspaceDragSessionId = currentWorkspaceDragSessionId
+        self.finishWorkspaceDrag = finishWorkspaceDrag
+    }
 }
