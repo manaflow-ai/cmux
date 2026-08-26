@@ -324,7 +324,7 @@ import Testing
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertNotEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
         XCTAssertTrue(result.stdout.contains("pwd=\(workingDirectory.path)\n"), result.diagnostics)
         XCTAssertTrue(result.stdout.contains("env=値 with spaces\n"), result.diagnostics)
         for argument in arguments.dropFirst() {
@@ -421,7 +421,7 @@ import Testing
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertNotEqual(result.status, 0, result.diagnostics)
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: attemptedURL.path),
             "a missing Codex checkpoint must never reach codex resume"

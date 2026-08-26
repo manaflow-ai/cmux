@@ -1706,7 +1706,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     // index when durable evidence was not inspected.
                     isComplete = false
                 }
-                if case .unavailable = codexVerification {
+                if case .some(.unavailable) = codexVerification {
                     // A transient Codex store/read failure is not evidence that
                     // the session is gone. Keep the index incomplete so
                     // reconciliation preserves the existing binding.
@@ -2264,7 +2264,7 @@ struct RestorableAgentSessionIndex: Sendable {
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             if record.isRestorable == true {
-                guard case .exists(let evidence) = codexDurableVerification,
+                guard case .some(.exists(let evidence)) = codexDurableVerification,
                       evidence.provenance.mayOwnBinding else {
                     // A durable automation, child, or unclassified rollout is
                     // valid evidence for an explicit exec restore, but it can
