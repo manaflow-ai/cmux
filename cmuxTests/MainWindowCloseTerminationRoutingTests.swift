@@ -334,6 +334,76 @@ struct MainWindowCloseTerminationRoutingTests {
         #expect(app.existingWindowDock(forWindowId: windowId) == nil)
     }
 
+    @Test("Compatibility recovery route adopts a matching replacement context")
+    func compatibilityRecoveryRouteAdoptsMatchingReplacementContext() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = DockSplitStore(
+            workspaceId: windowId,
+            baseDirectoryProvider: { nil }
+        )
+        let replacementWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        replacementWindow.isReleasedWhenClosed = false
+        replacementWindow.identifier = NSUserInterfaceItemIdentifier(
+            "cmux.main.\(windowId.uuidString)"
+        )
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            if !dock.isRetired {
+                dock.retire()
+            }
+            replacementWindow.orderOut(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.rememberRecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebarSnapshot: SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: 280
+            ),
+            windowDock: dock
+        )
+
+        app.registerMainWindow(
+            replacementWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(
+            app.mainWindowContexts.values.contains {
+                $0.windowId == windowId && $0.tabManager === manager
+            }
+        )
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(app.existingWindowDock(forWindowId: windowId) === dock)
+        #expect(!dock.isRetired)
+    }
+
     @Test("Exact sole owner retains last-window quit behavior")
     func exactSoleOwnerRetainsLastWindowQuitBehavior() throws {
         _ = NSApplication.shared
