@@ -8,7 +8,6 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case sleepyMode
     case mobile
     case cloudMachines
-    case networking
     case sidebarAppearance
     case customSidebars
     case betaFeatures
