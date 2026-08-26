@@ -5,15 +5,30 @@ public import Foundation
 ///
 /// The page is loaded into a non-interactive `WKWebView` with
 /// ``VideoBackgroundEmbedPage/baseURL`` as its document origin (YouTube
-/// refuses to play inside a null-origin document). The player is always
-/// muted, chrome-free, and looping; the native side drives pause/resume
-/// through ``VideoBackgroundEmbedPage/pauseScript``/``resumeScript`` and
-/// hears about fatal player errors through the
-/// ``VideoBackgroundEmbedPage/messageHandlerName`` script message handler.
+/// refuses to play inside a null-origin document). The player is chrome-free
+/// and looping, silent unless the host opts in to audio; the native side
+/// drives pause/resume and mute through ``VideoBackgroundEmbedPage/pauseScript``,
+/// ``resumeScript`` and ``mutedScript(_:)`` and hears about fatal player
+/// errors through the ``VideoBackgroundEmbedPage/messageHandlerName`` script
+/// message handler.
+///
+/// Performance guardrail: the player element is kept at
+/// ``playerWidth``×``playerHeight`` CSS pixels and scaled up with a GPU
+/// transform to cover the window. YouTube picks the stream resolution from the
+/// element's pixel size, so this caps decoding at roughly 1080p on Retina
+/// displays instead of fetching a 4K stream for a large window.
 public struct VideoBackgroundEmbedPage: Sendable {
     /// The source rendered by this page. Only YouTube sources are supported;
     /// local files play through AVFoundation instead.
     public let source: VideoBackgroundSource
+
+    /// Whether the player starts silent. Audio can be toggled live via
+    /// ``mutedScript(_:)``.
+    public let muted: Bool
+
+    /// Logical player size before the cover-scale transform (16:9).
+    public static let playerWidth = 960
+    public static let playerHeight = 540
 
     /// Document base URL giving the page a real origin YouTube will serve.
     public static let baseURL = URL(string: "https://www.youtube.com")!
@@ -27,13 +42,21 @@ public struct VideoBackgroundEmbedPage: Sendable {
     /// JavaScript expression that resumes playback (safe before player init).
     public static let resumeScript = "window.cmuxVideoBackgroundSetPaused(false);"
 
+    /// JavaScript expression that mutes or unmutes playback (safe before player init).
+    public static func mutedScript(_ muted: Bool) -> String {
+        "window.cmuxVideoBackgroundSetMuted(\(muted ? "true" : "false"));"
+    }
+
     /// Creates a page for a parsed YouTube source.
     ///
-    /// - Parameter source: A ``VideoBackgroundSource/youTubeVideo(id:)`` or
-    ///   ``VideoBackgroundSource/youTubePlaylist(id:)`` value. A local-file
-    ///   source produces an empty player that reports an error.
-    public init(source: VideoBackgroundSource) {
+    /// - Parameters:
+    ///   - source: A ``VideoBackgroundSource/youTubeVideo(id:)`` or
+    ///     ``VideoBackgroundSource/youTubePlaylist(id:)`` value. A local-file
+    ///     source produces an empty player that reports an error.
+    ///   - muted: Whether playback starts silent. Defaults to `true`.
+    public init(source: VideoBackgroundSource, muted: Bool = true) {
         self.source = source
+        self.muted = muted
     }
 
     /// The full HTML document for the player page.
@@ -69,14 +92,17 @@ public struct VideoBackgroundEmbedPage: Sendable {
             background: transparent;
             pointer-events: none;
           }
-          /* Cover the window with a 16:9 player, cropping instead of letterboxing. */
+          /* Fixed logical size (caps the stream resolution YouTube selects);
+             fitPlayer() scales it to cover the window, cropping instead of
+             letterboxing. */
           #player {
             position: absolute;
             top: 50%;
             left: 50%;
-            width: max(100vw, 177.78vh);
-            height: max(100vh, 56.25vw);
+            width: \(Self.playerWidth)px;
+            height: \(Self.playerHeight)px;
             transform: translate(-50%, -50%);
+            transform-origin: center center;
             pointer-events: none;
             border: 0;
           }
@@ -88,6 +114,22 @@ public struct VideoBackgroundEmbedPage: Sendable {
           'use strict';
           var player = null;
           var pendingPaused = false;
+          var pendingMuted = \(muted ? "true" : "false");
+          var playerWidth = \(Self.playerWidth);
+          var playerHeight = \(Self.playerHeight);
+
+          function fitPlayer() {
+            var element = document.getElementById('player');
+            if (!element) { return; }
+            var scale = Math.max(window.innerWidth / playerWidth, window.innerHeight / playerHeight);
+            element.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
+          }
+          window.addEventListener('resize', fitPlayer);
+
+          function applyMuted(target) {
+            if (!target || typeof target.mute !== 'function') { return; }
+            if (pendingMuted) { target.mute(); } else { target.unMute(); }
+          }
 
           function postToHost(payload) {
             try {
@@ -101,9 +143,14 @@ public struct VideoBackgroundEmbedPage: Sendable {
             if (pendingPaused) {
               player.pauseVideo();
             } else {
-              player.mute();
+              applyMuted(player);
               player.playVideo();
             }
+          };
+
+          window.cmuxVideoBackgroundSetMuted = function (muted) {
+            pendingMuted = !!muted;
+            applyMuted(player);
           };
 
           var sharedPlayerVars = {
@@ -114,18 +161,19 @@ public struct VideoBackgroundEmbedPage: Sendable {
             iv_load_policy: 3,
             rel: 0,
             playsinline: 1,
-            mute: 1,
+            mute: \(muted ? 1 : 0),
             loop: 1
           };
 
           function onYouTubeIframeAPIReady() {
             player = new YT.Player('player', {
-              width: '100%',
-              height: '100%',
+              width: playerWidth,
+              height: playerHeight,
               \(playerConfiguration),
               events: {
                 onReady: function (event) {
-                  event.target.mute();
+                  fitPlayer();
+                  applyMuted(event.target);
                   if (!pendingPaused) { event.target.playVideo(); }
                   postToHost({ event: 'ready' });
                 },
@@ -150,6 +198,7 @@ public struct VideoBackgroundEmbedPage: Sendable {
             });
           }
 
+          fitPlayer();
           var apiScript = document.createElement('script');
           apiScript.src = 'https://www.youtube.com/iframe_api';
           apiScript.onerror = function () { postToHost({ event: 'error', code: 'api-load-failed' }); };

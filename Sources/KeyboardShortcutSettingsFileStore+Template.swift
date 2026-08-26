@@ -114,6 +114,7 @@ extension CmuxSettingsFileStore {
                     "videoBackground": [
                         "enabled": VideoBackgroundSettings.defaultEnabled,
                         "source": VideoBackgroundSettings.defaultSource,
+                        "muted": VideoBackgroundSettings.defaultMuted,
                         "dimOpacity": VideoBackgroundSettings.defaultDimOpacity,
                     ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,

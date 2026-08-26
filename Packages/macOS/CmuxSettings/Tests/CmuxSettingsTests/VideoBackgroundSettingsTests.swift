@@ -24,6 +24,7 @@ struct VideoBackgroundSettingsTests {
         #expect(policy.isEnabled(defaults: defaults) == false)
         #expect(policy.sourceText(defaults: defaults).isEmpty)
         #expect(policy.dimOpacity(defaults: defaults) == VideoBackgroundSettings.defaultDimOpacity)
+        #expect(policy.isMuted(defaults: defaults) == true)
     }
 
     @Test func readsConfiguredValuesAndClampsStoredDimOpacity() {
@@ -35,9 +36,11 @@ struct VideoBackgroundSettingsTests {
         defaults.set(true, forKey: VideoBackgroundSettings.enabledKey)
         defaults.set("https://www.youtube.com/watch?v=dQw4w9WgXcQ", forKey: VideoBackgroundSettings.sourceKey)
         defaults.set(4.2, forKey: VideoBackgroundSettings.dimOpacityKey)
+        defaults.set(false, forKey: VideoBackgroundSettings.mutedKey)
 
         let policy = VideoBackgroundSettings()
         #expect(policy.isEnabled(defaults: defaults) == true)
+        #expect(policy.isMuted(defaults: defaults) == false)
         #expect(policy.sourceText(defaults: defaults) == "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         #expect(policy.dimOpacity(defaults: defaults) == 1.0)
     }

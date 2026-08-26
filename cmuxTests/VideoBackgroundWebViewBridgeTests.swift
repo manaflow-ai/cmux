@@ -46,13 +46,21 @@ struct VideoBackgroundWebViewBridgeTests {
         view.setPaused(true)
         #expect(scripts == [VideoBackgroundEmbedPage.pauseScript])
 
-        // The early script was dropped by WebKit; readiness must re-assert it.
+        // The early script was dropped by WebKit; readiness must re-assert
+        // both pause and mute state.
         view.bridge.handleScriptEvent(["event": "ready"])
-        #expect(scripts == [VideoBackgroundEmbedPage.pauseScript, VideoBackgroundEmbedPage.pauseScript])
+        #expect(scripts == [
+            VideoBackgroundEmbedPage.pauseScript,
+            VideoBackgroundEmbedPage.pauseScript,
+            VideoBackgroundEmbedPage.mutedScript(true),
+        ])
 
         view.setPaused(false)
         #expect(scripts.last == VideoBackgroundEmbedPage.resumeScript)
+        view.setMuted(false)
+        view.setMuted(false)
+        #expect(scripts.last == VideoBackgroundEmbedPage.mutedScript(false))
         view.bridge.handleScriptEvent(["event": "ready"])
-        #expect(scripts.suffix(2) == [VideoBackgroundEmbedPage.resumeScript, VideoBackgroundEmbedPage.resumeScript])
+        #expect(scripts.suffix(2) == [VideoBackgroundEmbedPage.resumeScript, VideoBackgroundEmbedPage.mutedScript(false)])
     }
 }

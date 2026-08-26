@@ -1,9 +1,9 @@
 import AppKit
 import AVFoundation
 
-/// Plays a local video file on a muted, endless loop for the window
-/// background via `AVPlayerLayer` — the fallback for sources YouTube
-/// cannot serve.
+/// Plays a local video file on an endless loop for the window background via
+/// `AVPlayerLayer` — the fallback for sources YouTube cannot serve. Silent
+/// unless the controller unmutes it.
 @MainActor
 final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
     private let player: AVQueuePlayer
@@ -11,9 +11,9 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
     private var looper: AVPlayerLooper?
     private var desiredPaused = false
 
-    init(fileURL: URL) {
+    init(fileURL: URL, muted: Bool = true) {
         let player = AVQueuePlayer()
-        player.isMuted = true
+        player.isMuted = muted
         player.preventsDisplaySleepDuringVideoPlayback = false
         self.player = player
         self.playerLayer = AVPlayerLayer(player: player)
@@ -50,5 +50,9 @@ final class VideoBackgroundLocalPlayerView: NSView, VideoBackgroundPlayerView {
         } else {
             player.play()
         }
+    }
+
+    func setMuted(_ muted: Bool) {
+        player.isMuted = muted
     }
 }

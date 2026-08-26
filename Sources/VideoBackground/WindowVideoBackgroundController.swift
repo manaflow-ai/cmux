@@ -25,8 +25,11 @@ final class VideoBackgroundPresentation {
 /// frame *below* `contentView`, so the SwiftUI window-root backdrop (drawn at
 /// the configured dim opacity) and every terminal surface composite on top of
 /// it. The controller reacts to the `terminal.videoBackground.*` settings
-/// live, and pauses playback whenever the window stops being visible —
-/// driven by `NSWindow` occlusion-state notifications, never by polling.
+/// live, and pauses playback whenever it could not be seen anyway — the
+/// window is occluded or minimized, the system is asleep, or Low Power Mode
+/// is on — driven by real notifications, never by polling. Audio is an
+/// opt-in and, even then, only the window that owns it per
+/// ``VideoBackgroundAudioArbiter`` plays sound.
 @MainActor
 final class WindowVideoBackgroundController {
     private static let associatedObjectKey = UnsafeRawPointer(
@@ -38,6 +41,8 @@ final class WindowVideoBackgroundController {
 
     private weak var window: NSWindow?
     private let defaults: UserDefaults
+    private let audioArbiter: VideoBackgroundAudioArbiter
+    private var isSystemSleeping = false
     private var hostView: VideoBackgroundHostView?
     private var playerView: (any VideoBackgroundPlayerView)?
     private var activeSource: VideoBackgroundSource?
@@ -51,23 +56,29 @@ final class WindowVideoBackgroundController {
     /// swaps and other content-view changes. Returns the window's controller
     /// so the caller can hand its ``presentation`` to the root backdrop.
     @discardableResult
-    static func ensure(on window: NSWindow, defaults: UserDefaults = .standard) -> WindowVideoBackgroundController {
+    static func ensure(
+        on window: NSWindow,
+        defaults: UserDefaults = .standard,
+        audioArbiter: VideoBackgroundAudioArbiter = .shared
+    ) -> WindowVideoBackgroundController {
         let controller: WindowVideoBackgroundController
         if let existing = objc_getAssociatedObject(window, Self.associatedObjectKey)
             as? WindowVideoBackgroundController {
             controller = existing
         } else {
-            controller = WindowVideoBackgroundController(window: window, defaults: defaults)
+            controller = WindowVideoBackgroundController(window: window, defaults: defaults, audioArbiter: audioArbiter)
             objc_setAssociatedObject(window, Self.associatedObjectKey, controller, .OBJC_ASSOCIATION_RETAIN)
         }
         controller.refresh()
         return controller
     }
 
-    private init(window: NSWindow, defaults: UserDefaults) {
+    private init(window: NSWindow, defaults: UserDefaults, audioArbiter: VideoBackgroundAudioArbiter) {
         self.window = window
         self.defaults = defaults
+        self.audioArbiter = audioArbiter
         startObserving(window: window)
+        audioArbiter.register(self, window: window)
     }
 
     private func startObserving(window: NSWindow) {
@@ -90,16 +101,52 @@ final class WindowVideoBackgroundController {
                 await MainActor.run { self?.tearDownForWindowClose() }
             }
         })
+        observationTasks.append(Task { [weak self] in
+            for await _ in center.notifications(named: NSWindow.didBecomeKeyNotification, object: window) {
+                await MainActor.run { self?.windowDidBecomeKey() }
+            }
+        })
+        // Performance guardrails: no point decoding video nobody can see.
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        observationTasks.append(Task { [weak self] in
+            for await _ in workspaceCenter.notifications(named: NSWorkspace.willSleepNotification, object: nil) {
+                await MainActor.run { self?.setSystemSleeping(true) }
+            }
+        })
+        observationTasks.append(Task { [weak self] in
+            for await _ in workspaceCenter.notifications(named: NSWorkspace.didWakeNotification, object: nil) {
+                await MainActor.run { self?.setSystemSleeping(false) }
+            }
+        })
+        observationTasks.append(Task { [weak self] in
+            for await _ in center.notifications(named: .NSProcessInfoPowerStateDidChange, object: nil) {
+                await MainActor.run { self?.updatePlaybackState() }
+            }
+        })
+    }
+
+    private func windowDidBecomeKey() {
+        guard let window else { return }
+        audioArbiter.windowDidBecomeKey(window)
+    }
+
+    private func setSystemSleeping(_ sleeping: Bool) {
+        isSystemSleeping = sleeping
+        updatePlaybackState()
     }
 
     private var lastObservedEnabled: Bool?
     private var lastObservedSourceText: String?
+    private var lastObservedMuted: Bool?
 
     private func refreshIfSettingsChanged() {
         let policy = VideoBackgroundSettings()
         let enabled = policy.isEnabled(defaults: defaults)
         let sourceText = policy.sourceText(defaults: defaults)
-        guard enabled != lastObservedEnabled || sourceText != lastObservedSourceText else { return }
+        let muted = policy.isMuted(defaults: defaults)
+        guard enabled != lastObservedEnabled
+            || sourceText != lastObservedSourceText
+            || muted != lastObservedMuted else { return }
         refresh()
     }
 
@@ -112,6 +159,7 @@ final class WindowVideoBackgroundController {
         let sourceText = policy.sourceText(defaults: defaults)
         lastObservedEnabled = enabled
         lastObservedSourceText = sourceText
+        lastObservedMuted = policy.isMuted(defaults: defaults)
 
         if sourceText != failedSourceText {
             failedSourceText = nil
@@ -129,7 +177,21 @@ final class WindowVideoBackgroundController {
             replacePlayerView(with: source)
         }
         updatePlaybackState()
+        applyAudioState()
         presentation.isActive = playerView != nil
+    }
+
+    /// Whether this window's player must be silent right now: the setting
+    /// wins, and otherwise only the arbiter's audio owner may play sound.
+    var effectiveMuted: Bool {
+        guard lastObservedMuted == false, let window else { return true }
+        return !audioArbiter.mayPlayAudio(in: window)
+    }
+
+    /// Re-applies ``effectiveMuted`` to the installed player. Called by the
+    /// arbiter whenever audio ownership moves between windows.
+    func applyAudioState() {
+        playerView?.setMuted(effectiveMuted)
     }
 
     private func installHostViewIfNeeded(in window: NSWindow) {
@@ -168,13 +230,14 @@ final class WindowVideoBackgroundController {
         guard let host = hostView else { return }
 
         let player: any VideoBackgroundPlayerView
+        let muted = effectiveMuted
         switch source {
         case .youTubeVideo, .youTubePlaylist:
-            player = VideoBackgroundWebPlayerView(source: source) { [weak self] reason in
+            player = VideoBackgroundWebPlayerView(source: source, muted: muted) { [weak self] reason in
                 self?.handlePlayerFailure(reason: reason)
             }
         case let .localFile(url):
-            player = VideoBackgroundLocalPlayerView(fileURL: url)
+            player = VideoBackgroundLocalPlayerView(fileURL: url, muted: muted)
         }
 
         player.translatesAutoresizingMaskIntoConstraints = false
@@ -200,10 +263,13 @@ final class WindowVideoBackgroundController {
         removeLayer()
     }
 
+    /// Plays only while the window is actually visible and the machine isn't
+    /// asleep or conserving power; every input is a real system signal.
     private func updatePlaybackState() {
         guard let window, let playerView else { return }
         let isVisible = window.occlusionState.contains(.visible) && !window.isMiniaturized
-        playerView.setPaused(!isVisible)
+        let isConservingPower = isSystemSleeping || ProcessInfo.processInfo.isLowPowerModeEnabled
+        playerView.setPaused(!isVisible || isConservingPower)
     }
 
     private func removeLayer() {
@@ -217,6 +283,9 @@ final class WindowVideoBackgroundController {
     }
 
     private func tearDownForWindowClose() {
+        if let window {
+            audioArbiter.windowWillClose(window, fallback: NSApp.keyWindow)
+        }
         removeLayer()
         for task in observationTasks {
             task.cancel()

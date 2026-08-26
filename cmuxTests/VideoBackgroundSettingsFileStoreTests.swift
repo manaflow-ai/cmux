@@ -20,6 +20,7 @@ struct VideoBackgroundSettingsFileStoreTests {
             {
               "enabled": true,
               "source": "  https://www.youtube.com/watch?v=dQw4w9WgXcQ  ",
+              "muted": false,
               "dimOpacity": 0.6
             }
             """
@@ -30,6 +31,7 @@ struct VideoBackgroundSettingsFileStoreTests {
                     "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
             )
             #expect(defaults.object(forKey: VideoBackgroundSettings.dimOpacityKey) as? Double == 0.6)
+            #expect(defaults.object(forKey: VideoBackgroundSettings.mutedKey) as? Bool == false)
         }
     }
 

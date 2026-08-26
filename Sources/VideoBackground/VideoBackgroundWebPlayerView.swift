@@ -16,14 +16,16 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     /// Internal so tests can drive page events without a live WebKit page.
     let bridge: VideoBackgroundWebViewBridge
     private var desiredPaused = false
+    private var desiredMuted: Bool
 
     /// Runs a script in the embed page. Replaceable so tests can observe
     /// which pause/resume scripts the view issues without a live page.
     var evaluateScript: (String) -> Void
 
-    init(source: VideoBackgroundSource, onFailure: @escaping @MainActor (String) -> Void) {
+    init(source: VideoBackgroundSource, muted: Bool = true, onFailure: @escaping @MainActor (String) -> Void) {
         let bridge = VideoBackgroundWebViewBridge(onPlayerError: onFailure)
         self.bridge = bridge
+        self.desiredMuted = muted
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -48,7 +50,7 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
 
         super.init(frame: .zero)
         wantsLayer = true
-        bridge.onPlayerReady = { [weak self] in self?.applyDesiredPausedState() }
+        bridge.onPlayerReady = { [weak self] in self?.applyDesiredState() }
         webView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(webView)
         NSLayoutConstraint.activate([
@@ -58,7 +60,7 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
             webView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
 
-        let page = VideoBackgroundEmbedPage(source: source)
+        let page = VideoBackgroundEmbedPage(source: source, muted: muted)
         webView.loadHTMLString(page.html, baseURL: VideoBackgroundEmbedPage.baseURL)
     }
 
@@ -75,12 +77,26 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
         applyDesiredPausedState()
     }
 
-    /// Pushes `desiredPaused` into the page. Called on every state change and
-    /// replayed when the page loads and when the player becomes ready: a
-    /// script evaluated before the document exists (a window created while
-    /// occluded, for example) is silently dropped, and the page would
-    /// otherwise autoplay with a stale `pendingPaused`.
+    func setMuted(_ muted: Bool) {
+        guard desiredMuted != muted else { return }
+        desiredMuted = muted
+        applyDesiredMutedState()
+    }
+
+    /// Replays both pause and mute state. Called when the page loads and when
+    /// the player becomes ready: a script evaluated before the document exists
+    /// (a window created while occluded, for example) is silently dropped, and
+    /// the page would otherwise autoplay with stale `pendingPaused`/`pendingMuted`.
+    private func applyDesiredState() {
+        applyDesiredPausedState()
+        applyDesiredMutedState()
+    }
+
     private func applyDesiredPausedState() {
         evaluateScript(desiredPaused ? VideoBackgroundEmbedPage.pauseScript : VideoBackgroundEmbedPage.resumeScript)
+    }
+
+    private func applyDesiredMutedState() {
+        evaluateScript(VideoBackgroundEmbedPage.mutedScript(desiredMuted))
     }
 }

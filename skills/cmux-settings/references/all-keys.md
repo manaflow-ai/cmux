@@ -36,8 +36,9 @@ Terminal presentation settings from Settings > Terminal.
 |---|---|---|---|
 | `terminal.showScrollBar` | boolean | `true` | Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces. |
 | `terminal.autoResumeAgentSessions` | boolean | `true` | Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually. |
-| `terminal.videoBackground.enabled` | boolean | `false` | Play a muted, non-interactive dynamic video background behind terminal content in every window. |
+| `terminal.videoBackground.enabled` | boolean | `false` | Play a non-interactive dynamic video background behind terminal content in every window. Pauses while the window is hidden, during sleep, and in Low Power Mode. |
 | `terminal.videoBackground.source` | string | `""` | YouTube video or playlist URL, a raw YouTube video or playlist ID, or a local `.mp4`/`.m4v`/`.mov` file path. Playlists loop and advance automatically. |
+| `terminal.videoBackground.muted` | boolean | `true` | Keep the video silent. Set `false` to play its audio; only the most recently active window plays sound, and audio stops whenever the video pauses. |
 | `terminal.videoBackground.dimOpacity` | number | `0.8` | Opacity of the terminal background fill drawn over the video (`0` undimmed, `1` hides the video). |
 
 ## notifications
