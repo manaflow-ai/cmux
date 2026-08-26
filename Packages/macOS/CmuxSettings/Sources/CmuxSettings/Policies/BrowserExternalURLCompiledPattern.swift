@@ -1,7 +1,7 @@
 import Foundation
 
 /// Stores one URL rule's bounded compiled representation.
-struct BrowserExternalURLCompiledPattern: Equatable, Sendable {
+struct BrowserExternalURLCompiledPattern: Sendable {
     private let maximumTargetLength = 16_384
     private let literalPattern: String?
     private let literalFallbackPattern: String?

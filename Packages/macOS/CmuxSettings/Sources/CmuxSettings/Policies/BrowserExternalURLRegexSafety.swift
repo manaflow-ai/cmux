@@ -1,7 +1,7 @@
 import Foundation
 
 /// Rejects regex constructs that can make a synchronous URL decision unbounded.
-struct BrowserExternalURLRegexSafety: Equatable, Sendable {
+struct BrowserExternalURLRegexSafety: Sendable {
     /// Maximum URL text passed to the ICU matcher on the navigation path.
     let maximumTargetLength = 16_384
     /// Maximum regex expression text accepted by the matcher.
@@ -12,7 +12,7 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
     private let maximumAlternationCount = 32
 
     /// Returns whether `expression` has a bounded, supported shape.
-    func accepts(_ expression: String) -> Bool {
+    func accepts(_ expression: String, allowGlobShape: Bool = false) -> Bool {
         guard !expression.isEmpty,
               expression.utf8.prefix(maximumExpressionLength + 1).count <= maximumExpressionLength else {
             return false
@@ -26,6 +26,7 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
         var inCharacterClass = false
         var quantifierCount = 0
         var alternationCount = 0
+        var atomsSinceQuantifier: Int?
         var index = expression.startIndex
 
         while index < expression.endIndex {
@@ -41,6 +42,7 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
                 isEscaping = false
                 previousAtom = 1
                 previousGroupIsComplex = false
+                increment(&atomsSinceQuantifier)
                 index = nextIndex
                 continue
             }
@@ -56,6 +58,7 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
                     inCharacterClass = false
                     previousAtom = 1
                     previousGroupIsComplex = false
+                    increment(&atomsSinceQuantifier)
                 }
                 index = nextIndex
                 continue
@@ -89,6 +92,7 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
                 }
                 previousAtom = 2
                 previousGroupIsComplex = hasQuantifier || hasAlternation
+                increment(&atomsSinceQuantifier)
             case "|":
                 alternationCount += 1
                 guard alternationCount <= maximumAlternationCount else { return false }
@@ -97,11 +101,17 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
                 }
                 previousAtom = 0
                 previousGroupIsComplex = false
+                atomsSinceQuantifier = nil
             case "*", "+", "?", "{":
                 guard previousAtom == 1 || previousAtom == 2 else { return false }
                 // Quantifying a group that already contains a quantifier or
                 // alternation is the common catastrophic-backtracking shape.
                 guard !(previousAtom == 2 && previousGroupIsComplex) else { return false }
+                if !allowGlobShape,
+                   let atomsSinceQuantifier,
+                   atomsSinceQuantifier < 2 {
+                    return false
+                }
                 quantifierCount += 1
                 guard quantifierCount <= maximumQuantifierCount else { return false }
                 if !groupHasQuantifier.isEmpty {
@@ -109,16 +119,25 @@ struct BrowserExternalURLRegexSafety: Equatable, Sendable {
                 }
                 previousAtom = 3
                 previousGroupIsComplex = false
+                atomsSinceQuantifier = 0
             case "^", "$":
                 previousAtom = 0
                 previousGroupIsComplex = false
+                atomsSinceQuantifier = nil
             default:
                 previousAtom = 1
                 previousGroupIsComplex = false
+                increment(&atomsSinceQuantifier)
             }
             index = nextIndex
         }
 
         return !isEscaping && !inCharacterClass && groupHasQuantifier.isEmpty
+    }
+
+    private func increment(_ value: inout Int?) {
+        if let current = value {
+            value = min(current + 1, 2)
+        }
     }
 }

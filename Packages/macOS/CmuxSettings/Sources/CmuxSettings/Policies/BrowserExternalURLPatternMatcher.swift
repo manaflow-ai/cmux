@@ -1,7 +1,7 @@
 import Foundation
 
 /// Normalizes URL rules and evaluates them with bounded, precompiled matchers.
-struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
+struct BrowserExternalURLPatternMatcher: Sendable {
     /// The largest number of rules retained by one policy snapshot.
     private let maximumPatternCount = 256
     /// The largest number of array elements inspected by one policy snapshot.
@@ -77,7 +77,9 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
 
         if pattern.contains("*") || pattern.contains("?") {
             guard isLegacyRegexWildcardPattern(pattern) else {
-                return BrowserExternalURLCompiledPattern(regex: makeRegex(wildcardRegex(for: pattern)))
+                return BrowserExternalURLCompiledPattern(
+                    regex: makeRegex(wildcardRegex(for: pattern), allowGlobShape: true)
+                )
             }
         }
 
@@ -91,8 +93,11 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
         return BrowserExternalURLCompiledPattern(literal: pattern)
     }
 
-    private func makeRegex(_ expression: String) -> NSRegularExpression? {
-        guard regexSafety.accepts(expression) else { return nil }
+    private func makeRegex(
+        _ expression: String,
+        allowGlobShape: Bool = false
+    ) -> NSRegularExpression? {
+        guard regexSafety.accepts(expression, allowGlobShape: allowGlobShape) else { return nil }
         return try? NSRegularExpression(
             pattern: expression,
             options: [.caseInsensitive]
@@ -144,10 +149,12 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
         var expression = ""
         expression.reserveCapacity(pattern.count * 2)
         var isEscaping = false
+        var previousWasWildcard = false
         for character in pattern {
             if isEscaping {
                 expression += NSRegularExpression.escapedPattern(for: String(character))
                 isEscaping = false
+                previousWasWildcard = false
                 continue
             }
             if character == "\\" {
@@ -156,11 +163,16 @@ struct BrowserExternalURLPatternMatcher: Equatable, Sendable {
             }
             switch character {
             case "*":
-                expression += ".*"
+                if !previousWasWildcard {
+                    expression += ".*"
+                }
+                previousWasWildcard = true
             case "?":
                 expression += "."
+                previousWasWildcard = false
             default:
                 expression += NSRegularExpression.escapedPattern(for: String(character))
+                previousWasWildcard = false
             }
         }
         if isEscaping {

@@ -10,7 +10,7 @@ import Foundation
 /// 4,096 characters are retained for display but fail closed during matching.
 /// Regex evaluation is also limited to supported, bounded expressions and URL
 /// text no longer than 16,384 characters.
-public struct BrowserExternalURLPolicy: Equatable, Sendable {
+public struct BrowserExternalURLPolicy: Sendable {
     /// The legacy `UserDefaults` key used by the browser settings catalog.
     public static let userDefaultsKey = "browserExternalOpenPatterns"
 
