@@ -190,7 +190,18 @@ struct TerminalPointerStyleViewTests {
             focusGeneration: 1
         )
 
-        #expect(didApplyDelayedShape)
+        #expect(!didApplyDelayedShape)
+        #expect(view.effectiveTerminalPointerCursor == NSCursor.iBeam)
+
+        let didApplyFreshShape = view.applyTerminalPointerStyle(
+            .ghosttyShape(
+                GHOSTTY_MOUSE_SHAPE_COPY,
+                runtimeLifetimeId: runtimeLifetimeId
+            ),
+            focusGeneration: 3
+        )
+
+        #expect(didApplyFreshShape)
         #expect(view.effectiveTerminalPointerCursor == NSCursor.dragCopy)
     }
 }
