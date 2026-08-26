@@ -6,6 +6,10 @@ final class SidebarWorkspaceReorderDropView: NSView {
     var isValidDrag: (() -> Bool)?
     var updateDrag: ((CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
     var performDropAtPoint: ((CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
+    /// Optional commit path for a drop accepted before targets were available.
+    /// It receives the immutable drag identity captured at acceptance so the
+    /// native source may finish before the deferred target update arrives.
+    var performPendingDropAtPoint: ((SidebarWorkspaceReorderPendingDrop, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
     var clearDropIndicator: (() -> Void)?
     var setWorkspaceDropTargetCollectionActive: ((Bool) -> Void)?
     var hasLiveWorkspaceDrag: (() -> Bool)?
@@ -59,7 +63,14 @@ final class SidebarWorkspaceReorderDropView: NSView {
         guard !targets.isEmpty else {
             setTargetCollectionActive(true)
             awaitsTargetsAfterDragTeardown = false
-            pendingDrop = SidebarWorkspaceReorderPendingDrop(requestId: targetRequestId, point: point)
+            let pasteboard = sender.draggingPasteboard
+            let rawPayload = SidebarTabDragPayload.pasteboardString(from: pasteboard)
+            pendingDrop = SidebarWorkspaceReorderPendingDrop(
+                requestId: targetRequestId,
+                point: point,
+                workspaceId: SidebarTabDragPayload.workspaceId(fromPasteboardString: rawPayload),
+                sessionId: SidebarTabDragPayload.sessionId(fromPasteboardString: rawPayload)
+            )
             return true
         }
         let performed = performDropAtPoint(point, targets)

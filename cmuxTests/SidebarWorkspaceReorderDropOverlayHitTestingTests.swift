@@ -265,6 +265,69 @@ import Testing
         #expect(activeStates == [true, false])
     }
 
+    @Test @MainActor func pendingDropKeepsSessionIdentityAfterNativeCompletion() {
+        let bridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
+        let view = SidebarWorkspaceReorderDropOverlay.DropView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 160)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        bridge.attach(view)
+
+        let workspaceId = UUID()
+        let sessionId = UUID()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-reorder-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)#\(sessionId.uuidString)",
+            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        )
+        let sender = MockDraggingInfo(
+            window: window,
+            location: NSPoint(x: 32, y: 48),
+            pasteboard: pasteboard
+        )
+        let target = SidebarWorkspaceReorderDropOverlay.Target(
+            workspaceId: UUID(),
+            groupId: nil,
+            isGroupHeader: false,
+            frame: CGRect(x: 0, y: 40, width: 200, height: 24)
+        )
+
+        var nativeSessionIsLive = true
+        var regularCommitCount = 0
+        var pendingCommitCount = 0
+        view.isValidDrag = { nativeSessionIsLive }
+        view.hasLiveWorkspaceDrag = { nativeSessionIsLive }
+        view.updateDrag = { _, _ in true }
+        view.performDropAtPoint = { _, _ in
+            regularCommitCount += 1
+            return nativeSessionIsLive
+        }
+        view.performPendingDropAtPoint = { pending, pendingTargets in
+            pendingCommitCount += 1
+            #expect(pending.workspaceId == workspaceId)
+            #expect(pending.sessionId == sessionId)
+            #expect(pendingTargets == [target])
+            return true
+        }
+
+        #expect(view.draggingEntered(sender) == .move)
+        #expect(view.performDragOperation(sender))
+        view.concludeDragOperation(sender)
+        nativeSessionIsLive = false
+
+        bridge.updateTargets([target])
+
+        #expect(regularCommitCount == 0)
+        #expect(pendingCommitCount == 1)
+    }
+
     @Test @MainActor func pendingFastReleaseClearsWhenTargetsNeverArrive() async {
         let bridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
         let view = SidebarWorkspaceReorderDropOverlay.DropView(
