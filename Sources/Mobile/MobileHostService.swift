@@ -335,6 +335,11 @@ final class MobileHostService {
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
+        if let clientNamespace = MobileHostBundleNamespace(
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )?.rawValue {
+            payload["mac_client_namespace"] = clientNamespace
+        }
         // The sibling-tag grant set for development phones. Only this Mac's
         // exact-tag phone adopts it (the phone ignores the field from any
         // other reporter), so advertising it unconditionally is safe.

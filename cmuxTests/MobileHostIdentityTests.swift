@@ -163,6 +163,23 @@ struct MobileHostIdentityTests {
         #expect(payload["mac_compatible_mac_tags"] as? [String] == ["hello", "irply"])
     }
 
+    @Test func bundleNamespaceCanonicalizesAndValidatesBundleIdentifiers() {
+        #expect(
+            MobileHostBundleNamespace(
+                bundleIdentifier: "com.cmuxterm.App.Debug.NoIroh"
+            )?.rawValue == "mac:com.cmuxterm.app.debug.noiroh"
+        )
+        #expect(MobileHostBundleNamespace(bundleIdentifier: nil) == nil)
+        #expect(MobileHostBundleNamespace(bundleIdentifier: "nodots") == nil)
+        #expect(MobileHostBundleNamespace(bundleIdentifier: " com.x.y") == nil)
+        #expect(MobileHostBundleNamespace(bundleIdentifier: "com.x.y!") == nil)
+        #expect(
+            MobileHostBundleNamespace(
+                bundleIdentifier: "a." + String(repeating: "b", count: 251)
+            ) == nil
+        )
+    }
+
     @Test func publicStatusOmitsInstanceTag() {
         let payload = MobileHostService.publicStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] == nil)

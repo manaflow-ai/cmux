@@ -350,7 +350,9 @@ if [[ "$TARGET" == "simulator" ]]; then
     # booted sims can share a name across runtimes).
     SIM_UDID="$SIMULATOR_ID"
   else
-    SIM_UDID="$(xcrun simctl list devices booted 2>/dev/null | grep -F "$SIMULATOR_NAME" | grep -oE '[0-9A-F-]{36}' | head -1)"
+    # `|| true` keeps `set -euo pipefail` from silently killing the script on a
+    # no-match grep, so the actionable "not booted" error below stays reachable.
+    SIM_UDID="$(xcrun simctl list devices booted 2>/dev/null | grep -F "$SIMULATOR_NAME" | grep -oE '[0-9A-F-]{36}' | head -1 || true)"
   fi
   if [[ -z "$SIM_UDID" ]]; then
     echo "error: simulator '${SIMULATOR_ID:-$SIMULATOR_NAME}' is not booted (boot it or pass --simulator <name>)" >&2
