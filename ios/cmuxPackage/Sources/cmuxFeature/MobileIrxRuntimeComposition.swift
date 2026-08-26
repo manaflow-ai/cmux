@@ -265,12 +265,30 @@ public actor MobileIrxRuntimeComposition {
         )
         let pilot = IrxRelayCredentialAutopilot(
             broker: broker, endpoint: supervisor, journal: Self.journal)
-        // Warm everything off the dial path. Registration FIRST: non-legacy
-        // namespaces need its binding authorization before relay minting or
-        // discovery are accepted.
-        _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
-        _ = try await pilot.usableCredentials()
-        _ = try? await broker.discover()
+        // Launch-latency shape (measured on device: registration 636ms +
+        // discovery 445ms + lazy bind-to-online 1186ms serialized into a
+        // 3.3s first connect): when the binding and trust snapshot are
+        // already on disk, publish immediately and refresh registration +
+        // discovery in the BACKGROUND; and warm the endpoint's relay link
+        // during provisioning so the first dial never pays for it.
+        let cachedBinding = await broker.cachedBinding()
+        let cachedTrust = await broker.cachedTrust()
+        if cachedBinding == nil || cachedTrust == nil {
+            // First run for this identity: the full serial path, correctness
+            // over speed (registration must precede mint/discovery).
+            _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
+            _ = try await pilot.usableCredentials()
+            _ = try? await broker.discover()
+        } else {
+            Task {
+                _ = try? await broker.register(pairingEnabled: false, relayURLHint: nil)
+                _ = try? await broker.discover()
+            }
+        }
+        let credentials = try await pilot.usableCredentials()
+        // Fire-and-forget relay-link warm-up: bind + come online now, in
+        // parallel with whatever the UI is doing.
+        Task { _ = try? await supervisor.readyEndpoint(credentials: credentials) }
         await pilot.start()
         self.identity = identity
         self.broker = broker
