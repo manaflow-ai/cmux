@@ -123,7 +123,7 @@ final class MobileHostIrxRuntime {
             // and every existing pair grant carry over (refresh-in-place;
             // stored routes on phones keep working with zero re-pairing).
             let legacy = MobileHostIrohRuntime.shared
-            let appInstanceID = try legacy.appInstances.appInstanceID(
+            let appInstanceID = try await legacy.appInstances.appInstanceID(
                 accountID: accountID, tag: tag)
             let material = try await legacy.identities.identity(
                 accountID: accountID, appInstanceID: appInstanceID)
