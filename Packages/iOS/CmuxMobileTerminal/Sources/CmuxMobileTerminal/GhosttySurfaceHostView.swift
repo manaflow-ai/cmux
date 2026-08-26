@@ -306,6 +306,16 @@ public final class GhosttySurfaceHostView: UIView {
     /// attached toggle is always leg-owned before any layout pass runs — this
     /// only corrects state from transitions the host missed while detached or
     /// captured against stale bounds.
+    ///
+    /// The will-only seat still runs this at ATTACH (`didMoveToWindow`) even
+    /// though the tracker records `did` frames iOS 27 can misreport: the
+    /// record read at attach is a settled end frame, a misreported one is
+    /// corrected by the next will leg, and skipping recovery would instead
+    /// wedge the dock indefinitely after a workspace switch mid-transition
+    /// (the pre-#10518 failure mode). Only the steady-state re-derivation in
+    /// `layoutSubviews` is gated off for will-only seats, because there a
+    /// misreported record moves an already-settled dock with no later will
+    /// to fix it.
     private func healKeyboardModelFromTracker() {
         guard let overlap = keyboardFrameTracker.currentOverlap(in: self) else { return }
         surfaceView.setHostedKeyboardState(

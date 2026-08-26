@@ -9400,22 +9400,26 @@ final class cmuxUITests: XCTestCase {
 
         // A settled dock must stay put: no did-frame reseat or steady-state
         // re-derivation may move the composer bar once the keyboard stops.
+        // Poll over a bounded window and require EVERY sample at the settled
+        // edge, so a transient hop between two single samples cannot pass.
         guard let settledTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
             XCTFail("Missing dock edge metric on the will-only seat. dock=\(dock)")
             return
         }
-        try await Task.sleep(for: .seconds(1))
-        let laterDock = surfaceDock(in: app)
-        guard let laterTop = laterDock["keyboardDockTargetTop"].flatMap(Double.init) else {
-            XCTFail("Missing dock edge metric after settle. dock=\(laterDock)")
-            return
+        for sample in 1...5 {
+            try await Task.sleep(for: .milliseconds(300))
+            let laterDock = surfaceDock(in: app)
+            guard let laterTop = laterDock["keyboardDockTargetTop"].flatMap(Double.init) else {
+                XCTFail("Missing dock edge metric on stability sample \(sample). dock=\(laterDock)")
+                return
+            }
+            XCTAssertEqual(
+                laterTop,
+                settledTop,
+                accuracy: 1,
+                "A settled will-only dock moved without a will notification (sample \(sample)). dock=\(laterDock)"
+            )
         }
-        XCTAssertEqual(
-            laterTop,
-            settledTop,
-            accuracy: 1,
-            "A settled will-only dock moved without a will notification. dock=\(laterDock)"
-        )
 
         // Rapid reversals ride the interrupted-leg rebase: the dock and the
         // terminal presentation stay one unit through every cycle.
