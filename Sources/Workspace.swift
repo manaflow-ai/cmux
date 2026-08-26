@@ -10254,6 +10254,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             inPane: paneId
         ) else {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
+            (detached.panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)

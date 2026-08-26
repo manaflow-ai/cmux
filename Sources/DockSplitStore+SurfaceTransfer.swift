@@ -459,6 +459,7 @@ extension DockSplitStore {
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
+            (panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
@@ -557,6 +558,7 @@ extension DockSplitStore {
             )
         }
         guard let newPane else {
+            (panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)

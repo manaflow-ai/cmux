@@ -16,6 +16,9 @@ protocol FileContentChangeObservingPanel: AnyObject {
 
     /// Cancels panel-specific reload work when observation stops.
     func cancelObservedFileReload()
+
+    /// Removes coordinator ownership before an unattached panel is discarded.
+    func stopWatchingForFileChanges()
 }
 
 extension FileContentChangeObservingPanel {
