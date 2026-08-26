@@ -34742,7 +34742,6 @@ export default CMUXSessionRestore;
                 }
                 return codexLifecycle.observe(
                     sessionID: sessionId,
-                    turnID: input.turnId,
                     workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
                     surfaceID: resolvedDirectSurfaceArg ?? mapped?.surfaceId
                 )
