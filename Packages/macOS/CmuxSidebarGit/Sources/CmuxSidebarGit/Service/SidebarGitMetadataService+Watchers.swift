@@ -243,7 +243,12 @@ extension SidebarGitMetadataService {
 
     private func ensureWorkspaceGitMetadataCreationWatcher(for ancestor: String) {
         guard workspaceGitMetadataCreationWatchersByAncestor[ancestor] == nil else { return }
-        let watcher = FileWatcher(path: ancestor, throttle: .milliseconds(250))
+        let watcher = FileWatcher(
+            path: ancestor,
+            throttle: .milliseconds(250),
+            allowsFilesystemRootAncestor: false,
+            fileManager: creationWatchFileManager
+        )
         workspaceGitMetadataCreationWatchersByAncestor[ancestor] = watcher
         let events = watcher.events
         workspaceGitMetadataCreationWatcherTasksByAncestor[ancestor] = Task { @MainActor [weak self] in

@@ -340,7 +340,12 @@ extension SidebarGitMetadataService {
 
         if shouldTrackGitDirectory {
             workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
-            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
+            updateWorkspaceGitMetadataWatcher(
+                for: probeKey,
+                directory: expectedDirectory,
+                forceDescriptorRefresh:
+                    workspaceGitHeadSignatureByKey[probeKey] != snapshot.headSignature
+            )
         } else {
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             stopWorkspaceGitMetadataWatcher(for: probeKey)

@@ -6,11 +6,14 @@ import CmuxGit
 @Suite struct WatcherSafetyTests {
     private func makeService(
         host: RecordingSidebarGitHost,
+        metadataReader: any WorkspaceGitMetadataReading = GatedMetadataReader(
+            metadata: .repository(branch: "main")
+        ),
         descriptorReader: any GitMetadataWatchDescriptorReading = GitMetadataService(),
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) -> SidebarGitMetadataService {
         let service = SidebarGitMetadataService(
-            workspaceGitMetadataReader: GatedMetadataReader(metadata: .repository(branch: "main")),
+            workspaceGitMetadataReader: metadataReader,
             gitMetadataService: descriptorReader,
             pullRequestProbing: RecordingPullRequestProbing(),
             probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
@@ -220,10 +223,15 @@ import CmuxGit
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         let descriptorReader = GatedWatchDescriptorReader()
+        let metadataReader = GatedMetadataReader(
+            metadata: .repository(branch: "feature/conditional-config"),
+            gated: true
+        )
         let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
         defer { logContinuation.finish() }
         let service = makeService(
             host: host,
+            metadataReader: metadataReader,
             descriptorReader: descriptorReader,
             debugLog: { logContinuation.yield($0) }
         )
@@ -248,6 +256,8 @@ import CmuxGit
 
         #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
         await descriptorReader.resumeNext(with: nil)
+        await metadataReader.openGate()
+        service.resetAllWorkspaceGitProbeTracking()
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
 
