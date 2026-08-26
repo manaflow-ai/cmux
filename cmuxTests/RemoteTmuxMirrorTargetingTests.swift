@@ -479,12 +479,18 @@ struct RemoteTmuxMirrorTargetingTests {
         ]])
         #expect(try harness.surfaceTitles() == ["logs", "logs [1]", "logs [2]"])
 
+        var topologyChanges = 0
+        let observer = harness.connection.addObserver(onTopologyChanged: {
+            topologyChanges += 1
+        })
+        defer { harness.connection.removeObserver(observer) }
         harness.connection.handleMessageForTesting(.subscriptionChanged(
             name: "cmux_title_5",
             value: harness.paneTitleMetadata(title: "run: db-migration")
         ))
 
         #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
+        #expect(topologyChanges == 0)
     }
 
     @Test func liveTmuxPaneRetitleWinsOverOlderPaneRectSnapshot() throws {
