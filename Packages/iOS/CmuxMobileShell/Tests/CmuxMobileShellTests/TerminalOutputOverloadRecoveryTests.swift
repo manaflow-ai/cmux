@@ -157,6 +157,12 @@ import Testing
     let clock = TestClock()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
+    store.terminalOutputTransport = .renderGrid
+    store.supportedHostCapabilities = [
+        "terminal.render_grid.v1",
+        MobileShellComposite.terminalVerifiedReplayCapability,
+        "terminal.replay.v1",
+    ]
 
     await router.enqueueReplayPayload(text: "cold-replay", sequence: nil)
     // Every recovery attempt (the replacement request plus each bounded
@@ -188,6 +194,10 @@ import Testing
     // of being discarded: the screen provably missed output.
     let replacementChunk = try #require(await iterator.next())
     let replacementText = String(decoding: replacementChunk.data, as: UTF8.self)
+    #expect(
+        !replacementChunk.requiresVerifiedReplay,
+        "a best-effort compatibility replacement must use the legacy application path"
+    )
     #expect(replacementText.hasPrefix("\u{1B}c"))
     #expect(replacementText.contains(
         "snapshot-attempt-\(MobileShellComposite.maxTerminalReplayFailureRetries)"
@@ -208,4 +218,47 @@ import Testing
     #expect(store.deliverTerminalBytes(Data("live-after-snapshot".utf8), surfaceID: surfaceID))
     let liveChunk = try #require(await iterator.next())
     #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-snapshot")
+}
+
+@MainActor
+@Test func overloadReplayWithoutFallbackFailsOpenAndResumesLiveOutput() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    await router.enqueueEmptyReplayResponses(
+        count: 1 + MobileShellComposite.maxTerminalReplayFailureRetries
+    )
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+
+    store.deliverTerminalBytes(Data("stalled-apply".utf8), surfaceID: surfaceID)
+    _ = try #require(await iterator.next())
+    for index in 0..<TerminalOutputDeliveryQueue.maximumPendingCount {
+        #expect(store.deliverTerminalBytes(Data("queued-\(index)".utf8), surfaceID: surfaceID))
+    }
+    #expect(!store.deliverTerminalBytes(Data("overflow".utf8), surfaceID: surfaceID))
+
+    let replayAttempts = 2 + MobileShellComposite.maxTerminalReplayFailureRetries
+    let exhausted = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayAttempts
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(
+        exhausted,
+        "an exhausted replay with no compatibility payload must release its barrier"
+    )
+
+    #expect(store.deliverTerminalBytes(Data("live-after-empty-replay".utf8), surfaceID: surfaceID))
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-empty-replay")
 }

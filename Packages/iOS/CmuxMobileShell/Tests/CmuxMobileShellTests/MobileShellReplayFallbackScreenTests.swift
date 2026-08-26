@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxMobileShell
 
 @MainActor
-@Test func replayByteFallbackPreservesAlternateScreenSuppression() async throws {
+@Test func replayByteFallbackFailsClosedWithoutAuthoritativeScreen() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -58,7 +58,11 @@ import Testing
         collector.lines.contains { $0.contains("fallback-replay") }
     }
     #expect(fallbackReplayDelivered)
-    #expect(collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4))
+    #expect(
+        collector.viewportPolicies.last == .natural,
+        "a compatibility fallback without active_screen must not reuse stale alternate-screen sizing"
+    )
+    #expect(store.terminalActiveScreenBySurfaceID["live-terminal"] == .alternate)
     #expect(store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil)
 
     await transport.deliver(try terminalBytesEventFrame(
