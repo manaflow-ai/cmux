@@ -357,12 +357,23 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func handleTextBoxEscape() {
+        if containerAgentLifecycleStateForTextBoxEscape == .running {
+            _ = sendNamedKeyResult(TextBoxTerminalKey.escape.rawValue)
+        }
         let hadTextBoxView = textBoxInputView != nil
         let didFocusTerminal = focusTerminalSurface(
             respectForeignFirstResponder: false,
             clearTextBoxHideArm: false
         )
         shouldHideTextBoxOnNextEscape = isTextBoxActive && (hadTextBoxView || didFocusTerminal)
+    }
+
+    private var containerAgentLifecycleStateForTextBoxEscape: AgentHibernationLifecycleState {
+        if let dock = DockSplitStore.liveStore(containingPanel: id) {
+            return dock.agentLifecycleStateForTextBoxEscape(panelId: id)
+        }
+        return surface.owningWorkspace()?
+            .agentLifecycleStateForTextBoxEscape(panelId: id) ?? .unknown
     }
 
     @discardableResult

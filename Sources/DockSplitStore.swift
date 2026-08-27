@@ -91,6 +91,14 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// In-memory compare-and-claim state held while a CLI restore hands the
+    /// validated binding to its child process.
+    @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
+        UUID: (binding: SurfaceResumeBindingSnapshot, claimedAt: Date)
+    ] = [:]
+    @ObservationIgnored var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] = [:]
+    @ObservationIgnored var deferredAgentResumeClaimsByPanelId: [UUID: (kind: String, sessionId: String)] = [:]
+    @ObservationIgnored var deferredAgentResumeIndexTask: Task<Void, Never>?
     /// Authoritative agent-hook identity for a Dock panel. The effective
     /// surface binding may temporarily become a process-detected tmux binding,
     /// but hook teardown must still address the managed agent generation.
@@ -138,6 +146,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private let settings: any SettingsReading
     private let settingsCatalog = SettingCatalog()
     let agentSessionAutoResumeDefaults: UserDefaults
+    @ObservationIgnored let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -298,7 +307,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
-        closedItemHistoryStore: ClosedItemHistoryStore? = nil
+        closedItemHistoryStore: ClosedItemHistoryStore? = nil,
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
@@ -310,6 +320,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.restorableAgentIndexProvider = restorableAgentIndexProvider ?? {
+            SharedLiveAgentIndex.shared.currentIndexForOwnershipSensitiveRestore()
+        }
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,
             lifecycle: RestoredAgentLifecycleCoordinator(),

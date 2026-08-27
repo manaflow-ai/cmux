@@ -1,69 +1,321 @@
 # cmux-tui technical-debt board
 
-Last updated: 2026-08-24.
-Audit base: `origin/main` at `17466308a52cb53e417e07085f108800efedd267`.
-Integration branch: `aggregate-final`.
-Current integration code tip before this documentation commit: `17413db11cc0ebb7b0b5c254447cede3faaad0cf` (`fix(chatmux-relay): bound preview task reaping`).
+## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
 
-Current exact aggregate tip is `f0d52e38edd6525ef4a02f2e43651009c5d97aef`,
-647 commits ahead of `origin/main` before this documentation update.
-Exact worktree HEAD at audit time: `f0d52e38edd6525ef4a02f2e43651009c5d97aef`.
-The aggregate branch is `aggregate-final`; the review branch is
-`https://github.com/manaflow-ai/cmux/tree/feat-tui-tech-debt-wave1-clean`.
-The current integration sequence includes the hosted formatter and verification
-fixes through `66e83c808f`, the replay preflight correction `c867048c1d`, the
-safe scoped-attach series through `dfa4ef3b6a`, manifest and socket-contract
-hardening, Unix/Admin task ownership, browser guard coverage, and localization
-through `638e536f03`. Localization recovery is recorded in `01c4a2de8d`,
-`638e536f03`, and `f04c5409a0`. The aggregate tail adds legacy hashed-socket
-fallbacks for Python, TypeScript, Rust, Java, Zig, Go, and C++, bounded Unix JSON
-readers, wire-identity preflight, independent config-section recovery,
-localization recovery, and systemd quoting fixes. The current tail also bounds
-relay and remote queues, validates relay frame versions, joins Python cleanup,
-uses one Go fallback deadline, guards TypeScript transport callbacks, bounds
-Iroh result delivery, and hardens filesystem-watch admission and overflow
-wakeup through `643dbfe2e5`. The final formatting pass is `b61f1bada6`, followed
-by socket-send simplification, heartbeat bounds, fairness accounting, shell
-reservation cleanup, explicit PTY overflow, preview saturation disconnect,
-cross-language transport cleanup, CLI metadata, capability documentation,
-credential-child reaping, journal-writer ownership/finalization, explicit socket
-parent and lease cleanup, package-mode preservation, and C1 parser support
-through `f7471b21e6a4a0e5cac745e78202d4470b87abb5`. The exact-head tail adds bounded preview and Windows
-process cleanup, safe socket fallback precedence, Python cancellation
-propagation, and the Rust fallback-test contract. Documentation-only bridge commits are
-[`42b776a327`](https://github.com/manaflow-ai/cmux/commit/42b776a327c17386d131ef1b1f8a382b02683954)
-and [`cef7c71460`](https://github.com/manaflow-ai/cmux/commit/cef7c71460f72444e874f7c9f26100e9259874c1).
-The 25-file relay/TUI integration merge is `05c0b30277`. The latest code tail
-also includes exact socket-parent matching, bounded workspace reads, watcher
-sink termination, cross-language fallback correction, Windows dependency
-declarations, path-error classification, shell and preview task ownership,
-and clippy cleanup through `17413db11cc0ebb7b0b5c254447cede3faaad0cf`.
+Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)
+`e9543607420f7b3b3284ac4c71ea21918dea692e`, [#10975](https://github.com/manaflow-ai/cmux/pull/10975)
+`46958aa58d171a01af7a5b1f06164f18d8639612`, [#10986](https://github.com/manaflow-ai/cmux/pull/10986)
+`b5023a455618dd3d4885da2605e162b0bdb67790`, [#10982](https://github.com/manaflow-ai/cmux/pull/10982)
+`642a65b1512d0d61aaef88290f90ef3408bbee74`, [#10985](https://github.com/manaflow-ai/cmux/pull/10985)
+`2b61ecafceb4b1c008b6f07345270615a0fb4286`, and [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
+`af31628f7b0b2f6c34e184049254fa2fe91f285d`. This branch changes documentation only.
 
-Latest wave follow-ups are recorded in the changelog. The prior exact-head
-autoreview found three relay retention issues, now fixed in the latest tail;
-the final review is pending. Two earlier remote-tmux findings were ignored as
-out of scope. No new session was counted for documentation-only bookkeeping;
-the ledger remains a lower bound on substantive turns, not a fabricated
-10,000-session total.
+Session evidence is now reported conservatively. The strict auditable turn
+count is `unknown` (not zero) because durable session identifiers are absent.
+The practical floor is five documented substantive owner workstreams.
+The branch proxy is 96 TUI references, 78 with substantive non-merge commits;
+it is not a turn count. Unresolved Claude intents are IDs
+`1787650444261`, `1787650724161` (state ownership, manual I/O, reconnect),
+`1787722163382`, `1787723964393` (remove Go daemon, direct I/O and tunnels),
+`1787733887926`, `1787780735531` (machine terminals, VNC, attach, parity),
+`1787794506089` (cloud tree per machine), `1787823710241` (sidebar split),
+`1787825896700` (wheel-to-arrow behavior), and `1787826030510` (Claude
+completion subscriptions). No completion evidence was found.
 
-Subagent ledger: at least 205 substantive agent turns are complete in this
-run. The count includes code audits, web research, session mining, fixes,
-reviews, and merge gates. It excludes empty or duplicate turns. The requested
-10,000-session target is not reached. I will not create empty sessions to
-inflate the count. The new intent rows do not count as completed work or extra
-sessions. New turns must have a named deliverable.
+## Historical refresh: main `2b61ecafceb4b1c008b6f07345270615a0fb4286`
 
-## Current state
+Snapshot: 2026-08-27T18:44:45Z. This docs-only refresh pins
+[`2b61ecafceb4b1c008b6f07345270615a0fb4286`](https://github.com/manaflow-ai/cmux/commit/2b61ecafceb4b1c008b6f07345270615a0fb4286).
+No runtime build or test ran.
 
-The latest code tail is `17413db11cc0ebb7b0b5c254447cede3faaad0cf`. It carries the watch compatibility,
+Merged [#10982](https://github.com/manaflow-ai/cmux/pull/10982), Lawrence Chen,
+source `1e0c3eefaf43e733c967131199361d587f56a34b`, merge
+`642a65b1512d0d61aaef88290f90ef3408bbee74`, [run 33100547866](https://github.com/manaflow-ai/cmux/actions/runs/33100547866)
+passed. Rollback: `git revert 642a65b1512d0d61aaef88290f90ef3408bbee74`.
+Merged [#10985](https://github.com/manaflow-ai/cmux/pull/10985), Lawrence Chen,
+source `f32d788d1cb503fb7cddf50e70fc40d0e067ec4e`, merge
+`2b61ecafceb4b1c008b6f07345270615a0fb4286`, [run 33103012053](https://github.com/manaflow-ai/cmux/actions/runs/33103012053)
+and [SDK run 33103010095](https://github.com/manaflow-ai/cmux/actions/runs/33103010095)
+passed. Rollback: `git revert 2b61ecafceb4b1c008b6f07345270615a0fb4286`.
+
+| Live PR | Exact head | Exact runs | Gate and reviews |
+| --- | --- | --- | --- |
+| [#10966](https://github.com/manaflow-ai/cmux/pull/10966), Lawrence Chen | `dda134e95835a415d6cce062e896367ad30c3a94` | [33104657912](https://github.com/manaflow-ai/cmux/actions/runs/33104657912), [33104745426](https://github.com/manaflow-ai/cmux/actions/runs/33104745426), in progress | Mergeable; five CodeRabbit comment-only reviews |
+| [#10969](https://github.com/manaflow-ai/cmux/pull/10969), Lawrence Chen | `0a89a140738c68d105ddd7d1cf5bbcb1e713bb02` | [33104519612](https://github.com/manaflow-ai/cmux/actions/runs/33104519612), [33104514655](https://github.com/manaflow-ai/cmux/actions/runs/33104514655), in progress | Mergeable; one CodeRabbit comment-only review |
+| [#10612](https://github.com/manaflow-ai/cmux/pull/10612), Lawrence Chen | `ddc15ed4d7fc737cf86e9bd4bf2adc8bd1ebf5fa`, stale base | [33103112353](https://github.com/manaflow-ai/cmux/actions/runs/33103112353), [33103077154](https://github.com/manaflow-ai/cmux/actions/runs/33103077154), passed | Comment-only Greptile, Codex connector, and CodeRabbit reviews; rebase |
+| [#10891](https://github.com/manaflow-ai/cmux/pull/10891), Lawrence Chen | `e16aa8c35bbb1fafa7b3cb1340f872754c66d6a7`, stale base | [33104968098](https://github.com/manaflow-ai/cmux/actions/runs/33104968098) queued; [33104965438](https://github.com/manaflow-ai/cmux/actions/runs/33104965438) in progress | Mergeability unknown; earlier-head CodeRabbit comments |
+
+Closed without merge: [#9806](https://github.com/manaflow-ai/cmux/pull/9806)
+(`406529665e5494ca559acab47079d8e7fb274386`),
+[#9813](https://github.com/manaflow-ai/cmux/pull/9813)
+(`3b8d500aa23cfe9a7fbbe4a1dbdcf1be19902c61`),
+[#10136](https://github.com/manaflow-ai/cmux/pull/10136)
+(`0786b6b37e5a397c1acc15b14be4a89f4363117b`),
+[#10413](https://github.com/manaflow-ai/cmux/pull/10413)
+(`891544e0ab1f1ab277213b984e7f53078374fb63`),
+[#10237](https://github.com/manaflow-ai/cmux/pull/10237)
+(`187dffe3e181fd6a85f99dc3fec2244c4fbe6fff`),
+[#10267](https://github.com/manaflow-ai/cmux/pull/10267)
+(`7c8e4130737cf15f81086603364b587b13c05f40`), and
+[#10746](https://github.com/manaflow-ai/cmux/pull/10746)
+(`9fa4c1497719f3c205ce6d402b3ce338d7fd5504`). No rollback applies. Issues
+[#10881](https://github.com/manaflow-ai/cmux/issues/10881) and
+[#10394](https://github.com/manaflow-ai/cmux/issues/10394) closed after merged
+[#10954](https://github.com/manaflow-ai/cmux/pull/10954). Browser
+[#335](https://github.com/manaflow-ai/cmux/pull/335) is resolved at merge
+`5697f71fc6956729524a76a5f17d5611c3ff485b`; rollback:
+`git revert 5697f71fc6956729524a76a5f17d5611c3ff485b`.
+
+No new session scan ran. The retained lower bound is 258 named substantive
+turns, not a total and not a 10,000-session claim. Later code merges require a
+final refresh.
+
+Historical snapshot: 2026-08-27T13:05:00Z. The exact source baseline was
+`origin/main` at [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0),
+committed 2026-08-27T05:49:57-07:00 with subject
+`Integrate Escape passthrough fix from PR #9810 (#10959)`. This is a documentation-
+only update, with no local Rust, Zig, or runtime build/test. The prior
+`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+snapshots are retained below as historical layers.
+
+## Current main tail and debt disposition
+
+The current tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/10936),
+[#10944](https://github.com/manaflow-ai/cmux/pull/10944), and
+[#10950](https://github.com/manaflow-ai/cmux/pull/10950),
+[#10951](https://github.com/manaflow-ai/cmux/pull/10951),
+[#10954](https://github.com/manaflow-ai/cmux/pull/10954),
+[#10958](https://github.com/manaflow-ai/cmux/pull/10958),
+[#10962](https://github.com/manaflow-ai/cmux/pull/10962),
+[#10970](https://github.com/manaflow-ai/cmux/pull/10970), and
+[#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
+[#10959](https://github.com/manaflow-ai/cmux/pull/10959), with the nine requested
+PRs. All listed authors are Lawrence Chen. Each row gives the exact merge SHA
+and a rollback command. The [#10936](https://github.com/manaflow-ai/cmux/pull/10936)
+change fails unknown workspace RPC responses instead of allowing a request
+channel to hang.
+
+| PR | Merged change | Merge SHA | Residual or rollback |
+| --- | --- | --- | --- |
+| [#10941](https://github.com/manaflow-ai/cmux/pull/10941) | Accept unknown remote capability names with a forward-compatible enum fallback. | `6641abe023f3ab175fd910b547316fc00bf523ee` | Newer capability semantics still need compatibility proof. `git revert 6641abe023f3ab175fd910b547316fc00bf523ee` |
+| [#10940](https://github.com/manaflow-ai/cmux/pull/10940) | Define remote ChatGPT auth-refresh ownership and lifecycle in docs. | `e6895d94d8fba491e823e3550dda6727cdd87d33` | Design does not prove runtime refresh or revocation. `git revert e6895d94d8fba491e823e3550dda6727cdd87d33` |
+| [#10938](https://github.com/manaflow-ai/cmux/pull/10938) | Use reverse indexes for cmux-tui surface teardown lookups. | `d0f1d94c431cd41947133f7d9406968ee70a7fc7` | Stress and hosted performance evidence remain open. `git revert d0f1d94c431cd41947133f7d9406968ee70a7fc7` |
+| [#10935](https://github.com/manaflow-ai/cmux/pull/10935) | Secure detached daemon logs and startup locks with ownership and no-follow checks. | `502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` | Portability and recovery behavior need cross-platform proof. `git revert 502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` |
+| [#10932](https://github.com/manaflow-ai/cmux/pull/10932) | Validate pairing config through opened descriptors without symlink races. | `6e67b662c649096b7133eaace8059cd4420a6ba6` | Same-user pathname races outside the descriptor path remain documented. `git revert 6e67b662c649096b7133eaace8059cd4420a6ba6` |
+| [#10937](https://github.com/manaflow-ai/cmux/pull/10937) | Preserve the first remote-reader termination reason and distinguish EOF from read failure. | `41f17d77e00ed6ae8b022833301b979d82ee95e3` | End-to-end UI reporting and reconnect behavior remain open. `git revert 41f17d77e00ed6ae8b022833301b979d82ee95e3` |
+| [#10939](https://github.com/manaflow-ai/cmux/pull/10939) | Align relay upload ingress and egress frame budgets with Unix limits. | `26fb89ceba985e908f50502e1666c77b8d7f8ead` | Cross-language oversized-frame proof remains required. `git revert 26fb89ceba985e908f50502e1666c77b8d7f8ead` |
+| [#10934](https://github.com/manaflow-ai/cmux/pull/10934) | Use canonical noun-first resource commands in public TUI docs. | `f73fd08c161445b309f6d8d37374d85de58725df` | Legacy aliases and actual CLI behavior still need user-facing proof. `git revert f73fd08c161445b309f6d8d37374d85de58725df` |
+| [#10949](https://github.com/manaflow-ai/cmux/pull/10949) | Localize browser-control failures at the UI boundary. | `b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` | Japanese and English behavior need UI acceptance coverage. `git revert b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Bound Git child cleanup with an explicit cancellation deadline and reap path. | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | Descendant cleanup still needs hosted stress proof. `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Zeroize oversized remote session frames before returning the size-limit error. | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | Cross-language and allocator-level zeroization proof remains required. `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+| [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Fail unknown workspace RPC responses and retire canceled request IDs safely. | `d65d6e6ccacf1d7300316451ce2830f05f889e14` | Cross-client unknown-response, cancellation, and reconnect behavior still need hosted proof. `git revert d65d6e6ccacf1d7300316451ce2830f05f889e14` |
+| [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Share the draw and paint render path. | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | Render-path behavior still needs hosted visual proof. `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
+| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Defer and flush Sentry sends before serverless freeze. | `2f95b8760005047ff470afe4a00fd33783e4cf93` | Cloud delivery behavior still needs hosted evidence. `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
+| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Integrate Escape passthrough from #9810. | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Cross-frontend Escape handling still needs behavior proof. `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
+
+The session scan receipt and lower-bound ledger below remain retained audit
+evidence. No new session scan was performed for this metadata refresh.
+The retained receipt supports at least 258 named substantive turns. This is a
+verifiable lower bound, not a total session count, and no 10,000-session claim
+is made.
+
+## Current delta since `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+
+| Area | Current state at `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Required proof or next action |
+| --- | --- | --- |
+| Workspace RPC response routing | Unknown responses fail the workspace RPC channel, and canceled request IDs are retired without exposing the local namespace. | Exercise unknown, late, canceled, and reconnect responses from multiple clients, then verify bounded failure and no request-ID leakage. |
+| Escape input routing | Escape passthrough is integrated from #9810. | Exercise terminal, sidebar, and nested-frontend Escape behavior on the exact main snapshot. |
+| Alternate-screen wheel policy | Wheel events use Ghostty wheel reporting with mouse tracking, and emit `ESC[A/B` three times when alternate-screen apps do not enable tracking. | Add a configurable alternate-scroll policy and modifier override, with behavior tests. Changing the default may break TUIs that rely on arrow sequences. |
+
+## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+
+The following sections preserve the prior current layer captured at
+2026-08-27T09:54:48Z. They are historical evidence, not current status.
+
+Historical snapshot: 2026-08-27T09:54:48Z. The exact source baseline was
+`origin/main` at [`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`](https://github.com/manaflow-ai/cmux/commit/5c2ee1244e2d796c9e4be5307788b320ac2ee4ff),
+committed 2026-08-27T02:31:38-07:00 with subject
+`fix(tui): zeroize oversized remote frames (#10950)`. This is a documentation-
+only update, with no local Rust, Zig, or runtime build/test. The prior
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshot, captured at
+2026-08-27T09:25:01Z, is retained below as a historical layer.
+
+## Historical main tail and debt disposition at `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+
+The current tail includes [#10944](https://github.com/manaflow-ai/cmux/pull/10944)
+and [#10950](https://github.com/manaflow-ai/cmux/pull/10950), with the nine
+requested PRs. All listed authors are Lawrence Chen. Each row gives the exact
+merge SHA and a rollback command. The [#10950](https://github.com/manaflow-ai/cmux/pull/10950)
+change zeroizes an oversized remote session message before reporting the
+size-limit disconnect.
+
+| PR | Merged change | Merge SHA | Residual or rollback |
+| --- | --- | --- | --- |
+| [#10941](https://github.com/manaflow-ai/cmux/pull/10941) | Accept unknown remote capability names with a forward-compatible enum fallback. | `6641abe023f3ab175fd910b547316fc00bf523ee` | Newer capability semantics still need compatibility proof. `git revert 6641abe023f3ab175fd910b547316fc00bf523ee` |
+| [#10940](https://github.com/manaflow-ai/cmux/pull/10940) | Define remote ChatGPT auth-refresh ownership and lifecycle in docs. | `e6895d94d8fba491e823e3550dda6727cdd87d33` | Design does not prove runtime refresh or revocation. `git revert e6895d94d8fba491e823e3550dda6727cdd87d33` |
+| [#10938](https://github.com/manaflow-ai/cmux/pull/10938) | Use reverse indexes for cmux-tui surface teardown lookups. | `d0f1d94c431cd41947133f7d9406968ee70a7fc7` | Stress and hosted performance evidence remain open. `git revert d0f1d94c431cd41947133f7d9406968ee70a7fc7` |
+| [#10935](https://github.com/manaflow-ai/cmux/pull/10935) | Secure detached daemon logs and startup locks with ownership and no-follow checks. | `502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` | Portability and recovery behavior need cross-platform proof. `git revert 502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` |
+| [#10932](https://github.com/manaflow-ai/cmux/pull/10932) | Validate pairing config through opened descriptors without symlink races. | `6e67b662c649096b7133eaace8059cd4420a6ba6` | Same-user pathname races outside the descriptor path remain documented. `git revert 6e67b662c649096b7133eaace8059cd4420a6ba6` |
+| [#10937](https://github.com/manaflow-ai/cmux/pull/10937) | Preserve the first remote-reader termination reason and distinguish EOF from read failure. | `41f17d77e00ed6ae8b022833301b979d82ee95e3` | End-to-end UI reporting and reconnect behavior remain open. `git revert 41f17d77e00ed6ae8b022833301b979d82ee95e3` |
+| [#10939](https://github.com/manaflow-ai/cmux/pull/10939) | Align relay upload ingress and egress frame budgets with Unix limits. | `26fb89ceba985e908f50502e1666c77b8d7f8ead` | Cross-language oversized-frame proof remains required. `git revert 26fb89ceba985e908f50502e1666c77b8d7f8ead` |
+| [#10934](https://github.com/manaflow-ai/cmux/pull/10934) | Use canonical noun-first resource commands in public TUI docs. | `f73fd08c161445b309f6d8d37374d85de58725df` | Legacy aliases and actual CLI behavior still need user-facing proof. `git revert f73fd08c161445b309f6d8d37374d85de58725df` |
+| [#10949](https://github.com/manaflow-ai/cmux/pull/10949) | Localize browser-control failures at the UI boundary. | `b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` | Japanese and English behavior need UI acceptance coverage. `git revert b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Bound Git child cleanup with an explicit cancellation deadline and reap path. | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | Descendant cleanup still needs hosted stress proof. `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Zeroize oversized remote session frames before returning the size-limit error. | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | Cross-language and allocator-level zeroization proof remains required. `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+
+The session scan receipt and lower-bound ledger below remain the retained audit
+evidence from the prior snapshot. No new session scan was performed for this
+metadata refresh.
+
+## Historical delta since the `99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshot
+
+| Area | Current state at `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | Required proof or next action |
+| --- | --- | --- |
+| Oversized remote frames | Remote session messages are zeroized before the size-limit disconnect. | Exercise exact-limit and oversized frames across all SDKs and transports, and verify no secret bytes remain. |
+
+## Historical snapshot retained: main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+The following sections preserve the prior board state captured at
+2026-08-27T09:25:01Z. They are historical evidence, not current status.
+
+Historical snapshot: 2026-08-27T09:25:01Z. The exact source baseline was
+`origin/main` at [`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095),
+committed 2026-08-27T02:13:58-07:00. This board is append-only in spirit:
+the current layer was first, and older sections are retained as historical
+snapshots. No local Rust, Zig, or runtime build/test was run for that
+documentation-only update.
+
+## Historical main tail and debt disposition at `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+The nine requested PRs, plus the subsequent [#10944](https://github.com/manaflow-ai/cmux/pull/10944)
+merge, are in the pinned main commit. All listed authors are Lawrence Chen. A
+merge records source integration; residual acceptance and rollback remain
+explicit.
+
+| PR | Merged change | Merge SHA | Residual or rollback |
+| --- | --- | --- | --- |
+| [#10941](https://github.com/manaflow-ai/cmux/pull/10941) | Accept unknown remote capability names with a forward-compatible enum fallback. | `6641abe023f3ab175fd910b547316fc00bf523ee` | Newer capability semantics still need compatibility proof. `git revert 6641abe023f3ab175fd910b547316fc00bf523ee` |
+| [#10940](https://github.com/manaflow-ai/cmux/pull/10940) | Define remote ChatGPT auth-refresh ownership and lifecycle in docs. | `e6895d94d8fba491e823e3550dda6727cdd87d33` | Design does not prove runtime refresh or revocation. `git revert e6895d94d8fba491e823e3550dda6727cdd87d33` |
+| [#10938](https://github.com/manaflow-ai/cmux/pull/10938) | Use reverse indexes for cmux-tui surface teardown lookups. | `d0f1d94c431cd41947133f7d9406968ee70a7fc7` | Stress and hosted performance evidence remain open. `git revert d0f1d94c431cd41947133f7d9406968ee70a7fc7` |
+| [#10935](https://github.com/manaflow-ai/cmux/pull/10935) | Secure detached daemon logs and startup locks with ownership and no-follow checks. | `502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` | Portability and recovery behavior need cross-platform proof. `git revert 502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` |
+| [#10932](https://github.com/manaflow-ai/cmux/pull/10932) | Validate pairing config through opened descriptors without symlink races. | `6e67b662c649096b7133eaace8059cd4420a6ba6` | Same-user pathname races outside the descriptor path remain documented. `git revert 6e67b662c649096b7133eaace8059cd4420a6ba6` |
+| [#10937](https://github.com/manaflow-ai/cmux/pull/10937) | Preserve the first remote-reader termination reason and distinguish EOF from read failure. | `41f17d77e00ed6ae8b022833301b979d82ee95e3` | End-to-end UI reporting and reconnect behavior remain open. `git revert 41f17d77e00ed6ae8b022833301b979d82ee95e3` |
+| [#10939](https://github.com/manaflow-ai/cmux/pull/10939) | Align relay upload ingress and egress frame budgets with Unix limits. | `26fb89ceba985e908f50502e1666c77b8d7f8ead` | Cross-language oversized-frame proof remains required. `git revert 26fb89ceba985e908f50502e1666c77b8d7f8ead` |
+| [#10934](https://github.com/manaflow-ai/cmux/pull/10934) | Use canonical noun-first resource commands in public TUI docs. | `f73fd08c161445b309f6d8d37374d85de58725df` | Legacy aliases and actual CLI behavior still need user-facing proof. `git revert f73fd08c161445b309f6d8d37374d85de58725df` |
+| [#10949](https://github.com/manaflow-ai/cmux/pull/10949) | Localize browser-control failures at the UI boundary. | `b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` | Japanese and English behavior need UI acceptance coverage. `git revert b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Bound Git child cleanup with an explicit cancellation deadline and reap path. | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | Descendant cleanup still needs hosted stress proof. `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+
+The live open-PR table, exact heads, rollup checks, and classifications are in
+[`PR-INTENT-BOARD.md`](PR-INTENT-BOARD.md). The nine changes above do not close
+the open journal, cloud, direct-I/O, discovery, or sandbox authorization work.
+
+## Historical residual debt at `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+| Area | Current state at `99bdc375e9` | Required proof or next action |
+| --- | --- | --- |
+| Capability compatibility | Unknown capability names no longer fail decoding. | Exercise a newer remote capability through every client and verify safe feature gating. |
+| Auth refresh ownership | Ownership and lifecycle are documented, not implemented end to end. | Add authenticated refresh, revocation, and expiry behavior tests without logging credentials. |
+| Surface teardown scale | Reverse indexes reduce repeated lookups. | Run a 96-browser-tab teardown stress case and capture bounded latency and memory. |
+| File and config security | Detached state and pairing config use owner and descriptor checks. | Prove cross-platform permissions, symlink rejection, and recovery after interruption. |
+| Reader diagnostics | First termination reasons survive remote reader shutdown. | Surface EOF versus read failure in the UI and reconnect state machine. |
+| Frame budgets | Client ingress and server egress limits are explicit. | Verify exact and oversized frame behavior across all SDKs and transports. |
+| Canonical CLI docs | Public examples use resource-first commands. | Run fresh-package help and attach flows, and document compatibility aliases. |
+| Error localization | Browser-control failures are localized at the UI boundary. | Exercise English and Japanese UI paths and verify no raw backend error leaks. |
+| User-intent architecture | Discovery, machine/resource rails, direct Ghostty I/O, restore, and sandbox authorization remain open. | Use the acceptance cases in [`USER-INTENT-BOARD.md`](USER-INTENT-BOARD.md), not source-shape checks. |
+
+## Session scan receipt and lower-bound ledger
+
+The full local history scan found 90,787 parsed JSON records and 81,149 unique
+Claude session IDs in `~/.claude/history.jsonl`, plus 18,833 records and 2,332
+unique Codex session IDs in `~/.codex/history.jsonl`. The current tail receipt
+is 174 Claude records and 42 IDs from line 90614 onward, with 26 records and 12
+IDs matching selected TUI terms; Codex line 18787 onward has 47 records and 17
+IDs, with two records and two IDs matching the narrow TUI terms. Broad full-file
+keyword scans found 339 Claude IDs and 310 Codex IDs, but those include
+unrelated requests and are not substantive counts.
+
+The current board records at least 256 substantive turns. Local audit commit
+`a6b54c6b0e469c72d527c5b9f7c165ed49bfa03d` (not on this main snapshot) records
+one additional named documentation turn, and this update adds one more named
+audit turn. The verifiable lower-bound ledger is therefore at least 258 named
+substantive turns when those retained receipts are included. It excludes empty,
+duplicate, self-counting, secret-bearing, and unrelated records. This is a
+lower bound, not a total session count, and it makes no 10,000-session claim.
+
+## Historical live PR state (2026-08-25)
+
+This table was the live PR state in the 2026-08-25 snapshot. It is retained for
+history only. The current table is in `PR-INTENT-BOARD.md`.
+
+| PR | Author | State and head on 2026-08-25 | Decision |
+| --- | --- | --- | --- |
+| [#10708](https://github.com/manaflow-ai/cmux/pull/10708) | Lawrence Chen | Open, source head `75ddb6fbe8`; exact-head hosted verification and local autoreview are pending. | Run focused and full exact-head hosted verification, run local autoreview, then merge. |
+| [#10736](https://github.com/manaflow-ai/cmux/pull/10736) | Lawrence Chen | Open, head `2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, mergeable, listed checks pass. Prior preview and localization findings are addressed; local autoreview needs a clean engine run. | Keep separate from [#10708](https://github.com/manaflow-ai/cmux/pull/10708); run local autoreview and exact-head checks, then merge. |
+| [#10734](https://github.com/manaflow-ai/cmux/pull/10734) | Lawrence Chen | Open, independent detached-session-owner feature at `64ae7f91f0`; local exact review found a compile error in `owner_spawn_failed` and dropped startup options. GitHub also reports seven-language conformance failure. | Do not merge. Fix the P0/P1 findings, then rerun exact-head review and checks. |
+| [#10743](https://github.com/manaflow-ai/cmux/pull/10743) | Lawrence Chen | Open, stale-surface filtering follow-up at `470252914f`; active-index and publication-race findings remain. | Do not merge yet. Fix identity mapping and atomic publication after [#10708](https://github.com/manaflow-ai/cmux/pull/10708). |
+| [#10744](https://github.com/manaflow-ai/cmux/pull/10744) | Lawrence Chen | Open, watch replacement generation gate at `45f208fb98`; exact-head review and hosted checks are pending. | Review, then integrate with the aggregate if the close/drop lifecycle is safe. |
+| [#10745](https://github.com/manaflow-ai/cmux/pull/10745) | Lawrence Chen | Open, Git child process-group cleanup at `ee8f3d00ea`; exact-head review and hosted checks are pending. | Review Unix and Windows cleanup separately, then integrate if safe. |
+| [#10746](https://github.com/manaflow-ai/cmux/pull/10746) | Lawrence Chen | Open, run_spec waitpid reaper at `9fa4c14977`; exact review found PID/PGID reuse and detached-thread risks. | Do not merge; the aggregate already has an owned timeout supervisor. |
+| [#10603](https://github.com/manaflow-ai/cmux/pull/10603) | Lawrence Chen | Merged as `7ddd04f2c1879cb38868292987aae1f1dfa2b139`. | Do not close or merge again. |
+| [#10604](https://github.com/manaflow-ai/cmux/pull/10604) | Lawrence Chen | Merged as `1956d7f440add80ba35e585d83697d9dae44d3e2`. | Do not close or merge again. |
+| [#10602](https://github.com/manaflow-ai/cmux/pull/10602) | Lawrence Chen | Open, conflicting, unchanged head `67b7e6814f8355235e3930a6f3360a58dc0ba3c0`; superseded by [#10708](https://github.com/manaflow-ai/cmux/pull/10708). | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking that the head is unchanged. |
+| [#10609](https://github.com/manaflow-ai/cmux/pull/10609) | Lawrence Chen | Open, conflicting, unchanged head `bdcbb8c8049eb552a0d646cdce78d58d294b7b82`; superseded by [#10708](https://github.com/manaflow-ai/cmux/pull/10708). | Close after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges, after rechecking that the head is unchanged. |
+
+## Historical current state (2026-08-25)
+
+The audited source tail is `75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9`. It carries the watch compatibility,
 queue-ownership, fairness, timer-bound, shell-reservation, PTY overflow,
 preview saturation, SDK lifecycle, CLI grammar, capability documentation,
 credential-child reaping, journal-writer ownership/finalization, explicit
 socket cleanup, package-mode preservation, 8-bit C1 parser fixes, and inline
 global CLI values, bounded preview and process cleanup, safe socket fallback
 precedence, cancellation propagation, cross-platform root parsing, and SDK
-clippy cleanup after the
-25-file relay/TUI integration merge. The issues below remain open.
+clippy cleanup after the 25-file relay/TUI integration merge. The current tail
+also adds per-attachment PTY delivery gates and generation-aware replacement
+cleanup, a bounded legacy socket scan that tolerates per-entry metadata errors,
+invalid Go write-progress handling, Java traversal coverage, and the current-main
+package workflow simplification plus PyPI project-description metadata. The
+latest tail also scopes remote-daemon cleanup to the failed writer, makes upload
+creation descriptor-backed, and avoids signaling a numeric PID marker during
+recovery. It makes close generation-aware, makes SSH upload staging no-clobber
+and ownership explicit, classifies only verified missing resources as
+`terminal_gone`, and documents the interactive/headless CLI split. The latest
+tail adds child reaping on missing `git diff` stdout and generation-gated stale
+PTY overflow errors in `ca12249636` and `75ddb6fbe8`. A same-user
+pathname race remains a documented residual because the portable shell path has
+no descriptor-relative `fchmod`. The issues below remain open.
+
+The exact tail then adds a valid public-ID selector fixture (`663317e431`), a
+typed `selector.not_found` assertion (`42e97c05c6`), Kitty quota timeout
+admission coverage (`2597d7720d`), graceful timeout admission with disabled
+Kitty graphics (`31857f0c4c`), the corrected applied-limit assertion
+(`95fd2196df`), and the matching recovery comment (`ba16a6745e`). The current
+tail then adds protocol v7 operational PTY error gating (`29145d800c`,
+`cd76c82e3d`), cancellation retirement after partial writes (`2f3e478385`,
+`ec074f4b53`), and bounded Git stderr ownership (`c4e842cc55`,
+`e4f527bc00`).
+
+### Wave 48 audit residuals
+
+| Area | Current decision | Next proof or fix |
+| --- | --- | --- |
+| Filesystem-watch replacement | P1 open. Old watch tasks can emit frames after replacement because the wire frames have no generation and task abort is not awaited. | Add a generation or stream token to event/error frames, or retire and await the old task before publishing the replacement. Keep ordered PTY/event frames on a queue, not a latest-value watcher. |
+| Git child cleanup | P1/P2 open. `git status` and `git diff` have no operation deadline around stdout reads, and dropping `Child` is not strict descendant cleanup. | Add cancellation/deadline selection, process-group or job cleanup, and bounded kill plus `wait()` before returning. Test descendants that inherit stdout and stderr. |
+| `run_spec` cleanup | P2 open. The drop guard signals a process group but does not await `Child::wait()`. | Use an owned async cleanup supervisor with escalation and a bounded reap. |
+| Stale surface tree | P1 open in [#10743](https://github.com/manaflow-ai/cmux/pull/10743) and follow-up [#10747](https://github.com/manaflow-ai/cmux/pull/10747). The follow-up incorrectly treats an empty local attachment mirror as proof that the authoritative remote tab is stale. | Keep valid unattached server tabs for lazy startup and `--terminal`; filter only explicit detached/retired evidence, then add refresh-level startup and detach-boundary tests. |
+| Preferred editor launch | P2 open in [#10681](https://github.com/manaflow-ai/cmux/pull/10681). The wrapper and quoting fixes are at `ff7685ddcd`, but `env -S "nvim --clean"` still fails the existing detector path. | Re-tokenize the `env -S` payload, then run focused Swift tests and exact-head review. |
+| Remote upload marker cleanup | P2 open. Exact-head autoreview found PID reuse and malformed marker values can preserve stale payloads forever when cleanup trusts `kill -0`. | Use a fresh heartbeat marker and conservative stale-age reclaim without signaling marker PIDs, then add behavior tests for fresh, stale, malformed, and reused-PID cases. |
+| `run_spec` cancellation reaping | P2 remains open in [#10746](https://github.com/manaflow-ai/cmux/pull/10746). A detached raw `waitpid` thread can accumulate and a narrow armed-guard window can target a reused PID. | Disarm immediately after normal wait, use an owned cleanup supervisor, and add a cancellation/reap behavior test. |
+
+### Wave 45 audit residuals
+
+| Area | Current decision | Next proof or fix |
+| --- | --- | --- |
+| R2 binary provenance | Raw R2 binaries still have SHA-256 manifests but no GitHub build attestation. npm and PyPI lanes have provenance checks. | Add an opt-in attestation path only after R2 consumers can verify the signer and subject digest. Do not grant broad OIDC permissions to the shared workflow before that contract exists. |
+| Scale | Event fan-out and browser/resource selection use bounded linear scans. No measured hot-path regression proves an index is needed. | Capture an event-rate and 1,000-session profile before changing ownership or adding caches. |
+| CLI ownership docs | Detached-owner commit `01bbc358e2` is not an ancestor of this branch. | Keep the current explicit lifecycle wording until the implementation lands and has behavior proof. |
+| Same-UID remote staging | Portable shell still cannot provide descriptor-relative `fchmod` after hashing. | Keep the remote account private, or move staging to an implementation with an opened-directory and descriptor-based API. |
+| Kitty quota timeout latency | Terminal admission now succeeds with graphics disabled, but it can still wait up to the two-second control deadline before degrading. | Replace the deadline wait only after measuring pane-split latency and adding a cancellable state transition. |
 
 ### Open issue inventory
 
@@ -127,6 +379,11 @@ round 9B; no manual-IO proof exists yet.
 | Spec-only plan | [PR 10388](https://github.com/manaflow-ai/cmux/pull/10388) | Closed by direction. Specs must land with implementation. |
 
 ## Open requests and acceptance work
+
+Session-mined product and infrastructure requests are tracked in
+[`USER-REQUEST-BOARD.md`](USER-REQUEST-BOARD.md). The current open items include
+stale surface references, base-image installation, relay onboarding and token
+ownership, PTY resize ordering, replaceable sleeps, and attach simplification.
 
 | Request | Acceptance gap | State |
 | --- | --- | --- |

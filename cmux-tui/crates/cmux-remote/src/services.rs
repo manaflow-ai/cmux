@@ -37,7 +37,7 @@ use crate::workspace::{
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
 #[cfg(unix)]
-const MAX_RENDERER_GRANT_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RENDERER_GRANT_LINE_BYTES: usize = 64 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
 // A JSON control escape can expand one input byte to six output bytes. Leave
 // room for field names and collection punctuation without scanning strings on
@@ -59,6 +59,7 @@ const TERMINAL_BYTES_HANDSHAKE_TTL_MS: u64 = 10_000;
 #[cfg(unix)]
 const TERMINAL_BYTES_HANDSHAKE_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(TERMINAL_BYTES_HANDSHAKE_TTL_MS);
+#[cfg(unix)]
 const _: () = assert!(MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES < MAX_BUFFERED_MUX_UPLOAD_BYTES);
 const _: () = assert!(MAX_BUFFERED_MUX_BULK_BYTES < MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES);
 
@@ -702,16 +703,15 @@ impl DaemonServices {
         mux.write_all(b"\n").await?;
         mux.flush().await?;
         let mut response = String::new();
-        let reader = BufReader::new(mux);
-        let read = reader
+        let size = BufReader::new(mux)
             .take((MAX_RENDERER_GRANT_LINE_BYTES + 1) as u64)
             .read_line(&mut response)
             .await?;
-        if response.len() > MAX_RENDERER_GRANT_LINE_BYTES {
-            return Err(ServicesError::Remote("renderer grant response is too large".into()));
-        }
-        if read == 0 {
+        if size == 0 {
             return Err(ServicesError::Remote("mux closed before renderer grant".into()));
+        }
+        if size > MAX_RENDERER_GRANT_LINE_BYTES || !response.ends_with('\n') {
+            return Err(ServicesError::Remote("renderer grant response exceeds size limit".into()));
         }
         let response: serde_json::Value = serde_json::from_str(&response)?;
         if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
@@ -1307,11 +1307,18 @@ where
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
+        let size = crate::mux_codec::read_bounded_line_with_limit(
+            &mut reader,
+            &mut line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )
+        .await?;
         if size == 0 {
             return Ok(());
         }
-        if line.len() > crate::mux_codec::MAX_MUX_LINE_BYTES {
+        if crate::mux_codec::mux_line_payload_len(&line)
+            > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
+        {
             return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {
@@ -1323,7 +1330,11 @@ where
                 actual: Lane::Tunnel,
             });
         }
-        let packets = crate::mux_codec::encode_line(message, &line)?;
+        let packets = crate::mux_codec::encode_line_with_limit(
+            message,
+            &line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )?;
         let encoded_bytes =
             packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
         let Some(encoded_bytes) = encoded_bytes else {
@@ -1410,7 +1421,10 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::default();
+        let mut assembler =
+            crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::with_maximum(
+                crate::mux_codec::MAX_MUX_UPLOAD_LINE_BYTES,
+            );
         while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {

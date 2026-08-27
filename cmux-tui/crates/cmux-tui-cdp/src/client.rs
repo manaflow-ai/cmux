@@ -3,7 +3,10 @@ use std::io::{Read, Write};
 use std::mem::size_of;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
+use std::sync::mpsc::{
+    Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel,
+    sync_channel as bounded_channel,
+};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -29,6 +32,12 @@ const MAIN_FRAME_SNAPSHOT_ATTEMPTS: usize = 8;
 /// arithmetic. It is a queue-enforcement budget, not an exact allocator usage
 /// measurement.
 pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
+/// Maximum number of commands waiting for the CDP reader thread.
+///
+/// A bounded command queue keeps a stalled browser from retaining an
+/// unbounded number of JSON messages. Callers fail fast when the queue is
+/// full, so a blocked reader cannot block the TUI thread indefinitely.
+const CDP_OUTBOUND_QUEUE_CAPACITY: usize = 256;
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
@@ -272,7 +281,7 @@ pub struct CdpClient {
 }
 
 struct Inner {
-    outbound: Sender<Outbound>,
+    outbound: SyncSender<Outbound>,
     pending: Mutex<HashMap<u64, PendingCall>>,
     events: Arc<EventQueue>,
     frame_epochs: Mutex<HashMap<String, FrameSession>>,
@@ -564,7 +573,7 @@ impl CdpClient {
         // on the socket itself.
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
-        let (outbound_tx, outbound_rx) = channel();
+        let (outbound_tx, outbound_rx) = bounded_channel(CDP_OUTBOUND_QUEUE_CAPACITY);
         let event_queue = Arc::new(EventQueue::new());
         let client = CdpClient {
             inner: Arc::new(Inner {
@@ -780,10 +789,7 @@ impl CdpClient {
             anyhow::bail!("CDP connection is closed");
         }
         let (tx, rx) = channel();
-        self.inner
-            .outbound
-            .send(Outbound::Flush(tx))
-            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        self.inner.outbound.try_send(Outbound::Flush(tx)).map_err(outbound_send_error)?;
         rx.recv_timeout(timeout).map_err(|_| anyhow::anyhow!("timed out flushing CDP commands"))
     }
 
@@ -1377,11 +1383,15 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        self.inner
-            .outbound
-            .send(Outbound::Message(text))
-            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        self.inner.outbound.try_send(Outbound::Message(text)).map_err(outbound_send_error)?;
         Ok(())
+    }
+}
+
+fn outbound_send_error(error: TrySendError<Outbound>) -> anyhow::Error {
+    match error {
+        TrySendError::Full(_) => anyhow::anyhow!("CDP outbound queue is full"),
+        TrySendError::Disconnected(_) => anyhow::anyhow!("CDP connection is closed"),
     }
 }
 
@@ -1767,7 +1777,13 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    let _ = inner.outbound.send(Outbound::Message(text));
+    if let Err(error) = inner.outbound.try_send(Outbound::Message(text)) {
+        let reason = match error {
+            TrySendError::Full(_) => "CDP outbound queue overflow",
+            TrySendError::Disconnected(_) => "CDP connection is closed",
+        };
+        close_inner(inner, reason);
+    }
 }
 
 fn screencast_frame(params: &Value, session_id: &str, frame_epoch: u64) -> Option<ScreencastFrame> {
@@ -2047,7 +2063,11 @@ mod tests {
     use super::*;
 
     fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
-        let (outbound, outbound_rx) = channel();
+        test_inner_with_capacity(256)
+    }
+
+    fn test_inner_with_capacity(capacity: usize) -> (Arc<Inner>, Receiver<Outbound>) {
+        let (outbound, outbound_rx) = std::sync::mpsc::sync_channel(capacity);
         (
             Arc::new(Inner {
                 outbound,
@@ -2062,6 +2082,34 @@ mod tests {
             }),
             outbound_rx,
         )
+    }
+
+    #[test]
+    fn outbound_commands_fail_fast_at_the_queue_bound() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(1);
+        let client = CdpClient { inner };
+
+        client.send_value(&json!({"id": 1})).unwrap();
+        let error = client.send_value(&json!({"id": 2})).unwrap_err();
+        assert!(error.to_string().contains("outbound queue is full"));
+    }
+
+    #[test]
+    fn call_queue_overflow_removes_pending_call() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(0);
+        let client = CdpClient { inner: inner.clone() };
+
+        let error = client.call("Test.method", json!({}), None).unwrap_err();
+
+        assert!(error.to_string().contains("outbound queue is full"));
+        assert!(inner.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn screencast_ack_queue_overflow_closes_the_connection() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(0);
+        ack_screencast_frame(&inner, "session-1", 7);
+        assert!(inner.closed.load(Ordering::Acquire));
     }
 
     #[test]

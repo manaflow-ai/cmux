@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Google Chrome
+Comment=Browse the web
+Exec=/usr/bin/google-chrome-stable --no-first-run --no-default-browser-check --disable-session-crashed-bubble %U
+Terminal=false
+Icon=/etc/cmux/icons/google-chrome.png
+Type=Application
+Categories=Network;WebBrowser;
+StartupNotify=true
