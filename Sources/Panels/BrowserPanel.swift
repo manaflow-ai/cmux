@@ -5395,7 +5395,8 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         let request = URLRequest(url: url)
-        if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        if !policy.allowsTrustedInternalURL(url) {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             onNavigationStarted?(nil)
             return nil
@@ -5412,6 +5413,7 @@ final class BrowserPanel: Panel, ObservableObject {
         return navigateWithoutInsecureHTTPPrompt(
             request: request,
             recordTypedNavigation: recordTypedNavigation,
+            trustedInternalNavigation: true,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5429,6 +5431,7 @@ final class BrowserPanel: Panel, ObservableObject {
             request: request,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            trustedInternalNavigation: true,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5438,6 +5441,7 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
+        trustedInternalNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         guard let url = request.url else {
@@ -5445,7 +5449,11 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         cancelHiddenWebViewDiscard()
-        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        let policyAllowsURL = trustedInternalNavigation
+            ? policy.allowsTrustedInternalURL(url)
+            : policy.allows(url)
+        guard policyAllowsURL else {
             onNavigationStarted?(nil)
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil

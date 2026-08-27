@@ -92,9 +92,10 @@ public struct BrowserCatalogSection: SettingCatalogSection {
     /// User/team URL restrictions for every remote embedded-browser navigation.
     /// One host or URL pattern per line; Settings shows loopback development
     /// entries as a suggested starting list. Local absolute `file:` documents
-    /// remain available while this web-origin restriction is active. The
-    /// restriction becomes active when a custom value is saved, unless the MDM
-    /// key ``BrowserURLAllowlistPolicy/managedDefaultsKey`` is forced.
+    /// opened through cmux's trusted app-owned navigation path remain available
+    /// while this web-origin restriction is active. The restriction becomes
+    /// active when a custom value is saved, unless the MDM key
+    /// ``BrowserURLAllowlistPolicy/managedDefaultsKey`` is forced.
     public let urlAllowlist = DefaultsKey<String>(
         id: "browser.urlAllowlist",
         defaultValue: BrowserURLAllowlistPolicy.defaultAllowlistText,

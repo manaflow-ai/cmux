@@ -52,7 +52,7 @@ struct BrowserURLAllowlistPolicyTests {
         let policy = BrowserURLAllowlistPolicy(managedPatterns: [])
         #expect(policy.isManaged)
         #expect(!policy.allows(try #require(URL(string: "https://example.com"))))
-        #expect(policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
+        #expect(!policy.allows(try #require(URL(string: "file:///tmp/index.html"))))
         #expect(!policy.allows(try #require(URL(string: "data:text/html,blocked"))))
         #expect(policy.allowsTrustedInternalURL(try #require(URL(string: "file:///tmp/index.html"))))
     }

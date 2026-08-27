@@ -7083,7 +7083,10 @@ class TerminalController {
 
     private nonisolated func v2BrowserURLAllowlistFailure(for url: URL) -> V2CallResult? {
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
-        guard !policy.allows(url) else { return nil }
+        // Socket/CLI commands are app-owned navigation requests. Keep page
+        // callbacks on ``allows(_:)`` while allowing local documents through
+        // the policy's trusted internal-load seam.
+        guard !policy.allowsTrustedInternalURL(url) else { return nil }
         return .err(
             code: "browser_url_blocked",
             message: String(
@@ -7109,12 +7112,12 @@ class TerminalController {
         policy: BrowserURLAllowlistPolicy
     ) -> URL? {
         if let resolvedURL {
-            return policy.allows(resolvedURL) ? nil : resolvedURL
+            return policy.allowsTrustedInternalURL(resolvedURL) ? nil : resolvedURL
         }
         guard let parsedURL = URL(string: rawInput), parsedURL.scheme != nil else {
             return nil
         }
-        return policy.allows(parsedURL) ? nil : parsedURL
+        return policy.allowsTrustedInternalURL(parsedURL) ? nil : parsedURL
     }
 
     /// Resolves the URL accepted by `browser.tab.new`, including host-like
