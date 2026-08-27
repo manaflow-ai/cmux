@@ -478,4 +478,63 @@ struct BrowserAutomationNavigationCoordinatorTests {
 
         #expect(await coordinator.wait(for: ticket) == .timedOut)
     }
+
+    @Test(
+        "External navigation timeout does not await an uncooperative operation",
+        .timeLimit(.minutes(1))
+    )
+    func externalNavigationTimeoutDoesNotAwaitUncooperativeOperation() async {
+        let (started, startedContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (deadline, deadlineContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (finished, finishedContinuation) = AsyncStream.makeStream(of: Void.self)
+        let gate = UncooperativeNavigationGate()
+        let coordinator = BrowserAutomationNavigationCoordinator(
+            navigationTimeout: .seconds(1),
+            sleep: { _ in
+                var iterator = deadline.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+        )
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        let events = ticket.transaction.makeEventStream()
+        var eventIterator = events.makeAsyncIterator()
+        var startedIterator = started.makeAsyncIterator()
+        var finishedIterator = finished.makeAsyncIterator()
+
+        coordinator.startExternalNavigation(ticket) {
+            startedContinuation.yield()
+            await gate.wait()
+            finishedContinuation.yield()
+        }
+
+        #expect(await startedIterator.next() != nil)
+        deadlineContinuation.yield()
+        deadlineContinuation.finish()
+
+        #expect(await eventIterator.next() == .timedOut)
+
+        gate.release()
+        #expect(await finishedIterator.next() != nil)
+        startedContinuation.finish()
+        finishedContinuation.finish()
+    }
+}
+
+/// A cancellation-insensitive await used to prove timeout ownership does not await its child.
+@MainActor
+private final class UncooperativeNavigationGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
 }
