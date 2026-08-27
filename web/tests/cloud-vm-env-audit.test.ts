@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   auditCloudVmProviderCoherence,
   auditProviderReadiness,
+  CODE_DEFAULT_PROVIDER,
 } from "../scripts/cloud-vm/defaultProviderAudit.mjs";
 
 type Manifest = {
@@ -139,5 +140,41 @@ describe("sensitive env placeholders", () => {
       realManifest,
     ) as Coherence;
     expect(result.problems.join("\n")).toContain("cannot be audited");
+  });
+});
+
+describe("audit constants stay tied to the runtime", () => {
+  test("CODE_DEFAULT_PROVIDER matches defaultProviderId() with no env override", async () => {
+    // The audit script cannot import the runtime driver module (it must stay
+    // a dependency-free .mjs for CI), so this test enforces the pairing: if
+    // defaultProviderId()'s fallback changes, this fails until the audit's
+    // CODE_DEFAULT_PROVIDER moves with it. Dynamic import on purpose: loading
+    // the driver registry is only needed for this one assertion.
+    const { defaultProviderId } = await import("../services/vms/drivers");
+    const saved = process.env.CMUX_VM_DEFAULT_PROVIDER;
+    delete process.env.CMUX_VM_DEFAULT_PROVIDER;
+    try {
+      expect(CODE_DEFAULT_PROVIDER).toBe(defaultProviderId());
+    } finally {
+      if (saved !== undefined) process.env.CMUX_VM_DEFAULT_PROVIDER = saved;
+    }
+  });
+
+  test("a provider without a credential mapping fails closed", () => {
+    const manifest = {
+      images: [{
+        provider: "newprovider",
+        version: "newprovider-v1",
+        imageId: "np:latest",
+        envVar: "NEWPROVIDER_IMAGE",
+        validationStatus: "passed",
+      }],
+    };
+    const result = auditProviderReadiness(
+      "newprovider",
+      { NEWPROVIDER_IMAGE: "np:latest" },
+      manifest,
+    ) as { problems: string[] };
+    expect(result.problems.join("\n")).toContain("no credential mapping");
   });
 });

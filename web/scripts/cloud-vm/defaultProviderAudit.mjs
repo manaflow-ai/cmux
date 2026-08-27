@@ -76,7 +76,16 @@ export function auditProviderReadiness(provider, env, manifest) {
     }
   }
 
-  for (const key of PROVIDER_CREDENTIAL_KEYS[provider] ?? []) {
+  const credentialKeys = PROVIDER_CREDENTIAL_KEYS[provider];
+  if (!credentialKeys) {
+    // Fail closed: a provider without a credential mapping would otherwise
+    // pass this audit and then fail every create at runtime.
+    problems.push(
+      `provider ${provider} has no credential mapping in this audit; ` +
+      "add its API credential env keys to PROVIDER_CREDENTIAL_KEYS",
+    );
+  }
+  for (const key of credentialKeys ?? []) {
     if (!env[key]?.trim()) {
       problems.push(`${key} is not set but provider ${provider} must be provisionable`);
     }
