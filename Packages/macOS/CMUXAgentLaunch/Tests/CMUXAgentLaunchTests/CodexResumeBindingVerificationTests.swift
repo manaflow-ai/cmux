@@ -130,6 +130,29 @@ struct CodexResumeBindingVerificationTests {
         )
     }
 
+    @Test func aggregateVerificationBudgetChargesBytesActuallyRead() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let sessionIDs = (0..<9).map { "aggregate-budget-session-\($0)" }
+        for sessionID in sessionIDs {
+            try fixture.writeSparseRollout(sessionId: sessionID)
+        }
+
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            sessionIDs.map {
+                CodexSessionResumeVerificationRequest(sessionId: $0)
+            },
+            codexHome: fixture.codexHome.path
+        )
+
+        #expect(results.count == sessionIDs.count)
+        #expect(results.allSatisfy {
+            if case .exists = $0 { return true }
+            return false
+        })
+    }
+
     @Test func codexHomeResolverPrefersLaunchMetadataOverAmbientState() {
         let resolver = CodexHomeResolver()
         let launchCodexHome = "/tmp/launch-codex"
@@ -675,6 +698,19 @@ struct CodexResumeBindingVerificationTests {
             let url = directory.appendingPathComponent(filename ?? "rollout-\(sessionId).jsonl")
             try data.write(to: url, options: .atomic)
             return url
+        }
+
+        func writeSparseRollout(sessionId: String) throws {
+            let url = try writeRollout(sessionId: sessionId)
+            var metadata = try Data(contentsOf: url)
+            metadata.append(0x0A)
+            try metadata.write(to: url, options: .atomic)
+            guard let handle = FileHandle(forWritingAtPath: url.path) else {
+                throw FixtureError.database
+            }
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(CodexSessionResumeVerificationLimits.maximumRolloutBytes) + 1)
+            try handle.write(contentsOf: Data([0]))
         }
 
         func insertThread(
