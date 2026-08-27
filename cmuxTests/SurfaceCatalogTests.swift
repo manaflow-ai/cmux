@@ -138,6 +138,39 @@ struct SurfaceCatalogTests {
         #expect(catalog.projections(of: term.id).count == 1)
     }
 
+    @Test func `Cancelling the last project caller cancels materialization`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+
+        let project = Task { try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)) }
+        await gate.waitUntilEntered()
+
+        let cancelledBeforeRelease = BoolBox()
+        let observer = Task { @MainActor in
+            do {
+                _ = try await project.value
+            } catch is CancellationError {
+                cancelledBeforeRelease.value = true
+            } catch {
+                // The assertion below distinguishes prompt cancellation from provider failure.
+            }
+        }
+        project.cancel()
+        for _ in 0..<100 where !cancelledBeforeRelease.value {
+            await Task.yield()
+        }
+        #expect(cancelledBeforeRelease.value, "cancelling the caller must not wait for the provider")
+
+        gate.release()
+        await observer.value
+        #expect(catalog.projections.isEmpty)
+    }
+
     @Test func `Unregistering cancels in-flight materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))

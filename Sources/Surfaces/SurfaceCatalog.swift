@@ -63,8 +63,7 @@ final class SurfaceCatalog {
     func unregister(machine: SurfaceMachineID) {
         let inFlightIDs = inFlightProjects.keys.filter { $0.machine == machine }
         for id in inFlightIDs {
-            inFlightProjects[id]?.task.cancel()
-            inFlightProjects[id] = nil
+            cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
         }
         providers[machine] = nil
         machines[machine] = nil
@@ -130,27 +129,31 @@ final class SurfaceCatalog {
             return (existing, true)
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
-        if reuseExisting, let inFlight = inFlightProjects[id] {
-            let projection = try await inFlight.task.value
-            if focus { focusProjection?(projection) }
-            return (projection, true)
-        }
 
         if reuseExisting {
-            let token = UUID()
-            let materialization = Task { @MainActor [weak self] in
-                defer { self?.finishInFlightProject(id, token: token) }
-                guard let self else { throw SurfaceCatalogError.unknownResource(id) }
-                let projection = try await provider.materialize(resource, at: destination, focus: focus)
-                guard !Task.isCancelled, self.resources[id] != nil else {
-                    throw SurfaceCatalogError.unknownResource(id)
+            let waiterID = UUID()
+            let result = try await withTaskCancellationHandler {
+                try await awaitMaterialization(
+                    id: id,
+                    resource: resource,
+                    provider: provider,
+                    destination: destination,
+                    focus: focus,
+                    waiterID: waiterID
+                )
+            } onCancel: { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.cancelInFlightProjectWaiter(id, waiterID: waiterID)
                 }
-                self.record(projection)
-                return projection
             }
-            inFlightProjects[id] = SurfaceProjectionMaterialization(token: token, task: materialization)
-            let projection = try await materialization.value
-            return (projection, false)
+            try Task.checkCancellation()
+            guard resources[id] != nil else { throw SurfaceCatalogError.unknownResource(id) }
+            guard projections.contains(result.projection) else {
+                throw SurfaceCatalogError.unavailable(id, reason: "projection closed while opening")
+            }
+            if result.reused, focus { focusProjection?(result.projection) }
+            return result
         }
 
         let projection = try await provider.materialize(resource, at: destination, focus: focus)
@@ -158,9 +161,92 @@ final class SurfaceCatalog {
         return (projection, false)
     }
 
-    private func finishInFlightProject(_ id: SurfaceResourceID, token: UUID) {
-        guard inFlightProjects[id]?.token == token else { return }
+    private func awaitMaterialization(
+        id: SurfaceResourceID,
+        resource: SurfaceResource,
+        provider: any SurfaceProvider,
+        destination: SurfaceDestination,
+        focus: Bool,
+        waiterID: UUID
+    ) async throws -> SurfaceProjectionMaterialization.Result {
+        try await withCheckedThrowingContinuation { continuation in
+            guard !Task.isCancelled else {
+                continuation.resume(throwing: CancellationError())
+                return
+            }
+
+            if var inFlight = inFlightProjects[id] {
+                inFlight.waiters[waiterID] = (reused: true, continuation: continuation)
+                inFlightProjects[id] = inFlight
+                return
+            }
+
+            let token = UUID()
+            let task = Task { @MainActor [weak self] in
+                do {
+                    let projection = try await provider.materialize(resource, at: destination, focus: focus)
+                    guard !Task.isCancelled else { throw CancellationError() }
+                    self?.finishInFlightProject(id, token: token, result: .success(projection))
+                } catch {
+                    self?.finishInFlightProject(id, token: token, result: .failure(error))
+                }
+            }
+            inFlightProjects[id] = SurfaceProjectionMaterialization(
+                token: token,
+                task: task,
+                waiters: [waiterID: (reused: false, continuation: continuation)]
+            )
+        }
+    }
+
+    private func finishInFlightProject(
+        _ id: SurfaceResourceID,
+        token: UUID,
+        result: Result<SurfaceProjection, any Error>
+    ) {
+        guard let inFlight = inFlightProjects[id], inFlight.token == token else { return }
         inFlightProjects[id] = nil
+
+        switch result {
+        case .success(let projection):
+            guard resources[id] != nil else {
+                resume(inFlight.waiters, throwing: SurfaceCatalogError.unknownResource(id))
+                return
+            }
+            record(projection)
+            for waiter in inFlight.waiters.values {
+                waiter.continuation.resume(returning: (projection: projection, reused: waiter.reused))
+            }
+        case .failure(let error):
+            resume(inFlight.waiters, throwing: error)
+        }
+    }
+
+    private func cancelInFlightProjectWaiter(_ id: SurfaceResourceID, waiterID: UUID) {
+        guard var inFlight = inFlightProjects[id],
+              let waiter = inFlight.waiters.removeValue(forKey: waiterID) else { return }
+        if inFlight.waiters.isEmpty {
+            inFlightProjects[id] = nil
+            inFlight.task.cancel()
+        } else {
+            inFlightProjects[id] = inFlight
+        }
+        waiter.continuation.resume(throwing: CancellationError())
+    }
+
+    private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
+        guard let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
+        inFlight.task.cancel()
+        resume(inFlight.waiters, throwing: error)
+    }
+
+    private func resume(
+        _ waiters: [UUID: (reused: Bool, continuation: CheckedContinuation<SurfaceProjectionMaterialization.Result, Error>)],
+        throwing error: any Error
+    ) {
+        for waiter in waiters.values {
+            waiter.continuation.resume(throwing: error)
+        }
     }
 
     /// Record a pane that shows a resource (materialized by a provider, or adopted from an
