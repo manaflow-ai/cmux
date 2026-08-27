@@ -2451,6 +2451,10 @@ final class WindowBrowserPortal: NSObject {
         if let existing = entry.containerView {
             if let paneDropContext = entry.paneDropContext {
                 existing.setPaneDropContext(paneDropContext)
+            } else if entry.visibleInUI, !existing.isHidden {
+                // Keep a visible slot's stable ownership while its entry is
+                // being rebound during the same transient recovery window.
+                existing.setPaneDropContext(nil)
             } else {
                 existing.clearPaneDropContext()
             }
