@@ -46,6 +46,26 @@ duration arrays. Run the embedded fixture check with:
 python3 scripts/mobile-latency-trace/analyze.py --selftest
 ```
 
+The wrapper handles simulator log discovery and can run without a Mac log. The
+second form reports iPhone-local input RTT and render timings only:
+
+```bash
+scripts/mobile-latency-trace/measure.sh \
+  --simulator-udid <udid> \
+  --bundle-id <ios-bundle-id> \
+  --mac-log /tmp/cmux-debug-slat.log \
+  --same-clock
+
+scripts/mobile-latency-trace/measure.sh \
+  --ios-log "/path/from/physical-iphone/cmux-debug.log" \
+  --json
+```
+
+The analyzer reports p50, p95, and max for input round-trip, probe echo, host
+processing, wire delivery, and iOS rendering. The probe sends controlled
+single-character input through the production path, so it measures a real
+request rather than a synthetic ping.
+
 ## Trace format
 
 Every per-surface render/input-ack stamp carries `s=<surface>`, where
