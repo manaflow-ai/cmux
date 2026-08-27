@@ -58,9 +58,10 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
     }
 
-    /// `workspace <ws_id> rename <name>`.
+    /// `workspace <ws_id> rename --name <name>` (verified live: the positional
+    /// form is `usage.invalid`; the name rides the `--name` flag).
     static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", name]
+        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
     }
 
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.

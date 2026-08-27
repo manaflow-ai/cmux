@@ -169,7 +169,7 @@ import Testing
         #expect(CloudTuiCommandLine.closeWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "close"])
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
-            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "backend work"])
+            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
     }
 
     @Test func clientPathsMirrorTheCLI() throws {
