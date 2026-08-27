@@ -84,6 +84,7 @@ use crate::session::{
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
     ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    selected_workspace_cache_key,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -100,6 +101,11 @@ use crate::ui::{
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const MAX_PROJECTION_ROWS_CACHE_ENTRIES: usize = 8;
+
+/// Session-local divider shares, keyed by split group and stable child id.
+/// Child ids keep a drag ratio attached to its rail when visibility pruning
+/// or layout reordering changes the current child vector.
+type SidebarSplitFractions = HashMap<String, HashMap<String, f32>>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct ProjectionFocusKey {
@@ -143,14 +149,14 @@ struct ProjectionRowsCache {
     workspace_revision: u64,
     pane_revision: Option<u64>,
     invalidation_revision: u64,
-    selected_workspace: usize,
+    selected_workspace: Option<usize>,
     focus: ProjectionFocusKey,
     /// All surfaces that can contribute an agent row to this snapshot. This
     /// includes currently hidden/filtered rows so an agent state transition
     /// cannot leave an old empty snapshot cached.
-    agent_surfaces: HashSet<SurfaceId>,
+    agent_surfaces: Arc<HashSet<SurfaceId>>,
     /// Surfaces whose title can affect a visible row in this snapshot.
-    title_surfaces: HashSet<SurfaceId>,
+    title_surfaces: Arc<HashSet<SurfaceId>>,
     rows: Arc<[ProjectionRow]>,
 }
 
@@ -7074,6 +7080,11 @@ pub struct App {
     /// retired surface cannot accumulate or trigger future fanout.
     projection_agent_surfaces: HashSet<SurfaceId>,
     projection_title_surfaces: HashSet<SurfaceId>,
+    /// Dependencies are retained per active view, not only in a global union.
+    /// This lets hidden views be removed without losing dependencies for a
+    /// visible view whose bounded row snapshot was evicted.
+    projection_agent_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
+    projection_title_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
     /// Coalesce surface updates until the next successful rendered frame.
     projection_paint_pending: bool,
     pub(crate) machine_rail_follow_selection: bool,
@@ -7094,9 +7105,10 @@ pub struct App {
     tabs_sidebar_width_override: Option<u16>,
     projection_sidebar_width_overrides: HashMap<String, u16>,
     /// Session-local divider drags inside sidebar split groups for the active
-    /// profile. A profile switch clears these values so a reused group id
-    /// cannot apply another profile's geometry.
-    sidebar_split_fractions: HashMap<String, Vec<f32>>,
+    /// profile. Values are keyed by stable child id, and a profile switch
+    /// clears them so a reused group id cannot apply another profile's
+    /// geometry.
+    sidebar_split_fractions: SidebarSplitFractions,
     /// Session-local visibility overrides, keyed by profile and stable view id.
     hidden_sidebar_views: HashMap<String, HashSet<String>>,
     /// Pane region of the current frame (screen minus sidebar/status).
@@ -8087,7 +8099,7 @@ fn place_sidebar_column_node(
     node: &SidebarColumnNode,
     rect: Rect,
     layout: &mut SidebarLayout,
-    split_fractions: &HashMap<String, Vec<f32>>,
+    split_fractions: &SidebarSplitFractions,
 ) {
     use crate::config::SidebarSplitDir;
     if rect.width == 0 || rect.height == 0 {
@@ -8133,15 +8145,21 @@ fn place_sidebar_column_node(
                 return;
             }
             // A committed divider drag overrides the configured weights while
-            // the same children remain visible.
-            let shares: Vec<f32> = split_fractions
-                .get(id)
-                .filter(|fractions| {
-                    fractions.len() == kept.len()
-                        && fractions.iter().all(|value| value.is_finite() && *value > 0.0)
+            // each child keeps its own stable share. A newly visible child
+            // falls back to its configured weight, while a hidden child does
+            // not force every surviving ratio back to defaults.
+            let child_keys =
+                kept.iter().map(|(_, child)| child.key().to_owned()).collect::<Vec<_>>();
+            let shares: Vec<f32> = kept
+                .iter()
+                .map(|(weight, child)| {
+                    split_fractions
+                        .get(id)
+                        .and_then(|fractions| fractions.get(child.key()).copied())
+                        .filter(|value| value.is_finite() && *value > 0.0)
+                        .unwrap_or_else(|| f32::from(*weight))
                 })
-                .cloned()
-                .unwrap_or_else(|| kept.iter().map(|(weight, _)| f32::from(*weight)).collect());
+                .collect();
             let sum: f32 = shares.iter().sum();
             let mut sizes: Vec<u16> = shares
                 .iter()
@@ -8174,7 +8192,7 @@ fn place_sidebar_column_node(
                 id: id.clone(),
                 dir: *dir,
                 children: Vec::new(),
-                child_keys: Vec::new(),
+                child_keys,
             });
             let mut offset = 0u16;
             for (child_index, (_, child)) in kept.iter().enumerate() {
@@ -8193,7 +8211,6 @@ fn place_sidebar_column_node(
                     },
                 };
                 layout.split_groups[group_index].children.push(child_rect);
-                layout.split_groups[group_index].child_keys.push(child.key().to_string());
                 place_sidebar_column_node(child, child_rect, layout, split_fractions);
                 offset = offset.saturating_add(sizes[child_index]);
                 if child_index + 1 < kept.len() {
@@ -8240,7 +8257,7 @@ fn sidebar_layout_for_state(
     machine_override: Option<u16>,
     tabs_override: Option<u16>,
     projection_overrides: &HashMap<String, u16>,
-    split_fractions: &HashMap<String, Vec<f32>>,
+    split_fractions: &SidebarSplitFractions,
     hidden_views: &HashSet<String>,
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
@@ -9586,6 +9603,8 @@ fn run_with_machine_updates_inner(
         projection_rows_revision: 0,
         projection_agent_surfaces: HashSet::new(),
         projection_title_surfaces: HashSet::new(),
+        projection_agent_surfaces_by_view: HashMap::new(),
+        projection_title_surfaces_by_view: HashMap::new(),
         projection_paint_pending: false,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
@@ -10345,6 +10364,8 @@ impl App {
             .map(|state| state.collapsed.clone())
             .unwrap_or_default();
         let selected_workspace = self.sidebar_workspace_selection;
+        let selected_workspace_key = selected_workspace_cache_key(&spec, selected_workspace)
+            .map(|selected| selected.min(self.tree.workspaces.len().saturating_sub(1)));
         let workspace_revision = self.tree.workspace_revision;
         let pane_revision = self.tree.pane_revision;
         let invalidation_revision = self.projection_rows_revision;
@@ -10354,7 +10375,7 @@ impl App {
                 && cache.workspace_revision == workspace_revision
                 && cache.pane_revision == pane_revision
                 && cache.invalidation_revision == invalidation_revision
-                && cache.selected_workspace == selected_workspace
+                && cache.selected_workspace == selected_workspace_key
                 && cache.focus == focus
         });
         let rows = if let Some(cache_index) = cache_index {
@@ -10362,8 +10383,11 @@ impl App {
                 .projection_rows_cache
                 .remove(cache_index)
                 .expect("projection cache index came from the cache");
-            self.projection_agent_surfaces.extend(cache.agent_surfaces.iter().copied());
-            self.projection_title_surfaces.extend(cache.title_surfaces.iter().copied());
+            self.set_projection_surface_dependencies(
+                &cache.view_id,
+                cache.agent_surfaces.clone(),
+                cache.title_surfaces.clone(),
+            );
             let rows = cache.rows.clone();
             self.projection_rows_cache.push_front(cache);
             rows
@@ -10395,21 +10419,22 @@ impl App {
             );
             let (agent_surfaces, title_surfaces) =
                 projection_cache_dependencies(&spec, &self.tree, &rows, selected_workspace);
+            let agent_surfaces = Arc::new(agent_surfaces);
+            let title_surfaces = Arc::new(title_surfaces);
             let rows: Arc<[ProjectionRow]> = Arc::from(rows);
-            self.projection_agent_surfaces.extend(agent_surfaces.iter().copied());
-            self.projection_title_surfaces.extend(title_surfaces.iter().copied());
             self.projection_rows_cache.push_front(ProjectionRowsCache {
                 view_id: spec.id.clone(),
                 workspace_revision,
                 pane_revision,
                 invalidation_revision,
-                selected_workspace,
+                selected_workspace: selected_workspace_key,
                 focus,
-                agent_surfaces,
-                title_surfaces,
+                agent_surfaces: agent_surfaces.clone(),
+                title_surfaces: title_surfaces.clone(),
                 rows: rows.clone(),
             });
             self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
+            self.set_projection_surface_dependencies(&spec.id, agent_surfaces, title_surfaces);
             rows
         };
         self.projection_rail_state_mut(index).reconcile_selection(&rows);
@@ -10421,17 +10446,131 @@ impl App {
         self.projection_rows_cache.clear();
         self.projection_agent_surfaces.clear();
         self.projection_title_surfaces.clear();
+        self.projection_agent_surfaces_by_view.clear();
+        self.projection_title_surfaces_by_view.clear();
         self.projection_paint_pending = false;
     }
 
-    fn prune_projection_surface_indexes(&mut self) {
-        let live_surfaces = &self.tab_locations;
-        for cache in &mut self.projection_rows_cache {
-            cache.agent_surfaces.retain(|surface| live_surfaces.contains_key(surface));
-            cache.title_surfaces.retain(|surface| live_surfaces.contains_key(surface));
+    fn projection_view_is_visible(&self, view_id: &str) -> bool {
+        if !self.sidebar_visible || self.surface_only.is_some() {
+            return false;
         }
-        self.projection_agent_surfaces.retain(|surface| live_surfaces.contains_key(surface));
-        self.projection_title_surfaces.retain(|surface| live_surfaces.contains_key(surface));
+        if self
+            .hidden_sidebar_views
+            .get(&self.config.sidebar.active_profile)
+            .is_some_and(|hidden| hidden.contains(view_id))
+        {
+            return false;
+        }
+        // Before the first frame there is no layout yet, but direct input and
+        // tests may still build a projection snapshot. Treat active views as
+        // visible until the first concrete layout is available.
+        if self.outer_size == (0, 0) {
+            return self.config.sidebar.views.iter().any(|view| view.id == view_id);
+        }
+        let Some(index) = self.config.sidebar.views.iter().position(|view| view.id == view_id)
+        else {
+            return false;
+        };
+        self.sidebar_layout
+            .ordered
+            .iter()
+            .any(|placement| placement.kind == RailKind::Projection(index))
+    }
+
+    /// Replace one view's dependency snapshot and rebuild the global wake
+    /// union only when that snapshot changes. Per-view storage prevents a
+    /// hidden view from keeping a retired dependency alive while retaining
+    /// wake coverage for visible views whose LRU row snapshot was evicted.
+    fn set_projection_surface_dependencies(
+        &mut self,
+        view_id: &str,
+        agent_surfaces: Arc<HashSet<SurfaceId>>,
+        title_surfaces: Arc<HashSet<SurfaceId>>,
+    ) {
+        if !self.projection_view_is_visible(view_id) {
+            return;
+        }
+        let agent_changed = self
+            .projection_agent_surfaces_by_view
+            .get(view_id)
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &agent_surfaces));
+        let title_changed = self
+            .projection_title_surfaces_by_view
+            .get(view_id)
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &title_surfaces));
+        self.projection_agent_surfaces_by_view.insert(view_id.to_owned(), agent_surfaces);
+        self.projection_title_surfaces_by_view.insert(view_id.to_owned(), title_surfaces);
+        if agent_changed || title_changed {
+            self.rebuild_projection_surface_indexes();
+        }
+    }
+
+    /// Keep wake indexes bounded to active, visible view ids and live tab
+    /// surfaces. The operation touches only the small per-view dependency
+    /// maps, never the workspace tree.
+    fn rebuild_projection_surface_indexes(&mut self) {
+        let visible_view_ids = self
+            .config
+            .sidebar
+            .views
+            .iter()
+            .map(|view| view.id.clone())
+            .filter(|view_id| self.projection_view_is_visible(view_id))
+            .collect::<HashSet<_>>();
+        self.projection_agent_surfaces_by_view
+            .retain(|view_id, _| visible_view_ids.contains(view_id));
+        self.projection_title_surfaces_by_view
+            .retain(|view_id, _| visible_view_ids.contains(view_id));
+
+        let live_surfaces = &self.tab_locations;
+        self.projection_agent_surfaces = self
+            .projection_agent_surfaces_by_view
+            .values()
+            .flat_map(|dependencies| {
+                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
+            })
+            .collect();
+        self.projection_title_surfaces = self
+            .projection_title_surfaces_by_view
+            .values()
+            .flat_map(|dependencies| {
+                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
+            })
+            .collect();
+    }
+
+    fn prune_projection_surface_indexes(&mut self) {
+        {
+            let live_surfaces = &self.tab_locations;
+            for cache in &mut self.projection_rows_cache {
+                Arc::make_mut(&mut cache.agent_surfaces)
+                    .retain(|surface| live_surfaces.contains_key(surface));
+                Arc::make_mut(&mut cache.title_surfaces)
+                    .retain(|surface| live_surfaces.contains_key(surface));
+            }
+            for dependencies in self.projection_agent_surfaces_by_view.values_mut() {
+                let filtered = dependencies
+                    .iter()
+                    .filter(|surface| live_surfaces.contains_key(surface))
+                    .copied()
+                    .collect::<HashSet<_>>();
+                if filtered.len() != dependencies.len() {
+                    *dependencies = Arc::new(filtered);
+                }
+            }
+            for dependencies in self.projection_title_surfaces_by_view.values_mut() {
+                let filtered = dependencies
+                    .iter()
+                    .filter(|surface| live_surfaces.contains_key(surface))
+                    .copied()
+                    .collect::<HashSet<_>>();
+                if filtered.len() != dependencies.len() {
+                    *dependencies = Arc::new(filtered);
+                }
+            }
+        }
+        self.rebuild_projection_surface_indexes();
     }
 
     fn invalidate_projection_rows_if_sidebar_spec_changed(
@@ -10485,9 +10624,12 @@ impl App {
         surface: SurfaceId,
         change: ProjectionSurfaceChange,
     ) -> bool {
-        let was_affected = self.projection_rows_cache.iter().any(|cache| match change {
-            ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
-            ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
+        let was_affected = self.projection_rows_cache.iter().any(|cache| {
+            self.projection_view_is_visible(&cache.view_id)
+                && match change {
+                    ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
+                    ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
+                }
         });
         self.projection_rows_cache.retain(|cache| match change {
             ProjectionSurfaceChange::Agent => !cache.agent_surfaces.contains(&surface),
@@ -22829,8 +22971,13 @@ impl App {
             return true;
         }
         let id = placement.id.clone();
-        let fractions = sizes.iter().map(|size| f32::from(*size) / total).collect();
-        self.sidebar_split_fractions.insert(id, fractions);
+        let child_keys = placement.child_keys.clone();
+        let fractions = child_keys
+            .into_iter()
+            .zip(sizes)
+            .map(|(child, size)| (child, f32::from(size) / total))
+            .collect::<HashMap<_, _>>();
+        self.sidebar_split_fractions.entry(id).or_default().extend(fractions);
         true
     }
 
@@ -23517,19 +23664,22 @@ impl App {
         let Some(view) = self.config.sidebar.views.get(index) else { return };
         let view_id = view.id.clone();
         let hides_focused = !visible && self.focused_sidebar_view_id().as_deref() == Some(&view_id);
-        let hidden = self
-            .hidden_sidebar_views
-            .entry(self.config.sidebar.active_profile.clone())
-            .or_default();
-        if visible {
-            hidden.remove(&view_id);
-            self.sidebar_visible = true;
-        } else {
-            hidden.insert(view_id);
-            if hides_focused {
-                self.focus = FocusTarget::Pane;
+        {
+            let hidden = self
+                .hidden_sidebar_views
+                .entry(self.config.sidebar.active_profile.clone())
+                .or_default();
+            if visible {
+                hidden.remove(&view_id);
+                self.sidebar_visible = true;
+            } else {
+                hidden.insert(view_id);
+                if hides_focused {
+                    self.focus = FocusTarget::Pane;
+                }
             }
         }
+        self.rebuild_projection_surface_indexes();
     }
 
     fn activate_sidebar_profile(&mut self, index: usize) {
@@ -27245,7 +27395,10 @@ mod tests {
 
         let mut app = test_app(Session::Local(mux));
         app.config = first;
-        app.sidebar_split_fractions.insert("left".into(), vec![0.8, 0.2]);
+        app.sidebar_split_fractions.insert(
+            "left".into(),
+            HashMap::from([("workspaces".to_string(), 0.8), ("all-agents".to_string(), 0.2)]),
+        );
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.ordered[0].rect.height, 24);
         app.projection_sidebar_width_overrides.insert("left".into(), 50);
@@ -27427,7 +27580,10 @@ mod tests {
     fn split_fraction_overrides_replace_configured_weights() {
         let config = split_sidebar_config();
         let mut fractions = HashMap::new();
-        fractions.insert("left".to_string(), vec![0.2f32, 0.8f32]);
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
         let layout = sidebar_layout_for_state(
             &config,
             true,
@@ -27446,6 +27602,95 @@ mod tests {
         let bottom = layout.ordered[1].rect;
         assert_eq!(top.height, 6, "0.2 of the 30 shared rows");
         assert_eq!(bottom.height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_follow_child_ids_after_reordering() {
+        let mut config = split_sidebar_config();
+        if let Some(crate::config::SidebarLayoutNode::Split(split)) =
+            config.sidebar.layout.first_mut()
+        {
+            split.children.reverse();
+            split.weights.reverse();
+        }
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+
+        assert_eq!(layout.rail(RailKind::Workspace).unwrap().height, 6);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_keep_surviving_child_ratios_after_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        config.sidebar.views.push(third);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1, 1],
+            children: vec![
+                SidebarLayoutNode::Leaf(0),
+                SidebarLayoutNode::Leaf(1),
+                SidebarLayoutNode::Leaf(2),
+            ],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([
+                ("workspaces".to_string(), 0.2f32),
+                ("all-agents".to_string(), 0.6f32),
+                ("third".to_string(), 0.2f32),
+            ]),
+        );
+
+        // The first child is pruned at this height. The two surviving
+        // children retain their 3:1 saved ratio instead of falling back to
+        // equal configured weights.
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 16),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.split_groups[0].child_keys, vec!["all-agents", "third"]);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 10);
+        assert_eq!(layout.rail(RailKind::Projection(2)).unwrap().height, 5);
     }
 
     #[test]
@@ -27522,6 +27767,9 @@ mod tests {
 
         assert!(app.sidebar_split_fractions.contains_key("left"));
         assert!(!app.sidebar_split_fractions.contains_key("other"));
+        let fractions = app.sidebar_split_fractions.get("left").unwrap();
+        assert!(fractions.contains_key("first"));
+        assert!(fractions.contains_key("second"));
     }
 
     #[test]
@@ -42800,6 +43048,37 @@ mod tests {
     }
 
     #[test]
+    fn all_scope_projection_cache_ignores_workspace_highlight_moves() {
+        let (mux, first) = test_mux("projection-all-scope-selection-cache-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "all-agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::All,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        app.sidebar_workspace_selection = 0;
+        let first_rows = app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        let second_rows = app.projection_rows(0);
+
+        assert!(Arc::ptr_eq(&first_rows, &second_rows));
+        assert_eq!(app.projection_rows_cache.len(), 1);
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
     fn projection_title_update_keeps_an_unrelated_workspace_cache() {
         let (mux, first) = test_mux("projection-title-cache-scope-test", None);
         let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
@@ -42892,6 +43171,44 @@ mod tests {
         // topology refresh. It must not reintroduce the retired id.
         app.projection_rows(0);
         assert!(!app.projection_agent_surfaces.contains(&surface.id));
+    }
+
+    #[test]
+    fn hidden_projection_view_drops_wake_dependencies() {
+        let (mux, surface) = test_mux("projection-hidden-view-wake-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        assert!(app.projection_agent_surfaces.contains(&surface.id));
+
+        app.set_sidebar_view_visible(0, false);
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: surface.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "updates for a hidden projection must not schedule a paint"
+        );
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -45200,6 +45517,8 @@ mod tests {
             projection_rows_revision: 0,
             projection_agent_surfaces: HashSet::new(),
             projection_title_surfaces: HashSet::new(),
+            projection_agent_surfaces_by_view: HashMap::new(),
+            projection_title_surfaces_by_view: HashMap::new(),
             projection_paint_pending: false,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
