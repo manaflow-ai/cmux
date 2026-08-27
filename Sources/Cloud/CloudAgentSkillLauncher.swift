@@ -113,10 +113,10 @@ enum CloudAgentSkillLauncher {
     @MainActor
     static func openAgent(
         _ agent: CodingAgent,
-        selectedWorkspaceID: UUID? = AppDelegate.shared?.tabManager?.selectedTabId
+        selectedWorkspaceID: UUID? = nil
     ) throws {
         let skillURL = try installSkillFile()
-        guard let workspaceID = selectedWorkspaceID else {
+        guard let workspaceID = selectedWorkspaceID ?? AppDelegate.shared?.tabManager?.selectedTabId else {
             throw LauncherError.noSelectedWorkspace
         }
         let command = shellCommand(agent: agent, prompt: kickoffPrompt(skillPath: skillURL.path))
