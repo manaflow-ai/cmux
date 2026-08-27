@@ -1305,10 +1305,11 @@ fn dispatch_control_frame(
                 .remove(&id);
             zeroize_json_strings(&mut value);
             if let Some(response) = response {
-                if let Err(error) = response.try_send(Ok(frame)) {
-                    if let Ok(mut frame) = error.into_inner() {
-                        frame.zeroize();
-                    }
+                match response.try_send(Ok(frame)) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(Ok(mut frame)))
+                    | Err(TrySendError::Disconnected(Ok(mut frame))) => frame.zeroize(),
+                    Err(TrySendError::Full(Err(_))) | Err(TrySendError::Disconnected(Err(_))) => {}
                 }
             } else {
                 frame.zeroize();
