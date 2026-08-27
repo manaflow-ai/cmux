@@ -955,7 +955,9 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
             env_extra=env_extra,
             env_remove=env_remove,
         )
-        assert first.returncode == 0, first.stderr
+        assert first.returncode == 0, (
+            f"{first.stderr}\nregistry requests: {RegistryHandler.request_paths!r}"
+        )
         assert "windows-cache-snapshot" in first.stdout
         assert RegistryHandler.metadata_requests == 1
         assert RegistryHandler.tarball_requests == 1
