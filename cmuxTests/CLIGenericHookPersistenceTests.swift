@@ -3903,11 +3903,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["command"] as? String }
 
         XCTAssertTrue(
-            notificationCommands.contains { $0.contains("cmux hooks grok notification") },
+            notificationCommands.contains { $0.contains("hooks grok notification") },
             "Expected Grok Notification to dispatch to the notification handler, saw \(notificationCommands)"
         )
         XCTAssertFalse(
-            notificationCommands.contains { $0.contains("cmux hooks grok stop") },
+            notificationCommands.contains { $0.contains("hooks grok stop") },
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
         XCTAssertEqual(notificationTimeouts, [5])
@@ -4231,7 +4231,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stdout)
         XCTAssertTrue(
-            result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path); remove or rename the conflicting file and re-run `cmux hooks setup`"),
+            result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path). Remove or rename the conflicting file, then run `cmux hooks setup` again."),
             result.stderr
         )
         XCTAssertFalse(
