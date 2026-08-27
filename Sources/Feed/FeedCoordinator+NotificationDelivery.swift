@@ -129,6 +129,7 @@ extension FeedCoordinator {
         )
     }
 
+    @MainActor
     private func targetForWorkspaceOnlyEvent(
         claimedWorkspaceID: UUID?,
         resolved: (ownerId: UUID, surfaceId: UUID?)?
