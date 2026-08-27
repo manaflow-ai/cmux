@@ -318,9 +318,10 @@ function cachedBinary(version) {
 }
 
 // A verified cache entry can be launched from a centrally provisioned
-// read-only cache. Check every directory needed to publish a lease before
-// deciding whether that read-only launch path is available.
-function cacheVersionCanBeModified(version) {
+// read-only cache. Check every directory that could let a routine launcher
+// publish a lease or prune the version before using that path. A partially
+// writable cache stays on the leased path so pruning remains serialized.
+function cacheVersionIsReadOnly(version) {
   const versionRoot = path.dirname(cachedBinDir(version));
   const leaseRoot = path.join(versionRoot, ".active");
   const directories = [
@@ -337,8 +338,16 @@ function cacheVersionCanBeModified(version) {
     try {
       if (!fs.statSync(directory).isDirectory()) return false;
       fs.accessSync(directory, fs.constants.W_OK);
-    } catch {
+      // Any writable directory could publish a lease or remove a version
+      // through its parent, so do not use an unleased launch path.
       return false;
+    } catch (error) {
+      // EACCES/EPERM is the expected result for a read-only provisioned tree.
+      // Unknown failures are not enough to prove that routine mutation is
+      // impossible, so fail closed instead.
+      if (!error || (error.code !== "EACCES" && error.code !== "EPERM")) {
+        return false;
+      }
     }
   }
   return true;
