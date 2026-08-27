@@ -267,6 +267,23 @@ struct ChromiumEngineTests {
         }
     }
 
+    @Test("Navigation matching includes URL ports and fragments")
+    func navigationMatchingIncludesPortAndFragment() throws {
+        let target = try #require(URL(string: "https://example.com:8443/path?q=1#section"))
+        #expect(ChromiumBrowserSession.matches(
+            url: URL(string: "https://EXAMPLE.com:8443/path?q=1#section"),
+            target: target
+        ))
+        #expect(!ChromiumBrowserSession.matches(
+            url: URL(string: "https://example.com:9443/path?q=1#section"),
+            target: target
+        ))
+        #expect(!ChromiumBrowserSession.matches(
+            url: URL(string: "https://example.com:8443/path?q=1#other"),
+            target: target
+        ))
+    }
+
     @Test("Chromium readiness accepts only a loopback DevTools websocket")
     func chromiumProcessReadinessParsing() {
         #expect(ChromiumProcessDiagnostics.port(

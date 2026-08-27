@@ -38,5 +38,9 @@ actor PolicyCDPTransport: ChromiumCDPTransport {
 
     func close() { continuation.finish() }
 
+    func emit(_ data: Data) {
+        continuation.yield(.success(data))
+    }
+
     func commands() -> [CDPValue] { sent }
 }
