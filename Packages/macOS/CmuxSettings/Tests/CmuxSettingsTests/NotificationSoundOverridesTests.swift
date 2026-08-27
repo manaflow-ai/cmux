@@ -62,6 +62,19 @@ struct NotificationSoundOverridesTests {
         #expect(NotificationSoundOverrides(jsonString: raw) == nil)
     }
 
+    @Test("settings-file objects are bounded before serialization")
+    func oversizedJSONObjectIsRejectedBeforeEncoding() {
+        let object: [String: Any] = [
+            "claude": [
+                "turnDone": [
+                    "sound": "custom_file",
+                    "customSoundFilePath": String(repeating: "a", count: 256 * 1024),
+                ],
+            ],
+        ]
+        #expect(NotificationSoundOverrides.boundedJSONData(fromJSONObject: object) == nil)
+    }
+
     @Test("invalid agent ids cannot create context or matrix cells")
     func invalidAgentIDsFailClosed() throws {
         #expect(NotificationSoundOverrideContext(agentID: "", alertType: .turnDone) == nil)
