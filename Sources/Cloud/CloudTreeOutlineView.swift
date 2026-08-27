@@ -201,7 +201,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, style: style)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
             return cell
         }
 
