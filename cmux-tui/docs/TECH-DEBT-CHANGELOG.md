@@ -1,48 +1,54 @@
 # cmux-tui aggregate change log
 
-Current snapshot: 2026-08-25. The audited source tip before this
-documentation snapshot is [`75ddb6fbe8`](https://github.com/manaflow-ai/cmux/commit/75ddb6fbe84fb37ee8bcc75d0d96c39ec782e3e9),
-811 commits ahead of `origin/main` at
-`bd985bddcded04ed849e3484dbcb645b32a32cb6`. PR [#10708](https://github.com/manaflow-ai/cmux/pull/10708)
-points to that exact pushed head. Focused hosted run
-[`32851303914`](https://github.com/manaflow-ai/cmux/actions/runs/32851303914)
-passed on the earlier source tip and is stale after the child-reap and
-stale-overflow fixes. Full hosted verification and exact-head autoreview remain pending. The documentation
-commit follows the audited source tip. The 2026-08-24 snapshot below is
-historical.
+Current snapshot: 2026-08-27T09:25:01Z. The audited source is pinned to
+`origin/main` at [`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095),
+committed 2026-08-27T02:13:58-07:00. This changelog puts the current main tail
+first and retains prior snapshots below as historical records. Each current
+row includes the merged PR, author, merge SHA, change, and an exact rollback
+command. The nine requested PRs and the subsequent [#10944](https://github.com/manaflow-ai/cmux/pull/10944)
+merge were authored by Lawrence Chen and are single-parent commits, so no `-m`
+option is needed.
 
-This update records the current-main merge, the PyPI project-description and
-release-candidate package fixes,
-web determinism merge
-[#10718](https://github.com/manaflow-ai/cmux/pull/10718), and the final PTY,
-socket, Go, Java, workflow, and package-test hardening tail. Each entry names
-the commit and a direct revert command. For a single commit, use
-`git revert <full-commit-sha>`; use the exact command in each table row for
-merges or coupled changes.
+## Current main tail (2026-08-27)
 
-Intent-audit delta: local history added two deduplicated requests after the prior board snapshot, sandbox-scoped agent spawning with lifecycle/provider proof (UI-23), and isolated product sessions plus a bounded Firstmate feasibility slice (UI-24). Current open cmux-tui PRs, including [PR 9783](https://github.com/manaflow-ai/cmux/pull/9783), [PR 10321](https://github.com/manaflow-ai/cmux/pull/10321), and [PR 9933](https://github.com/manaflow-ai/cmux/pull/9933), do not provide the stated end-to-end acceptance evidence.
+| PR | Author | Merge SHA | Change | Rollback |
+| --- | --- | --- | --- | --- |
+| [#10941](https://github.com/manaflow-ai/cmux/pull/10941) | Lawrence Chen | [`6641abe023f3ab175fd910b547316fc00bf523ee`](https://github.com/manaflow-ai/cmux/commit/6641abe023f3ab175fd910b547316fc00bf523ee) | Accept unknown remote capability names with a forward-compatible enum fallback. | `git revert 6641abe023f3ab175fd910b547316fc00bf523ee` |
+| [#10940](https://github.com/manaflow-ai/cmux/pull/10940) | Lawrence Chen | [`e6895d94d8fba491e823e3550dda6727cdd87d33`](https://github.com/manaflow-ai/cmux/commit/e6895d94d8fba491e823e3550dda6727cdd87d33) | Define remote ChatGPT auth-refresh ownership and lifecycle in docs. | `git revert e6895d94d8fba491e823e3550dda6727cdd87d33` |
+| [#10938](https://github.com/manaflow-ai/cmux/pull/10938) | Lawrence Chen | [`d0f1d94c431cd41947133f7d9406968ee70a7fc7`](https://github.com/manaflow-ai/cmux/commit/d0f1d94c431cd41947133f7d9406968ee70a7fc7) | Use reverse indexes for cmux-tui surface teardown lookups. | `git revert d0f1d94c431cd41947133f7d9406968ee70a7fc7` |
+| [#10935](https://github.com/manaflow-ai/cmux/pull/10935) | Lawrence Chen | [`502ed87921f4ea933e30cfe8e5bb5aed0b4dad50`](https://github.com/manaflow-ai/cmux/commit/502ed87921f4ea933e30cfe8e5bb5aed0b4dad50) | Secure detached daemon logs and startup locks with ownership and no-follow checks. | `git revert 502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` |
+| [#10932](https://github.com/manaflow-ai/cmux/pull/10932) | Lawrence Chen | [`6e67b662c649096b7133eaace8059cd4420a6ba6`](https://github.com/manaflow-ai/cmux/commit/6e67b662c649096b7133eaace8059cd4420a6ba6) | Validate pairing config through opened descriptors without symlink races. | `git revert 6e67b662c649096b7133eaace8059cd4420a6ba6` |
+| [#10937](https://github.com/manaflow-ai/cmux/pull/10937) | Lawrence Chen | [`41f17d77e00ed6ae8b022833301b979d82ee95e3`](https://github.com/manaflow-ai/cmux/commit/41f17d77e00ed6ae8b022833301b979d82ee95e3) | Preserve the first remote-reader termination reason and distinguish EOF from read failure. | `git revert 41f17d77e00ed6ae8b022833301b979d82ee95e3` |
+| [#10939](https://github.com/manaflow-ai/cmux/pull/10939) | Lawrence Chen | [`26fb89ceba985e908f50502e1666c77b8d7f8ead`](https://github.com/manaflow-ai/cmux/commit/26fb89ceba985e908f50502e1666c77b8d7f8ead) | Align relay upload ingress and egress frame budgets with Unix limits. | `git revert 26fb89ceba985e908f50502e1666c77b8d7f8ead` |
+| [#10934](https://github.com/manaflow-ai/cmux/pull/10934) | Lawrence Chen | [`f73fd08c161445b309f6d8d37374d85de58725df`](https://github.com/manaflow-ai/cmux/commit/f73fd08c161445b309f6d8d37374d85de58725df) | Use canonical noun-first resource commands in public TUI docs. | `git revert f73fd08c161445b309f6d8d37374d85de58725df` |
+| [#10949](https://github.com/manaflow-ai/cmux/pull/10949) | Lawrence Chen | [`b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87`](https://github.com/manaflow-ai/cmux/commit/b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87) | Localize browser-control failures at the UI boundary. | `git revert b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | [`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095) | Bound Git child cleanup with an explicit cancellation deadline and reap path. | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
 
-The 2026-08-25 session audit adds concrete evidence, not completed work: fresh
-`uvx cmux` runs reported a missing `machine-provider` executable and a missing
-surface reference; repeated resize and peer-death reports require isolation
-proof; manual Ghostty I/O and reconnect behavior remain requested; and the
-left-sidebar `hjkl` preview, `Esc`, and `Enter` interaction needs a separate
-acceptance case. These deltas strengthen UI-01, UI-02, UI-03, UI-06, UI-13,
-UI-15, and UI-22. They do not close any row.
+## Session scan receipt and lower-bound ledger
 
-The current PR inventory found 105 open PRs mentioning `cmux-tui`, 64 of the
-newest 300 open PRs changing a `cmux-tui/` path, and 52 sharing a path with
-[#10708](https://github.com/manaflow-ai/cmux/pull/10708). Independent features
-[#10734](https://github.com/manaflow-ai/cmux/pull/10734),
-[#10736](https://github.com/manaflow-ai/cmux/pull/10736), and
-[#10743](https://github.com/manaflow-ai/cmux/pull/10743) stay separate until
-their current review findings are fixed. Conflicting
-[#10602](https://github.com/manaflow-ai/cmux/pull/10602) and
-[#10609](https://github.com/manaflow-ai/cmux/pull/10609) are superseded and may
-close only after [#10708](https://github.com/manaflow-ai/cmux/pull/10708) merges
-and their heads are checked.
+The full local scan found 90,787 parsed JSON records and 81,149 unique Claude
+session IDs in `~/.claude/history.jsonl`, plus 18,833 records and 2,332 unique
+Codex session IDs in `~/.codex/history.jsonl`. The current tail receipt is 174
+Claude records and 42 IDs from line 90614 onward, with 26 records and 12 IDs
+matching selected TUI terms. Codex line 18787 onward has 47 records and 17 IDs,
+with two records and two IDs matching the narrow TUI terms. These counts are
+scan coverage, not substantive-turn counts.
 
-## Latest exact-head tail
+The current board records at least 256 substantive turns. Local audit commit
+`a6b54c6b0e469c72d527c5b9f7c165ed49bfa03d` (not on this main snapshot) records
+one additional named documentation turn, and this changelog update adds one
+more named audit turn. The verifiable lower-bound ledger is therefore at least
+258 named substantive turns when those retained receipts are included. Empty,
+duplicate, self-counting, secret-bearing, and unrelated records are excluded.
+This is a lower bound, not a total session count, and makes no 10,000-session
+claim.
+
+The 2026-08-27 intent delta is recorded in
+[`USER-INTENT-BOARD.md`](USER-INTENT-BOARD.md) and the bounded current PR set is
+recorded in [`PR-INTENT-BOARD.md`](PR-INTENT-BOARD.md). No current user-intent
+row is marked complete solely because one of these PRs merged.
+
+## Historical exact-head tail (2026-08-25)
 
 These commits are the source changes after the previous documentation snapshot.
 Revert each commit separately unless a revert note says otherwise.

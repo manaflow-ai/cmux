@@ -1,8 +1,28 @@
 # cmux-tui user request board
 
-Snapshot: 2026-08-25. Evidence comes from local Codex and Claude session
-records. A request stays open until its user-visible behavior has a focused
-test or a recorded dogfood result.
+Snapshot: 2026-08-27T09:25:01Z, pinned to `origin/main`
+[`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095).
+Evidence comes from local Codex and Claude session records. A request stays
+open until its user-visible behavior has a focused test or a recorded dogfood
+result. The previous rows are preserved; this section adds only the current
+audit delta.
+
+## 2026-08-27 audit additions
+
+The scan receipt is 174 parsed Claude records and 42 session IDs from
+`~/.claude/history.jsonl:90614-end`, plus 47 parsed Codex records and 17 IDs
+from `~/.codex/history.jsonl:18787-end`. Only 26 Claude records and two Codex
+records matched the selected TUI terms. Credentials, secret values, emails,
+pasted payloads, encrypted inter-agent content, and unrelated records were not
+copied into this board.
+
+| Request | Evidence | Acceptance | State |
+| --- | --- | --- | --- |
+| Authenticate account-scoped discovery before an Iroh dial and keep transport choice explicit. | `~/.claude/history.jsonl:90614-90626,90736-90745,90751,90756-90758,90772-90774,90779` | Pair authorized accounts, reject endpoint probing and unauthenticated discovery, and prove bounded reconnect on the selected transport. | Open, security design |
+| Model terminals, VNC screens, and workspaces as per-machine resources with authoritative open/closed state. | `~/.claude/history.jsonl:90630-90631,90664-90673,90734-90735,90763,90777` | Open, close, and reconnect from two clients while preserving one revisioned catalog and stable resource IDs. | Open, product and protocol design |
+| Keep direct Ghostty-compatible I/O, parser, tunnel, and rendering ownership in cmux-tui. | `~/.claude/history.jsonl:90634,90639-90641,90657,90761` | Compare raw I/O and ANSI/OSC/cursor rendering against Ghostty without a frontend parser or background shim. | Open, architecture and behavior proof |
+| Make sandbox access capability-based and shared by authorized threads without strict conversation binding. | `~/.claude/history.jsonl:90780-90781` | Enumerate an allowlist, reject arbitrary targets, and prove separate PTY/session ownership for two authorized threads. | Open, security design |
+| Make restore failure, CPU, and latency visible without freezing a leader or client. | `~/.claude/history.jsonl:90660-90670,90697-90699` | Interrupt restore and sustained output, report one actionable outcome, and assert bounded CPU, latency, and cancellation. | Open, behavior proof |
 
 | Request | Evidence | Acceptance | State |
 | --- | --- | --- | --- |
