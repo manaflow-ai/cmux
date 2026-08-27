@@ -356,20 +356,24 @@ extension TerminalController {
                     case .screenshot:
                         value = .screenshot(try await adapter.screenshotPNG())
                     case .navigate(let url):
+                        let revision = adapter.currentNavigationRevision()
                         try await adapter.navigate(to: url)
-                        try await adapter.waitForLoadCompletion()
+                        try await adapter.waitForNavigation(to: url, after: revision, timeout: timeout)
                         value = .completed
                     case .back:
+                        let revision = adapter.currentNavigationRevision()
                         try await adapter.goBack()
-                        try await adapter.waitForLoadCompletion()
+                        try await adapter.waitForNavigation(to: nil, after: revision, timeout: timeout)
                         value = .completed
                     case .forward:
+                        let revision = adapter.currentNavigationRevision()
                         try await adapter.goForward()
-                        try await adapter.waitForLoadCompletion()
+                        try await adapter.waitForNavigation(to: nil, after: revision, timeout: timeout)
                         value = .completed
                     case .reload:
+                        let revision = adapter.currentNavigationRevision()
                         try await adapter.reload()
-                        try await adapter.waitForLoadCompletion()
+                        try await adapter.waitForNavigation(to: nil, after: revision, timeout: timeout)
                         value = .completed
                     case .setViewport(let width, let height):
                         _ = try await adapter.sendCommand(

@@ -38,12 +38,13 @@ struct ChromiumOwnedStorage: Sendable {
 
     /// Returns one persistent profile directory for a cmux browser profile.
     ///
-    /// A storage identity can be supplied for panes that use the same logical
-    /// cmux profile concurrently. Chromium places an exclusive lock on its
-    /// user-data directory, so each live pane gets an isolated child directory
-    /// while the logical profile ID still scopes its persisted account data.
-    /// Omitting the identity preserves the original profile-root layout for
-    /// callers that need to inspect or migrate an older installation.
+    /// A storage identity is supplied by the out-of-process fallback, where
+    /// Chromium places an exclusive lock on each user-data directory. Those
+    /// pane sessions are intentionally isolated; the in-process CEF adapter
+    /// omits the identity and pools one request context per logical profile so
+    /// its panes share cookies and local storage.
+    /// Omitting the identity resolves the stable profile root used by CEF and
+    /// by cleanup/migration callers.
     func profileDirectory(
         for profileID: UUID,
         storageID: UUID? = nil

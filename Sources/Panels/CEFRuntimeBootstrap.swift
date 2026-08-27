@@ -64,7 +64,9 @@ enum CEFRuntimeBootstrap {
     ///
     /// - Parameters:
     ///   - profileID: Logical cmux browser profile.
-    ///   - storageID: Stable pane identity used to isolate simultaneous panes.
+    ///   - storageID: Optional child-process identity. CEF callers omit it so
+    ///     the shim can share one request context per logical profile; the
+    ///     out-of-process fallback supplies it to avoid profile-lock clashes.
     /// - Returns: Absolute cache path for that profile's request context.
     static func profileCachePath(for profileID: UUID, storageID: UUID? = nil) -> String {
         var path = (rootCachePath as NSString).appendingPathComponent(

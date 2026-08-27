@@ -128,38 +128,49 @@ private nonisolated func cefScheduleWorkTrampoline(_ delayMilliseconds: Int64) {
 
 /// Driver for CEF's externally pumped message loop.
 ///
-/// Chromium's `ScheduleWork` is edge-triggered: one notification can cover a
-/// whole batch of queued work, and internal tasks created while the pump is
-/// "awake" never re-notify. A steady drain timer guarantees liveness; the
-/// schedule callback only adds immediacy for freshly posted work.
+/// CEF supplies the next message-loop deadline through its schedule callback.
+/// Keeping one coalesced one-shot timer for that deadline avoids a process-wide
+/// polling loop while still honoring CEF's external-pump contract.
 @MainActor
 enum CEFMessagePump {
-    private static var drainTimer: Timer?
+    private static var scheduledTimer: Timer?
+    private static var scheduleGeneration: UInt64 = 0
 
-    /// Starts the repeating drain. Called once after successful initialization.
+    /// Arms the callback-driven pump after successful initialization.
+    ///
+    /// There is deliberately no repeating timer: CEF schedules each required
+    /// `cef_do_message_loop_work` invocation through `scheduleWork` below.
     static func startDraining() {
-        guard drainTimer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
-            MainActor.assumeIsolated {
-                cmux_cef_do_work()
-            }
-        }
-        // Common modes: the pump must keep running during window resize and
-        // menu tracking or CEF-driven UI freezes while the user interacts.
-        RunLoop.main.add(timer, forMode: .common)
-        drainTimer = timer
+        scheduledTimer?.invalidate()
+        scheduledTimer = nil
+        scheduleGeneration &+= 1
     }
 
-    /// Honors CEF's request to pump as soon as possible.
+    /// Honors CEF's requested next pump deadline.
     ///
-    /// - Parameter delayMilliseconds: CEF's requested delay; `<= 0` runs on
-    ///   the next main-queue turn. Longer delays are covered by the drain.
+    /// - Parameter delayMilliseconds: CEF's requested delay; non-positive
+    ///   values run on the next main-run-loop turn.
     static func scheduleWork(afterMilliseconds delayMilliseconds: Int64) {
-        guard delayMilliseconds <= 0 else { return }
-        DispatchQueue.main.async {
+        scheduleGeneration &+= 1
+        let generation = scheduleGeneration
+        scheduledTimer?.invalidate()
+
+        // CEF asks for signed milliseconds. Clamp before converting to
+        // `TimeInterval` so malformed values cannot overflow a timer deadline.
+        let clampedDelay = max(Int64(0), min(delayMilliseconds, 86_400_000))
+        let timer = Timer(
+            timeInterval: TimeInterval(clampedDelay) / 1_000.0,
+            repeats: false
+        ) { _ in
             MainActor.assumeIsolated {
+                guard scheduleGeneration == generation else { return }
+                scheduledTimer = nil
                 cmux_cef_do_work()
             }
         }
+        // Common modes keep CEF responsive while the user resizes a window or
+        // tracks a menu, without waking the app when CEF has no work queued.
+        RunLoop.main.add(timer, forMode: .common)
+        scheduledTimer = timer
     }
 }

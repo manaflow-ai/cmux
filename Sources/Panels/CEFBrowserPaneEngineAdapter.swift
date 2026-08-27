@@ -49,6 +49,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var canGoBack = false
     private var canGoForward = false
     private var navigationRevision: UInt64 = 0
+    private var snapshotContinuations: [UUID: AsyncStream<ChromiumSessionSnapshot>.Continuation] = [:]
 
     // Document scripts mirrored so engine restarts can replay them.
     private var initScriptSources: [String] = []
@@ -93,7 +94,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         hasStarted = true
         publishSnapshot(state: .starting)
         startupTask?.cancel()
-        startupTask = Task { @MainActor [weak self] in
+        let startPrerequisite = self.startPrerequisite
+        startupTask = Task { @MainActor [weak self, startPrerequisite] in
             if let startPrerequisite {
                 await startPrerequisite.value
             }
@@ -105,8 +107,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                 try await self.installStoredDocumentScripts()
                 try await self.applyStoredColorScheme()
                 if let initialURL {
+                    let revision = self.currentNavigationRevision()
                     try await self.navigate(to: initialURL)
-                    try await self.waitForLoadCompletion()
+                    try await self.waitForNavigation(to: initialURL, after: revision)
                 }
             } catch is CancellationError {
                 return
@@ -136,7 +139,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         let isDefaultProfile = profileID == BrowserProfileRepository.builtInDefaultProfileID
         let cachePath = isDefaultProfile
             ? nil
-            : CEFRuntimeBootstrap.profileCachePath(for: profileID, storageID: storageID)
+            : CEFRuntimeBootstrap.profileCachePath(for: profileID)
         guard let browser = CEFBrowser.create(
             url: URL(string: "about:blank")!,
             cachePath: cachePath,
@@ -209,53 +212,89 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     func navigate(to url: URL) async throws {
         try await ready()
-        let result = try await sendCommand(
-            method: "Page.navigate",
-            parameters: .object(["url": .string(url.absoluteString)])
-        )
+        beginNavigation()
+        let result: CDPValue
+        do {
+            result = try await sendCommand(
+                method: "Page.navigate",
+                parameters: .object(["url": .string(url.absoluteString)])
+            )
+        } catch {
+            isLoading = false
+            publishSnapshot(state: .running(nil))
+            throw error
+        }
         if case .object(let object) = result,
            let errorText = object["errorText"]?.stringValue,
            !errorText.isEmpty {
+            isLoading = false
+            publishSnapshot(state: .running(nil))
             throw CDPError.commandFailed(errorText)
         }
-        navigationRevision &+= 1
     }
 
-    /// Awaits the end of the load cycle started by the most recent navigation
-    /// command.
+    /// Returns the current main-frame navigation revision.
     ///
-    /// The commit signal is a loading -> idle transition in the mirrored
-    /// state. A navigation that finished before observation began (cached
-    /// pages commit in milliseconds) is covered by the grace window: idle
-    /// with no load observed for a short period counts as settled.
-    func waitForLoadCompletion(timeout: TimeInterval = 15) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(timeout)
-        let quietGraceDeadline = clock.now + .milliseconds(1500)
-        var sawLoading = false
-        while clock.now < deadline {
-            if isLoading {
-                sawLoading = true
-            } else if sawLoading || clock.now >= quietGraceDeadline {
-                return
+    /// Callers capture this value immediately before issuing a navigation and
+    /// pass it to ``waitForNavigation(to:after:)`` so a superseded load cannot
+    /// satisfy the wrong operation.
+    func currentNavigationRevision() -> UInt64 {
+        navigationRevision
+    }
+
+    /// Awaits a specific main-frame navigation using the adapter's event stream.
+    ///
+    /// A target URL, when supplied, must match the committed main-frame URL;
+    /// redirects are represented by the final address event. The bounded
+    /// timeout is a genuine operation deadline, not a polling interval.
+    ///
+    /// - Parameters:
+    ///   - targetURL: Optional destination that must match the completed page.
+    ///   - revision: Revision captured before issuing the navigation command.
+    ///   - timeout: Maximum wait in seconds.
+    func waitForNavigation(
+        to targetURL: URL?,
+        after revision: UInt64,
+        timeout: TimeInterval = 15
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                guard let self else {
+                    throw ChromiumBrowserDiagnostic.navigationStreamEnded
+                }
+                try await self.awaitNavigation(to: targetURL, after: revision)
             }
-            try await clock.sleep(for: .milliseconds(50))
+            group.addTask {
+                try await Task.sleep(for: .seconds(max(0.001, timeout)))
+                throw ChromiumBrowserDiagnostic.navigationTimedOut
+            }
+            defer { group.cancelAll() }
+            try await group.next()!
         }
-        throw ChromiumBrowserDiagnostic.navigationTimedOut
+    }
+
+    /// Compatibility wrapper for older call sites. New automation paths use
+    /// ``waitForNavigation(to:after:)`` with a revision and target URL.
+    func waitForLoadCompletion(timeout: TimeInterval = 15) async throws {
+        let revision = navigationRevision > 0 ? navigationRevision - 1 : 0
+        try await waitForNavigation(to: nil, after: revision, timeout: timeout)
     }
 
     func goBack() async throws {
         try await ready()
+        beginNavigation()
         browser?.goBack()
     }
 
     func goForward() async throws {
         try await ready()
+        beginNavigation()
         browser?.goForward()
     }
 
     func reload() async throws {
         try await ready()
+        beginNavigation()
         browser?.reload()
     }
 
@@ -439,6 +478,58 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         }
     }
 
+    private func snapshots() -> AsyncStream<ChromiumSessionSnapshot> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            snapshotContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.snapshotContinuations.removeValue(forKey: id)
+                }
+            }
+        }
+    }
+
+    private func awaitNavigation(to targetURL: URL?, after revision: UInt64) async throws {
+        if isNavigationComplete(to: targetURL, after: revision) {
+            return
+        }
+        let stream = snapshots()
+        for await snapshot in stream {
+            try Task.checkCancellation()
+            switch snapshot.state {
+            case .crashed(let status):
+                throw CDPError.disconnected(
+                    ChromiumBrowserDiagnostic.rendererExited(status).message
+                )
+            case .failed(let message):
+                throw CDPError.commandFailed(message)
+            default:
+                break
+            }
+            guard snapshot.navigationRevision > revision,
+                  !snapshot.isLoading else { continue }
+            if let targetURL {
+                guard Self.matches(url: snapshot.currentURL, target: targetURL) else { continue }
+            }
+            return
+        }
+        throw ChromiumBrowserDiagnostic.navigationStreamEnded
+    }
+
+    private func isNavigationComplete(to targetURL: URL?, after revision: UInt64) -> Bool {
+        guard navigationRevision > revision, !isLoading else { return false }
+        guard let targetURL else { return true }
+        return Self.matches(url: currentURL, target: targetURL)
+    }
+
+    private static func matches(url: URL?, target: URL) -> Bool {
+        guard let url else { return false }
+        return url.absoluteString == target.absoluteString ||
+            (url.scheme == target.scheme && url.host == target.host &&
+             url.path == target.path && url.query == target.query)
+    }
+
     // MARK: - Event handling
 
     private func handle(_ event: CEFBrowser.Event) {
@@ -480,6 +571,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             browser = nil
             devTools = nil
             publishSnapshot(state: .crashed(1))
+            finishSnapshotStreams()
         case .closed:
             isReady = false
             hasStarted = false
@@ -500,6 +592,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                 waiter.resume(throwing: CDPError.notConnected)
             }
             publishSnapshot(state: .stopped)
+            finishSnapshotStreams()
         }
     }
 
@@ -514,7 +607,23 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             isLoading: isLoading,
             navigationRevision: navigationRevision
         )
+        for continuation in snapshotContinuations.values {
+            continuation.yield(snapshot)
+        }
         onSnapshot?(snapshot)
+    }
+
+    private func beginNavigation() {
+        navigationRevision &+= 1
+        isLoading = true
+        publishSnapshot(state: .running(nil))
+    }
+
+    private func finishSnapshotStreams() {
+        for continuation in snapshotContinuations.values {
+            continuation.finish()
+        }
+        snapshotContinuations.removeAll()
     }
 
     private func publishFailure(_ message: String) {

@@ -252,12 +252,22 @@ extension BrowserPanel {
         return true
     }
 
-    /// Reveals a session-restored Chromium pane when its first visible host is
-    /// mounted. The shared hidden-WebKit discard manager records the persisted
-    /// render intent, but deliberately refuses to restore Chromium itself.
+    /// Reveals a session-restored or memory-discarded Chromium pane when its
+    /// first visible host is mounted. A pending stop is awaited before the
+    /// engine is restarted so an old CEF child cannot race profile teardown.
     func restoreDeferredChromiumIfNeeded(reason: String) {
-        guard isChromiumBacked,
-              !chromiumIsolationPending,
+        guard isChromiumBacked, !isClosingWebViewLifecycle else { return }
+        if let discardTask = chromiumMemoryDiscardTask {
+            guard isWebViewVisibleInUI, chromiumMemoryDiscardRestoreTask == nil else { return }
+            chromiumMemoryDiscardRestoreTask = Task { @MainActor [weak self, discardTask] in
+                await discardTask.value
+                guard let self else { return }
+                self.chromiumMemoryDiscardRestoreTask = nil
+                self.restoreDeferredChromiumIfNeeded(reason: "\(reason).after_stop")
+            }
+            return
+        }
+        guard !chromiumIsolationPending,
               Self.effectiveBrowserEngine(
                   requested: .chromium,
                   isRemoteWorkspace: isRemoteWorkspace,
@@ -270,6 +280,43 @@ extension BrowserPanel {
         hiddenWebViewDiscardManager.clearDiscardState(reason: "chromium.\(reason)")
         shouldRenderWebView = true
         startChromiumIfNeeded(initialURL: restoreURL)
+    }
+
+    /// Stops a hidden Chromium engine to release its renderer resources while
+    /// retaining the profile, URL, and session intent for a later reveal.
+    @discardableResult
+    func discardChromiumForMemory(reason: String, now: Date) -> Bool {
+        guard isChromiumBacked,
+              !chromiumIsolationPending,
+              chromiumMemoryDiscardTask == nil,
+              shouldRenderWebView,
+              currentURL != nil else { return false }
+        cancelHiddenWebViewDiscard()
+        clearBrowserFocusMode(reason: "chromiumMemoryDiscard")
+        invalidateSearchFocusRequests(reason: "chromiumMemoryDiscard")
+        automationNavigationCoordinator.invalidate()
+        hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
+        shouldRenderWebView = false
+        isLoading = false
+        canGoBack = false
+        canGoForward = false
+        hasRecoverableWebContentTermination = false
+        webViewInstanceID = UUID()
+        refreshNavigationAvailability()
+        refreshWebViewLifecycleState()
+
+        let controller = browserEngineController
+        chromiumMemoryDiscardTask = Task { @MainActor [weak self, controller] in
+            await controller.stopAndWait()
+            guard let self else { return }
+            self.chromiumMemoryDiscardTask = nil
+            self.refreshNavigationAvailability()
+            self.refreshWebViewLifecycleState()
+            if self.isWebViewVisibleInUI {
+                self.restoreDeferredChromiumIfNeeded(reason: "memory_discard_complete")
+            }
+        }
+        return true
     }
 
     func applyChromiumProfileIdentity(
@@ -412,7 +459,9 @@ extension BrowserPanel {
     }
 
     func startChromiumIfNeeded(initialURL: URL? = nil) {
-        guard isChromiumBacked, !chromiumIsolationPending else { return }
+        guard isChromiumBacked,
+              !chromiumIsolationPending,
+              chromiumMemoryDiscardTask == nil else { return }
         guard Self.effectiveBrowserEngine(
             requested: .chromium,
             isRemoteWorkspace: isRemoteWorkspace,

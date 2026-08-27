@@ -52,13 +52,14 @@ extension BrowserPanel {
                 await cef.startupReadinessTask?.value
                 try Task.checkCancellation()
                 guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
+                let revision = cef.currentNavigationRevision()
                 if reload {
                     try await cef.reload()
                 } else if let targetURL {
                     try await cef.navigate(to: targetURL)
                 }
                 guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-                try await cef.waitForLoadCompletion()
+                try await cef.waitForNavigation(to: reload ? nil : targetURL, after: revision)
                 guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
                 return
             }

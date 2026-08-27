@@ -12,9 +12,10 @@ public actor ChromiumBrowserSession {
     public typealias FrameStream = AsyncStream<Data>
 
     private let profileID: UUID
-    /// Stable per-pane storage identity. It keeps simultaneous panes from
-    /// contending on Chromium's exclusive user-data-directory lock while the
-    /// logical cmux profile ID still selects the account namespace.
+    /// Stable per-pane storage identity for the out-of-process fallback. It
+    /// keeps simultaneous child processes from contending on Chromium's
+    /// exclusive user-data-directory lock; the in-process CEF adapter uses a
+    /// pooled request context when profile sharing is available.
     private let storageID: UUID
     let requestedRemoteDebuggingPort: ChromiumRemoteDebuggingPort
     private let storage: ChromiumOwnedStorage
@@ -65,7 +66,8 @@ public actor ChromiumBrowserSession {
     ///
     /// - Parameters:
     ///   - profileID: Logical cmux browser profile that owns the pane storage.
-    ///   - storageID: Stable pane identity used to avoid Chromium profile-lock contention.
+    ///   - storageID: Stable pane identity used by the child-process fallback
+    ///     to avoid Chromium profile-lock contention.
     ///   - remoteDebuggingPort: Optional externally advertised loopback CDP port.
     ///   - environment: Explicit filesystem, network, bundle, and process dependencies.
     public init(

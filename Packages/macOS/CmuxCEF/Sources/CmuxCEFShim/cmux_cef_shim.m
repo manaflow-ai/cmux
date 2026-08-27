@@ -43,6 +43,18 @@ static void (*g_schedule_work)(int64_t delay_ms) = NULL;
 static cef_app_t g_app;
 static cef_browser_process_handler_t g_browser_process_handler;
 
+// CEF request contexts are process-local. Keep one context per logical named
+// profile so multiple CEF panes share cookies/storage without opening the same
+// on-disk cache through competing context instances.
+struct cmux_cef_profile_context {
+  char *cache_path;
+  cef_request_context_t *context;
+  size_t users;
+  struct cmux_cef_profile_context *next;
+};
+
+static struct cmux_cef_profile_context *g_profile_contexts = NULL;
+
 // MARK: - Static ref-count no-ops for process-lifetime structs
 
 static void CEF_CALLBACK static_add_ref(cef_base_ref_counted_t *self) {}
@@ -93,6 +105,7 @@ struct cmux_cef_browser {
   cmux_cef_browser_callbacks_t callbacks;
   char *initial_url;
   cef_request_context_t *request_context;
+  struct cmux_cef_profile_context *profile_context;
 
   cef_browser_t *browser;
   cef_window_t *window;
@@ -104,11 +117,75 @@ static void browser_retain(struct cmux_cef_browser *wrapper) {
   atomic_fetch_add_explicit(&wrapper->refs, 1, memory_order_relaxed);
 }
 
-static void browser_release_ref(struct cmux_cef_browser *wrapper) {
+static int browser_release_ref(struct cmux_cef_browser *wrapper) {
   if (atomic_fetch_sub_explicit(&wrapper->refs, 1, memory_order_acq_rel) == 1) {
     free(wrapper->initial_url);
     free(wrapper);
+    return 1;
   }
+  return 0;
+}
+
+static struct cmux_cef_profile_context *profile_context_acquire(
+    const char *cache_path, cef_request_context_t **context_out) {
+  if (!cache_path || !cache_path[0] || !context_out) return NULL;
+  for (struct cmux_cef_profile_context *entry = g_profile_contexts;
+       entry; entry = entry->next) {
+    if (strcmp(entry->cache_path, cache_path) == 0) {
+      entry->users += 1;
+      ((cef_base_ref_counted_t *)entry->context)
+          ->add_ref((cef_base_ref_counted_t *)entry->context);
+      *context_out = entry->context;
+      return entry;
+    }
+  }
+
+  cef_request_context_settings_t settings;
+  memset(&settings, 0, sizeof(settings));
+  settings.size = sizeof(settings);
+  set_cef_string(&settings.cache_path, cache_path);
+  cef_request_context_t *context =
+      cef_request_context_create_context(&settings, NULL);
+  cef_string_clear(&settings.cache_path);
+  if (!context) return NULL;
+
+  struct cmux_cef_profile_context *entry =
+      calloc(1, sizeof(*entry));
+  if (!entry) {
+    ((cef_base_ref_counted_t *)context)
+        ->release((cef_base_ref_counted_t *)context);
+    return NULL;
+  }
+  entry->cache_path = strdup(cache_path);
+  if (!entry->cache_path) {
+    free(entry);
+    ((cef_base_ref_counted_t *)context)
+        ->release((cef_base_ref_counted_t *)context);
+    return NULL;
+  }
+  entry->context = context;  // Registry-owned +1 from create_context.
+  entry->users = 1;
+  entry->next = g_profile_contexts;
+  g_profile_contexts = entry;
+  ((cef_base_ref_counted_t *)context)
+      ->add_ref((cef_base_ref_counted_t *)context);  // Wrapper-owned +1.
+  *context_out = context;
+  return entry;
+}
+
+static void profile_context_release(
+    struct cmux_cef_profile_context *entry) {
+  if (!entry || entry->users == 0) return;
+  entry->users -= 1;
+  if (entry->users != 0) return;
+
+  struct cmux_cef_profile_context **cursor = &g_profile_contexts;
+  while (*cursor && *cursor != entry) cursor = &(*cursor)->next;
+  if (*cursor == entry) *cursor = entry->next;
+  ((cef_base_ref_counted_t *)entry->context)
+      ->release((cef_base_ref_counted_t *)entry->context);
+  free(entry->cache_path);
+  free(entry);
 }
 
 // Generates base callbacks that forward to the wrapper's shared ref count.
@@ -122,8 +199,7 @@ static void browser_release_ref(struct cmux_cef_browser *wrapper) {
     browser_retain(field##_wrapper(self));                                     \
   }                                                                            \
   static int CEF_CALLBACK field##_release(cef_base_ref_counted_t *self) {      \
-    browser_release_ref(field##_wrapper(self));                                \
-    return 0;                                                                  \
+    return browser_release_ref(field##_wrapper(self));                         \
   }                                                                            \
   static int CEF_CALLBACK field##_has_one_ref(cef_base_ref_counted_t *self) {  \
     return atomic_load(&field##_wrapper(self)->refs) == 1;                     \
@@ -231,6 +307,8 @@ static void CEF_CALLBACK life_span_on_before_close(
         ->release((cef_base_ref_counted_t *)wrapper->request_context);
     wrapper->request_context = NULL;
   }
+  profile_context_release(wrapper->profile_context);
+  wrapper->profile_context = NULL;
   if (wrapper->callbacks.on_closed) {
     wrapper->callbacks.on_closed(wrapper->callbacks.context);
   }
@@ -640,12 +718,14 @@ cmux_cef_browser_t *cmux_cef_browser_create(
   wrapper->window_delegate.get_initial_bounds = window_delegate_initial_bounds;
 
   if (cache_path && cache_path[0]) {
-    cef_request_context_settings_t context_settings;
-    memset(&context_settings, 0, sizeof(context_settings));
-    context_settings.size = sizeof(context_settings);
-    set_cef_string(&context_settings.cache_path, cache_path);
-    wrapper->request_context =
-        cef_request_context_create_context(&context_settings, NULL);
+    wrapper->profile_context = profile_context_acquire(
+        cache_path, &wrapper->request_context);
+    if (!wrapper->profile_context || !wrapper->request_context) {
+      profile_context_release(wrapper->profile_context);
+      wrapper->profile_context = NULL;
+      browser_release_ref(wrapper);
+      return NULL;
+    }
   }
 
   cef_window_t *created_window =
@@ -654,7 +734,10 @@ cmux_cef_browser_t *cmux_cef_browser_create(
     if (wrapper->request_context) {
       ((cef_base_ref_counted_t *)wrapper->request_context)
           ->release((cef_base_ref_counted_t *)wrapper->request_context);
+      wrapper->request_context = NULL;
     }
+    profile_context_release(wrapper->profile_context);
+    wrapper->profile_context = NULL;
     browser_release_ref(wrapper);
     return NULL;
   }

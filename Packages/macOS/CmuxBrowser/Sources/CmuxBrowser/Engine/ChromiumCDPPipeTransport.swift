@@ -11,15 +11,16 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
         let continuation: CheckedContinuation<Void, any Error>
     }
 
-    private let commandDescriptor: Int32
     private let messageStream: AsyncStream<Result<Data, CDPError>>
     private let messageContinuation: AsyncStream<Result<Data, CDPError>>.Continuation
     private let responseReadSource: ChromiumPipeReadSource
+    private let commandWriteQueue: DispatchQueue
+    private let commandWriteChannel: DispatchIO
     private var pendingWrites: [PendingWrite] = []
     private var activeWrite: PendingWrite?
     private var activeWriteTimeoutTask: Task<Void, Never>?
     private var isClosed = false
-    private var commandDescriptorIsClosed = false
+    private var commandWriteChannelIsClosed = false
 
     init(commandDescriptor: Int32, responseDescriptor: Int32) throws {
         guard Darwin.fcntl(commandDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
@@ -28,10 +29,26 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
             Darwin.close(responseDescriptor)
             throw error
         }
-        self.commandDescriptor = commandDescriptor
+        let commandFlags = Darwin.fcntl(commandDescriptor, F_GETFL)
+        guard commandFlags >= 0,
+              Darwin.fcntl(commandDescriptor, F_SETFL, commandFlags | O_NONBLOCK) == 0 else {
+            let error = Self.posixError(errno)
+            Darwin.close(commandDescriptor)
+            Darwin.close(responseDescriptor)
+            throw error
+        }
         let pair = AsyncStream<Result<Data, CDPError>>.makeStream()
         self.messageStream = pair.stream
         self.messageContinuation = pair.continuation
+        let writeQueue = DispatchQueue(label: "com.cmux.chromium.cdp-pipe-writer", qos: .userInitiated)
+        self.commandWriteQueue = writeQueue
+        self.commandWriteChannel = DispatchIO(
+            type: .stream,
+            fileDescriptor: commandDescriptor,
+            queue: writeQueue
+        ) { _ in
+            Darwin.close(commandDescriptor)
+        }
 
         let readBuffer = ChromiumPipeReadBuffer(
             delimiter: 0,
@@ -58,7 +75,7 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
                 )
             }
         } catch {
-            Darwin.close(commandDescriptor)
+            commandWriteChannel.close(flags: .stop)
             throw error
         }
     }
@@ -66,9 +83,7 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
     deinit {
         activeWriteTimeoutTask?.cancel()
         responseReadSource.cancel()
-        if !commandDescriptorIsClosed {
-            Darwin.close(commandDescriptor)
-        }
+        commandWriteChannel.close(flags: .stop)
         messageContinuation.finish()
     }
 
@@ -126,22 +141,32 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
             }
             await self?.activeWriteTimedOut()
         }
-        let descriptor = commandDescriptor
-        Task.detached { [self] in
-            let result = Result {
-                try Self.writeAll(write.data, to: descriptor)
+        let dispatchData = write.data.withUnsafeBytes { bytes in
+            DispatchData(bytes: bytes)
+        }
+        commandWriteChannel.write(
+            offset: 0,
+            data: dispatchData,
+            queue: commandWriteQueue
+        ) { [weak self] done, _, errorCode in
+            guard done || errorCode != 0 else { return }
+            let result: Result<Void, CDPError>
+            if errorCode == 0 {
+                result = .success(())
+            } else {
+                result = .failure(Self.posixError(errorCode))
             }
-            await writeFinished(result)
+            Task { await self?.writeFinished(result) }
         }
     }
 
-    private func writeFinished(_ result: Result<Void, any Error>) {
+    private func writeFinished(_ result: Result<Void, CDPError>) {
         guard let write = activeWrite else { return }
         activeWrite = nil
         activeWriteTimeoutTask?.cancel()
         activeWriteTimeoutTask = nil
         write.continuation.resume(with: result)
-        if case .failure = result {
+        if case .failure = result, !isClosed {
             isClosed = true
             let queued = pendingWrites
             pendingWrites.removeAll()
@@ -151,6 +176,7 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
                 )
             }
         }
+        closeCommandDescriptorIfIdle()
         beginNextWriteIfNeeded()
     }
 
@@ -167,35 +193,15 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
                 throwing: CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
             )
         }
-        closeCommandDescriptorIfIdle()
+        commandWriteChannelIsClosed = true
+        commandWriteChannel.close(flags: .stop)
         messageContinuation.finish()
     }
 
     private func closeCommandDescriptorIfIdle() {
-        guard isClosed, activeWrite == nil, !commandDescriptorIsClosed else { return }
-        Darwin.close(commandDescriptor)
-        commandDescriptorIsClosed = true
-    }
-
-    /// Performs only blocking POSIX writes against the dedicated raw descriptor.
-    private static func writeAll(_ data: Data, to descriptor: Int32) throws {
-        try data.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return }
-            var offset = 0
-            while offset < bytes.count {
-                let count = Darwin.write(
-                    descriptor,
-                    baseAddress.advanced(by: offset),
-                    bytes.count - offset
-                )
-                if count > 0 {
-                    offset += count
-                    continue
-                }
-                if count < 0, errno == EINTR { continue }
-                throw posixError(errno)
-            }
-        }
+        guard isClosed, activeWrite == nil, !commandWriteChannelIsClosed else { return }
+        commandWriteChannelIsClosed = true
+        commandWriteChannel.close(flags: .stop)
     }
 
     private static func posixError(_ code: Int32) -> CDPError {

@@ -2349,6 +2349,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
     var chromiumIsolationTask: Task<Void, Never>?
+    /// Completes after a hidden Chromium engine has relinquished its child
+    /// process/window; a visible reveal waits for this boundary before restart.
+    var chromiumMemoryDiscardTask: Task<Void, Never>?
+    var chromiumMemoryDiscardRestoreTask: Task<Void, Never>?
     var chromiumIsolationPending = false
     var lastRecordedChromiumNavigationRevision: UInt64?
     private(set) var navigationDelegate: BrowserNavigationDelegate?
@@ -2589,13 +2593,15 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         refreshWebViewLifecycleState()
 
-        // Chromium owns its own process and host view; the hidden-WebKit
-        // discard manager must never replace or restore the compatibility
-        // WKWebView underneath it.
+        // Chromium uses the same bounded hidden-pane lifecycle as WebKit, but
+        // discarding stops its child engine instead of replacing the inert
+        // compatibility WKWebView.
         if isChromiumBacked {
-            cancelHiddenWebViewDiscard()
             if visible {
+                cancelHiddenWebViewDiscard()
                 restoreDeferredChromiumIfNeeded(reason: "visible.\(reason)")
+            } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
+                scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
             }
             return
         }
@@ -2656,6 +2662,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
         cancelHiddenWebViewDiscard()
+        chromiumMemoryDiscardRestoreTask?.cancel()
+        chromiumMemoryDiscardRestoreTask = nil
         webViewLifecycleState = .newTab; pendingDiscardRestoreNavigation = nil; currentDiscardRestoreAttemptID = nil
         if resetVisibility {
             webViewLastVisibleAt = nil
@@ -2681,10 +2689,6 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func reevaluateHiddenWebViewDiscardScheduling(reason: String) {
-        if isChromiumBacked {
-            cancelHiddenWebViewDiscard()
-            return
-        }
         if isWebViewVisibleInUI {
             cancelHiddenWebViewDiscard()
         } else {
@@ -2699,9 +2703,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func discardHiddenWebViewForMemory(reason: String, now: Date = Date()) -> Bool {
-        guard !isChromiumBacked else {
-            cancelHiddenWebViewDiscard()
-            return false
+        if isChromiumBacked {
+            return discardChromiumForMemory(reason: reason, now: now)
         }
         let blockers = hiddenWebViewDiscardBlockers()
         guard blockers.isEmpty else { return false }
@@ -2774,7 +2777,16 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
-        guard !isChromiumBacked else { return false }
+        if isChromiumBacked {
+            guard hiddenWebViewDiscardManager.isDiscardedForMemory else { return false }
+            guard chromiumMemoryDiscardTask == nil else { return false }
+            shouldRenderWebView = true
+            hiddenWebViewDiscardManager.clearDiscardState(reason: "chromium.\(reason)")
+            startChromiumIfNeeded()
+            refreshNavigationAvailability()
+            refreshWebViewLifecycleState()
+            return true
+        }
         let reactivated = hiddenWebViewDiscardManager.reactivateWithoutNavigation(reason: reason) {
             shouldRenderWebView = true
         }
@@ -5131,6 +5143,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
+        chromiumMemoryDiscardRestoreTask?.cancel()
+        chromiumMemoryDiscardRestoreTask = nil
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()
         navigationDelegate?.cancelPendingAuthenticationPrompts()
@@ -6006,6 +6020,8 @@ final class BrowserPanel: Panel, ObservableObject {
     deinit {
         hiddenWebViewDiscardManager.stop()
         chromiumIsolationTask?.cancel()
+        chromiumMemoryDiscardTask?.cancel()
+        chromiumMemoryDiscardRestoreTask?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer = nil
         detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
