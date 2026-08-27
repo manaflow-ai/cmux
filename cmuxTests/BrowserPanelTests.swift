@@ -1331,6 +1331,19 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    /// Models a hosting wrapper whose native hit-test result is an unrelated
+    /// content leaf, even though a divider tracker is a sibling in the same
+    /// hosted hierarchy. This is the shape produced by some AppKit/SwiftUI
+    /// wrappers while their content subtree is being reconciled.
+    private final class LeafClaimingHostingView: NSView {
+        weak var claimedLeaf: NSView?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point) else { return nil }
+            return claimedLeaf ?? self
+        }
+    }
+
     private final class FakeTabBarBackgroundNSView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -1791,13 +1804,13 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         pasteboard.clearContents()
 
-        XCTAssertNil(
+        XCTAssertTrue(
             host.performHitTest(
                 at: dividerPointInHost,
                 currentEvent: event,
                 dragPasteboard: pasteboard
-            ),
-            "The browser portal must defer to the live Dock divider even when its cached slot frame is stale"
+            ) === liveDivider,
+            "The browser portal must route the stale-frame Dock divider directly to the live tracker"
         )
 
         let mainContentPoint = NSPoint(x: 100, y: host.bounds.midY)
@@ -1900,6 +1913,116 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
+    func testHostViewFindsLiveSidebarDividerWhenHostingWrapperClaimsContentLeaf() throws {
+        // A SwiftUI/AppKit wrapper can report a content leaf for the pointer
+        // even when the native divider tracker is its sibling. The portal must
+        // inspect the visible hosted hierarchy, rather than treating that leaf
+        // as proof that no sidebar divider is present.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let wrapper = LeafClaimingHostingView(frame: contentView.bounds)
+        let liveDivider = SidebarDividerTrackingView(
+            frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
+        )
+        liveDivider.onBegan = {}
+        liveDivider.onChanged = { _ in }
+        liveDivider.onEnded = {}
+        let claimedContentLeaf = CapturingView(frame: wrapper.bounds)
+        wrapper.claimedLeaf = claimedContentLeaf
+        wrapper.addSubview(liveDivider)
+        wrapper.addSubview(claimedContentLeaf)
+        contentView.addSubview(wrapper)
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        // The browser pane and Dock pane share an edge, matching the reported
+        // `new-pane --type browser --direction right` topology.
+        let paneWidth: CGFloat = 210
+        let browserSlot = WindowBrowserSlotView(
+            frame: NSRect(x: 0, y: 0, width: paneWidth, height: host.bounds.height)
+        )
+        let dockSlot = WindowBrowserSlotView(
+            frame: NSRect(x: paneWidth, y: 0, width: paneWidth, height: host.bounds.height)
+        )
+        let browserContent = CapturingView(frame: browserSlot.bounds)
+        let dockContent = CapturingView(frame: dockSlot.bounds)
+        browserSlot.addSubview(browserContent)
+        dockSlot.addSubview(dockContent)
+        host.addSubview(browserSlot)
+        host.addSubview(dockSlot)
+
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        dockSlot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: dock.workspaceId,
+            panelId: UUID(),
+            paneId: dockPane,
+            isDockHosted: true
+        ))
+        defer { dock.retire() }
+
+        contentView.layoutSubtreeIfNeeded()
+        let dividerPointInHost = NSPoint(x: paneWidth, y: host.bounds.midY)
+        let dividerPointInContent = contentView.convert(
+            host.convert(dividerPointInHost, to: nil),
+            from: nil
+        )
+        XCTAssertTrue(
+            wrapper.hitTest(wrapper.convert(dividerPointInContent, from: contentView)) === claimedContentLeaf,
+            "The fixture must model a hosting wrapper that claims an unrelated content leaf"
+        )
+
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+        let event = makeMouseEvent(
+            type: .leftMouseDown,
+            location: dividerPointInWindow,
+            window: window
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("cmux.test.issue-10892.wrapper-leaf.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+
+        XCTAssertTrue(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ) === liveDivider,
+            "The browser portal must route the shared browser/Dock divider to the live tracker when a wrapper claims a content leaf"
+        )
+
+        let rootPointInContainer = container.convert(dividerPointInWindow, from: nil)
+        XCTAssertTrue(
+            container.hitTest(rootPointInContainer) === liveDivider,
+            "The window's normal AppKit hit-test path must preserve live Dock divider ownership"
+        )
+
+        let browserPoint = NSPoint(x: paneWidth - 32, y: host.bounds.midY)
+        XCTAssertTrue(
+            host.performHitTest(
+                at: browserPoint,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ) === browserContent,
+            "Finding a live tracker must not make ordinary browser content pass through"
+        )
+    }
+
     func testHostViewPrefersLiveSidebarDividerOverlappingHostedSplit() throws {
         // A stale WebKit/NSSplitView divider can overlap the real Dock divider
         // for one layout turn. The live sidebar tracker is the concrete owner
@@ -1968,9 +2091,13 @@ final class WindowBrowserHostViewTests: XCTestCase {
             NSPoint(x: hostedSplit.arrangedSubviews[0].frame.maxX, y: hostedSplit.bounds.midY),
             to: host
         ).x
+        let liveDividerOrigin = contentView.convert(
+            NSPoint(x: hostedDividerX - 5, y: 0),
+            from: host
+        )
         liveDivider.frame = NSRect(
-            x: hostedDividerX - 5,
-            y: 0,
+            x: liveDividerOrigin.x,
+            y: liveDividerOrigin.y,
             width: 10,
             height: contentView.bounds.height
         )
