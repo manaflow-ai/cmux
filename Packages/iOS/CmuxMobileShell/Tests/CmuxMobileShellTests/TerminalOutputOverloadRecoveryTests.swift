@@ -382,6 +382,40 @@ import Testing
     #expect(store.deliverTerminalBytes(Data("live-after-snapshot".utf8), surfaceID: surfaceID))
     let liveChunk = try #require(await iterator.next())
     #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-snapshot")
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: liveChunk.streamToken
+    )
+
+    // A persistent render-grid capture failure must still allow later deltas
+    // through the bounded compatibility escape; otherwise each one would
+    // reopen the replay barrier and repeat the exhausted retry cycle.
+    let replayCountAfterFallback = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 300,
+        text: "delta-after-compatibility-fallback",
+        full: false,
+        anchor: .screen,
+        historyRows: 1
+    ))
+    let compatibilityDeltaQueued = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == false
+    }
+    #expect(compatibilityDeltaQueued)
+    #expect(await router.count(of: "mobile.terminal.replay") == replayCountAfterFallback)
+    guard compatibilityDeltaQueued else { return }
+    let compatibilityDelta = try #require(await iterator.next())
+    #expect(
+        String(decoding: compatibilityDelta.data, as: UTF8.self)
+            .contains("delta-after-compatibility-fallback")
+    )
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: compatibilityDelta.streamToken
+    )
 }
 
 @MainActor
