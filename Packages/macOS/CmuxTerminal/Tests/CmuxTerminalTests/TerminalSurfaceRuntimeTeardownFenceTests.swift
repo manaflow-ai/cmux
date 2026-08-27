@@ -55,8 +55,11 @@ struct TerminalSurfaceRuntimeTeardownFenceTests {
             },
             freeSurface: { pointer in
                 freeStarted.withLock { $0 = true }
+                // Capture the address, not the raw pointer: `Task`'s closure is a
+                // `sending` parameter, and a non-Sendable pointer cannot cross into it.
+                let pointerBits = UInt(bitPattern: pointer)
                 Task {
-                    await recorder.record(UInt(bitPattern: pointer))
+                    await recorder.record(pointerBits)
                 }
             }
         )
