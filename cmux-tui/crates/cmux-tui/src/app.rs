@@ -11602,11 +11602,7 @@ impl App {
         self.ensure_graphics_writer_healthy()?;
         self.mark_pointer_route_for_rebuild(action);
         match action {
-            RenderAction::Draw => {
-                self.draw_terminal(terminal, action)?;
-                self.emit_graphics()?;
-            }
-            RenderAction::Paint => {
+            RenderAction::Draw | RenderAction::Paint => {
                 self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
