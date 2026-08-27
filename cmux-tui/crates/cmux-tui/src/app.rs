@@ -41985,6 +41985,64 @@ mod tests {
     }
 
     #[test]
+    fn workspace_preview_survives_workspace_dependent_rail_navigation() {
+        let mux = Mux::new("workspace-sidebar-preview-child-rail-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let tree = Session::Local(mux.clone()).tree();
+        let first_workspace = tree.workspaces[0].id;
+        let second_workspace = tree.workspaces[1].id;
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns_explicit = true;
+        app.config.sidebar.columns = vec![
+            crate::config::SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: 24,
+                max_width: 0,
+            },
+            crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
+        ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: first_workspace, target: second_workspace });
+        app.tree.active_workspace = 1;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 20));
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::TabsRail);
+        assert_eq!(
+            app.workspace_preview,
+            Some(WorkspacePreview { origin: first_workspace, target: second_workspace })
+        );
+        assert_eq!(app.sidebar_workspace_selection, 1);
+        assert!(app.sidebar_tab_targets().iter().all(|target| target.workspace == 1));
+        assert!(app.sidebar_tab_targets().iter().any(|target| target.surface == second.id));
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 0);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn workspace_preview_reconciliation_aligns_selection_when_a_workspace_disappears() {
         let mux = Mux::new("workspace-sidebar-preview-reconcile-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
