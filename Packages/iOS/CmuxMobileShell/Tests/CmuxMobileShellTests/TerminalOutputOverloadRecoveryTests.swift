@@ -199,6 +199,10 @@ import Testing
         "a best-effort compatibility replacement must use the legacy application path"
     )
     #expect(
+        replacementChunk.requiresVerifiedReplayReset,
+        "a compatibility replacement must reset any stale verified presentation baseline"
+    )
+    #expect(
         replacementText.hasPrefix("\u{1B}[H"),
         "an unknown active screen must be cleared without selecting a buffer"
     )

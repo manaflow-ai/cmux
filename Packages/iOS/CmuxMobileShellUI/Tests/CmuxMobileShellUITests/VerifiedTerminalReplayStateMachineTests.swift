@@ -105,6 +105,67 @@ struct VerifiedTerminalReplayStateMachineTests {
         }
     }
 
+    @Test("a compatibility fallback clears the old baseline and requires a fresh full frame")
+    func compatibilityFallbackResetRequiresFreshFullFrame() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let original = try frame(
+            renderRevision: 1,
+            stateSeq: 1,
+            columns: 80,
+            text: "last verified"
+        )
+        commit(original, to: machine)
+
+        let pending = try frame(
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "pending verified"
+        )
+        let pendingTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: pending))
+        )
+
+        // An exhausted replay can only install a compatibility byte snapshot.
+        // That snapshot is not a verified grid, so no transaction, epoch, or
+        // pixel baseline from the previous verified presentation may survive it.
+        machine.resetForCompatibilityFallback()
+        #expect(machine.activeTransactionID == nil)
+        #expect(machine.visibleSnapshot == nil)
+        #expect(machine.isFrozen)
+
+        let partial = try frame(
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: 80,
+            text: "partial after compatibility fallback",
+            full: false
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: partial) else {
+            Issue.record("a compatibility fallback must require a fresh full frame")
+            return
+        }
+
+        let freshFull = try frame(
+            renderRevision: 4,
+            stateSeq: 4,
+            columns: 80,
+            text: "fresh verified baseline"
+        )
+        let freshTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: freshFull))
+        )
+        #expect(freshTransaction.id != pendingTransaction.id)
+        #expect(
+            machine.complete(
+                transactionID: freshTransaction.id,
+                observedFrame: freshFull
+            ) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "fresh verified baseline")
+        #expect(!machine.isFrozen)
+    }
+
     @Test("a stale completion cannot reveal over a newer replay")
     func staleCompletionCannotReveal() throws {
         let machine = VerifiedTerminalReplayStateMachine()
