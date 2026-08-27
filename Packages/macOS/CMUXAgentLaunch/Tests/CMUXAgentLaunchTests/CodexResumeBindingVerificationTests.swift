@@ -164,6 +164,25 @@ struct CodexResumeBindingVerificationTests {
         )
     }
 
+    @Test func codexHomeResolverExpandsTildeUsingCapturedLaunchHome() {
+        let resolver = CodexHomeResolver()
+
+        #expect(
+            resolver.resolve(
+                launchEnvironment: [
+                    "CODEX_HOME": "~/.codex-work",
+                    "HOME": "/tmp/captured-launch-home",
+                ],
+                launchWorkingDirectory: "/tmp/captured-project",
+                ambientEnvironment: [
+                    "HOME": "/tmp/restoring-process-home",
+                    "CODEX_HOME": "/tmp/ambient-codex",
+                ],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == "/tmp/captured-launch-home/.codex-work"
+        )
+    }
+
     @Test func readableIndexWithoutThreadDoesNotScanUnindexedRollouts() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

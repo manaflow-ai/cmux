@@ -486,6 +486,23 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
     }
 
+    @Test func surfaceResumeGetRejectsPartialRestoreClaim() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.get",
+            params: ["claim_checkpoint_id": .string("checkpoint")]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Missing or invalid resume claim",
+            data: nil
+        ))
+    }
+
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
