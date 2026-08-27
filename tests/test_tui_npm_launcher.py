@@ -16,6 +16,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 
@@ -125,6 +126,66 @@ def write_launcher(tmp_path: Path, version: str = "1.2.3") -> Path:
     return launcher
 
 
+def host_platform_key() -> str:
+    arch = {
+        "aarch64": "arm64",
+        "arm64": "arm64",
+        "amd64": "x64",
+        "x86_64": "x64",
+    }.get(platform.machine().lower())
+    assert arch is not None, platform.machine()
+    return f"{sys.platform}-{arch}"
+
+
+def write_cached_binary(
+    cache: Path,
+    version: str,
+    payload: str,
+    *,
+    managed: bool = False,
+) -> Path:
+    platform_key = host_platform_key()
+    package = f"cmux-tui-{platform_key}"
+    binary = cache / platform_key / f"v/{version}/bin/cmux-tui"
+    data = payload.encode()
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(data)
+    binary.chmod(0o755)
+    version_dir = binary.parent.parent
+    (version_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "package": package,
+                "version": version,
+                "tarballIntegrity": "sha512-fixture",
+                "binaries": {"cmux-tui": hashlib.sha512(data).hexdigest()},
+            }
+        )
+        + "\n"
+    )
+    if managed:
+        (version_dir / "managed").write_text("cmux\n")
+    return binary
+
+
+def write_runtime_capability_stub(tmp_path: Path) -> Path:
+    stub = tmp_path / "disable-node-network-apis.cjs"
+    stub.write_text(
+        "globalThis.fetch = undefined;\n"
+        "if (typeof AbortSignal === \"function\") AbortSignal.timeout = undefined;\n"
+    )
+    return stub
+
+
+def write_platform_stub(tmp_path: Path, platform_name: str = "freebsd") -> Path:
+    stub = tmp_path / "unsupported-platform.cjs"
+    stub.write_text(
+        "Object.defineProperty(process, \"platform\", "
+        f"{{ configurable: true, value: {json.dumps(platform_name)} }});\n"
+    )
+    return stub
+
+
 def start_registry() -> tuple[http.server.ThreadingHTTPServer, threading.Thread, str]:
     RegistryHandler.metadata_requests = 0
     RegistryHandler.tarball_requests = 0
@@ -141,10 +202,19 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
         return
     launcher = write_launcher(tmp_path)
     cache = tmp_path / "cache"
+    runtime_stub = write_runtime_capability_stub(tmp_path)
     server, thread, registry = start_registry()
     try:
         first = run_launcher(launcher, cache, registry, "--version")
-        second = run_launcher(launcher, cache, registry, "--version")
+        # A verified cache hit must remain usable when the Node network APIs
+        # are unavailable. The capability guard belongs on the download path.
+        second = run_launcher(
+            launcher,
+            cache,
+            registry,
+            "--version",
+            env_extra={"NODE_OPTIONS": f"--require={runtime_stub}"},
+        )
     finally:
         server.shutdown()
         thread.join()
@@ -153,18 +223,37 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
     assert first.stdout == second.stdout == "fake cmux-tui 1.2.3\n"
     assert RegistryHandler.metadata_requests == 1
     assert RegistryHandler.tarball_requests == 1
-    arch = {
-        "aarch64": "arm64",
-        "arm64": "arm64",
-        "amd64": "x64",
-        "x86_64": "x64",
-    }.get(platform.machine().lower())
-    assert arch is not None, platform.machine()
-    platform_key = f"{sys.platform}-{arch}"
+    platform_key = host_platform_key()
     cached = cache / platform_key / "v/1.2.3/bin/cmux-tui"
     assert cached.is_file()
     assert cached.stat().st_mode & stat.S_IXUSR
     assert not (cache / platform_key / "v/1.2.3/.active").exists()
+
+
+def test_launcher_requires_network_runtime_capabilities(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    runtime_stub = write_runtime_capability_stub(tmp_path)
+    result = run_launcher(
+        launcher,
+        tmp_path / "cache",
+        "http://127.0.0.1:1",
+        "--version",
+        env_extra={"NODE_OPTIONS": f"--require={runtime_stub}"},
+    )
+    assert result.returncode != 0
+    assert "requires Node.js 18 or newer" in result.stderr
+    assert "fetch" in result.stderr
+    assert "AbortSignal.timeout" in result.stderr
+    assert "127.0.0.1" not in result.stderr
+
+
+def test_launcher_declares_node_engine_requirement() -> None:
+    metadata = json.loads(
+        (ROOT / "cmux-tui/dist/npm/cmux/package.json").read_text()
+    )
+    assert metadata.get("engines", {}).get("node") == ">=18"
 
 
 def test_launcher_rejects_negative_tar_size_without_hanging(tmp_path: Path) -> None:
@@ -328,6 +417,27 @@ def test_managed_launcher_honors_development_binary_override(tmp_path: Path) -> 
     assert result.stdout == "development override\n"
 
 
+def test_binary_override_works_on_an_unsupported_platform(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    binary = tmp_path / "dev-cmux-tui"
+    binary.write_text("#!/bin/sh\nprintf '%s\\n' 'unsupported-platform override'\n")
+    binary.chmod(0o755)
+    platform_stub = write_platform_stub(tmp_path)
+    result = run_launcher(
+        launcher,
+        tmp_path / "cache",
+        "http://127.0.0.1:1",
+        env_extra={
+            "CMUX_TUI_BIN": str(binary),
+            "NODE_OPTIONS": f"--require={platform_stub}",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "unsupported-platform override\n"
+
+
 def test_missing_binary_override_hides_path_and_variable(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -343,6 +453,91 @@ def test_missing_binary_override_hides_path_and_variable(tmp_path: Path) -> None
     assert "configured native binary override does not exist" in result.stderr
     assert str(missing) not in result.stderr
     assert "CMUX_TUI_BIN" not in result.stderr
+
+
+def test_launcher_fails_closed_when_another_process_holds_cache_lock(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'cached while lock held'\n",
+    )
+    lock = cache / host_platform_key() / ".update.lock"
+    lock.mkdir(parents=True)
+    owner = f"{os.getpid()}\nfixture-owner-token\n"
+    owner_path = lock / "owner"
+    owner_path.write_text(owner)
+
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        "--version",
+    )
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "could not reserve the native binary" in result.stderr
+    assert owner_path.read_text() == owner
+
+
+def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    old_launcher = write_launcher(tmp_path / "old", "1.0.0")
+    new_launcher = write_launcher(tmp_path / "new", "1.2.3")
+    cache = tmp_path / "cache"
+    started = tmp_path / "old-started"
+    old_payload = (
+        "#!/bin/sh\n"
+        f"printf '%s' started > {json.dumps(str(started))}\n"
+        "sleep 2\n"
+        "printf '%s\\n' 'old binary'\n"
+    )
+    write_cached_binary(cache, "1.0.0", old_payload, managed=True)
+    write_cached_binary(cache, "1.1.0", "#!/bin/sh\nexit 0\n", managed=True)
+    write_cached_binary(cache, "1.2.3", "#!/bin/sh\nexit 0\n", managed=True)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "CMUX_TUI_LAUNCHER_CACHE": str(cache),
+            "CMUX_NPM_REGISTRY": "http://127.0.0.1:1",
+            "NO_COLOR": "1",
+        }
+    )
+    old_process = subprocess.Popen(
+        ["node", str(old_launcher)],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    try:
+        deadline = time.monotonic() + 3
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert started.exists(), "old launcher did not start its binary"
+
+        new_result = run_launcher(
+            new_launcher,
+            cache,
+            "http://127.0.0.1:1",
+            "--version",
+        )
+        assert new_result.returncode == 0, new_result.stderr
+        assert (cache / host_platform_key() / "v/1.0.0").exists()
+    finally:
+        try:
+            old_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            old_process.kill()
+            old_process.wait(timeout=5)
+    assert old_process.returncode == 0
 
 
 def test_launcher_prunes_old_managed_cache_after_download(tmp_path: Path) -> None:
@@ -382,6 +577,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-tui-launcher-test-") as directory:
         root = Path(directory)
         test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
+        test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
         test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
@@ -389,7 +585,10 @@ def main() -> None:
         test_launcher_scopes_registry_token_to_npmrc_path(root / "npmrc-scope")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
         test_managed_launcher_honors_development_binary_override(root / "override")
+        test_binary_override_works_on_an_unsupported_platform(root / "unsupported-override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
+        test_launcher_fails_closed_when_another_process_holds_cache_lock(root / "held-lock")
+        test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
         test_launcher_prunes_old_managed_cache_after_download(root / "prune")
 
 
