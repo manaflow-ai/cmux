@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use tokio::sync::Notify;
@@ -38,6 +38,18 @@ const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 /// filesystem operations. Keep them off the relay executor and bound the
 /// number of concurrent setup walks per connection.
 const WATCH_SETUP_CONCURRENCY: usize = 2;
+/// A replacement can keep one retired watcher in synchronous teardown while
+/// all sessions and setup slots are occupied. This hard cap bounds detached
+/// owner threads even if a platform backend blocks in its destructor.
+const WATCH_TEARDOWN_CONCURRENCY: usize = WATCH_MAX_SESSIONS + WATCH_SETUP_CONCURRENCY + 1;
+
+static WATCH_TEARDOWN_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+
+fn watcher_teardown_slots() -> Arc<Semaphore> {
+    Arc::clone(
+        WATCH_TEARDOWN_SLOTS.get_or_init(|| Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY))),
+    )
+}
 
 /// All fallible watcher setup happens before a watch is published in the
 /// registry. A failed replacement therefore leaves the existing watch intact.
@@ -61,10 +73,22 @@ struct WatcherOwner {
 
 impl WatcherOwner {
     fn new(watcher: notify::RecommendedWatcher) -> Result<Self, String> {
+        Self::new_with_slots(watcher, watcher_teardown_slots())
+    }
+
+    #[cfg(test)]
+    fn new_with_slots(
+        watcher: notify::RecommendedWatcher,
+        slots: Arc<Semaphore>,
+    ) -> Result<Self, String> {
+        let teardown_permit = slots
+            .try_acquire_owned()
+            .map_err(|_| "watch teardown capacity exhausted".to_owned())?;
         let (shutdown, wait) = sync_channel(1);
         std::thread::Builder::new()
             .name("cmux-watch-teardown".to_owned())
             .spawn(move || {
+                let _teardown_permit = teardown_permit;
                 let watcher = watcher;
                 let _ = wait.recv();
                 drop(watcher);
@@ -986,7 +1010,27 @@ fn collect_changes(
 mod tests {
     use super::*;
     use crate::session::{OutboundFrame, OutboundSink};
+    use notify::Watcher as _;
     use serde_json::Value;
+
+    #[cfg(unix)]
+    #[test]
+    fn repeated_teardown_attempts_hit_the_hard_worker_cap() {
+        let slots = Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY));
+        let mut owners = Vec::new();
+        let mut rejected = 0;
+        for _ in 0..(WATCH_TEARDOWN_CONCURRENCY * 3) {
+            let watcher = notify::RecommendedWatcher::new(|_| {}, notify::Config::default())
+                .expect("create test watcher");
+            match WatcherOwner::new_with_slots(watcher, Arc::clone(&slots)) {
+                Ok(owner) => owners.push(owner),
+                Err(_) => rejected += 1,
+            }
+        }
+        assert_eq!(owners.len(), WATCH_TEARDOWN_CONCURRENCY);
+        assert_eq!(rejected, WATCH_TEARDOWN_CONCURRENCY * 2);
+        drop(owners);
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
