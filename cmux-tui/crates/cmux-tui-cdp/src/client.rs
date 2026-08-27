@@ -2095,6 +2095,17 @@ mod tests {
     }
 
     #[test]
+    fn call_queue_overflow_removes_pending_call() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(0);
+        let client = CdpClient { inner: inner.clone() };
+
+        let error = client.call("Test.method", json!({}), None).unwrap_err();
+
+        assert!(error.to_string().contains("outbound queue is full"));
+        assert!(inner.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn screencast_ack_queue_overflow_closes_the_connection() {
         let (inner, _outbound_rx) = test_inner_with_capacity(0);
         ack_screencast_frame(&inner, "session-1", 7);
