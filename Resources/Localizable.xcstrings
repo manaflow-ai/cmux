@@ -125108,6 +125108,23 @@
         }
       }
     },
+    "machines.empty.upgrade.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to use machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードしてマシンを利用できます"
+          }
+        }
+      }
+    },
     "machines.empty.upgrade.single": {
       "extractionState": "manual",
       "localizations": {

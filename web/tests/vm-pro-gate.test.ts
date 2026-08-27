@@ -9,10 +9,14 @@ import {
 const ent = (planId: string) => ({ planId });
 
 describe("Cloud VM Pro gate", () => {
-  test("isPaidVmPlan recognizes pro and team, not free", () => {
+  test("isPaidVmPlan recognizes pro, team, and founders, not free", () => {
     expect(isPaidVmPlan("pro")).toBe(true);
     expect(isPaidVmPlan("team")).toBe(true);
     expect(isPaidVmPlan("PRO")).toBe(true);
+    // Founder's Edition: one-time purchase granted via cmuxVmPlan, no
+    // subscription behind it — paid for the expiry window and the pro gate.
+    expect(isPaidVmPlan("founders")).toBe(true);
+    expect(isPaidVmPlan("Founders")).toBe(true);
     expect(isPaidVmPlan("free")).toBe(false);
     expect(isPaidVmPlan("")).toBe(false);
     expect(isPaidVmPlan("enterprise-unknown")).toBe(false);

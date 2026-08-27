@@ -379,8 +379,15 @@ struct MachinesPanelView: View {
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
-    /// way past it in one line.
+    /// way past it in one line. A plan with no machines at all has no ceiling
+    /// to cite: upgrading is what grants access in the first place.
     private func upgradeNudgeLabel(_ plan: MachinePlanSnapshot) -> String {
+        if plan.maxActiveVms <= 0 {
+            return String(
+                localized: "machines.empty.upgrade.none",
+                defaultValue: "Upgrade to use machines"
+            )
+        }
         if plan.isSingleMachinePlan {
             return String(
                 localized: "machines.empty.upgrade.single",
