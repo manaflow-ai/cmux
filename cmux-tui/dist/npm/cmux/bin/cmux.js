@@ -52,6 +52,10 @@ const MAX_METADATA_BYTES = 1024 * 1024;
 const REGISTRY_TIMEOUT_MS = 30_000;
 const STAGING_MAX_AGE_MS = 60 * 60 * 1000;
 const CACHE_LOCK_ATTEMPTS = 3;
+// A process can be interrupted between creating the lock directory and
+// publishing its owner file. Reclaim only an ownerless lock that has been
+// quiet for long enough that the creator cannot still be in that window.
+const CACHE_LOCK_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
 const MIN_NODE_MAJOR = 18;
 
 function fail(message) {
@@ -217,17 +221,26 @@ function newCacheLockOwner() {
   };
 }
 
-function readCacheLockOwner() {
+function parseCacheLockOwner(raw) {
+  if (typeof raw !== "string") return null;
+  const lines = raw.trim().split(/\s+/);
+  const pid = Number.parseInt(lines[0], 10);
+  const token = lines[1];
+  if (!Number.isInteger(pid) || pid <= 0 || !token) return null;
+  return { pid, token, raw };
+}
+
+function readCacheLockOwnerAt(ownerPath) {
   try {
-    const raw = fs.readFileSync(cacheLockOwnerPath(), "utf8");
-    const lines = raw.trim().split(/\s+/);
-    const pid = Number.parseInt(lines[0], 10);
-    const token = lines[1];
-    if (!Number.isInteger(pid) || pid <= 0 || !token) return null;
-    return { pid, token, raw };
+    const raw = fs.readFileSync(ownerPath, "utf8");
+    return parseCacheLockOwner(raw);
   } catch {
     return null;
   }
+}
+
+function readCacheLockOwner() {
+  return readCacheLockOwnerAt(cacheLockOwnerPath());
 }
 
 function processIsAlive(pid) {
@@ -237,6 +250,49 @@ function processIsAlive(pid) {
   } catch (error) {
     return !error || error.code !== "ESRCH";
   }
+}
+
+// A pending owner file is written before it is atomically renamed to `owner`.
+// If the writer dies before the rename, a live pending owner proves that an
+// apparently empty lock is still being initialized and must not be reclaimed.
+function emptyCacheLockCanBeReclaimed() {
+  let entries;
+  try {
+    entries = fs.readdirSync(cacheLockPath(), { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    if (entry.name === "owner") {
+      let size;
+      try {
+        size = fs.statSync(path.join(cacheLockPath(), entry.name)).size;
+      } catch {
+        return false;
+      }
+      // An interrupted legacy direct write can leave an empty owner file.
+      if (!entry.isFile() || size !== 0) return false;
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.startsWith(".owner-") || !entry.name.endsWith(".tmp")) {
+      return false;
+    }
+    const pending = readCacheLockOwnerAt(path.join(cacheLockPath(), entry.name));
+    if (pending && processIsAlive(pending.pid)) return false;
+  }
+  return true;
+}
+
+function emptyCacheLockIsStale() {
+  let stat;
+  try {
+    stat = fs.statSync(cacheLockPath());
+  } catch {
+    return false;
+  }
+  if (!stat.isDirectory() || !Number.isFinite(stat.mtimeMs)) return false;
+  if (Date.now() - stat.mtimeMs < CACHE_LOCK_EMPTY_MAX_AGE_MS) return false;
+  return emptyCacheLockCanBeReclaimed();
 }
 
 // Remove a lock only when its owner file still matches the observed token.
@@ -250,7 +306,9 @@ function removeCacheLockIfOwned(owner, allowEmpty = false) {
   } catch {
     if (!allowEmpty) return false;
   }
-  if (observed !== undefined && observed !== owner.raw) return false;
+  const observedEmpty = observed === undefined || observed === "";
+  if (!observedEmpty && observed !== owner.raw) return false;
+  if (observedEmpty && !allowEmpty && owner.raw !== undefined) return false;
 
   const quarantine = `${lockPath}.reclaim-${process.pid}-${Date.now().toString(36)}-${crypto
     .randomBytes(8)
@@ -266,7 +324,9 @@ function removeCacheLockIfOwned(owner, allowEmpty = false) {
     } catch {
       actual = undefined;
     }
-    if (actual !== owner.raw && !(allowEmpty && actual === undefined)) return false;
+    const actualEmpty = actual === undefined || actual === "";
+    if (!actualEmpty && actual !== owner.raw) return false;
+    if (actualEmpty && !allowEmpty && owner.raw !== undefined) return false;
     fs.rmSync(quarantine, { recursive: true, force: false });
     removed = true;
     return true;
@@ -298,16 +358,20 @@ function tryAcquireCacheLock() {
     try {
       fs.mkdirSync(lockPath, { recursive: false });
       created = true;
-      fs.writeFileSync(cacheLockOwnerPath(), owner.raw, {
+      // Publish the complete owner record with rename so readers never see a
+      // partially written PID/token pair.
+      const ownerTempPath = path.join(lockPath, `.owner-${owner.token}.tmp`);
+      fs.writeFileSync(ownerTempPath, owner.raw, {
         encoding: "utf8",
         flag: "wx",
         mode: 0o600,
       });
+      fs.renameSync(ownerTempPath, cacheLockOwnerPath());
       return owner;
     } catch {
       // If this attempt created the directory but could not publish its owner,
-      // clean up only that empty lock. Never remove an owner published by a
-      // different process.
+      // clean up only that lock. Never remove an owner published by a different
+      // process.
       if (created) {
         removeCacheLockIfOwned(owner, true);
         return null;
@@ -315,10 +379,16 @@ function tryAcquireCacheLock() {
     }
 
     const current = readCacheLockOwner();
-    // Unknown or malformed lock state is retained conservatively. A later
-    // invocation can recover it after an operator inspects the cache.
-    if (!current || processIsAlive(current.pid)) return null;
-    if (!removeCacheLockIfOwned(current)) return null;
+    if (current) {
+      if (processIsAlive(current.pid)) return null;
+      if (!removeCacheLockIfOwned(current)) return null;
+      continue;
+    }
+    // Unknown or malformed lock state is retained conservatively unless it is
+    // an ownerless directory left behind by an interrupted acquisition. The
+    // age gate plus atomic quarantine prevents deleting a fresh initializer.
+    if (!emptyCacheLockIsStale()) return null;
+    if (!removeCacheLockIfOwned({ raw: undefined }, true)) return null;
   }
   return null;
 }

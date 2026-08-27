@@ -484,6 +484,60 @@ def test_launcher_fails_closed_when_another_process_holds_cache_lock(tmp_path: P
     assert owner_path.read_text() == owner
 
 
+def test_launcher_recovers_stale_empty_cache_lock(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'cached after interrupted lock'\n",
+    )
+    lock = cache / host_platform_key() / ".update.lock"
+    lock.mkdir(parents=True)
+    stale = time.time() - 10 * 60
+    os.utime(lock, (stale, stale))
+
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        "--version",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "cached after interrupted lock\n"
+    assert not lock.exists()
+
+
+def test_launcher_keeps_fresh_empty_cache_lock(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'cached while lock initializes'\n",
+    )
+    lock = cache / host_platform_key() / ".update.lock"
+    lock.mkdir(parents=True)
+
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        "--version",
+    )
+
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "could not reserve the native binary" in result.stderr
+    assert lock.is_dir()
+    assert not (lock / "owner").exists()
+
+
 def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -587,6 +641,8 @@ def main() -> None:
         test_binary_override_works_on_an_unsupported_platform(root / "unsupported-override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
         test_launcher_fails_closed_when_another_process_holds_cache_lock(root / "held-lock")
+        test_launcher_recovers_stale_empty_cache_lock(root / "stale-empty-lock")
+        test_launcher_keeps_fresh_empty_cache_lock(root / "fresh-empty-lock")
         test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
         test_launcher_prunes_old_managed_cache_after_download(root / "prune")
 
