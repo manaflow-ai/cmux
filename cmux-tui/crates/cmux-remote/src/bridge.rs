@@ -515,7 +515,7 @@ mod tests {
     use async_trait::async_trait;
     use cmux_remote_protocol::{FrameFlags, Lane};
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split};
-    use tokio::sync::{Mutex, mpsc, watch};
+    use tokio::sync::{Mutex, mpsc, oneshot, watch};
 
     use super::*;
     use crate::service::{EndpointRole, SessionEndpoint};
@@ -1016,23 +1016,20 @@ mod tests {
 
         let connections = ForwardConnections::new();
         let dropped = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = oneshot::channel();
         connections.tasks.lock().await.spawn({
             let dropped = dropped.clone();
             async move {
                 let _flag = DropFlag(dropped);
+                let _ = started_tx.send(());
                 std::future::pending::<()>().await;
             }
         });
 
+        started_rx.await.unwrap();
         connections.abort_all();
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            while !dropped.load(Ordering::Acquire) {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("emergency cleanup did not abort the active tunnel handler");
         connections.shutdown().await;
+        assert!(dropped.load(Ordering::Acquire));
     }
 
     #[tokio::test]
