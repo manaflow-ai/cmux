@@ -136,15 +136,50 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         sessions[surfaceId]?[agentKey]?[sessionKey]
     }
 
-    /// Keys of every session for this surface/agent that has not ended, sorted
-    /// so the fold visits them in a stable order.
+    /// Keys of the live sessions a whole-pane assertion is entitled to speak
+    /// for, sorted so the fold visits them in a stable order.
+    ///
+    /// A session claiming `running`, or claiming nothing at all, has made no
+    /// statement the assertion can contradict — those are exactly the sessions
+    /// a stale `running` gets stuck in. A session blocked on the user or
+    /// reporting an error is left alone: it holds a fact the screen cannot
+    /// carry, since the assertion names no session and a pane shows one session
+    /// at a time. Erasing it would take a pane with a real pending question and
+    /// paint it ready.
+    ///
+    /// An assertion's own placeholder entry is always included so a later
+    /// reading can revise it.
     ///
     /// - Parameters:
     ///   - surfaceId: The surface.
     ///   - agentKey: The agent key.
-    /// - Returns: The live session keys.
-    func liveSessionKeys(surfaceId: String, agentKey: String) -> [String] {
+    /// - Returns: The correctable session keys.
+    func correctableSessionKeys(surfaceId: String, agentKey: String) -> [String] {
         guard let bySession = sessions[surfaceId]?[agentKey] else { return [] }
-        return bySession.compactMap { $0.value.ended ? nil : $0.key }.sorted()
+        return bySession.compactMap { key, state -> String? in
+            guard !state.ended else { return nil }
+            if state.isPaneAssertion { return key }
+            switch state.phase {
+            case .running, .unknown: return key
+            case .needsInput, .error, .idle: return nil
+            }
+        }.sorted()
+    }
+
+    /// Ends every live placeholder entry older than `sequence`, so a real
+    /// session event supersedes a reading taken before it.
+    ///
+    /// - Parameters:
+    ///   - surfaceId: The surface.
+    ///   - agentKey: The agent key.
+    ///   - sequence: The superseding event's sequence.
+    mutating func endPaneAssertions(surfaceId: String, agentKey: String, olderThan sequence: Int64) {
+        guard let bySession = sessions[surfaceId]?[agentKey] else { return }
+        for (key, state) in bySession
+        where state.isPaneAssertion && !state.ended && state.lastSequence < sequence {
+            var ended = state
+            ended.ended = true
+            sessions[surfaceId]?[agentKey]?[key] = ended
+        }
     }
 }

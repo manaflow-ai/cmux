@@ -298,6 +298,73 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
     }
 
+    /// The pane showing a pending question while an abandoned session still
+    /// claims to be working. The question outranks nothing today - `running`
+    /// wins the combine - so the corrector is what has to clear the way, and it
+    /// must clear only the stale claim. Erasing the question would take the one
+    /// state the user has to act on and paint the pane ready.
+    @Test func aPaneLevelAssertionClearsTheWayForABlockedSession() {
+        let state = fold([
+            event(1, .turnStarted, session: "abandoned"),
+            event(2, .questionRequested, session: "live"),
+            paneAssertion(3, .idle),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .needsInput)
+    }
+
+    /// Same for a session that reported an error: the screen carries no session
+    /// identity, so it cannot be the thing that decides the error is over.
+    @Test func aPaneLevelAssertionLeavesAnErroredSessionAlone() {
+        let state = fold([
+            event(1, .turnStarted, session: "abandoned"),
+            event(2, .errorReported, session: "live"),
+            paneAssertion(3, .idle),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
+    }
+
+    /// The standalone reading is a stand-in, not a verdict: once a real session
+    /// reports, the pane is described by that session. Without this a pane read
+    /// as errored before its agent ever spoke could never go green again, since
+    /// `error` outranks the `idle` a finished turn reports.
+    @Test func aRealSessionSupersedesAStandaloneAssertion() {
+        let state = fold([
+            paneAssertion(1, .error),
+            event(2, .turnStarted),
+            event(3, .turnCompleted),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+    }
+
+    /// But only when the session event is actually newer. An assertion that
+    /// outlives an out-of-order arrival must survive it, or the fold would
+    /// depend on delivery order.
+    @Test func anOlderSessionEventDoesNotSupersedeANewerAssertion() {
+        let events = [
+            event(1, .turnCompleted),
+            paneAssertion(2, .error),
+        ]
+        let inOrder = fold(events)
+        #expect(inOrder.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
+        #expect(fold([events[1], events[0]]).snapshot() == inOrder.snapshot())
+    }
+
+    /// A second reading revises the first rather than piling up beside it, and
+    /// the revision is still only a stand-in - a real session must still be
+    /// able to take the pane back from it.
+    @Test func aRevisedStandaloneReadingIsStillOnlyAStandIn() {
+        let state = fold([paneAssertion(1, .idle), paneAssertion(2, .error)])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
+
+        let superseded = fold([
+            paneAssertion(1, .idle),
+            paneAssertion(2, .error),
+            event(3, .turnStarted),
+            event(4, .turnCompleted),
+        ])
+        #expect(superseded.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+    }
+
     /// A pane with no session events at all still records the assertion: the
     /// resumed agent that has never spoken is exactly the pane the corrector
     /// has to be able to describe.

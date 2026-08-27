@@ -48,15 +48,21 @@ public struct AgentLifecycleReducer: Sendable {
             return false
         }
         let agentKey = event.agentKey
+        let isPaneAssertion = AgentLifecycleReducerState.isPaneLevelAssertion(event.draft)
+        let correctable = isPaneAssertion
+            ? state.correctableSessionKeys(surfaceId: surfaceId, agentKey: agentKey)
+            : []
+        // A whole-pane reading corrects the sessions it can speak for. With none
+        // to correct it stands alone in a placeholder entry, which the first
+        // real session event then supersedes.
+        let writesPlaceholder = isPaneAssertion && correctable.isEmpty
+        let targets = writesPlaceholder || !isPaneAssertion
+            ? [AgentLifecycleReducerState.sessionKey(for: event.draft)]
+            : correctable
         let combinedBefore = state.combinedPhase(surfaceId: surfaceId, agentKey: agentKey)
         let pendingBefore = state.combinedPendingWork(surfaceId: surfaceId, agentKey: agentKey)
         var applied = false
-        for sessionKey in targetSessionKeys(
-            for: event.draft,
-            surfaceId: surfaceId,
-            agentKey: agentKey,
-            in: state
-        ) {
+        for sessionKey in targets {
             let previous = state.session(
                 surfaceId: surfaceId,
                 agentKey: agentKey,
@@ -85,47 +91,31 @@ public struct AgentLifecycleReducer: Sendable {
                     ended: transition.ended,
                     lastSequence: event.sequence,
                     lastOccurredAtMs: event.draft.occurredAtMs,
-                    pendingWork: event.draft.pendingWork
+                    pendingWork: event.draft.pendingWork,
+                    // A revised reading is still a reading: an entry that is
+                    // already a stand-in stays one, so a real session event can
+                    // still supersede it.
+                    isPaneAssertion: isPaneAssertion
+                        && (writesPlaceholder || previous?.isPaneAssertion == true)
                 )
             )
             applied = true
         }
         guard applied else { return false }
+        if !isPaneAssertion {
+            // A session is reporting for itself now, so any earlier stand-in for
+            // this pane is spent. Bounded by sequence, so an assertion that is
+            // newer than an out-of-order session event still survives it and the
+            // fold stays independent of delivery order.
+            state.endPaneAssertions(
+                surfaceId: surfaceId,
+                agentKey: agentKey,
+                olderThan: event.sequence
+            )
+        }
         let combinedAfter = state.combinedPhase(surfaceId: surfaceId, agentKey: agentKey)
         let pendingAfter = state.combinedPendingWork(surfaceId: surfaceId, agentKey: agentKey)
         return combinedBefore != combinedAfter || pendingBefore != pendingAfter
-    }
-
-    /// The session buckets an event writes into.
-    ///
-    /// One, normally: the session the event names. A whole-pane assertion (see
-    /// ``AgentLifecycleReducerState/isPaneLevelAssertion(_:)``) instead writes
-    /// into every live session on the surface, because it is correcting them
-    /// rather than reporting alongside them — a correction filed in a bucket of
-    /// its own can never beat a session left claiming `running`, which is the
-    /// only state it is ever emitted for.
-    ///
-    /// With no live session to correct it falls back to its own bucket, so a
-    /// reading of a pane whose agent has never emitted an event is still
-    /// recorded. When every live session is newer than the assertion it targets
-    /// nothing and is dropped, which keeps the fold order-independent.
-    ///
-    /// - Parameters:
-    ///   - draft: The event's draft.
-    ///   - surfaceId: The attributed surface.
-    ///   - agentKey: The event's agent key.
-    ///   - state: The state being folded into.
-    /// - Returns: The session keys to write.
-    private func targetSessionKeys(
-        for draft: AgentJournalEventDraft,
-        surfaceId: String,
-        agentKey: String,
-        in state: AgentLifecycleReducerState
-    ) -> [String] {
-        let ownKey = AgentLifecycleReducerState.sessionKey(for: draft)
-        guard AgentLifecycleReducerState.isPaneLevelAssertion(draft) else { return [ownKey] }
-        let live = state.liveSessionKeys(surfaceId: surfaceId, agentKey: agentKey)
-        return live.isEmpty ? [ownKey] : live
     }
 
     private func transition(
