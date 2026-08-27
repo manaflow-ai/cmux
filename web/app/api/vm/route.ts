@@ -43,6 +43,7 @@ import {
   vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
+import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import {
   createVm,
   listUserVms,
@@ -149,7 +150,10 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response });
+      });
       let user: AuthedUser = initialUser;
       {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
@@ -286,6 +290,12 @@ export async function POST(request: Request): Promise<Response> {
               action: "Retry without `image` to use the default Cloud VM image, or ask an admin to configure a supported image.",
               reason: "Cloud VM image configuration is unavailable.",
               details: { imageRequested: err.image !== undefined },
+              diagnostics: {
+                provider,
+                image: err.image,
+                envVar: err.envVar,
+                configReason: err.reason,
+              },
             });
           }
           throw err;

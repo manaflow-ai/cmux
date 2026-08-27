@@ -23,6 +23,7 @@ import {
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
+import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -132,6 +133,13 @@ export type VmErrorResponseInput = {
   readonly reason?: string;
   readonly extra?: Record<string, unknown>;
   readonly details?: Record<string, unknown>;
+  /**
+   * Operator-facing context (provider, image id, env var) for Sentry only.
+   * NEVER serialized into the response: VM error payloads deliberately hide
+   * implementation details from callers (see expectNoCloudVmImplementationLeaks
+   * in tests/vm-route-auth.test.ts).
+   */
+  readonly diagnostics?: Record<string, unknown>;
   readonly phase?: VmLifecyclePhase;
   readonly retryable?: boolean;
   readonly retryAfterSeconds?: number;
@@ -185,6 +193,15 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
   const headers: Record<string, string> = {};
   if (retryAfterSeconds !== undefined) {
     headers["retry-after"] = String(retryAfterSeconds);
+  }
+  // Every VM error flows through here, so this is the one place operator-fault
+  // errors reach Sentry and the one place the machine-readable code is exposed
+  // for response finalizers. Reporting never changes the response.
+  headers[VM_ERROR_CODE_HEADER] = input.error;
+  try {
+    reportVmErrorResponse(input);
+  } catch {
+    // Reporting must never change the caller's control flow.
   }
   return new Response(JSON.stringify(payload), {
     status: input.status,

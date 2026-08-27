@@ -1,6 +1,10 @@
 const SENSITIVE_KEY_PATTERN = /authorization|cookie|credential|dsn|key|password|providerMetadata|secret|token|webhook/i;
 
-export function reportError(error: unknown, context: Record<string, unknown>): void {
+export function reportError(
+  error: unknown,
+  context: Record<string, unknown>,
+  options: { readonly fingerprint?: readonly string[] } = {},
+): void {
   const safeContext = scrubContext(context);
   try {
     // Log a scrubbed summary, never the raw error: provider error messages can
@@ -14,10 +18,17 @@ export function reportError(error: unknown, context: Record<string, unknown>): v
 
   if (!process.env.SENTRY_DSN?.trim()) return;
 
+  const fingerprint = options.fingerprint;
   void import("@sentry/nextjs")
     .then((Sentry) => {
       Sentry.withScope((scope) => {
         scope.setContext("cmux", safeContext);
+        // A stable fingerprint groups every occurrence of one operational
+        // condition (e.g. one misconfigured image env) into one Sentry issue,
+        // so alert rules can fire on "first seen" without per-request noise.
+        if (fingerprint && fingerprint.length > 0) {
+          scope.setFingerprint([...fingerprint]);
+        }
         Sentry.captureException(error);
       });
     })

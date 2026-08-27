@@ -87,6 +87,12 @@ export async function runBaseRoute(input: {
         action: "Retry in a moment. If it keeps failing, contact support so we can check the Cloud VM image configuration.",
         reason: "Cloud VM image configuration is unavailable.",
         details: { imageRequested: err.image !== undefined },
+        diagnostics: {
+          provider,
+          image: err.image,
+          envVar: err.envVar,
+          configReason: err.reason,
+        },
         phase: "create",
         retryable: true,
       });
