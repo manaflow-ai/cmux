@@ -6,6 +6,8 @@ use cmux_remote_protocol::{
     Lane, OperationId, ProcessId, RequestId, RpcError, RpcEvent, RpcRequest, RpcResponse, Service,
     ServiceControl, WorkspaceRequest, WorkspaceResponse,
 };
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::service::{ServiceMultiplexer, ServiceStream};
@@ -13,13 +15,27 @@ use crate::services::MessageStream;
 
 type PendingResponse = Result<RpcResponse, String>;
 type RequestRegistry = Arc<Mutex<WorkspaceRequestRegistry>>;
+type RequestIdMac = Hmac<Sha256>;
 const DROPPED_CANCELLATION_QUEUE: usize = 128;
-// Keep the random UUID's high 80-bit prefix and use its low 48 bits as a
-// monotonic sequence. This preserves the UUID version and variant bits while
-// making every ID issued by a channel recognizable without tombstone storage.
-const REQUEST_ID_SEQUENCE_BITS: u32 = 48;
+// UUIDv4 has 122 free bits. Encode a private 64-bit channel namespace and a
+// 58-bit issuance cursor in those bits with a keyed Feistel permutation. This
+// keeps the wire format opaque and UUIDv4-compatible while allowing exact
+// recognition of retired IDs with constant memory. A visible counter would
+// leak request order, and a finite tombstone set would misclassify late frames.
+const REQUEST_ID_NAMESPACE_BITS: u32 = 64;
+const REQUEST_ID_SEQUENCE_BITS: u32 = 58;
+const REQUEST_ID_PAYLOAD_BITS: u32 = REQUEST_ID_NAMESPACE_BITS + REQUEST_ID_SEQUENCE_BITS;
 const REQUEST_ID_SEQUENCE_MASK: u128 = (1u128 << REQUEST_ID_SEQUENCE_BITS) - 1;
-const REQUEST_ID_SEQUENCE_MAX: u64 = (1u64 << REQUEST_ID_SEQUENCE_BITS) - 1;
+const REQUEST_ID_SEQUENCE_MAX: u64 = REQUEST_ID_SEQUENCE_MASK as u64;
+const REQUEST_ID_FEISTEL_HALF_BITS: u32 = REQUEST_ID_PAYLOAD_BITS / 2;
+const REQUEST_ID_FEISTEL_HALF_MASK: u128 = (1u128 << REQUEST_ID_FEISTEL_HALF_BITS) - 1;
+const REQUEST_ID_FEISTEL_ROUNDS: u8 = 10;
+const UUID_VERSION_SHIFT: u32 = 76;
+const UUID_VARIANT_SHIFT: u32 = 62;
+const UUID_VERSION_MASK: u128 = 0xF << UUID_VERSION_SHIFT;
+const UUID_VERSION_VALUE: u128 = 0x4 << UUID_VERSION_SHIFT;
+const UUID_VARIANT_MASK: u128 = 0x3 << UUID_VARIANT_SHIFT;
+const UUID_VARIANT_VALUE: u128 = 0x2 << UUID_VARIANT_SHIFT;
 
 pub struct WorkspaceClient {
     multiplexer: Arc<ServiceMultiplexer>,
@@ -38,24 +54,26 @@ struct WorkspaceRpcChannel {
 }
 
 struct WorkspaceRequestRegistry {
-    // The namespace and sequence identify every ID issued by this channel.
-    // Keeping that identity is constant-size and avoids a finite tombstone
-    // queue turning a valid delayed response into an unknown response.
+    // The namespace, key, and sequence identify every ID issued by this
+    // channel. They are private, so the wire only exposes a normal UUIDv4.
     // `retire` and `route_response` both mutate the pending map under this
     // registry lock, so cancellation has no observable removal gap.
-    namespace: u128,
+    namespace: u64,
+    key: [u8; 32],
     next_sequence: u64,
     pending: HashMap<RequestId, oneshot::Sender<PendingResponse>>,
 }
 
 impl WorkspaceRequestRegistry {
     fn new() -> Self {
-        let random = uuid::Uuid::new_v4().as_u128();
-        Self {
-            namespace: random >> REQUEST_ID_SEQUENCE_BITS,
-            next_sequence: 0,
-            pending: HashMap::new(),
-        }
+        let mut material = [0_u8; 40];
+        getrandom::fill(&mut material).expect("OS randomness is required for request IDs");
+        let mut namespace_bytes = [0_u8; 8];
+        namespace_bytes.copy_from_slice(&material[..8]);
+        let namespace = u64::from_be_bytes(namespace_bytes);
+        let mut key = [0_u8; 32];
+        key.copy_from_slice(&material[8..]);
+        Self { namespace, key, next_sequence: 0, pending: HashMap::new() }
     }
 
     fn allocate(&mut self) -> Option<RequestId> {
@@ -64,9 +82,7 @@ impl WorkspaceRequestRegistry {
             .checked_add(1)
             .filter(|sequence| *sequence <= REQUEST_ID_SEQUENCE_MAX)?;
         self.next_sequence = sequence;
-        Some(RequestId::from_u128(
-            (self.namespace << REQUEST_ID_SEQUENCE_BITS) | u128::from(sequence),
-        ))
+        Some(encode_request_id(self.namespace, sequence, &self.key))
     }
 
     fn retire(&mut self, id: RequestId) -> bool {
@@ -74,12 +90,101 @@ impl WorkspaceRequestRegistry {
     }
 
     fn was_issued(&self, id: RequestId) -> bool {
-        let raw = id.as_u128();
-        let sequence = raw & REQUEST_ID_SEQUENCE_MASK;
-        raw >> REQUEST_ID_SEQUENCE_BITS == self.namespace
-            && sequence != 0
-            && sequence <= u128::from(self.next_sequence)
+        let Some((namespace, sequence)) = decode_request_id(id, &self.key) else {
+            return false;
+        };
+        namespace == self.namespace && sequence != 0 && sequence <= self.next_sequence
     }
+}
+
+fn encode_request_id(namespace: u64, sequence: u64, key: &[u8; 32]) -> RequestId {
+    debug_assert!(sequence > 0 && sequence <= REQUEST_ID_SEQUENCE_MAX);
+    let plaintext = (u128::from(namespace) << REQUEST_ID_SEQUENCE_BITS) | u128::from(sequence);
+    let ciphertext = permute_request_id_payload(plaintext, key, false);
+    RequestId::from_u128(embed_uuid_payload(ciphertext))
+}
+
+fn decode_request_id(id: RequestId, key: &[u8; 32]) -> Option<(u64, u64)> {
+    let raw = id.as_u128();
+    if !is_uuid_v4(raw) {
+        return None;
+    }
+    let plaintext = permute_request_id_payload(extract_uuid_payload(raw), key, true);
+    Some((
+        (plaintext >> REQUEST_ID_SEQUENCE_BITS) as u64,
+        (plaintext & REQUEST_ID_SEQUENCE_MASK) as u64,
+    ))
+}
+
+fn is_uuid_v4(raw: u128) -> bool {
+    raw & UUID_VERSION_MASK == UUID_VERSION_VALUE && raw & UUID_VARIANT_MASK == UUID_VARIANT_VALUE
+}
+
+fn is_uuid_fixed_bit(bit: u32) -> bool {
+    (UUID_VERSION_SHIFT..UUID_VERSION_SHIFT + 4).contains(&bit)
+        || (UUID_VARIANT_SHIFT..UUID_VARIANT_SHIFT + 2).contains(&bit)
+}
+
+fn embed_uuid_payload(payload: u128) -> u128 {
+    debug_assert!(payload < (1_u128 << REQUEST_ID_PAYLOAD_BITS));
+    let mut raw = 0_u128;
+    let mut payload_bit = REQUEST_ID_PAYLOAD_BITS;
+    for bit in (0..128_u32).rev() {
+        if is_uuid_fixed_bit(bit) {
+            continue;
+        }
+        payload_bit -= 1;
+        raw |= ((payload >> payload_bit) & 1) << bit;
+    }
+    debug_assert_eq!(payload_bit, 0);
+    raw | UUID_VERSION_VALUE | UUID_VARIANT_VALUE
+}
+
+fn extract_uuid_payload(raw: u128) -> u128 {
+    let mut payload = 0_u128;
+    for bit in (0..128_u32).rev() {
+        if is_uuid_fixed_bit(bit) {
+            continue;
+        }
+        payload = (payload << 1) | ((raw >> bit) & 1);
+    }
+    payload
+}
+
+fn permute_request_id_payload(value: u128, key: &[u8; 32], decrypt: bool) -> u128 {
+    // Feistel round reversal is a bijection over all 122 payload bits. HMAC
+    // makes the private mapping pseudorandom; this is an in-process namespace
+    // recognizer, not an authentication tag for the wire protocol.
+    debug_assert!(value < (1_u128 << REQUEST_ID_PAYLOAD_BITS));
+    let mut left = (value >> REQUEST_ID_FEISTEL_HALF_BITS) & REQUEST_ID_FEISTEL_HALF_MASK;
+    let mut right = value & REQUEST_ID_FEISTEL_HALF_MASK;
+    if decrypt {
+        for round in (0..REQUEST_ID_FEISTEL_ROUNDS).rev() {
+            let previous_right = left;
+            let previous_left = right ^ request_id_round(key, round, previous_right);
+            left = previous_left;
+            right = previous_right;
+        }
+    } else {
+        for round in 0..REQUEST_ID_FEISTEL_ROUNDS {
+            let next_left = right;
+            let next_right = left ^ request_id_round(key, round, right);
+            left = next_left;
+            right = next_right;
+        }
+    }
+    (left << REQUEST_ID_FEISTEL_HALF_BITS) | right
+}
+
+fn request_id_round(key: &[u8; 32], round: u8, input: u128) -> u128 {
+    let mut mac = RequestIdMac::new_from_slice(key).expect("a 32-byte HMAC key is always valid");
+    mac.update(b"cmux-workspace-request-id-v1");
+    mac.update(&[round]);
+    mac.update(&input.to_be_bytes());
+    let digest = mac.finalize().into_bytes();
+    let mut bytes = [0_u8; 8];
+    bytes.copy_from_slice(&digest[..8]);
+    u128::from(u64::from_be_bytes(bytes)) & REQUEST_ID_FEISTEL_HALF_MASK
 }
 
 struct DroppedWorkspaceRequest {
@@ -720,7 +825,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn known_response_is_delivered_to_pending_request() {
+    async fn immediate_response_is_delivered_after_registration() {
         let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
         let (sender, receiver) = oneshot::channel();
         let id = request_registry(&requests).allocate().expect("request ID available");
@@ -734,6 +839,67 @@ mod tests {
 
         let response = receiver.await.unwrap().unwrap();
         assert_eq!(response.id, id);
+    }
+
+    #[test]
+    fn foreign_request_ids_are_not_recognized() {
+        let requests = WorkspaceRequestRegistry::new();
+        let mut foreign_registry = WorkspaceRequestRegistry {
+            namespace: requests.namespace ^ 1,
+            key: requests.key,
+            next_sequence: 0,
+            pending: HashMap::new(),
+        };
+        let foreign = foreign_registry.allocate().expect("request ID available");
+
+        assert!(!requests.was_issued(RequestId::from_u128(0)));
+        assert!(!requests.was_issued(foreign));
+        let requests = Arc::new(Mutex::new(requests));
+        let error = route_response(
+            RpcResponse { id: foreign, result: Err(RpcError::new("server", "foreign")) },
+            &requests,
+        )
+        .expect_err("a foreign response must fail the channel");
+        assert_eq!(error, "workspace RPC response could not be matched to a request");
+    }
+
+    #[test]
+    fn request_id_encoding_round_trips_and_preserves_uuidv4_shape() {
+        let requests = WorkspaceRequestRegistry::new();
+        let payloads = [
+            0,
+            1,
+            1_u128 << (REQUEST_ID_FEISTEL_HALF_BITS - 1),
+            1_u128 << (REQUEST_ID_PAYLOAD_BITS - 1),
+            (1_u128 << REQUEST_ID_PAYLOAD_BITS) - 1,
+        ];
+
+        for payload in payloads {
+            let encoded_payload = permute_request_id_payload(payload, &requests.key, false);
+            let encoded = RequestId::from_u128(embed_uuid_payload(encoded_payload));
+
+            assert!(is_uuid_v4(encoded.as_u128()));
+            assert_eq!(extract_uuid_payload(encoded.as_u128()), encoded_payload);
+            assert_eq!(permute_request_id_payload(encoded_payload, &requests.key, true), payload);
+        }
+
+        let mut requests = WorkspaceRequestRegistry::new();
+        let first = requests.allocate().expect("request ID available");
+        let second = requests.allocate().expect("request ID available");
+        assert_ne!(first, second);
+        assert!(requests.was_issued(first));
+        assert!(requests.was_issued(second));
+    }
+
+    #[test]
+    fn allocated_request_ids_round_trip_through_json() {
+        let mut requests = WorkspaceRequestRegistry::new();
+        let id = requests.allocate().expect("request ID available");
+
+        let encoded = serde_json::to_value(id).expect("request ID should serialize");
+        assert!(encoded.as_str().is_some(), "request ID must remain a JSON string");
+        let decoded: RequestId = serde_json::from_value(encoded).expect("request ID should parse");
+        assert_eq!(decoded, id);
     }
 
     #[test]
@@ -824,7 +990,10 @@ mod tests {
 
         let last = requests.allocate().expect("last request ID available");
 
-        assert_eq!(last.as_u128() & REQUEST_ID_SEQUENCE_MASK, u128::from(REQUEST_ID_SEQUENCE_MAX));
+        assert_eq!(
+            decode_request_id(last, &requests.key),
+            Some((requests.namespace, REQUEST_ID_SEQUENCE_MAX))
+        );
         assert!(requests.was_issued(last));
         assert!(requests.allocate().is_none());
     }
