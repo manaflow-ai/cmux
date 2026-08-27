@@ -167,7 +167,7 @@ npm_cache="$(npm config get cache)"
 target="$npm_cache/_npx"
 printf 'About to remove: %s\n' "$target"
 case "$npm_cache" in
-  ""|/|"$HOME"|"$HOME/"*) echo "Refusing an unsafe npm cache path" >&2; exit 1 ;;
+  ""|/) echo "Refusing an unsafe npm cache path" >&2; exit 1 ;;
 esac
 read -r -p 'Type yes to continue: ' confirm
 [ "$confirm" = yes ] || exit 1

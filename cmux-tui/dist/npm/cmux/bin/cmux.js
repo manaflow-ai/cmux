@@ -139,7 +139,11 @@ function cacheRoot() {
 }
 
 function statePath() {
-  return path.join(cacheRoot(), "state.json");
+  return path.join(platformRoot(), "state.json");
+}
+
+function platformRoot() {
+  return path.join(cacheRoot(), `${process.platform}-${process.arch}`);
 }
 
 function readState() {
@@ -159,7 +163,7 @@ function writeState(state) {
 }
 
 function cachedBinDir(version) {
-  return path.join(cacheRoot(), "v", version, "bin");
+  return path.join(platformRoot(), "v", version, "bin");
 }
 
 function cachedBinary(version) {
@@ -168,7 +172,7 @@ function cachedBinary(version) {
 }
 
 function cacheLockPath() {
-  return path.join(cacheRoot(), ".update.lock");
+  return path.join(platformRoot(), ".update.lock");
 }
 
 function tryAcquireCacheLock() {
@@ -187,7 +191,7 @@ function releaseCacheLock() {
 }
 
 function acquireVersionLease(version) {
-  const lease = path.join(cacheRoot(), "v", version, ".active");
+  const lease = path.join(platformRoot(), "v", version, ".active");
   try {
     fs.mkdirSync(path.dirname(lease), { recursive: true });
     fs.mkdirSync(lease, { recursive: false });
@@ -238,9 +242,20 @@ function registryBase() {
   return raw.replace(/\/+$/, "");
 }
 
+function registryHeaders(url, accept) {
+  const headers = { accept };
+  try {
+    const parsed = new URL(url);
+    const tokenKey = `npm_config_//${parsed.host}/:_authToken`;
+    const token = process.env[tokenKey] || process.env.npm_config_authToken;
+    if (token) headers.authorization = `Bearer ${token}`;
+  } catch {}
+  return headers;
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
-    headers: { accept: "application/json" },
+    headers: registryHeaders(url, "application/json"),
     signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
   });
   if (!response.ok) {
@@ -354,6 +369,7 @@ async function downloadVersion(pkg, version) {
   }
   console.error(`cmux: downloading ${pkg}@${version}...`);
   const response = await fetch(tarballUrl, {
+    headers: registryHeaders(tarballUrl, "application/octet-stream"),
     signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
   });
   if (!response.ok) {
@@ -374,7 +390,7 @@ async function downloadVersion(pkg, version) {
 
   const finalDir = cachedBinDir(version);
   const stagingDir = path.join(
-    cacheRoot(),
+    platformRoot(),
     "tmp",
     `${version}-${process.pid}-${Date.now().toString(36)}`
   );
@@ -385,10 +401,14 @@ async function downloadVersion(pkg, version) {
   fs.mkdirSync(path.dirname(finalDir), { recursive: true });
   try {
     fs.renameSync(path.join(stagingDir, "bin"), finalDir);
+    fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
   } catch (error) {
     // A concurrent launcher won the race; its extraction is byte-identical
     // because both verified the same registry integrity.
     if (!cachedBinary(version)) throw error;
+    try {
+      fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
+    } catch {}
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
   }
@@ -399,10 +419,15 @@ async function downloadVersion(pkg, version) {
 
 function pruneCache(keepVersion) {
   if (!tryAcquireCacheLock()) return;
-  const root = path.join(cacheRoot(), "v");
+  const root = path.join(platformRoot(), "v");
   try {
+    const managed = fs
+      .readdirSync(root)
+      .filter((version) => fs.existsSync(path.join(root, version, "managed")))
+      .sort(compareVersions);
+    const keep = new Set([keepVersion, ...managed.slice(-2)]);
     for (const version of fs.readdirSync(root)) {
-      if (version === keepVersion) continue;
+      if (keep.has(version)) continue;
       const lease = path.join(root, version, ".active");
       if (fs.existsSync(lease)) {
         if (leaseIsActive(lease)) continue;
