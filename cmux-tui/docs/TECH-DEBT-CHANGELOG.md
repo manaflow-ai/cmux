@@ -1,15 +1,15 @@
 # cmux-tui aggregate change log
 
-Current snapshot: 2026-08-27T13:05:00Z. The audited source is pinned to
-`origin/main` at [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0),
-committed 2026-08-27T05:49:57-07:00 with subject
-`Integrate Escape passthrough fix from PR #9810 (#10959)`. This documentation-only
+Current snapshot: 2026-08-27T12:20:00Z. The audited source is pinned to
+`origin/main` at [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0),
+committed 2026-08-27T02:58:58-07:00 with subject
+`Fix workspace RPC unknown response hangs (#10936)`. This documentation-only
 refresh keeps the prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and
 `99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots below as historical
 records. The session receipt and lower-bound ledger are retained from the prior
 audit; no new session scan was performed.
 
-## Current main tail (2026-08-27, main `87f31977237cbcbbf8b7f492718685d612fbb9b0`)
+## Current main tail (2026-08-27, main `de3902db48d2924c227b5acb26cbe1d89fe03cc0`)
 
 Each row includes the merged PR, author, merge SHA, change, and exact rollback
 command. The commits are single-parent squash merges, so no `-m` option is
@@ -37,9 +37,6 @@ claim is made.
 | [#10958](https://github.com/manaflow-ai/cmux/pull/10958) | Lawrence Chen | [`9cf920bb6b7a87bae3af721a0f98c989c45b9c4b`](https://github.com/manaflow-ai/cmux/commit/9cf920bb6b7a87bae3af721a0f98c989c45b9c4b) | Own TUI layout from the rendered frame area. | `git revert 9cf920bb6b7a87bae3af721a0f98c989c45b9c4b` |
 | [#10962](https://github.com/manaflow-ai/cmux/pull/10962) | Lawrence Chen | [`ef5e7434927d89996e2cd29b429823b8a716a08e`](https://github.com/manaflow-ai/cmux/commit/ef5e7434927d89996e2cd29b429823b8a716a08e) | Apply immediate redraws after visible input changes. | `git revert ef5e7434927d89996e2cd29b429823b8a716a08e` |
 | [#10951](https://github.com/manaflow-ai/cmux/pull/10951) | Lawrence Chen | [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0) | Share startup option scanning across TUI entry points. | `git revert de3902db48d2924c227b5acb26cbe1d89fe03cc0` |
-| [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | [`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50) | Share the draw and paint render path. | `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
-| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | [`2f95b8760005047ff470afe4a00fd33783e4cf93`](https://github.com/manaflow-ai/cmux/commit/2f95b8760005047ff470afe4a00fd33783e4cf93) | Defer and flush Sentry sends before serverless freeze. | `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
-| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0) | Integrate Escape passthrough from #9810. | `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 
 The prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` snapshot was captured at
 2026-08-27T09:54:48Z after [#10950](https://github.com/manaflow-ai/cmux/pull/10950).

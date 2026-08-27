@@ -1,9 +1,9 @@
 # cmux-tui technical-debt board
 
-Current snapshot: 2026-08-27T13:05:00Z. The exact source baseline is
-`origin/main` at [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0),
-committed 2026-08-27T05:49:57-07:00 with subject
-`Integrate Escape passthrough fix from PR #9810 (#10959)`. This is a documentation-
+Current snapshot: 2026-08-27T12:20:00Z. The exact source baseline is
+`origin/main` at [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0),
+committed 2026-08-27T02:58:58-07:00 with subject
+`Fix workspace RPC unknown response hangs (#10936)`. This is a documentation-
 only update, with no local Rust, Zig, or runtime build/test. The prior
 `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and `99bdc375e98eb9abddd3f54289bc16ef876e8095`
 snapshots are retained below as historical layers.
@@ -15,11 +15,8 @@ The current tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/1093
 [#10950](https://github.com/manaflow-ai/cmux/pull/10950),
 [#10951](https://github.com/manaflow-ai/cmux/pull/10951),
 [#10954](https://github.com/manaflow-ai/cmux/pull/10954),
-[#10958](https://github.com/manaflow-ai/cmux/pull/10958),
-[#10962](https://github.com/manaflow-ai/cmux/pull/10962),
-[#10970](https://github.com/manaflow-ai/cmux/pull/10970), and
-[#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
-[#10959](https://github.com/manaflow-ai/cmux/pull/10959), with the nine requested
+[#10958](https://github.com/manaflow-ai/cmux/pull/10958), and
+[#10962](https://github.com/manaflow-ai/cmux/pull/10962), with the nine requested
 PRs. All listed authors are Lawrence Chen. Each row gives the exact merge SHA
 and a rollback command. The [#10936](https://github.com/manaflow-ai/cmux/pull/10936)
 change fails unknown workspace RPC responses instead of allowing a request
@@ -39,9 +36,6 @@ channel to hang.
 | [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Bound Git child cleanup with an explicit cancellation deadline and reap path. | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | Descendant cleanup still needs hosted stress proof. `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
 | [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Zeroize oversized remote session frames before returning the size-limit error. | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | Cross-language and allocator-level zeroization proof remains required. `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
 | [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Fail unknown workspace RPC responses and retire canceled request IDs safely. | `d65d6e6ccacf1d7300316451ce2830f05f889e14` | Cross-client unknown-response, cancellation, and reconnect behavior still need hosted proof. `git revert d65d6e6ccacf1d7300316451ce2830f05f889e14` |
-| [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Share the draw and paint render path. | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | Render-path behavior still needs hosted visual proof. `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
-| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Defer and flush Sentry sends before serverless freeze. | `2f95b8760005047ff470afe4a00fd33783e4cf93` | Cloud delivery behavior still needs hosted evidence. `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
-| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Integrate Escape passthrough from #9810. | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Cross-frontend Escape handling still needs behavior proof. `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 
 The session scan receipt and lower-bound ledger below remain retained audit
 evidence. No new session scan was performed for this metadata refresh.
@@ -51,11 +45,9 @@ is made.
 
 ## Current delta since `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 
-| Area | Current state at `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Required proof or next action |
+| Area | Current state at `d65d6e6ccacf1d7300316451ce2830f05f889e14` | Required proof or next action |
 | --- | --- | --- |
 | Workspace RPC response routing | Unknown responses fail the workspace RPC channel, and canceled request IDs are retired without exposing the local namespace. | Exercise unknown, late, canceled, and reconnect responses from multiple clients, then verify bounded failure and no request-ID leakage. |
-| Escape input routing | Escape passthrough is integrated from #9810. | Exercise terminal, sidebar, and nested-frontend Escape behavior on the exact main snapshot. |
-| Alternate-screen wheel policy | Wheel events use Ghostty wheel reporting with mouse tracking, and emit `ESC[A/B` three times when alternate-screen apps do not enable tracking. | Add a configurable alternate-scroll policy and modifier override, with behavior tests. Changing the default may break TUIs that rely on arrow sequences. |
 
 ## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 

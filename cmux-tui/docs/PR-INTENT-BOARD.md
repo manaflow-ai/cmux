@@ -1,9 +1,9 @@
 # cmux TUI PR intent and merge board
 
-Current snapshot: 2026-08-27T13:05:00Z. This board is pinned to
-`origin/main` at [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0),
-committed 2026-08-27T05:49:57-07:00 with subject
-`Integrate Escape passthrough fix from PR #9810 (#10959)`. The working branch
+Current snapshot: 2026-08-27T12:20:00Z. This board is pinned to
+`origin/main` at [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0),
+committed 2026-08-27T02:58:58-07:00 with subject
+`Fix workspace RPC unknown response hangs (#10936)`. The working branch
 contains documentation only. The prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 snapshot, captured at 2026-08-27T09:54:48Z, and the earlier
 `99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshot are retained below as
@@ -16,12 +16,10 @@ The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull
 [#10954](https://github.com/manaflow-ai/cmux/pull/10954),
 [#10958](https://github.com/manaflow-ai/cmux/pull/10958),
 [#10962](https://github.com/manaflow-ai/cmux/pull/10962), and
-[#10951](https://github.com/manaflow-ai/cmux/pull/10951), and
-[#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
-[#10959](https://github.com/manaflow-ai/cmux/pull/10959). The latest merge adds
-Escape passthrough after the startup, redraw, frame-area, diagnostics, and
-draw/paint render-path tail. Source heads, authors, merge times, and merge
-commits are recorded below.
+[#10951](https://github.com/manaflow-ai/cmux/pull/10951). The latest merge shares
+startup option scanning and completes the redraw, frame-area, and diagnostics
+tail. Source heads, authors, merge times, and merge commits are recorded below.
+Source heads, authors, merge times, and merge commits are recorded below.
 Individual rollback commands are in
 [`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
 
@@ -43,9 +41,6 @@ Individual rollback commands are in
 | [#10958](https://github.com/manaflow-ai/cmux/pull/10958) | Lawrence Chen | `c6de8f16b6390038225f87474f603b0ea157506e` | 2026-08-27 10:22:03 | `9cf920bb6b7a87bae3af721a0f98c989c45b9c4b` |
 | [#10962](https://github.com/manaflow-ai/cmux/pull/10962) | Lawrence Chen | `ff719b6dc4e9f05358d0c77b7f49a9db021f72e7` | 2026-08-27 10:41:51 | `ef5e7434927d89996e2cd29b429823b8a716a08e` |
 | [#10951](https://github.com/manaflow-ai/cmux/pull/10951) | Lawrence Chen | `978655f95b56351c9d554d2bdd1be9ad6ec2c551` | 2026-08-27 12:04:42 | `de3902db48d2924c227b5acb26cbe1d89fe03cc0` |
-| [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | `561ddccdc9da7d6389d90940f73e9ea30205fa26` | 2026-08-27 12:25:26 | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
-| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | `d41cac100d2488c41cbabff7c236166186b9deb4` | 2026-08-27 12:22:32 | `2f95b8760005047ff470afe4a00fd33783e4cf93` |
-| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | `8f74239c78a81352d69e8fe5512a688b0a9d7b7e` | 2026-08-27 12:49:58 | `87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 
 The bounded open-PR inventory retained below was captured before the d65 merge.
 It retains exact heads, check rollups, GitHub state, and classifications without
@@ -57,8 +52,6 @@ This is a verifiable lower bound, not a total session count, and no
 10,000-session claim is made.
 
 Dependent open intents require separate review: [#10736](https://github.com/manaflow-ai/cmux/pull/10736) (`2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, sidebar preview), [#10742](https://github.com/manaflow-ai/cmux/pull/10742) (`befdff972f563f851ef27e38bbbb115269b4769a`, manual I/O), and [#10812](https://github.com/manaflow-ai/cmux/pull/10812) (`a44314f6e9eaf42925dc1d6c9dfb0a20b021b4a1`, remote daemon). Their open state is not acceptance evidence.
-
-Cloud resource projection [#10812](https://github.com/manaflow-ai/cmux/pull/10812) is superseded by merged [#10887](https://github.com/manaflow-ai/cmux/pull/10887). Packaging duplicate [#10886](https://github.com/manaflow-ai/cmux/pull/10886) remains open and is superseded pending [#10891](https://github.com/manaflow-ai/cmux/pull/10891); re-query both before closing either.
 
 ## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 
