@@ -1311,7 +1311,9 @@ where
         if size == 0 {
             return Ok(());
         }
-        if line.len() > crate::mux_codec::MAX_MUX_LINE_BYTES {
+        if crate::mux_codec::mux_line_payload_len(&line)
+            > crate::mux_codec::MAX_MUX_LINE_BYTES.saturating_sub(1)
+        {
             return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {

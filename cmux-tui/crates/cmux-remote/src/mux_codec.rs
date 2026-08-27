@@ -20,6 +20,13 @@ pub(crate) const MAX_MUX_LINE_BYTES: usize = MAX_MUX_UPLOAD_LINE_BYTES;
 const MAX_IN_FLIGHT_LINES: usize = 256;
 const MAX_IN_FLIGHT_BYTES: usize = MAX_MUX_DOWNLOAD_LINE_BYTES * 2;
 
+/// Return the serialized payload size for one JSONL message. A trailing LF is
+/// framing and is not part of the directional payload budget. EOF-terminated
+/// lines are valid on the relay path, so they must be measured as-is.
+pub(crate) fn mux_line_payload_len(line: &[u8]) -> usize {
+    line.strip_suffix(b"\n").map_or(line.len(), |payload| payload.len())
+}
+
 pub(crate) async fn read_bounded_line<R>(reader: &mut R, line: &mut Vec<u8>) -> io::Result<usize>
 where
     R: AsyncBufRead + Unpin,
@@ -51,7 +58,7 @@ pub(crate) fn encode_line_with_limit(
     line: &[u8],
     maximum: usize,
 ) -> Result<Vec<Bytes>, MuxCodecError> {
-    if line.len() > maximum {
+    if mux_line_payload_len(line) > maximum.saturating_sub(1) {
         return Err(MuxCodecError::LineTooLarge(line.len()));
     }
     let parts = line.len().max(1).div_ceil(CHUNK_BYTES);
@@ -188,11 +195,11 @@ impl<R> MuxLineAssembler<R> {
         for part in line.parts {
             joined.extend_from_slice(&part.expect("all parts received"));
         }
-        Ok(Some(AssembledMuxLine {
-            lane: line.lane,
-            payload: joined.freeze(),
-            _retained: line.retained,
-        }))
+        let payload = joined.freeze();
+        if mux_line_payload_len(&payload) > self.maximum.saturating_sub(1) {
+            return Err(MuxCodecError::LineTooLarge(payload.len()));
+        }
+        Ok(Some(AssembledMuxLine { lane: line.lane, payload, _retained: line.retained }))
     }
 }
 
@@ -252,17 +259,18 @@ mod tests {
 
     #[test]
     fn relay_line_limit_accepts_the_unix_payload_maximum() {
-        let line = vec![b'x'; MAX_MUX_LINE_BYTES];
+        let mut line = vec![b'x'; REMOTE_CLIENT_MESSAGE_MAX_BYTES];
+        line.push(b'\n');
         let packets = encode_line(1, &line).expect("the supported maximum must be encodable");
         assert!(!packets.is_empty());
     }
 
     #[test]
     fn relay_line_limit_rejects_oversized_input_before_packet_allocation() {
-        let line = vec![b'x'; MAX_MUX_LINE_BYTES + 1];
+        let line = vec![b'x'; REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1];
         assert!(matches!(
             encode_line(1, &line),
-            Err(MuxCodecError::LineTooLarge(size)) if size == MAX_MUX_LINE_BYTES + 1
+            Err(MuxCodecError::LineTooLarge(size)) if size == REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1
         ));
     }
 
