@@ -13,14 +13,27 @@ struct SurfaceCatalogTests {
     private struct TestTimeout: Error {}
 
     /// Lets timeout behavior be tested without waiting on wall-clock time.
-    private struct ImmediateClock: Clock, Sendable {
+    private final class ImmediateClock: Clock, @unchecked Sendable {
         typealias Instant = ContinuousClock.Instant
+
+        private let lock = NSLock()
+        private var sleepCount = 0
+        private let onSleep: @Sendable (Int) -> Void
+
+        init(onSleep: @escaping @Sendable (Int) -> Void = { _ in }) {
+            self.onSleep = onSleep
+        }
 
         var now: Instant { .now }
         var minimumResolution: Duration { .zero }
 
         func sleep(until _: Instant, tolerance _: Duration?) async throws {
             await Task.yield()
+            lock.lock()
+            sleepCount += 1
+            let count = sleepCount
+            lock.unlock()
+            onSleep(count)
         }
     }
 
@@ -80,6 +93,7 @@ struct SurfaceCatalogTests {
         var materialized: [(SurfaceResourceID, SurfaceDestination)] = []
         var ended: [SurfaceProjection] = []
         var discarded: [SurfaceProjection] = []
+        var onDiscard: ((SurfaceProjection) -> Void)?
         var nextPanel = UUID()
         var materializeGate: MaterializeGate?
 
@@ -104,7 +118,10 @@ struct SurfaceCatalogTests {
 
         func projectionDidEnd(_ projection: SurfaceProjection) { ended.append(projection) }
 
-        func discardMaterialization(_ projection: SurfaceProjection) { discarded.append(projection) }
+        func discardMaterialization(_ projection: SurfaceProjection) {
+            discarded.append(projection)
+            onDiscard?(projection)
+        }
     }
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell") -> SurfaceResource {
@@ -241,11 +258,27 @@ struct SurfaceCatalogTests {
     }
 
     @Test func `An abandoned materialization deadline allows a replacement operation`() async throws {
+        let (retirementDeadline, retirementDeadlineContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let clock = ImmediateClock { sleepCount in
+            guard sleepCount == 2 else { return }
+            retirementDeadlineContinuation.yield(())
+            retirementDeadlineContinuation.finish()
+        }
         let catalog = SurfaceCatalog(
             abandonedMaterializationTimeout: .seconds(30),
-            materializationClock: ImmediateClock()
+            retiredMaterializationRetention: .seconds(30),
+            materializationClock: clock
         )
         let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        let (discarded, discardedContinuation) = AsyncStream<SurfaceProjection>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        oldProvider.onDiscard = { projection in
+            discardedContinuation.yield(projection)
+            discardedContinuation.finish()
+        }
         let gate = MaterializeGate()
         oldProvider.materializeGate = gate
         catalog.register(oldProvider)
@@ -281,6 +314,12 @@ struct SurfaceCatalogTests {
         }
         #expect(result.reused == false)
         #expect(replacementProvider.materialized.count == 1)
+
+        _ = try await awaitFirst(retirementDeadline)
+        await Task.yield()
+        gate.release()
+        _ = try await awaitFirst(discarded)
+        #expect(oldProvider.discarded.count == 1, "a result after retirement eviction must still close its pane")
     }
 
     @Test func `Unregistering cancels in-flight materialization`() async throws {
