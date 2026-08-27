@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Freestyle and E2B prefer `cmuxd-remote` WebSocket PTY with short-lived leases; older Freestyle VMs can fall back to its SSH gateway.
+Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Blaxel, E2B, and Daytona machines attach through the cmux-tui remote daemon (transport `cmux-remote`); Freestyle still serves the legacy `cmuxd-remote` WebSocket PTY with short-lived leases, and older Freestyle VMs can fall back to its SSH gateway.
 
 ## Layout
 
@@ -96,33 +96,16 @@ Rollback is an env-only operation:
 
 ## Baked tools and VM-local cmux CLI
 
-`web/scripts/build-cloud-vm-images.ts` installs the shared Cloud VM base layer for both E2B and
-Freestyle:
-
-- Node.js from the configured major line, default `22`.
-- Bun.
-- Claude Code from `@anthropic-ai/claude-code@2.1.137`.
-- OpenCode from `opencode-ai@1.14.41`.
-- Codex CLI from `@openai/codex@0.130.0`.
-- Pi from `@earendil-works/pi-coding-agent@0.74.0`.
-- zsh, zsh autosuggestions, tmux, gh, htop, and btop for the default shell.
-- `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
-- `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
-
-The image smoke checks run `node --version`, `npm --version`, `bun --version`, `claude --version`,
-`opencode --version`, `codex --version`, `pi --version`, `gh --version`, `htop --version`,
-`btop --version`, `tmux -V`, `zsh --version`, `cmux --help`, and `cmuxd-remote version`. They
-also keep the existing Python/OpenSSL checks for provider browser proxy support.
-
-Agent package override env vars:
-
-- `CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_OPENCODE_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_CODEX_NPM_SPEC`
-- `CMUX_CLOUD_IMAGE_PI_NPM_SPEC`
-
-Set an override to a package spec such as `@openai/codex@0.130.0`. Set it to `none` only for local
-image experiments that intentionally skip a tool.
+The E2B, Daytona, and Freestyle devbox images are defined in
+`web/services/vms/images/devbox/` and baked with `web/scripts/build-devbox-e2b.ts`,
+`build-devbox-daytona.ts`, and `build-devbox-freestyle.ts` (chatmux/Blaxel devbox
+parity: devtools, mise node/python/bun, uv, gh, Chrome + cua-driver, pinned coding
+agents, ble.sh devshell, agent-config generator). The session daemon is cmux-tui,
+installed at create time from the pinned files.cmux.com artifacts manifest by
+`services/vms/drivers/cmuxTuiDaemon.ts`; no daemon binary is baked. See the devbox
+README for the bake + verify + manifest flow. The legacy cmuxd-remote image builder
+(`build-cloud-vm-images.ts`) has been deleted; images it produced remain in the
+manifest for reference but cannot serve the cmux-remote transport.
 
 ## Browser automation from Cloud VM SSH
 
@@ -368,7 +351,16 @@ Blaxel machines with `details.supportedTransports: ["cmux-remote"]`. `cmux vm sh
 See docs/cloud-cmux-tui-daemon.md for the design. Live driver E2E:
 `bun scripts/test-blaxel-vm-poc.ts`.
 
-E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
+E2B and Daytona machines run the same cmux-tui daemon and only the `cmux-remote`
+transport. The E2B route is the sandbox's public port host
+(`wss://1337-<id>.e2b.app/v1/link`; the proxy's only request auth is a header the
+dialer cannot send, so sandboxes are created with public port traffic and the
+daemon's Noise enrollment gates sessions). The Daytona route is the preview proxy
+with its token as the `DAYTONA_SANDBOX_AUTH_KEY` query parameter; preview tokens
+reset on sandbox restart, so the backend mints a fresh link per attach. cmux does
+not use Daytona's SSH gateway. The backend writes only a hash of attach tokens to
+Postgres; raw tokens are returned once to the Mac client. Machines created by the
+old cmuxd-remote drivers cannot serve this transport and need recreation.
 
 Operational note: Blaxel is the intended default. Before rollout or rollback, verify the deployed
 `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_BLAXEL_ENABLED`, `BL_API_KEY`, and `BL_WORKSPACE` env values

@@ -12,22 +12,23 @@
  * follow every build with
  * `bun scripts/verify-devbox-image.ts e2b cmux-devbox:<tag>`.
  *
- * Driver contract (web/services/vms/drivers/e2b.ts): the template start
- * command runs cmuxd-remote's WebSocket PTY+RPC server on 7777 with the
- * /tmp/cmux lease files, gated on /healthz so a created sandbox is
- * attach-ready. The driver discovers lease paths from the process table.
+ * Daemon contract (web/services/vms/drivers/e2b.ts): the session daemon is
+ * cmux-tui, installed by the driver at create time from the pinned
+ * files.cmux.com manifest and started as a root background command; E2B
+ * pause/resume preserves processes, and attach heals a dead daemon. The
+ * template therefore has NO start command and bakes no daemon binary — only
+ * the inert cmux-devbox-boot supervisor for uniformity with Daytona and
+ * Freestyle.
  *
  * Resources: 2 vCPU / 4096 MB (npm OOMs below 2 GB; Chrome + the agents
  * need the headroom).
  */
-import { Template, defaultBuildLogger, waitForURL } from "e2b";
+import { Template, defaultBuildLogger } from "e2b";
 import { fileURLToPath } from "node:url";
 import {
-  DEVBOX_SERVE_COMMAND,
   argValue,
   bakeMetadata,
   bakePreflight,
-  buildRemoteDaemon,
   defaultBakeTag,
   devboxDir,
   devboxDockerfilePath,
@@ -40,14 +41,11 @@ if (!process.env.E2B_API_KEY) {
 }
 
 const preflight = bakePreflight();
-const daemon = await buildRemoteDaemon();
 
 const tag = (argValue("--tag") ?? defaultBakeTag()).trim();
 const name = `cmux-devbox:${tag}`;
 
-const template = Template({ fileContextPath: devboxDir })
-  .fromDockerfile(devboxDockerfilePath)
-  .setStartCmd(DEVBOX_SERVE_COMMAND, waitForURL("http://127.0.0.1:7777/healthz", 200));
+const template = Template({ fileContextPath: devboxDir }).fromDockerfile(devboxDockerfilePath);
 
 const result = await Template.build(template, name, {
   cpuCount: 2,
@@ -56,7 +54,7 @@ const result = await Template.build(template, name, {
   onBuildLogs: defaultBuildLogger({ minLevel: "info" }),
 });
 
-const metadata = bakeMetadata(preflight, daemon, fileURLToPath(import.meta.url));
+const metadata = bakeMetadata(preflight, fileURLToPath(import.meta.url));
 console.log(
   JSON.stringify(
     {
@@ -68,7 +66,7 @@ console.log(
         name,
         "E2B_CMUXD_WS_TEMPLATE",
         metadata,
-        "Shared devbox Dockerfile (services/vms/images/devbox).",
+        "Shared devbox Dockerfile (services/vms/images/devbox); cmux-tui transport.",
       ),
       next: `bun scripts/verify-devbox-image.ts e2b ${name}`,
     },

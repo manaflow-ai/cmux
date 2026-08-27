@@ -1,13 +1,15 @@
 import { Daytona, type Sandbox, type SandboxState } from "@daytonaio/sdk";
-import { randomBytes } from "node:crypto";
 import {
   ProviderError,
   type AttachEndpoint,
   type AttachOptions,
+  type AttachTransport,
+  type CmuxRemoteApprovalResult,
+  type CmuxRemoteAttachOptions,
+  type CmuxRemoteEndpoint,
   type CreateOptions,
   type ExecResult,
   type SSHEndpoint,
-  type WebSocketPtyEndpoint,
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
@@ -15,29 +17,39 @@ import {
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
-  isReusableRpcLease,
-  ensurePrivateDirectoryCommand,
-  leaseClientMetadata,
-  makeWebSocketAttachmentId,
-  makeWebSocketLease,
-  shellArgValue,
-  shellQuote,
-  type ReusableRpcLease,
-} from "./wsLease";
+  CMUX_TUI_INSTALL_TIMEOUT_MS,
+  CMUX_TUI_PORT,
+  CMUX_TUI_SESSION,
+  approveCmuxTuiEnrollment,
+  cmuxTuiDaemonBuild,
+  cmuxTuiDaemonCommand,
+  cmuxTuiInstallCommand,
+  cmuxTuiPinCheckCommand,
+  isCmuxTuiDeviceEnrolled,
+  mintCmuxTuiInvitation,
+  resolveCmuxTuiSource,
+  waitForCmuxTuiReady,
+  type CmuxTuiInvoke,
+} from "./cmuxTuiDaemon";
 
-// Daytona sandboxes are reached exclusively through preview URLs
-// (`https://7777-<sandboxId>.<proxyDomain>` + `x-daytona-preview-token` header), so the attach
-// path is cmuxd-remote WebSocket PTY only. Daytona also has a token-based SSH gateway, but we
-// deliberately do not use it (unreliable in practice), so `openSSH` throws like the E2B driver.
-const CMUXD_WS_PORT = 7777;
-const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
-const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
-const CMUXD_WS_RPC_LEASE_PATH = "/tmp/cmux/attach-rpc-lease.json";
-const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
-const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
-const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
-const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
-const CMUX_CLOUD_SHELL_PATH = "/usr/local/bin/cmux-cloud-shell";
+// Daytona sandboxes attach through the cmux-tui remote daemon (transport
+// `cmux-remote`, docs/cloud-cmux-tui-daemon.md), the machine's only session daemon —
+// same model as Blaxel. `create` installs the pinned files.cmux.com build
+// (sha256-verified, fetched by the sandbox itself); the devbox image's registered
+// entrypoint (/usr/local/bin/cmux-devbox-boot) supervises the daemon and Daytona
+// re-runs it on every sandbox start, which matters because Daytona stop kills
+// processes while the filesystem (and thus the installed binary and daemon
+// identity under /root) persists. Attach re-verifies pin + liveness.
+//
+// Ingress: the daemon port is reached through Daytona's preview proxy
+// (`https://1337-<sandboxId>.<proxyDomain>`), whose token the proxy accepts as the
+// `DAYTONA_SANDBOX_AUTH_KEY` query parameter (the Daytona SDK itself dials
+// WebSockets that way), so the tokenized wss route carries its own auth. Preview
+// tokens are invalidated when a sandbox restarts, so a fresh one is minted per
+// attach. Sandboxes created by the old cmuxd-remote driver have no cmux-tui
+// entrypoint and need recreation.
+const CMUX_DEVBOX_BOOT_PATH = "/usr/local/bin/cmux-devbox-boot";
+const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
 
 const CREATE_TIMEOUT_SECONDS = 15 * 60;
@@ -45,9 +57,6 @@ const LIFECYCLE_TIMEOUT_SECONDS = 5 * 60;
 const SNAPSHOT_TIMEOUT_SECONDS = 15 * 60;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
-const HEALTH_CHECK_TIMEOUT_MS = 10_000;
-const HEALTH_RETRY_ATTEMPTS = 12;
-const HEALTH_RETRY_INTERVAL_MS = 1_000;
 
 function client(): Daytona {
   // The SDK reads DAYTONA_API_KEY/DAYTONA_API_URL itself; pass them explicitly so the override
@@ -127,6 +136,15 @@ export class DaytonaProvider implements VMProvider {
             { timeout: CREATE_TIMEOUT_SECONDS },
           );
           setSpanAttributes(span, { "cmux.vm.id": sandbox.id });
+          try {
+            await this.bootstrapCmuxTui(sandbox);
+          } catch (err) {
+            // A sandbox that failed to bootstrap must not survive as an orphan.
+            await sandbox.delete(LIFECYCLE_TIMEOUT_SECONDS).catch((cleanupErr) => {
+              console.error(`[daytona] create rollback failed; sandbox ${sandbox.id} may be orphaned`, cleanupErr);
+            });
+            throw err;
+          }
           return {
             provider: "daytona",
             providerVmId: sandbox.id,
@@ -135,7 +153,7 @@ export class DaytonaProvider implements VMProvider {
             createdAt: Date.now(),
           };
         } catch (err) {
-          throw new ProviderError("daytona", `create(${image})`, err);
+          throw err instanceof ProviderError ? err : new ProviderError("daytona", `create(${image})`, err);
         }
       },
     );
@@ -201,10 +219,11 @@ export class DaytonaProvider implements VMProvider {
         try {
           const sandbox = await client().get(vmId);
           await sandbox.start(LIFECYCLE_TIMEOUT_SECONDS);
-          // Stop killed cmuxd-remote; the image entrypoint restarts it on start, but repair
-          // best-effort here so the first attach after resume doesn't race the entrypoint.
+          // Stop killed every process; the image entrypoint restarts the daemon on
+          // start, but heal best-effort here so the first attach after resume
+          // doesn't race the entrypoint.
           try {
-            await this.ensureWebSocketHealthyOrRepair(sandbox);
+            await this.ensureCmuxTuiRunning(sandbox);
           } catch (healthErr) {
             recordSpanError(span, healthErr);
           }
@@ -267,7 +286,7 @@ export class DaytonaProvider implements VMProvider {
           const sandbox = await client().get(vmId);
           // Daytona snapshots are addressed by name; mint a unique one when the caller didn't
           // pick a name so repeat snapshots of the same VM don't collide.
-          const snapshotName = name?.trim() || `cmux-daytona-${randomBytes(8).toString("hex")}`;
+          const snapshotName = name?.trim() || `cmux-daytona-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
           await sandbox._experimental_createSnapshot(snapshotName, SNAPSHOT_TIMEOUT_SECONDS);
           setSpanAttributes(span, { "cmux.snapshot.id": snapshotName });
           return { id: snapshotName, createdAt: Date.now(), name };
@@ -298,6 +317,9 @@ export class DaytonaProvider implements VMProvider {
             { timeout: CREATE_TIMEOUT_SECONDS },
           );
           setSpanAttributes(span, { "cmux.vm.id": sandbox.id });
+          // The snapshot carries the installed binary; heal best-effort so the
+          // machine is attach-ready without failing restore on transient errors.
+          await this.ensureCmuxTuiRunning(sandbox).catch(() => undefined);
           return {
             provider: "daytona",
             providerVmId: sandbox.id,
@@ -312,104 +334,89 @@ export class DaytonaProvider implements VMProvider {
     );
   }
 
+  /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
+  readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
+
+  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
+    void options;
+    throw new ProviderError(
+      "daytona",
+      `openAttach(${vmId}) is not supported: Daytona machines attach through the cmux-tui remote daemon (transport cmux-remote).`,
+    );
+  }
+
   async openSSH(vmId: string): Promise<SSHEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_ssh",
       { "cmux.vm.provider": "daytona", "cmux.vm.operation": "open_ssh", "cmux.vm.id": vmId },
       async () => {
-        // Daytona attach is WebSocket-only in cmux. Daytona does offer a token-based SSH
-        // gateway, but we deliberately don't dial it, so there is no SSH endpoint to mint.
-        // `cmux vm ssh`/`attach` still work through the WebSocket PTY path above.
+        // Daytona does offer a token-based SSH gateway, but cmux deliberately doesn't
+        // dial it (unreliable in practice); machines attach through the cmux-tui daemon.
         throw new ProviderError(
           "daytona",
-          "Daytona attach is WebSocket-only; cmux does not use Daytona's SSH gateway. " +
-            "`cmux vm ssh <id>` and `cmux vm attach <id>` dial the WebSocket PTY instead. " +
-            "For provider SSH info, use `cmux vm new` without `--provider daytona` " +
-            "(Blaxel is the default).",
+          "Daytona machines do not serve SSH in cmux; attach through the cmux-tui remote daemon (transport cmux-remote).",
         );
       },
     );
   }
 
-  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
-    const endpoint = await this.openWebSocketPty(vmId, options);
-    if (options?.requireDaemon && !endpoint.daemon) {
-      throw new ProviderError(
-        "daytona",
-        `openAttach(${vmId}) requires a cmuxd RPC endpoint, but this sandbox image only exposes the PTY WebSocket. Rebuild it with the current cmuxd-remote image.`,
-      );
-    }
-    return endpoint;
-  }
-
-  async openWebSocketPty(vmId: string, options?: AttachOptions): Promise<WebSocketPtyEndpoint> {
+  async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
     return withVmSpan(
-      "cmux.vm.provider.open_websocket_pty",
-      { "cmux.vm.provider": "daytona", "cmux.vm.operation": "open_websocket_pty", "cmux.vm.id": vmId },
+      "cmux.vm.provider.open_cmux_remote",
+      { "cmux.vm.provider": "daytona", "cmux.vm.operation": "open_cmux_remote", "cmux.vm.id": vmId },
       async (span) => {
         try {
           const sandbox = await client().get(vmId);
-          // Preview tokens are invalidated when a sandbox restarts, so mint a fresh link per
-          // attach instead of caching one alongside the lease.
-          const preview = await this.ensureWebSocketHealthyOrRepair(sandbox);
-          const headers = { "x-daytona-preview-token": preview.token };
-          const wsBase = httpsToWss(preview.url);
-          const pty = makeWebSocketLease("daytona", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
-          const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("daytona");
-          const service = await readDaytonaWebSocketService(sandbox);
-          const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
-          const commands = [
-            ensurePrivateDirectoryCommand(service.ptyLeasePath),
-            `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(service.ptyLeasePath)}`,
-            `chmod 600 ${shellQuote(service.ptyLeasePath)}`,
-          ];
-          let daemon: ReusableRpcLease | null = null;
-          let daemonReused = false;
-          if (service.rpcLeasePath) {
-            const existingDaemon = await readReusableRpcLease(sandbox, service.rpcLeasePath);
-            const newDaemon = existingDaemon
-              ? null
-              : makeWebSocketLease("daytona", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
-            daemon = existingDaemon ?? newDaemon!;
-            daemonReused = !!existingDaemon;
-            if (newDaemon) {
-              const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
-              const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
-              commands.push(
-                ensurePrivateDirectoryCommand(service.rpcLeasePath),
-                `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(service.rpcLeasePath)}`,
-                `chmod 600 ${shellQuote(service.rpcLeasePath)}`,
-                `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-                `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-              );
-            }
+          await this.ensureCmuxTuiRunning(sandbox);
+          const invoke = this.cmuxTuiInvoke(sandbox);
+          // Preview tokens are invalidated when a sandbox restarts, so mint a fresh
+          // route per attach instead of caching one.
+          const preview = await sandbox.getPreviewLink(CMUX_TUI_PORT);
+          const token = preview.token?.trim() ?? "";
+          if (!token) {
+            throw new Error(`preview link for port ${CMUX_TUI_PORT} carried no token`);
           }
-          await execDaytonaOrThrow(sandbox, commands.join(" && "));
-          span.setAttribute("cmux.vm.attach.transport", "websocket");
-          span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
-          span.setAttribute("cmux.vm.attach.daemon_available", !!daemon);
-          if (daemon) {
-            span.setAttribute("cmux.vm.attach.daemon_expires_at_unix", daemon.expiresAtUnix);
-            span.setAttribute("cmux.vm.attach.daemon_reused", daemonReused);
+          const host = preview.url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+          // The Daytona proxy accepts the preview token as this query parameter
+          // (the Daytona SDK dials its own WebSockets the same way), so the route
+          // carries its ingress auth URL-only, as the cmux-remote contract needs.
+          const route = `wss://${host}/v1/link?DAYTONA_SANDBOX_AUTH_KEY=${encodeURIComponent(token)}`;
+          const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
+          let invitation: CmuxRemoteEndpoint["invitation"];
+          const enrolled = options?.deviceFingerprint
+            ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
+            : false;
+          if (!enrolled) {
+            invitation = await mintCmuxTuiInvitation(invoke, "daytona", vmId);
           }
+          span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
+          const daemonBuild = await cmuxTuiDaemonBuild(invoke);
           return {
-            transport: "websocket",
-            url: `${wsBase}/terminal`,
-            headers,
-            token: pty.token,
-            sessionId: pty.sessionId,
-            attachmentId,
-            expiresAtUnix: pty.expiresAtUnix,
-            daemon: daemon ? {
-              url: `${wsBase}/rpc`,
-              headers,
-              token: daemon.token,
-              sessionId: daemon.sessionId,
-              expiresAtUnix: daemon.expiresAtUnix,
-            } : undefined,
+            transport: "cmux-remote",
+            route,
+            token,
+            expiresAtUnix,
+            session: CMUX_TUI_SESSION,
+            ...(daemonBuild ? { daemonBuild } : {}),
+            ...(invitation ? { invitation } : {}),
           };
         } catch (err) {
-          throw new ProviderError("daytona", `openWebSocketPty(${vmId})`, err);
+          throw err instanceof ProviderError ? err : new ProviderError("daytona", `openCmuxRemote(${vmId}) failed`, err);
+        }
+      },
+    );
+  }
+
+  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+    return withVmSpan(
+      "cmux.vm.provider.approve_cmux_remote_enrollment",
+      { "cmux.vm.provider": "daytona", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
+      async () => {
+        try {
+          const sandbox = await client().get(vmId);
+          return await approveCmuxTuiEnrollment(this.cmuxTuiInvoke(sandbox), "daytona", vmId, invitationId);
+        } catch (err) {
+          throw err instanceof ProviderError ? err : new ProviderError("daytona", `approveCmuxRemoteEnrollment(${vmId}) failed`, err);
         }
       },
     );
@@ -417,141 +424,88 @@ export class DaytonaProvider implements VMProvider {
 
   async revokeSSHIdentity(identityHandle: string): Promise<void> {
     void identityHandle;
-    // Daytona doesn't mint per-session SSH credentials here — openSSH always throws — so
-    // there's nothing to revoke. Defined to satisfy VMProvider; never called against this driver.
+    // openSSH always throws, so there is never an identity to revoke.
+  }
+
+  /** Installs the pinned binary; the image entrypoint (or the fallback below) runs the daemon. */
+  private async bootstrapCmuxTui(sandbox: Sandbox): Promise<void> {
+    const source = await resolveCmuxTuiSource("daytona");
+    const install = await this.execOrThrow(sandbox, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS).catch((err: unknown) => {
+      throw new ProviderError("daytona", `cmux-tui install in ${sandbox.id} failed`, err);
+    });
+    void install;
+    await this.startCmuxTuiDaemonIfDead(sandbox);
+    await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "daytona", sandbox.id);
   }
 
   /**
-   * Checks cmuxd-remote through the preview URL and, if it's down (fresh stop/start races the
-   * entrypoint, or the process died), restarts it via toolbox exec and waits for /healthz.
-   * Returns the preview link so attach reuses the same URL + token it just verified.
+   * Attach-time heal, mirroring the Blaxel driver: a running daemon is left alone;
+   * a dead one is restarted, reinstalling first when the binary is missing or a
+   * manifest pin change supersedes it. Daytona stop kills processes, so this runs
+   * for real after every stop/start cycle that beat the image entrypoint.
    */
-  private async ensureWebSocketHealthyOrRepair(sandbox: Sandbox): Promise<{ url: string; token: string }> {
-    const preview = await sandbox.getPreviewLink(CMUXD_WS_PORT);
-    const previewToken = preview.token?.trim() ?? "";
-    if (await isDaytonaWebSocketHealthy(preview.url, previewToken)) {
-      return { url: preview.url, token: previewToken };
+  private async ensureCmuxTuiRunning(sandbox: Sandbox): Promise<void> {
+    const running = await this.execResult(sandbox, "pgrep -f 'cmux-tui server start' >/dev/null 2>&1");
+    if (running?.exitCode === 0) return;
+    const source = await resolveCmuxTuiSource("daytona");
+    const pinned = await this.execResult(sandbox, cmuxTuiPinCheckCommand(source));
+    if (pinned?.exitCode !== 0) {
+      await this.execOrThrow(sandbox, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS).catch((err: unknown) => {
+        throw new ProviderError("daytona", `cmux-tui install in ${sandbox.id} failed`, err);
+      });
     }
-    await execDaytonaOrThrow(sandbox, daytonaWebSocketRepairCommand(), 60_000);
-    let lastError: unknown = new Error("Daytona cmuxd websocket did not become healthy");
-    for (let attempt = 0; attempt < HEALTH_RETRY_ATTEMPTS; attempt += 1) {
-      try {
-        await ensureDaytonaWebSocketHealthy(preview.url, previewToken);
-        return { url: preview.url, token: previewToken };
-      } catch (err) {
-        lastError = err;
-        await new Promise((resolve) => setTimeout(resolve, HEALTH_RETRY_INTERVAL_MS));
-      }
+    await this.startCmuxTuiDaemonIfDead(sandbox);
+    await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "daytona", sandbox.id);
+  }
+
+  private async startCmuxTuiDaemonIfDead(sandbox: Sandbox): Promise<void> {
+    // Prefer the image's supervisor (the registered entrypoint; restarts the daemon
+    // if it ever exits); fall back to launching the daemon directly on images that
+    // predate the supervisor script.
+    const start = [
+      "if ! pgrep -f 'cmux-tui server start' >/dev/null 2>&1; then",
+      `if [ -x ${CMUX_DEVBOX_BOOT_PATH} ]; then`,
+      `pgrep -f ${CMUX_DEVBOX_BOOT_PATH.split("/").pop()} >/dev/null 2>&1 || (setsid nohup ${CMUX_DEVBOX_BOOT_PATH} >>/tmp/cmux-devbox-boot.log 2>&1 &);`,
+      "else",
+      `(setsid nohup sh -c '${cmuxTuiDaemonCommand()}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
+      "fi;",
+      "fi",
+    ].join(" ");
+    await this.execOrThrow(sandbox, start, 60_000);
+  }
+
+  private async execResult(sandbox: Sandbox, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<{ exitCode: number; output: string } | null> {
+    try {
+      const r = await sandbox.process.executeCommand(command, undefined, undefined, Math.ceil(timeoutMs / 1000));
+      return { exitCode: r.exitCode, output: r.result ?? "" };
+    } catch {
+      return null;
     }
-    throw lastError;
   }
-}
 
-function httpsToWss(url: string): string {
-  return url.replace(/^https:/, "wss:").replace(/\/+$/, "");
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function daytonaWebSocketRepairCommand(): string {
-  // The image entrypoint (`cmux-daytona-entrypoint`) normally keeps cmuxd-remote alive; this is
-  // the fallback when the daemon isn't up yet (or the sandbox predates the entrypoint script).
-  const serve = [
-    "/usr/local/bin/cmuxd-remote",
-    "serve",
-    "--ws",
-    "--listen",
-    `0.0.0.0:${CMUXD_WS_PORT}`,
-    "--auth-lease-file",
-    CMUXD_WS_PTY_LEASE_PATH,
-    "--rpc-auth-lease-file",
-    CMUXD_WS_RPC_LEASE_PATH,
-    "--shell",
-    CMUX_CLOUD_SHELL_PATH,
-  ].map(shellQuote).join(" ");
-  return [
-    "mkdir -p /tmp/cmux",
-    "chmod 700 /tmp/cmux",
-    `pgrep -f 'cmuxd-remote serve' >/dev/null 2>&1 || (setsid nohup ${serve} >>/tmp/cmux/cmuxd-ws.log 2>&1 &)`,
-  ].join(" && ");
-}
-
-async function isDaytonaWebSocketHealthy(previewUrl: string, previewToken: string): Promise<boolean> {
-  try {
-    await ensureDaytonaWebSocketHealthy(previewUrl, previewToken);
-    return true;
-  } catch {
-    return false;
+  private async execOrThrow(sandbox: Sandbox, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS) {
+    const result = await sandbox.process.executeCommand(
+      command,
+      undefined,
+      undefined,
+      Math.ceil(timeoutMs / 1000),
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(`Daytona exec failed with status ${result.exitCode}: ${(result.result ?? "").trim()}`);
+    }
+    return result;
   }
-}
 
-async function ensureDaytonaWebSocketHealthy(previewUrl: string, previewToken: string): Promise<void> {
-  const response = await fetch(`${previewUrl.replace(/\/+$/, "")}/healthz`, {
-    headers: previewToken ? { "x-daytona-preview-token": previewToken } : {},
-    signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
-  }).catch((err: unknown) => {
-    throw new Error(`Daytona cmuxd websocket health check failed: ${errorMessage(err)}`);
-  });
-  if (response.status !== 200) {
-    throw new Error(`Daytona cmuxd websocket health check returned ${response.status}`);
+  private cmuxTuiInvoke(sandbox: Sandbox): CmuxTuiInvoke {
+    return async (args, timeoutMs) => {
+      const r = await this.execResult(
+        sandbox,
+        `env HOME=/root /root/.cmux/bin/cmux-tui ${args}`,
+        timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS,
+      );
+      if (!r) return { exitCode: 124, stdout: "", stderr: "exec failed" };
+      // The toolbox merges stderr into the single output stream.
+      return { exitCode: r.exitCode, stdout: r.output, stderr: "" };
+    };
   }
-}
-
-async function readDaytonaWebSocketService(sandbox: Sandbox): Promise<{
-  ptyLeasePath: string;
-  rpcLeasePath: string | null;
-}> {
-  const result = await execDaytonaOrThrow(
-    sandbox,
-    "ps auxww | grep cmuxd-remote | grep -v grep || true",
-  );
-  const stdout = result.result ?? "";
-  return {
-    ptyLeasePath:
-      shellArgValue(stdout, "--auth-lease-file")
-      ?? (stdout.includes(CMUXD_WS_LEGACY_PTY_LEASE_PATH)
-        ? CMUXD_WS_LEGACY_PTY_LEASE_PATH
-        : CMUXD_WS_PTY_LEASE_PATH),
-    rpcLeasePath: shellArgValue(stdout, "--rpc-auth-lease-file"),
-  };
-}
-
-async function readReusableRpcLease(
-  sandbox: Sandbox,
-  rpcLeasePath: string,
-): Promise<ReusableRpcLease | null> {
-  const result = await execDaytonaOrThrow(
-    sandbox,
-    [
-      `test -s ${shellQuote(rpcLeasePath)}`,
-      `test -s ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-      `cat ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-    ].join(" && "),
-  ).catch(() => null);
-  const raw = result?.result?.trim();
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isReusableRpcLease(parsed)) return null;
-    const nowUnix = Math.floor(Date.now() / 1000);
-    if (parsed.expiresAtUnix <= nowUnix + CMUXD_WS_RPC_RENEW_BEFORE_SECONDS) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-async function execDaytonaOrThrow(sandbox: Sandbox, command: string, timeoutMs = 30_000) {
-  const result = await sandbox.process.executeCommand(
-    command,
-    undefined,
-    undefined,
-    Math.ceil(timeoutMs / 1000),
-  );
-  if (result.exitCode !== 0) {
-    throw new Error(`Daytona exec failed with status ${result.exitCode}: ${(result.result ?? "").trim()}`);
-  }
-  return result;
 }

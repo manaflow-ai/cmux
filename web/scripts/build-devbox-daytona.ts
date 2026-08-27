@@ -14,10 +14,13 @@
  * skip-cache switch; bump CMUX_IMAGE_EPOCH in the Dockerfile to force its
  * remote builder past a stale layer cache.
  *
- * Driver contract (web/services/vms/drivers/daytona.ts): the registered
- * entrypoint /usr/local/bin/cmux-daytona-entrypoint supervises cmuxd-remote
- * on 7777 and Daytona re-runs it on every sandbox start (cmux pause/resume);
- * the driver's repair fallback launches the identical serve command.
+ * Daemon contract (web/services/vms/drivers/daytona.ts): the session daemon
+ * is cmux-tui, installed by the driver at create time from the pinned
+ * files.cmux.com manifest. The registered entrypoint
+ * /usr/local/bin/cmux-devbox-boot supervises it: Daytona stop kills every
+ * process while the filesystem (installed binary, daemon identity under
+ * /root) persists, and start re-runs the entrypoint, which brings the daemon
+ * back without driver involvement.
  *
  * Resources: 2 vCPU / 4 GiB / 10 GiB disk.
  */
@@ -26,7 +29,6 @@ import { fileURLToPath } from "node:url";
 import {
   bakeMetadata,
   bakePreflight,
-  buildRemoteDaemon,
   devboxDockerfilePath,
   manifestEntrySkeleton,
 } from "./devbox-image-common";
@@ -41,7 +43,6 @@ if (!name || name.startsWith("--")) {
 }
 
 const preflight = bakePreflight();
-const daemon = await buildRemoteDaemon();
 
 const daytona = new Daytona({
   apiKey: process.env.DAYTONA_API_KEY,
@@ -51,18 +52,17 @@ const daytona = new Daytona({
 const snapshot = await daytona.snapshot.create(
   {
     name,
-    // fromDockerfile resolves COPY sources relative to the Dockerfile's
-    // directory, which is where buildRemoteDaemon just dropped the daemon.
+    // fromDockerfile resolves COPY sources relative to the Dockerfile's directory.
     image: Image.fromDockerfile(devboxDockerfilePath),
-    // Registered on the snapshot record so sandboxes restart cmuxd-remote on
-    // every stop/start cycle.
-    entrypoint: ["/usr/local/bin/cmux-daytona-entrypoint"],
+    // Registered on the snapshot record so sandboxes restart the cmux-tui
+    // daemon on every stop/start cycle.
+    entrypoint: ["/usr/local/bin/cmux-devbox-boot"],
     resources: { cpu: 2, memory: 4, disk: 10 },
   },
   { onLogs: (line) => console.log(line), timeout: 0 },
 );
 
-const metadata = bakeMetadata(preflight, daemon, fileURLToPath(import.meta.url));
+const metadata = bakeMetadata(preflight, fileURLToPath(import.meta.url));
 console.log(
   JSON.stringify(
     {

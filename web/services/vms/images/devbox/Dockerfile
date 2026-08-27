@@ -7,42 +7,36 @@
 # agents, ble.sh ghost text, half-life prompt, seeded history, and the
 # coderouter agent-config generator.
 #
-# Driver contracts this image must keep:
-#   - e2b.ts: cmuxd-remote serves WebSocket PTY+RPC on 7777. The E2B build
-#     script sets the start command (`cmuxd-remote serve --ws ...`) with a
-#     /healthz readiness gate; the driver discovers the lease-file paths from
-#     `ps auxww | grep cmuxd-remote`, so procps must stay installed.
-#   - daytona.ts: /usr/local/bin/cmux-daytona-entrypoint (registered as the
-#     snapshot entrypoint) supervises the same serve command; Daytona re-runs
-#     it on every sandbox start, and the driver's repair fallback launches the
-#     identical command with --shell /usr/local/bin/cmux-cloud-shell.
-#   - freestyle.ts: the driver installs a systemd unit at create time (or the
-#     bake bakes a signed-admin unit) that ExecStarts the same serve command,
-#     so /usr/local/bin/cmuxd-remote and /usr/local/bin/cmux-cloud-shell must
-#     exist. Its managed-shell probe (readFreestyleCloudShellState) also
-#     requires the cmux user, zsh, a readable /etc/cmux/zshrc, and a readable
-#     /home/cmux/.zshrc; a failed probe rewrites cmux-cloud-shell with the
-#     driver's fallback shell, clobbering the devbox bash shell.
+# Session daemon: cmux-tui, the machine's only session daemon
+# (docs/cloud-cmux-tui-daemon.md), exactly as on Blaxel. The binary is NOT
+# baked: each driver installs the pinned files.cmux.com build
+# (sha256-verified) onto the machine at create time and heals it on attach
+# (web/services/vms/drivers/cmuxTuiDaemon.ts). The image ships only
+# /usr/local/bin/cmux-devbox-boot, the supervisor that waits for the binary
+# and restarts the daemon: Daytona registers it as the snapshot entrypoint
+# (stop kills processes, start re-runs it), the Freestyle beta bake runs it
+# from a systemd unit, and E2B leaves it inert (pause/resume preserves
+# processes; the driver starts the daemon directly).
 #
 # E2B translates this Dockerfile to template steps with a restricted parser:
 # no backslash escape sequences inside RUN strings (printf '\n' corrupts; use
 # one echo per line), ARG behaves like ENV, ENTRYPOINT would override the
-# template start command (so there is none; each build script supplies the
-# provider's boot command), and PATH must be a literal value.
+# template start command (so there is none; provider boot commands come from
+# the build scripts), and PATH must be a literal value.
 
 FROM debian:bookworm-slim
 
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (Daytona's cache served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25; E2B skips cache by default).
-ENV CMUX_IMAGE_EPOCH=2026-08-27-r1
+ENV CMUX_IMAGE_EPOCH=2026-08-27-r2
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
-# Devtools (chatmux devbox apt list) plus vim (Blaxel parity), sudo for the
-# cmux user, zsh + zsh-autosuggestions for the Freestyle managed-shell probe,
-# and procps for the drivers' cmuxd-remote process discovery.
+# Devtools (chatmux devbox apt list) plus vim (Blaxel parity), sudo for
+# non-root provider exec users (E2B), and procps for the drivers' daemon
+# process discovery (pgrep).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -68,8 +62,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nano \
     vim \
     sudo \
-    zsh \
-    zsh-autosuggestions \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
@@ -164,38 +156,29 @@ RUN mkdir -p /etc/claude-code \
   && echo '{ "cleanupPeriodDays": 99999 }' > /etc/claude-code/managed-settings.json \
   && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'
 
-# The cmux user is who cmux-cloud-shell drops attach PTYs to; passwordless
-# sudo matches the current Cloud VM images. E2B additionally creates a `user`
-# account for its default exec user; grant it the same sudo when present.
-RUN useradd -m -s /bin/bash cmux \
-  && echo 'cmux ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cmux-nopasswd \
-  && chmod 0440 /etc/sudoers.d/90-cmux-nopasswd \
-  && if id -u user >/dev/null 2>&1; then echo 'user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/91-user-nopasswd && chmod 0440 /etc/sudoers.d/91-user-nopasswd; fi
+# E2B creates a `user` account for its default exec user; give it sudo so a
+# person shelling in through the provider's own surfaces can still administer
+# the machine (cmux sessions run as root via the cmux-tui daemon).
+RUN if id -u user >/dev/null 2>&1; then echo 'user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/91-user-nopasswd && chmod 0440 /etc/sudoers.d/91-user-nopasswd; fi
 
-# Interactive shell polish: bash STAYS the shell; it borrows the oh-my-zsh
-# half-life theme colors and ble.sh supplies zsh-autosuggestions-style ghost
-# text from history, seeded with the claude/codex launch commands. The zsh
-# assets exist for users who prefer zsh and for the Freestyle managed-shell
-# probe (see the header). The build-time `bash -ic` check runs without a tty,
-# so it exercises the history seeding but skips ble.sh; the verify script
-# proves ghost text end-to-end under a tmux PTY.
+# Interactive shell polish: bash IS the shell (Blaxel/chatmux parity); it
+# borrows the oh-my-zsh half-life theme colors and ble.sh supplies
+# zsh-autosuggestions-style ghost text from history, seeded with the
+# claude/codex launch commands. The build-time `bash -ic` check runs without
+# a tty, so it exercises the history seeding but skips ble.sh; the verify
+# script proves ghost text end-to-end under a tmux PTY.
 RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz \
   && tar xJf /tmp/ble.tar.xz -C /tmp \
   && mv /tmp/ble-nightly /usr/local/share/blesh \
   && rm -f /tmp/ble.tar.xz \
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
-COPY cmux-zshrc /etc/cmux/zshrc
 COPY seed-history /etc/cmux/seed-history
 RUN bash -n /etc/cmux/bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
-  && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cmux/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
-  && echo '[ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc' > /home/cmux/.zshrc \
-  && echo '[ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"' >> /home/cmux/.zshrc \
-  && chown cmux:cmux /home/cmux/.bashrc /home/cmux/.zshrc \
   && bash -ic 'head -2 /root/.bash_history'
 
 # Agent harness config: every shell materializes per-harness model-proxy
@@ -210,7 +193,6 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
-  && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /home/cmux/.bashrc \
   && mkdir -p /tmp/agent-config-check \
   && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
   && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
@@ -229,17 +211,8 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && test ! -e /root/.codex/config.toml \
   && test ! -e /root/.config/cmux/model-plane.env
 
-# The attach control plane: cmuxd-remote (built by the bake script from
-# daemon/remote into .build/, never committed) plus the PTY shell it spawns
-# and the Daytona supervisor. `cmux` aliases the daemon binary, matching the
-# current Cloud VM images and the Freestyle driver's repair path.
-COPY .build/cmuxd-remote-linux-amd64 /usr/local/bin/cmuxd-remote
-COPY cmux-cloud-shell /usr/local/bin/cmux-cloud-shell
-COPY cmux-daytona-entrypoint /usr/local/bin/cmux-daytona-entrypoint
-RUN chmod 0755 /usr/local/bin/cmuxd-remote /usr/local/bin/cmux-cloud-shell /usr/local/bin/cmux-daytona-entrypoint \
-  && sh -n /usr/local/bin/cmux-cloud-shell \
-  && sh -n /usr/local/bin/cmux-daytona-entrypoint \
-  && ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux \
-  && /usr/local/bin/cmuxd-remote version \
-  && mkdir -p /tmp/cmux \
-  && chmod 700 /tmp/cmux
+# The cmux-tui daemon supervisor (see the header; the binary itself is
+# installed by the driver at create time, never baked).
+COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
+  && sh -n /usr/local/bin/cmux-devbox-boot

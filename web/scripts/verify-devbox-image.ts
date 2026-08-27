@@ -4,8 +4,10 @@
  * against the provider SDKs. Boots ONE sandbox for the named provider,
  * asserts everything the devbox promises (pinned agents, mise toolchain,
  * devtools, Chrome + cua-driver, ble.sh ghost text under a real PTY, the
- * agent-config generator byte-identical to this checkout, and the
- * cmuxd-remote attach contract for that provider), then deletes it.
+ * agent-config generator byte-identical to this checkout), then replays the
+ * driver's create-time cmux-tui bootstrap (pinned files.cmux.com install,
+ * sha256-verified) and asserts the daemon contract for that provider, and
+ * finally deletes the sandbox.
  *
  * Usage:
  *   E2B_API_KEY=...       bun scripts/verify-devbox-image.ts e2b <template>
@@ -23,6 +25,12 @@ import { Sandbox } from "e2b";
 // SDK too. The shipped freestyle driver still speaks the legacy platform.
 import { Freestyle } from "freestyle-beta";
 import path from "node:path";
+import {
+  CMUX_TUI_SESSION,
+  cmuxTuiDaemonCommand,
+  cmuxTuiInstallCommand,
+  resolveCmuxTuiSource,
+} from "../services/vms/drivers/cmuxTuiDaemon";
 import { devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
 
 const pins = devboxAgentPins();
@@ -33,8 +41,7 @@ const FILE_PIN_CHECKS = [
   ["cmux-bashrc", "/etc/cmux/bashrc"],
   ["agent-config.sh", "/etc/cmux/agent-config.sh"],
   ["seed-history", "/etc/cmux/seed-history"],
-  ["cmux-cloud-shell", "/usr/local/bin/cmux-cloud-shell"],
-  ["cmux-zshrc", "/etc/cmux/zshrc"],
+  ["cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot"],
   ["chrome-managed-policy.json", "/etc/opt/chrome/policies/managed/cmux.json"],
 ].map(([source, target]) => `echo '${shaOf(source)}  ${target}' | sha256sum -c -`);
 
@@ -73,33 +80,19 @@ const CHECKS: readonly string[] = [
   // env 0600; the image ships no pre-generated config for root.
   "rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' && grep -q 'model_provider = \"cmux\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = \"responses\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q \"export OPENAI_API_KEY='crt_check'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ \"$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)\" = \"600\" ] && rm -rf /tmp/cmux-agent-config-verify && test ! -e /root/.codex/config.toml && echo agent-config-ok",
   "grep -q cleanupPeriodDays /etc/claude-code/managed-settings.json && echo claude-retention-ok",
-  // Attach control plane binaries.
-  "test -x /usr/local/bin/cmuxd-remote && /usr/local/bin/cmuxd-remote version",
-  "test \"$(readlink /usr/local/bin/cmux)\" = /usr/local/bin/cmuxd-remote && echo cmux-symlink-ok",
-  "test -x /usr/local/bin/cmux-cloud-shell && sh -n /usr/local/bin/cmux-cloud-shell && echo cloud-shell-ok",
-  "id -u cmux >/dev/null && sudo -l -U cmux | grep -q NOPASSWD && echo cmux-user-ok",
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 
-// The daemon must already be serving on providers whose boot path starts it
-// (E2B start command, Daytona entrypoint). The driver only installs leases.
-const DAEMON_LIVE_CHECKS: readonly string[] = [
-  "pgrep -f 'cmuxd-remote serve' >/dev/null && echo daemon-running",
-  "ps auxww | grep cmuxd-remote | grep -v grep | grep -q -- '--shell /usr/local/bin/cmux-cloud-shell' && echo daemon-shell-ok",
-  "curl -sf http://127.0.0.1:7777/healthz >/dev/null && echo daemon-healthz-ok",
+// After the create-time bootstrap replay below: the daemon serves the session,
+// listens on 1337 (hex 0539), and the pinned binary is the one on PATH.
+const DAEMON_CHECKS: readonly string[] = [
+  "pgrep -f 'cmux-tui server start' >/dev/null && echo daemon-running",
+  `env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null && echo daemon-status-ok`,
+  "awk '$2 ~ /:0539$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo daemon-port-1337-ok",
+  "test \"$(readlink /usr/local/bin/cmux-tui)\" = /root/.cmux/bin/cmux-tui && echo cmux-tui-symlink-ok",
 ];
 
-// Freestyle: the beta bake always bakes the cmuxd-ws unit (beta creates
-// cannot inject systemd services), so the daemon must be live. The
-// managed-shell probe assets are required too (a miss makes the legacy
-// driver clobber cmux-cloud-shell on VMs it manages).
-const FREESTYLE_CHECKS: readonly string[] = [
-  "command -v zsh && test -r /etc/cmux/zshrc && test -r /home/cmux/.zshrc && echo freestyle-shell-probe-ok",
-  "grep -q -- '--shell /usr/local/bin/cmux-cloud-shell' /etc/systemd/system/cmuxd-ws.service && echo baked-unit-ok",
-  ...DAEMON_LIVE_CHECKS,
-];
-
-type Exec = (cmd: string) => Promise<{ exitCode: number; output: string }>;
+type Exec = (cmd: string, timeoutMs?: number) => Promise<{ exitCode: number; output: string }>;
 
 async function runChecks(label: string, checks: readonly string[], exec: Exec): Promise<boolean> {
   let ok = true;
@@ -112,6 +105,32 @@ async function runChecks(label: string, checks: readonly string[], exec: Exec): 
   }
   console.log(ok ? `[${label}] ALL CHECKS PASSED` : `[${label}] CHECKS FAILED`);
   return ok;
+}
+
+/**
+ * Replays the driver's create-time bootstrap: install the pinned build
+ * (sha256-verified by the install command itself), make sure something runs
+ * the daemon (the image supervisor on Daytona/Freestyle; a detached launch
+ * here stands in for the E2B driver's background command), and wait for the
+ * session to answer.
+ */
+async function bootstrapDaemon(provider: string, exec: Exec): Promise<void> {
+  const source = await resolveCmuxTuiSource();
+  console.log(`cmux-tui pin: commit ${source.commit} sha256 ${source.sha256.slice(0, 12)}…`);
+  const install = await exec(cmuxTuiInstallCommand(source), 5 * 60 * 1000);
+  if (install.exitCode !== 0) {
+    throw new Error(`cmux-tui install failed: ${install.output.slice(-2000)}`);
+  }
+  await exec(
+    `pgrep -f 'cmux-tui server start' >/dev/null 2>&1 || (setsid nohup sh -c '${cmuxTuiDaemonCommand()}' >>/tmp/cmux-tui-daemon.log 2>&1 &)`,
+    60_000,
+  );
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const status = await exec(`env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION}`, 30_000);
+    if (status.exitCode === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`${provider}: cmux-tui daemon did not become ready`);
 }
 
 const provider = process.argv[2] ?? "";
@@ -127,14 +146,17 @@ if (provider === "e2b") {
   const sbx = await Sandbox.create(image, { timeoutMs: 300_000 });
   console.log(`provisioned ${sbx.sandboxId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
-    pass = await runChecks("e2b", [...CHECKS, ...DAEMON_LIVE_CHECKS], async (cmd) => {
-      const r = await sbx.commands.run(cmd, { timeoutMs: 120_000 }).catch((e: unknown) => {
+    // Root, like the driver: cmux sessions run as root via the cmux-tui daemon.
+    const exec: Exec = async (cmd, timeoutMs = 120_000) => {
+      const r = await sbx.commands.run(cmd, { timeoutMs, user: "root" }).catch((e: unknown) => {
         // e2b throws CommandExitError on nonzero exit; unwrap it.
         if (e && typeof e === "object" && "exitCode" in e) return e as never;
         throw e;
       });
       return { exitCode: r.exitCode, output: `${r.stdout}${r.stderr}` };
-    });
+    };
+    await bootstrapDaemon("e2b", exec);
+    pass = await runChecks("e2b", [...CHECKS, ...DAEMON_CHECKS], exec);
   } finally {
     await sbx.kill();
     console.log(`killed ${sbx.sandboxId}`);
@@ -149,15 +171,22 @@ if (provider === "e2b") {
   const sandbox = await daytona.create({ snapshot: image });
   console.log(`provisioned ${sandbox.id} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
-    pass = await runChecks("daytona", [...CHECKS, ...DAEMON_LIVE_CHECKS], async (cmd) => {
+    const exec: Exec = async (cmd, timeoutMs = 120_000) => {
       try {
-        const r = await sandbox.process.executeCommand(cmd, undefined, undefined, 120);
+        const r = await sandbox.process.executeCommand(cmd, undefined, undefined, Math.ceil(timeoutMs / 1000));
         // The Daytona toolbox merges stderr into `result`.
         return { exitCode: r.exitCode, output: r.result ?? "" };
       } catch (error) {
         return { exitCode: 124, output: String(error).slice(0, 500) };
       }
-    });
+    };
+    await bootstrapDaemon("daytona", exec);
+    pass = await runChecks("daytona", [
+      ...CHECKS,
+      ...DAEMON_CHECKS,
+      // The registered entrypoint is the daemon supervisor across stop/start.
+      "pgrep -f cmux-devbox-boot >/dev/null && echo entrypoint-supervisor-running",
+    ], exec);
   } finally {
     await daytona.delete(sandbox);
     console.log(`deleted ${sandbox.id}`);
@@ -178,21 +207,28 @@ if (provider === "e2b") {
   const { vm, vmId } = await fs.vms.create({
     snapshotId: image,
     displayName: "cmux-devbox-verify",
-    // Beta creates require an explicit firewall; the checks are local-only,
-    // but outbound stays open so a debugging session inside the VM works.
+    // Beta creates require an explicit firewall; the daemon install below
+    // needs outbound (files.cmux.com).
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
   });
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
-    pass = await runChecks("freestyle", [...CHECKS, ...FREESTYLE_CHECKS], async (cmd) => {
+    const exec: Exec = async (cmd, timeoutMs = 120_000) => {
       // Login bash for the mise shims; Freestyle guest exec has an empty HOME.
       const wrapped = `bash -lc 'export HOME="$\{HOME:-$(getent passwd $(id -u) | cut -d: -f6)\}"; export PATH="/opt/mise/shims:$\{PATH\}"; ${cmd.replace(/'/g, `'\\''`)}'`;
-      const r = await vm.exec({ command: wrapped, timeoutMs: 120_000 });
+      const r = await vm.exec({ command: wrapped, timeoutMs: Math.min(timeoutMs, 300_000) });
       return {
-        exitCode: (r as { statusCode?: number }).statusCode ?? 124,
+        exitCode: r.statusCode ?? 124,
         output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
       };
-    });
+    };
+    await bootstrapDaemon("freestyle", exec);
+    pass = await runChecks("freestyle", [
+      ...CHECKS,
+      ...DAEMON_CHECKS,
+      // The baked systemd unit is the daemon supervisor across reboots.
+      "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
+    ], exec);
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);

@@ -4,14 +4,16 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  DEVBOX_SERVE_COMMAND,
-  devboxAgentPins,
-} from "../scripts/devbox-image-common";
+  CMUX_TUI_PORT,
+  CMUX_TUI_SESSION,
+  cmuxTuiDaemonCommand,
+} from "../services/vms/drivers/cmuxTuiDaemon";
+import { DEVBOX_TEMPLATE_FILES, devboxAgentPins } from "../scripts/devbox-image-common";
 
 // Contract tests for the shared cmux Cloud devbox image template
 // (services/vms/images/devbox), consumed by build-devbox-e2b.ts,
 // build-devbox-daytona.ts, and build-devbox-freestyle.ts. These pin the
-// pieces other code depends on: the cmuxd-remote attach contract each driver
+// pieces other code depends on: the cmux-tui daemon contract each driver
 // expects, Blaxel-template parity for the shared shell/agent files, and the
 // E2B Dockerfile-parser restrictions. Same rationale as
 // vm-blaxel-image.test.ts: the template IS the artifact.
@@ -26,8 +28,7 @@ const readScript = (name: string) => readFileSync(path.join(scriptsDir, name), "
 const dockerfile = read("Dockerfile");
 const bashrc = read("cmux-bashrc");
 const agentConfig = read("agent-config.sh");
-const cloudShell = read("cmux-cloud-shell");
-const daytonaEntrypoint = read("cmux-daytona-entrypoint");
+const devboxBoot = read("cmux-devbox-boot");
 
 // Comment/blank stripping: the devbox copies of the Blaxel-shared files may
 // differ only in their header comments (each names its parity source).
@@ -39,19 +40,22 @@ const body = (text: string): string =>
 
 describe("devbox image template", () => {
   test("template directory contains exactly the expected files", () => {
-    const entries = readdirSync(templateDir)
-      .filter((name) => name !== ".build")
-      .sort();
-    expect(entries).toEqual([
-      ".gitignore",
+    expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
       "README.md",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
-      "cmux-cloud-shell",
-      "cmux-daytona-entrypoint",
-      "cmux-zshrc",
+      "cmux-devbox-boot",
+      "seed-history",
+    ]);
+    // The bake scripts' preflight covers the same set (minus the README).
+    expect([...DEVBOX_TEMPLATE_FILES].sort()).toEqual([
+      "Dockerfile",
+      "agent-config.sh",
+      "chrome-managed-policy.json",
+      "cmux-bashrc",
+      "cmux-devbox-boot",
       "seed-history",
     ]);
   });
@@ -61,10 +65,8 @@ describe("devbox image template", () => {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
-    for (const name of ["cmux-cloud-shell", "cmux-daytona-entrypoint"]) {
-      const result = spawnSync("sh", ["-n", path.join(templateDir, name)]);
-      expect({ name, status: result.status }).toEqual({ name, status: 0 });
-    }
+    const result = spawnSync("sh", ["-n", path.join(templateDir, "cmux-devbox-boot")]);
+    expect(result.status).toBe(0);
   });
 
   test("shared files stay in lockstep with the Blaxel template", () => {
@@ -92,12 +94,12 @@ describe("devbox image template", () => {
       expect(devboxPin).toMatch(/^\d+\.\d+\.\d+$/);
     }
     // The build scripts derive their pins from the same ARGs.
-    expect(devboxAgentPins(dockerfile).map((pin) => pin.spec)).toEqual([
-      `@anthropic-ai/claude-code@${/CMUX_IMAGE_CLAUDE_CODE_VERSION=(\S+)/.exec(dockerfile)![1]}`,
-      `@openai/codex@${/CMUX_IMAGE_CODEX_VERSION=(\S+)/.exec(dockerfile)![1]}`,
-      `opencode-ai@${/CMUX_IMAGE_OPENCODE_VERSION=(\S+)/.exec(dockerfile)![1]}`,
-      `@earendil-works/pi-coding-agent@${/CMUX_IMAGE_PI_VERSION=(\S+)/.exec(dockerfile)![1]}`,
-      `agent-browser@${/CMUX_IMAGE_AGENT_BROWSER_VERSION=(\S+)/.exec(dockerfile)![1]}`,
+    expect(devboxAgentPins(dockerfile).map((pin) => pin.pkg)).toEqual([
+      "@anthropic-ai/claude-code",
+      "@openai/codex",
+      "opencode-ai",
+      "@earendil-works/pi-coding-agent",
+      "agent-browser",
     ]);
   });
 
@@ -116,8 +118,8 @@ describe("devbox image template", () => {
   test("stays within the E2B Dockerfile-parser restrictions", () => {
     // The E2B translation strips backslash escape sequences inside RUN
     // strings (printf '\n' corrupts written files), would turn ENTRYPOINT
-    // into a template start command (each build script owns the boot
-    // command), and needs a literal PATH.
+    // into a template start command (provider boot commands come from the
+    // build scripts), and needs a literal PATH.
     const instructionLines = dockerfile
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"));
@@ -130,48 +132,48 @@ describe("devbox image template", () => {
     );
   });
 
-  test("bakes the cmuxd-remote attach control plane every driver expects", () => {
-    expect(dockerfile).toContain(
-      "COPY .build/cmuxd-remote-linux-amd64 /usr/local/bin/cmuxd-remote",
-    );
-    expect(dockerfile).toContain("COPY cmux-cloud-shell /usr/local/bin/cmux-cloud-shell");
-    expect(dockerfile).toContain(
-      "COPY cmux-daytona-entrypoint /usr/local/bin/cmux-daytona-entrypoint",
-    );
-    expect(dockerfile).toContain("ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux");
-    expect(read(".gitignore")).toContain(".build/");
+  test("cmux-tui is the one session daemon; nothing cmuxd-era survives", () => {
+    // The supervisor runs the exact daemon command the drivers use, so the
+    // two can never drift apart.
+    expect(CMUX_TUI_PORT).toBe(1337);
+    expect(CMUX_TUI_SESSION).toBe("cloud");
+    expect(devboxBoot).toContain(cmuxTuiDaemonCommand().replace("cd /root && ", ""));
+    expect(devboxBoot).toContain("if [ -x /root/.cmux/bin/cmux-tui ]");
+    expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
+    // No binary is baked and the old cmuxd stack is gone everywhere.
+    // The image itself carries nothing cmuxd-era, and no bake or verify
+    // script installs or launches the old daemon (prose references to the
+    // legacy driver are fine).
+    expect(dockerfile).not.toContain("cmuxd");
+    expect(devboxBoot).not.toContain("cmuxd");
+    for (const name of [
+      "build-devbox-e2b.ts",
+      "build-devbox-daytona.ts",
+      "build-devbox-freestyle.ts",
+      "verify-devbox-image.ts",
+    ]) {
+      expect({ name, installsCmuxd: readScript(name).includes("/usr/local/bin/cmuxd-remote") })
+        .toEqual({ name, installsCmuxd: false });
+    }
   });
 
-  test("one serve command across providers, matching the driver lease contract", () => {
-    // Port and lease paths are driver constants
-    // (web/services/vms/drivers/{e2b,daytona,freestyle}.ts).
-    expect(DEVBOX_SERVE_COMMAND).toContain("--listen 0.0.0.0:7777");
-    expect(DEVBOX_SERVE_COMMAND).toContain("--auth-lease-file /tmp/cmux/attach-pty-lease.json");
-    expect(DEVBOX_SERVE_COMMAND).toContain(
-      "--rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json",
-    );
-    expect(DEVBOX_SERVE_COMMAND).toContain("--shell /usr/local/bin/cmux-cloud-shell");
-    // The Daytona supervisor runs the identical command.
-    expect(daytonaEntrypoint).toContain(DEVBOX_SERVE_COMMAND);
-    // The E2B build script boots it as the template start command with a
-    // healthz readiness gate; the Freestyle bake uses it as ExecStart for
-    // the signed-admin unit.
+  test("each provider boot path supervises the daemon per its lifecycle", () => {
+    // Daytona: stop kills processes; the registered entrypoint brings the
+    // daemon back on start.
+    const daytonaScript = readScript("build-devbox-daytona.ts");
+    expect(daytonaScript).toContain('entrypoint: ["/usr/local/bin/cmux-devbox-boot"]');
+    // E2B: pause/resume preserves processes; the driver starts the daemon,
+    // so the template has no start command.
     const e2bScript = readScript("build-devbox-e2b.ts");
-    expect(e2bScript).toContain("DEVBOX_SERVE_COMMAND");
-    expect(e2bScript).toContain('waitForURL("http://127.0.0.1:7777/healthz", 200)');
+    expect(e2bScript).not.toContain("setStartCmd");
+    // Freestyle (beta): systemd runs the supervisor.
     const freestyleScript = readScript("build-devbox-freestyle.ts");
-    expect(freestyleScript).toContain("`ExecStart=${DEVBOX_SERVE_COMMAND}`");
-    expect(freestyleScript).toContain("CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY");
-    expect(freestyleScript).toContain("bakedFreestyleSignedAdmin: true");
+    expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
+    expect(freestyleScript).toContain("cmux-tui-daemon.service");
+    expect(freestyleScript).toContain("Restart=always");
   });
 
-  test("freestyle bake and verify ride the beta SDK; the driver stays legacy", () => {
-    // The devbox freestyle bake targets the beta platform
-    // (freestyle@0.2.0-beta.7 aliased as freestyle-beta). The shipped
-    // driver keeps the legacy 0.1.51 SDK: beta creates drop ports,
-    // readySignalTimeoutSeconds, and systemd injection, so the driver
-    // migration is a separate change, and mixing the platforms would break
-    // live attach.
+  test("freestyle bake and verify ride the beta SDK; the legacy driver stays on 0.1.51", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain('from "freestyle-beta"');
     expect(readScript("verify-devbox-image.ts")).toContain('from "freestyle-beta"');
     const driver = readFileSync(
@@ -187,49 +189,11 @@ describe("devbox image template", () => {
     expect(packageJson.dependencies["freestyle-beta"]).toBe("npm:freestyle@0.2.0-beta.7");
   });
 
-  test("daytona entrypoint self-heals across sandbox restarts", () => {
-    expect(daytonaEntrypoint).toContain("mkdir -p /tmp/cmux");
-    expect(daytonaEntrypoint).toContain("chmod 700 /tmp/cmux");
-    expect(daytonaEntrypoint).toContain("while true; do");
-    expect(daytonaEntrypoint).toContain("sleep 2");
-    const daytonaScript = readScript("build-devbox-daytona.ts");
-    expect(daytonaScript).toContain('entrypoint: ["/usr/local/bin/cmux-daytona-entrypoint"]');
-  });
-
-  test("cmux-cloud-shell drops root daemons to cmux and survives non-root daemons", () => {
-    expect(cloudShell).toContain("runuser -u cmux -- /bin/bash -l");
-    expect(cloudShell).toContain('exec /bin/bash -l');
-    expect(cloudShell).toContain('id -u cmux >/dev/null');
-    expect(dockerfile).toContain("useradd -m -s /bin/bash cmux");
-  });
-
-  test("satisfies the Freestyle managed-shell probe so repair never clobbers bash", () => {
-    // web/services/vms/drivers/freestyle.ts readFreestyleCloudShellState
-    // requires zsh, /etc/cmux/zshrc, /home/cmux/.zshrc, the cmux user, and a
-    // cmuxd-ws service pointing at cmux-cloud-shell; a miss triggers the
-    // driver's zsh repair path, overwriting the devbox shell.
-    expect(dockerfile).toMatch(/apt-get install[^&]*\bzsh\b/);
-    expect(dockerfile).toContain("COPY cmux-zshrc /etc/cmux/zshrc");
-    expect(dockerfile).toContain("> /home/cmux/.zshrc");
-    const driver = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
-      "utf8",
-    );
-    for (const probeAsset of ["/etc/cmux/zshrc", "/home/cmux/.zshrc", "cmux-cloud-shell"]) {
-      expect(driver).toContain(probeAsset);
-    }
-  });
-
   test("agent config generator is sourced for every shell family", () => {
     expect(dockerfile).toContain(
       "'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh",
     );
-    for (const target of [
-      "/etc/bash.bashrc",
-      "/etc/skel/.bashrc",
-      "/root/.bashrc",
-      "/home/cmux/.bashrc",
-    ]) {
+    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc"]) {
       expect(dockerfile).toContain(
         `'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${target}`,
       );

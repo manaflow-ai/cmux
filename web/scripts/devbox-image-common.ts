@@ -4,13 +4,14 @@
  * and the post-bake verifier (verify-devbox-image.ts).
  *
  * The image source of truth is web/services/vms/images/devbox/: a plain
- * Dockerfile plus the files it COPYs. The only generated artifact is the
- * cmuxd-remote linux binary, built here from daemon/remote into the
- * gitignored .build/ context directory.
+ * Dockerfile plus the files it COPYs. No daemon binary is baked: cmux-tui is
+ * installed by the drivers at create time from the pinned files.cmux.com
+ * manifest (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships
+ * the cmux-devbox-boot supervisor.
  */
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,29 +20,14 @@ export const webRoot = path.resolve(__dirname, "..");
 export const repoRoot = path.resolve(webRoot, "..");
 export const devboxDir = path.join(webRoot, "services/vms/images/devbox");
 export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
-export const daemonBuildPath = path.join(devboxDir, ".build/cmuxd-remote-linux-amd64");
 
-/**
- * The serve command every provider's boot path runs. Must stay in lockstep
- * with the driver constants in web/services/vms/drivers/{e2b,daytona,freestyle}.ts
- * (port 7777, lease paths under /tmp/cmux) and with
- * services/vms/images/devbox/cmux-daytona-entrypoint.
- */
-export const DEVBOX_SERVE_COMMAND =
-  "/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 " +
-  "--auth-lease-file /tmp/cmux/attach-pty-lease.json " +
-  "--rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json " +
-  "--shell /usr/local/bin/cmux-cloud-shell";
-
-/** Files the Dockerfile COPYs (beyond the .build daemon); all must exist. */
+/** Files the Dockerfile COPYs plus the Dockerfile itself; all must exist. */
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
   "chrome-managed-policy.json",
   "cmux-bashrc",
-  "cmux-cloud-shell",
-  "cmux-daytona-entrypoint",
-  "cmux-zshrc",
+  "cmux-devbox-boot",
   "seed-history",
 ] as const;
 
@@ -84,10 +70,6 @@ export function sha256File(filePath: string): string {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
 }
 
-export function sha256Text(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
-
 function git(args: string, cwd: string): string {
   return execSync(`git ${args}`, { cwd, encoding: "utf8" }).trim();
 }
@@ -120,82 +102,6 @@ export function bakePreflight(): { sha: string; epoch: string } {
   return { sha: head, epoch };
 }
 
-/** Cross-compile cmuxd-remote for linux/amd64 into the devbox .build context. */
-export async function buildRemoteDaemon(): Promise<{ path: string; sha256: string; commit: string }> {
-  mkdirSync(path.dirname(daemonBuildPath), { recursive: true });
-  await runCommand(
-    "go",
-    ["build", "-trimpath", "-ldflags=-s -w", "-o", daemonBuildPath, "./cmd/cmuxd-remote"],
-    {
-      cwd: path.join(repoRoot, "daemon/remote"),
-      env: { GOOS: "linux", GOARCH: "amd64", CGO_ENABLED: "0" },
-    },
-  );
-  return {
-    path: daemonBuildPath,
-    sha256: sha256File(daemonBuildPath),
-    commit: git("rev-parse HEAD", path.join(repoRoot, "daemon/remote")),
-  };
-}
-
-/**
- * A URL the Freestyle builder VM can download cmuxd-remote from (its exec API
- * has no file upload big enough for the daemon). Either CMUX_REMOTE_DAEMON_BUILD_URL
- * points at an already-hosted build, or the binary is uploaded to R2 and
- * presigned (same contract as web/scripts/build-cloud-vm-images.ts).
- */
-export async function remoteDaemonBuildURL(tag: string): Promise<string> {
-  const explicit = process.env.CMUX_REMOTE_DAEMON_BUILD_URL?.trim();
-  if (explicit) return explicit;
-
-  const required = ["R2_ENDPOINT", "R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"];
-  const missing = required.filter((key) => !process.env[key]?.trim());
-  if (missing.length > 0) {
-    throw new Error(
-      `Freestyle bake needs CMUX_REMOTE_DAEMON_BUILD_URL or R2 env vars; missing ${missing.join(", ")}`,
-    );
-  }
-
-  const key = `cmux-build-artifacts/cloud-vm/${tag}/cmuxd-remote-linux-amd64`;
-  const env = {
-    AWS_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID!,
-    AWS_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY!,
-    AWS_DEFAULT_REGION: "auto",
-    AWS_REGION: "auto",
-  };
-  await runCommand(
-    "aws",
-    [
-      "s3",
-      "cp",
-      daemonBuildPath,
-      `s3://${process.env.R2_BUCKET_NAME!}/${key}`,
-      "--endpoint-url",
-      process.env.R2_ENDPOINT!,
-      "--content-type",
-      "application/octet-stream",
-      "--cache-control",
-      "no-store",
-      "--only-show-errors",
-    ],
-    { env },
-  );
-  const presigned = await runCommand(
-    "aws",
-    [
-      "s3",
-      "presign",
-      `s3://${process.env.R2_BUCKET_NAME!}/${key}`,
-      "--endpoint-url",
-      process.env.R2_ENDPOINT!,
-      "--expires-in",
-      "3600",
-    ],
-    { env },
-  );
-  return presigned.trim();
-}
-
 export function defaultBakeTag(): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
   return `devbox-${stamp}`;
@@ -215,23 +121,18 @@ export type DevboxBakeMetadata = {
   readonly builtAt: string;
   readonly epoch: string;
   readonly repoCommit: string;
-  readonly cmuxdRemoteCommit: string;
-  readonly binarySha256: string;
   readonly builderScriptVersion: string;
   readonly agentToolResolvedVersions: Record<string, string>;
 };
 
 export function bakeMetadata(
   preflight: { sha: string; epoch: string },
-  daemon: { sha256: string; commit: string },
   builderScriptPath: string,
 ): DevboxBakeMetadata {
   return {
     builtAt: new Date().toISOString(),
     epoch: preflight.epoch,
     repoCommit: preflight.sha,
-    cmuxdRemoteCommit: daemon.commit,
-    binarySha256: daemon.sha256,
     builderScriptVersion: sha256File(builderScriptPath),
     agentToolResolvedVersions: Object.fromEntries(
       devboxAgentPins().map((pin) => [pin.pkg, pin.version]),
@@ -253,7 +154,9 @@ export function manifestEntrySkeleton(
     imageId,
     envVar,
     defaultForLocalDev: false,
-    cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
+    // The session daemon is cmux-tui, installed at create time from the pinned
+    // artifacts manifest; no cmuxd-remote build is baked (same as Blaxel).
+    cmuxdRemoteCommit: "none-cmux-tui",
     builtAt: metadata.builtAt,
     builderScriptVersion: metadata.builderScriptVersion,
     agentToolResolvedVersions: metadata.agentToolResolvedVersions,
@@ -261,36 +164,7 @@ export function manifestEntrySkeleton(
     validationStatus: "unknown",
     notes: [
       `cmux devbox epoch ${metadata.epoch}`,
-      `binarySha256=${metadata.binarySha256}`,
       extraNotes,
     ].filter(Boolean).join(" "),
   };
-}
-
-export function runCommand(
-  command: string,
-  args: string[],
-  options: { cwd?: string; env?: Record<string, string> } = {},
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code === 0) {
-        resolve(Buffer.concat(stdout).toString());
-        return;
-      }
-      reject(
-        new Error(`${command} ${args.join(" ")} failed with ${code}\n${Buffer.concat(stderr).toString()}`),
-      );
-    });
-  });
 }

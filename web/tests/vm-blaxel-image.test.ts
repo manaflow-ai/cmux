@@ -164,8 +164,11 @@ describe("Blaxel baked image template", () => {
   test("declares the Blaxel template with the ports cmux opens", () => {
     expect(toml).toContain('name = "cmux-devbox"');
     expect(toml).toContain('type = "sandbox"');
-    expect(toml).toContain("target = 7777");
     expect(toml).toContain("target = 6901");
+    // The cmuxd-era 7777 port is gone: cmux-tui (1337) is reached through
+    // driver-minted previews, which need no template port declaration.
+    expect(toml).not.toContain("7777");
+    expect(dockerfile).not.toContain("7777");
   });
 
   test("desktop polish: pre-accepted Chrome, CC0 wallpaper, no clock, dock order", () => {

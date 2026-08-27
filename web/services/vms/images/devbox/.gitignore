@@ -1,3 +1,0 @@
-# Build-time artifacts the bake scripts drop into the Docker context
-# (cmuxd-remote-linux-amd64 built from daemon/remote). Never committed.
-.build/
