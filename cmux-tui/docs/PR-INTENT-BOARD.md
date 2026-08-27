@@ -18,10 +18,12 @@ The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull
 [#10962](https://github.com/manaflow-ai/cmux/pull/10962), and
 [#10951](https://github.com/manaflow-ai/cmux/pull/10951), and
 [#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
-[#10959](https://github.com/manaflow-ai/cmux/pull/10959), and
+[#10959](https://github.com/manaflow-ai/cmux/pull/10959),
+[#10973](https://github.com/manaflow-ai/cmux/pull/10973), and
 [#10929](https://github.com/manaflow-ai/cmux/pull/10929). The latest merge adds
-bounded relay lifecycle hardening after the startup, redraw, frame-area,
-diagnostics, draw/paint, Sentry, and Escape tail. Source heads, authors, merge times, and merge
+bounded relay lifecycle hardening after the bounded response-send, startup,
+redraw, frame-area, diagnostics, draw/paint, Sentry, and Escape tail. Source
+heads, authors, merge times, and merge
 commits are recorded below.
 Individual rollback commands are in
 [`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
@@ -47,6 +49,7 @@ Individual rollback commands are in
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | `561ddccdc9da7d6389d90940f73e9ea30205fa26` | 2026-08-27 12:25:26 | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
 | [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | `d41cac100d2488c41cbabff7c236166186b9deb4` | 2026-08-27 12:22:32 | `2f95b8760005047ff470afe4a00fd33783e4cf93` |
 | [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | `8f74239c78a81352d69e8fe5512a688b0a9d7b7e` | 2026-08-27 12:49:58 | `87f31977237cbcbbf8b7f492718685d612fbb9b0` |
+| [#10973](https://github.com/manaflow-ai/cmux/pull/10973) | Lawrence Chen | `ed9497e9f00fdbb12ff7b412468d6ef9db8635b6` | 2026-08-27 13:26:49 | `d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` |
 | [#10929](https://github.com/manaflow-ai/cmux/pull/10929) | Lawrence Chen | `8ba9a3869c83e1f1f1b83e1781d484490e2aea40` | 2026-08-27 13:56:43 | `31a74487e1f824b450eaf0c2b43f0d77fe51563c` |
 
 ## Current open-PR inventory
@@ -82,7 +85,7 @@ wave adds five named audit turns, for at least 263 named turns. This is a
 verifiable lower bound, not a total session count, and no 10,000-session claim
 is made.
 
-Dependent open intents require separate review: [#10736](https://github.com/manaflow-ai/cmux/pull/10736) (`2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, sidebar preview), [#10742](https://github.com/manaflow-ai/cmux/pull/10742) (`befdff972f563f851ef27e38bbbb115269b4769a`, manual I/O), and [#10812](https://github.com/manaflow-ai/cmux/pull/10812) (`a44314f6e9eaf42925dc1d6c9dfb0a20b021b4a1`, remote daemon). Their open state is not acceptance evidence.
+Dependent open intents require separate review: [#10736](https://github.com/manaflow-ai/cmux/pull/10736) (`2fed9d4c6d0d548ee20751afedb2d53b4598b09c`, sidebar preview) and [#10742](https://github.com/manaflow-ai/cmux/pull/10742) (`befdff972f563f851ef27e38bbbb115269b4769a`, manual I/O). Their open state is not acceptance evidence. Superseded [#10812](https://github.com/manaflow-ai/cmux/pull/10812) is tracked only in the disposition note above.
 
 Cloud resource projection [#10812](https://github.com/manaflow-ai/cmux/pull/10812) is superseded by merged [#10887](https://github.com/manaflow-ai/cmux/pull/10887). Packaging duplicate [#10886](https://github.com/manaflow-ai/cmux/pull/10886) remains open and is superseded pending [#10891](https://github.com/manaflow-ai/cmux/pull/10891); re-query both before closing either.
 

@@ -43,6 +43,7 @@ channel to hang.
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Share the draw and paint render path. | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | Render-path behavior still needs hosted visual proof. `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
 | [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Defer and flush Sentry sends before serverless freeze. | `2f95b8760005047ff470afe4a00fd33783e4cf93` | Cloud delivery behavior still needs hosted evidence. `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
 | [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Integrate Escape passthrough from #9810. | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Cross-frontend Escape handling still needs behavior proof. `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
+| [#10973](https://github.com/manaflow-ai/cmux/pull/10973) | Bound provider response channels and handle send errors. | `d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` | Re-run hosted response-channel and shutdown proof. `git revert d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` |
 | [#10929](https://github.com/manaflow-ai/cmux/pull/10929) | Re-land bounded relay lifecycle hardening. | `31a74487e1f824b450eaf0c2b43f0d77fe51563c` | Re-run hosted relay lifecycle proof on the re-landed path. `git revert 31a74487e1f824b450eaf0c2b43f0d77fe51563c` |
 
 ## Current audit additions
