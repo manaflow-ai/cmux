@@ -1,7 +1,11 @@
 //! Connected state: hello negotiation, heartbeats, trust sync, reconnect
 //! with jittered exponential backoff, and the exec/PTY frame dispatch.
 //! Behavior port of `stayOnline` / `relaySession` in
-//! `packages/relay/bin/cmux-relay.mjs`.
+//! `packages/relay/bin/cmux-relay.mjs`, plus a suspend/read-liveness
+//! watchdog the JS relay never had: a wall-vs-monotonic clock-jump detector
+//! and an inbound-traffic deadline that together redial promptly after a VM
+//! pause or host sleep instead of waiting out the kernel's TCP
+//! retransmission timeout on a zombie socket.
 //!
 //! Slices 2/3: `action_request` runs the exec verbs (`actions`); the
 //! `pty_*` family drives the PtyManager (`pty`). Both re-check the machine's
@@ -51,6 +55,22 @@ const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+/// One suspend/read-liveness sample per period while a socket is open.
+const LIVENESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+/// Wall clock moving more than this relative to the monotonic clock between
+/// two liveness samples means the host slept under us (or the guest clock
+/// was stepped); either way the peer likely closed the socket while this
+/// process was not running, and no FIN/RST will ever arrive.
+const SUSPEND_CLOCK_JUMP: Duration = Duration::from_secs(30);
+/// The server answers every heartbeat with `heartbeat_ack` and marks a
+/// relay stale after 3 heartbeat intervals + 10s (the Relay DO `presence()`
+/// rule). Use the same budget here: a socket with no inbound traffic for
+/// that long is dead, whatever the OS says about the TCP connection.
+const READ_LIVENESS_HEARTBEATS: u32 = 3;
+const READ_LIVENESS_GRACE: Duration = Duration::from_secs(10);
+/// Before hello_accepted names the negotiated cadence, budget for the
+/// server-default 20s heartbeat interval.
+const PRE_HELLO_READ_DEADLINE: Duration = Duration::from_secs(70);
 
 pub struct SessionState {
     pub first_connect: bool,
@@ -246,6 +266,29 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+/// True when the wall clock moved more than `threshold` relative to the
+/// monotonic clock between two liveness samples. Deltas, not absolutes: a
+/// wall clock that is wrong but ticking (a guest that never resynced after
+/// a pause) advances in step with the monotonic clock and never trips this;
+/// a host suspend advances the wall clock while the monotonic clock stands
+/// still, and a clock step moves it without any monotonic time passing.
+fn clock_jumped(wall_delta_ms: i64, monotonic_delta: Duration, threshold: Duration) -> bool {
+    let monotonic_ms = i64::try_from(monotonic_delta.as_millis()).unwrap_or(i64::MAX);
+    let threshold_ms = i64::try_from(threshold.as_millis()).unwrap_or(i64::MAX);
+    wall_delta_ms.saturating_sub(monotonic_ms).saturating_abs() > threshold_ms
+}
+
+/// How long a socket may stay silent before it is treated as dead. Follows
+/// the negotiated heartbeat cadence once hello_accepted names it.
+fn read_liveness_deadline(heartbeat_interval: Option<Duration>) -> Duration {
+    match heartbeat_interval {
+        Some(interval) => interval
+            .saturating_mul(READ_LIVENESS_HEARTBEATS)
+            .saturating_add(READ_LIVENESS_GRACE),
+        None => PRE_HELLO_READ_DEADLINE,
+    }
+}
+
 fn jitter() -> f64 {
     let mut byte = [0_u8; 1];
     let _ = getrandom::fill(&mut byte);
@@ -297,6 +340,15 @@ pub async fn stay_online(
             }
             Err(RelayError::Fatal { message, exit_code }) => {
                 return Err(RelayError::Fatal { message, exit_code });
+            }
+            Err(RelayError::WakeRedial { message }) => {
+                // The socket died silently (host suspend, or a peer that
+                // vanished without a FIN). The network itself is not known
+                // to be down, so redial now; a failed dial lands back on
+                // the normal backoff ladder below.
+                eprintln!("Relay redialing: {message}");
+                attempt = 0;
+                continue;
             }
             Err(error) => {
                 eprintln!("Relay offline: {error}");
@@ -480,6 +532,17 @@ async fn relay_session(
     let mut unknown_types: HashSet<String> = HashSet::new();
     let mut unknown_type_order: VecDeque<String> = VecDeque::new();
     let mut heartbeat: Option<tokio::time::Interval> = None;
+    let mut heartbeat_interval: Option<Duration> = None;
+    // Suspend and read-liveness watchdog. A VM pause or host sleep leaves
+    // this side holding an ESTABLISHED socket whose peer closed long ago;
+    // no FIN/RST arrives, so without this the relay would sit on the zombie
+    // socket until the kernel's TCP retransmission timeout (10+ minutes).
+    let mut liveness = tokio::time::interval(LIVENESS_CHECK_INTERVAL);
+    liveness.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    liveness.reset();
+    let mut last_inbound = tokio::time::Instant::now();
+    let mut last_wall_ms = now_ms();
+    let mut last_monotonic = tokio::time::Instant::now();
     let mut critical_burst = 0_u8;
 
     let result = loop {
@@ -505,6 +568,7 @@ async fn relay_session(
         enum Wake {
             Shutdown,
             Heartbeat,
+            Liveness,
             Outbound(bool, Option<OutboundFrame>),
             Incoming(Option<Result<Message, TungsteniteError>>),
         }
@@ -521,6 +585,7 @@ async fn relay_session(
                             None => std::future::pending().await,
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
+                    _ = liveness.tick() => Wake::Liveness,
                     _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
@@ -535,6 +600,7 @@ async fn relay_session(
                             None => std::future::pending().await,
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
+                    _ = liveness.tick() => Wake::Liveness,
                     _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
@@ -547,6 +613,31 @@ async fn relay_session(
                 let frame = heartbeat_frame(now_ms()).to_string();
                 if send_socket_text(&socket, frame, cancellation).await.is_err() {
                     break Ok(connected);
+                }
+            }
+            Wake::Liveness => {
+                critical_burst = 0;
+                let wall_ms = now_ms();
+                let monotonic = tokio::time::Instant::now();
+                let wall_delta_ms = wall_ms.saturating_sub(last_wall_ms);
+                let monotonic_delta = monotonic.saturating_duration_since(last_monotonic);
+                last_wall_ms = wall_ms;
+                last_monotonic = monotonic;
+                if clock_jumped(wall_delta_ms, monotonic_delta, SUSPEND_CLOCK_JUMP) {
+                    break Err(RelayError::wake_redial(format!(
+                        "the host slept or its clock jumped ({wall_delta_ms}ms of wall time \
+                         across {}ms of run time); the socket peer is presumed gone",
+                        monotonic_delta.as_millis()
+                    )));
+                }
+                let idle = monotonic.saturating_duration_since(last_inbound);
+                let deadline = read_liveness_deadline(heartbeat_interval);
+                if idle >= deadline {
+                    break Err(RelayError::wake_redial(format!(
+                        "no server traffic for {}s (deadline {}s); the socket is presumed dead",
+                        idle.as_secs(),
+                        deadline.as_secs()
+                    )));
                 }
             }
             Wake::Outbound(is_critical, Some(frame)) => {
@@ -573,6 +664,9 @@ async fn relay_session(
                     Some(Err(error)) => break Err(RelayError::transient(error.to_string())),
                     None => break Ok(connected),
                 };
+                // Any inbound traffic (heartbeat_ack included) proves the
+                // socket is alive; the read-liveness deadline restarts here.
+                last_inbound = tokio::time::Instant::now();
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Ping(payload) => {
@@ -683,12 +777,12 @@ async fn relay_session(
                             snapshot.owner = config.owner_user_id.clone();
                             workspace.set_local_observe(local_observe);
                         }
-                        let mut interval = tokio::time::interval(Duration::from_millis(
-                            hello.heartbeat_interval_ms,
-                        ));
+                        let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
+                        let mut interval = tokio::time::interval(cadence);
                         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                         interval.reset();
                         heartbeat = Some(interval);
+                        heartbeat_interval = Some(cadence);
                     }
                     ServerFrame::UpgradeRequired { min_version, message } => {
                         let advertised = advertised_protocol();
@@ -984,6 +1078,66 @@ mod tests {
         assert_eq!(list["type"], "surface_list_result");
         assert_eq!(list["requestId"], "list_1");
         assert_eq!(list["surfaces"], serde_json::json!([]));
+    }
+}
+
+#[cfg(test)]
+mod liveness_tests {
+    use super::{
+        PRE_HELLO_READ_DEADLINE, READ_LIVENESS_GRACE, SUSPEND_CLOCK_JUMP, clock_jumped,
+        read_liveness_deadline,
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn matching_clock_deltas_are_not_a_jump() {
+        // A healthy tick: 5s of wall time across 5s of run time. This is
+        // also the wrong-but-ticking guest clock (absolute offset does not
+        // matter; only the deltas are compared).
+        assert!(!clock_jumped(5_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn wall_clock_running_ahead_of_monotonic_is_a_suspend() {
+        // Host sleep: 14 minutes of wall time passed while the monotonic
+        // clock (which excludes suspend) saw one 5s sample.
+        assert!(clock_jumped(840_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn wall_clock_stepped_backward_is_a_jump() {
+        // A guest clock resync stepping backward after a pause is the same
+        // signal: real time passed that this process never observed.
+        assert!(clock_jumped(-835_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn the_jump_threshold_is_exclusive() {
+        let threshold_ms = 5_000 + i64::try_from(SUSPEND_CLOCK_JUMP.as_millis()).expect("ms");
+        assert!(!clock_jumped(threshold_ms, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+        assert!(clock_jumped(threshold_ms + 1, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn extreme_deltas_saturate_instead_of_overflowing() {
+        assert!(clock_jumped(i64::MAX, Duration::ZERO, SUSPEND_CLOCK_JUMP));
+        assert!(clock_jumped(i64::MIN, Duration::ZERO, SUSPEND_CLOCK_JUMP));
+        assert!(clock_jumped(0, Duration::from_millis(u64::MAX), SUSPEND_CLOCK_JUMP));
+    }
+
+    #[test]
+    fn read_deadline_follows_the_negotiated_heartbeat_cadence() {
+        // 3 heartbeats + 10s grace, matching the server's staleness rule.
+        assert_eq!(read_liveness_deadline(Some(Duration::from_secs(20))), Duration::from_secs(70));
+        assert_eq!(
+            read_liveness_deadline(Some(Duration::from_secs(1))),
+            Duration::from_secs(3) + READ_LIVENESS_GRACE
+        );
+    }
+
+    #[test]
+    fn read_deadline_before_hello_uses_the_server_default_budget() {
+        assert_eq!(read_liveness_deadline(None), PRE_HELLO_READ_DEADLINE);
     }
 }
 
