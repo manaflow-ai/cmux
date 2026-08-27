@@ -344,7 +344,7 @@ async fn coordinate_open(
                 message,
             );
         }
-        Err(SetupFailure::Failed(message)) => {
+        Err(SetupFailure::Failed(_message)) => {
             finish_open_failure(
                 &watch_id,
                 generation,
@@ -353,7 +353,7 @@ async fn coordinate_open(
                 sessions,
                 outbound,
                 wire::WorkspaceErrorCode::Failed,
-                message,
+                WATCH_SETUP_FAILURE_MESSAGE.to_owned(),
             );
         }
     }
@@ -480,7 +480,10 @@ fn finish_open_failure(
             // Keep the active watch intact while the refusal is queued.
             // Holding the state lock orders this frame before a subsequent
             // replacement.
-            let _ = outbound.try_critical_text_with_token(text, Some(Arc::clone(&live)));
+            // This is a terminal response for the open request. Do not attach
+            // the opening token: it is retired immediately below, and a token
+            // would make the writer discard the error before the client sees it.
+            let _ = outbound.try_critical_text(text);
             slot.opening.take();
             live.store(false, Ordering::Release);
             slot.active.is_none()
@@ -495,17 +498,21 @@ fn finish_open_failure(
 }
 
 fn finish_active(watch_id: &str, generation: u64, sessions: Sessions) {
+    let mut live = None;
     if let Ok(mut state) = sessions.lock() {
         let mut remove_slot = false;
         if let Some(slot) = state.get_mut(watch_id)
             && slot.active.as_ref().is_some_and(|active| active.generation == generation)
         {
-            slot.active.take();
+            live = slot.active.take().map(|active| active.live);
             remove_slot = slot.opening.is_none();
         }
         if remove_slot {
             state.remove(watch_id);
         }
+    }
+    if let Some(live) = live {
+        live.store(false, Ordering::Release);
     }
 }
 
@@ -687,11 +694,11 @@ async fn run_watch(
                 break 'watch;
             }
         }
-        if let Some(error) = fatal {
+        if let Some(_error) = fatal {
             let text = watch_error_frame(
                 watch_id,
                 wire::WorkspaceErrorCode::Failed,
-                &format!("the watcher died: {error}"),
+                WATCH_RUNTIME_FAILURE_MESSAGE,
             );
             tokio::select! {
                 biased;
@@ -700,11 +707,11 @@ async fn run_watch(
             }
             break;
         }
-        if let Some(error) = latched_error {
+        if let Some(_error) = latched_error {
             let text = watch_error_frame(
                 watch_id,
                 wire::WorkspaceErrorCode::Failed,
-                &format!("the watcher reported an error: {error}"),
+                WATCH_RUNTIME_FAILURE_MESSAGE,
             );
             tokio::select! {
                 biased;
