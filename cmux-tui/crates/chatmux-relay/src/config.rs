@@ -5,8 +5,12 @@
 //! trailing newline, written with mode 0600. Unknown fields written by other
 //! (newer or older) relay builds are preserved across load/save.
 
+use std::fs::OpenOptions;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
+
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -107,17 +111,45 @@ fn home_dir() -> PathBuf {
 }
 
 fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
-    // Do not accept a config symlink. `metadata` follows links, which could
-    // make a compromised config path read credentials from an unrelated file.
-    // `symlink_metadata` performs the check on the directory entry itself.
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_file() {
+    // Open first and validate the descriptor. On Unix, O_NOFOLLOW closes the
+    // pathname-swap window between a metadata check and the read.
+    #[cfg(not(unix))]
+    {
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.file_type().is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "relay config is not a regular file",
+            ));
+        }
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "relay config is not a regular file",
         ));
     }
-    let file = std::fs::File::open(path)?;
+    #[cfg(unix)]
+    {
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "relay config is not owned by the current user",
+            ));
+        }
+        if metadata.mode() & 0o777 != 0o600 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "relay config permissions are not 0600",
+            ));
+        }
+    }
     let mut bytes = Vec::new();
     file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)?;
     Ok(bytes)
