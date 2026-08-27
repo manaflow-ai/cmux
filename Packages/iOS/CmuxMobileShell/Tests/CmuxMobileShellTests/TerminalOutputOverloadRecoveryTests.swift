@@ -187,6 +187,81 @@ import Testing
 }
 
 @MainActor
+@Test func exhaustedCompatibilityFallbackRebasesAfterSequenceReset() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+    store.terminalOutputTransport = .hybrid
+
+    // Establish a high pre-barrier sequence, then make every overload replay
+    // return a compatibility snapshot from a restarted host sequence.
+    await router.enqueueReplayPayload(text: "cold-replay", sequence: 100)
+    for attempt in 0...MobileShellComposite.maxTerminalReplayFailureRetries {
+        await router.enqueueReplayPayload(
+            text: nil,
+            sequence: 2,
+            snapshotText: "sequence-reset-(attempt)"
+        )
+    }
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(coldReplayChunk.endSequence == 100)
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 100)
+
+    store.deliverTerminalBytes(Data("stalled-apply".utf8), surfaceID: surfaceID)
+    _ = try #require(await iterator.next())
+    for index in 0..<TerminalOutputDeliveryQueue.maximumPendingCount {
+        #expect(store.deliverTerminalBytes(Data("queued-\(index)".utf8), surfaceID: surfaceID))
+    }
+    #expect(!store.deliverTerminalBytes(Data("overflow".utf8), surfaceID: surfaceID))
+
+    await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: 2 + MobileShellComposite.maxTerminalReplayFailureRetries
+    )
+    let replacementChunk = try #require(await iterator.next())
+    #expect(
+        String(decoding: replacementChunk.data, as: UTF8.self)
+            .contains("sequence-reset-(MobileShellComposite.maxTerminalReplayFailureRetries)")
+    )
+    #expect(replacementChunk.endSequence == 2)
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: replacementChunk.streamToken
+    )
+
+    // The fallback starts a new sequence epoch. A subsequent live event must
+    // not be rejected against the pre-barrier high-water mark.
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 3,
+        text: "live-after-sequence-reset"
+    ))
+    let resumed = try await pollUntil {
+        store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ==
+            3 + UInt64("live-after-sequence-reset".utf8.count)
+    }
+    #expect(resumed)
+    guard resumed else { return }
+    let liveChunk = try #require(await iterator.next())
+    #expect(
+        String(decoding: liveChunk.data, as: UTF8.self) == "live-after-sequence-reset"
+    )
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: liveChunk.streamToken
+    )
+}
+
+@MainActor
 @Test func overloadDoesNotTreatRawTailAsAuthoritativeReplacement() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
