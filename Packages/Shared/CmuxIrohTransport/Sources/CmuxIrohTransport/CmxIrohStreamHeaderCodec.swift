@@ -38,7 +38,12 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             laneCode = 1
             flags = 0
             guard let credential = header.credential else {
-                throw CmxIrohStreamHeaderCodecError.invalidPayload
+                // Allowlist admission: the control stream declares its lane
+                // with no in-band credential; authorization rests entirely on
+                // the TLS-proven EndpointID against the Mac's paired-peer
+                // allowlist.
+                credentialCode = 0
+                break
             }
             switch credential.kind {
             case .pairGrant:
@@ -209,8 +214,11 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
     private func decodeCredential(
         code: UInt8,
         payload: inout CmxIrohBinaryCursor
-    ) throws -> CmxIrohAdmissionCredential {
+    ) throws -> CmxIrohAdmissionCredential? {
         switch code {
+        case 0:
+            // Credential-less control stream: allowlist admission request.
+            return nil
         case 1:
             let length = Int(try payload.readUInt16())
             return try .pairGrant(payload.readString(byteCount: length))

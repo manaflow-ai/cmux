@@ -36,6 +36,8 @@ extension MobileHostIrohRuntime {
             runtimeStatus: Self.settingsRuntimeStatus(
                 runtimeState,
                 failure: diagnostics?.failure,
+                refreshFailurePersistent: (diagnostics?.consecutiveRefreshFailures ?? 0)
+                    >= CmxIrohRelayPolicyService.persistentRefreshFailureThreshold,
                 selectedPath: selectedPath
             ),
             selectedTransportPath: selectedPath,
@@ -66,9 +68,14 @@ extension MobileHostIrohRuntime {
     private nonisolated static func settingsRuntimeStatus(
         _ state: CmxIrohHostRuntimeSnapshot.State?,
         failure: CmxIrohRelayPolicyFailure?,
+        refreshFailurePersistent: Bool,
         selectedPath: CmxIrohSelectedTransportPath
     ) -> CmxIrohSettingsSnapshot.RuntimeStatus {
         if failure != nil { return .degraded }
+        // A persistently failing policy refresh means this host cannot renew
+        // relay authority: without this the outage was invisible while LAN
+        // and direct paths still worked (cmux#10873).
+        if refreshFailurePersistent { return .degraded }
         switch state {
         case .active:
             return CmxIrohSettingsSnapshot.RuntimeStatus(activePath: selectedPath)

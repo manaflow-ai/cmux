@@ -111,7 +111,7 @@ extension CmxIrohRegistryContextProviderTests {
             expectedPeerDeviceID: fixture.acceptor.deviceID.uppercased()
         ))
 
-        #expect(context.credential.pairGrantToken == response.grant)
+        #expect(context.credential?.pairGrantToken == response.grant)
         #expect(await broker.pairGrantRequestCount() == 1)
     }
 
@@ -183,7 +183,7 @@ extension CmxIrohRegistryContextProviderTests {
 
         let context = try await provider.context(for: fixture.request(hints: []))
 
-        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(context.credential?.pairGrantToken == grant.grant)
         #expect(await store.readCount() > 0)
     }
 
@@ -228,7 +228,7 @@ extension CmxIrohRegistryContextProviderTests {
 
         let context = try await provider.context(for: fixture.request(hints: []))
 
-        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(context.credential?.pairGrantToken == grant.grant)
         #expect(await broker.pairGrantRequestCount() == 1)
     }
 
@@ -275,7 +275,7 @@ extension CmxIrohRegistryContextProviderTests {
 
         let context = try await provider.context(for: fixture.request(hints: []))
 
-        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(context.credential?.pairGrantToken == grant.grant)
         #expect(await broker.discoveryRequestCount() == 1)
         #expect(await broker.pairGrantRequestCount() == 1)
         #expect(await store.readCount() > 0)
@@ -399,7 +399,11 @@ extension CmxIrohRegistryContextProviderTests {
         }
 
         #expect(await broker.pairGrantRequestCount() == 1)
-        #expect(await seeded.store.readCount() == readsBeforeDial)
+        // Exactly one extra store read is allowed: the one-time hydration of
+        // the established-session markers for allowlist admission. The cached
+        // GRANT itself is still never consulted after an unauthorized
+        // rejection (no cached-policy dial, no new record writes).
+        #expect(await seeded.store.readCount() == readsBeforeDial + 1)
         #expect(await seeded.store.recordCount() == 1)
     }
 

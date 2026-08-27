@@ -68,13 +68,15 @@ public actor CmxIrohServerSession {
                 from: stream.receiveStream,
                 headerCodec: headerCodec
             )
-            guard decoded.header.lane == .control,
-                  let credential = decoded.header.credential else {
+            guard decoded.header.lane == .control else {
                 throw CmxIrohServerSessionError.invalidFirstLane
             }
             let peerID = await connection.remoteIdentity()
+            // A nil credential is a valid allowlist-admission request: the
+            // authorizer decides purely from the TLS-proven identity against
+            // the Mac's persisted paired-peer allowlist.
             let authorization = await authorizer.authorize(
-                credential: credential,
+                credential: decoded.header.credential,
                 authenticatedPeerID: peerID
             )
             let checkedAuthorization: CmxIrohAdmissionAuthorization

@@ -89,7 +89,7 @@ struct CmxIrohPrivatePathTransportGateTests {
                     && $0.privacyScope == .privateNetwork
                     && $0.networkProfile == profile
             })
-            #expect(context.credential.kind == .pairGrant)
+            #expect(context.credential?.kind == .pairGrant)
 
             let authorizer = admissionController(
                 fixture: fixture,
