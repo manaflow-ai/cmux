@@ -1515,6 +1515,7 @@
 		1B0B09040000000000000002 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */; };
 		1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */; };
 		C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */; };
+		C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */; };
 		C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000011 /* MobileHostIrxRuntime.swift */; };
 		C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
@@ -2375,6 +2376,7 @@
 		C7A507000000000000004529 /* TaskManagerViewSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */; };
 		C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A502000000000000000001 /* TaskManagerWindowController.swift */; };
 		7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */; };
+		B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */; };
 		A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */; };
 		C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
@@ -4426,6 +4428,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		1B0B09040000000000000001 /* MobileHostIrohRuntime+SettingsSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsSnapshot.swift"; sourceTree = "<group>"; };
 		1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRuntime.swift; sourceTree = "<group>"; };
 		C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohServerEventWriter.swift; sourceTree = "<group>"; };
+		C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxLegacyDialectServer.swift; sourceTree = "<group>"; };
 		C1B1810000000000000011 /* MobileHostIrxRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxRuntime.swift; sourceTree = "<group>"; };
 		C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxTerminalLaneServer.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
@@ -5271,6 +5274,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerViewSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		C7A502000000000000000001 /* TaskManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowController.swift; sourceTree = "<group>"; };
 		7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TaskVMInfoMemoryPressureFootprintSampler.swift; sourceTree = "<group>"; };
+		B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCCUsageDescriptionUITests.swift; sourceTree = "<group>"; };
 		A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdaptiveDefaultThemeSettings.swift; sourceTree = "<group>"; };
 		C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentPanelInitialTitleTests.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
@@ -6041,6 +6045,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
 				F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */,
 				C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */,
+				B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */,
 				B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */,
 				E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */,
 				D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
@@ -6150,6 +6155,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */,
 				C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */,
 				C1B1810000000000000011 /* MobileHostIrxRuntime.swift */,
+				C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */,
 				C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */,
 				C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */,
 				C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */,
@@ -10268,6 +10274,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1B0B09040000000000000002 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */,
 				1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */,
 				C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */,
+				C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */,
 				C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */,
 				C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
@@ -11485,6 +11492,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 				B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */,
 				B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
+				B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */,
 				C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
 				C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
 				E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,

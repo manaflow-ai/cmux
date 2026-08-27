@@ -107,6 +107,12 @@ export const CMUX_PROVISION_AGENT_PACKAGES = [
 ] as const;
 export const CMUX_PROVISION_SCRIPT = `#!/bin/bash
 # cmux machine provisioning (background, idempotent). Log: ${CMUX_PROVISION_LOG_PATH}
+# Baked images (services/vms/images/blaxel) already contain everything below, pinned
+# at bake time, and stamp /etc/cmux/image-stamp; re-provisioning would only drift the
+# pinned versions to latest, so the stamp short-circuits the whole script. The cmux-tui
+# session daemon is NOT part of this script: bootstrapDaemon installs and starts it via
+# cmuxTuiInstallCommand on every image, so a stamped image still gets its daemon.
+[ -f /etc/cmux/image-stamp ] && exit 0
 export HOME=/root DEBIAN_FRONTEND=noninteractive
 export PATH=/root/.bun/bin:/root/.npm-global/bin:/root/.local/bin:/usr/local/bin:$PATH
 mkdir -p /root/.npm-global /root/.local/bin
