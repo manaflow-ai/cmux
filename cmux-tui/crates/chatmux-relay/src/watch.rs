@@ -683,6 +683,18 @@ async fn run_watch(
                 // latching overflow would wake this loop immediately and
                 // spin forever while producing no observable frame. The
                 // event is explicitly lost, so terminate this watch task.
+                // Tell the client why its stream ended. The critical lane is
+                // independent of the lossy watch queue, so this best-effort
+                // response remains available when only event delivery is
+                // saturated. It intentionally has no lifecycle token: the
+                // runner retires its token immediately after this branch and
+                // would otherwise suppress the terminal error itself.
+                let text = watch_error_frame(
+                    watch_id,
+                    wire::WorkspaceErrorCode::Failed,
+                    WATCH_RUNTIME_FAILURE_MESSAGE,
+                );
+                let _ = outbound.try_critical_text(text);
                 break 'watch;
             }
         }
