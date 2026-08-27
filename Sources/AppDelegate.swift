@@ -1437,13 +1437,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             store: WorkstreamStore(
                 transport: NullWorkstreamTransport(),
                 persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
-                titleProvider: Self.feedWorkstreamTitle(for:),
                 workstreamIDNormalizer: { rawValue, source in
                     FeedWorkstreamIdentifier.canonicalizedRawValue(
                         agentID: source,
                         rawValue: rawValue
                     )
-                }
+                },
+                titleProvider: Self.feedWorkstreamTitle(for:)
             )
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
