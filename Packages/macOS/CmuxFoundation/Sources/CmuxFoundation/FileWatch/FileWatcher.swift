@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Sendable ownership boundary around Dispatch's non-Sendable filesystem source.
 /// The actor remains the sole mutator while deinit can safely request cancellation.

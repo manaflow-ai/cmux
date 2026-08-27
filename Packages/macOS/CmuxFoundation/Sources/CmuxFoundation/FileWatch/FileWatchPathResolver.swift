@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Resolves the nearest safe existing directory for a watched path.
 public struct FileWatchPathResolver: Sendable {
