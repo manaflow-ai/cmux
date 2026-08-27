@@ -114,4 +114,30 @@ struct SurfaceResumeRestoreClaimTests {
         #expect(workspace.surfaceResumeRestoreClaimsByPanelId[panelID] == nil)
         #expect(workspace.surfaceResumeBinding(panelId: panelID) == binding)
     }
+
+    @Test
+    func workspacePanelTeardownReleasesRestoreClaim() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume teardown-session",
+            checkpointId: "teardown-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui",
+            updatedAt: 40
+        )
+
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        #expect(workspace.claimSurfaceResumeBinding(
+            panelId: panelID,
+            expectedCheckpointID: "teardown-session",
+            expectedSource: "agent-hook",
+            expectedUpdatedAt: 40
+        ))
+        workspace.teardownAllPanels()
+
+        #expect(workspace.surfaceResumeRestoreClaimsByPanelId.isEmpty)
+    }
 }
