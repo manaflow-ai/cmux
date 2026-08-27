@@ -108,3 +108,26 @@ describe("VM image resolver", () => {
     });
   });
 });
+
+describe("provider inference from explicit images", () => {
+  test("a manifest image id uniquely owned by one provider infers that provider", async () => {
+    const { inferVmProviderForImage } = await import("../services/vms/images/resolver");
+    expect(inferVmProviderForImage("blaxel/xfce-vnc:latest")).toBe("blaxel");
+    expect(inferVmProviderForImage("sandbox/cmux-devbox:latest")).toBe("blaxel");
+    expect(inferVmProviderForImage("sh-6ch5p9k23xrcx24056n8")).toBe("freestyle");
+    expect(inferVmProviderForImage("cmuxd-ws:tooling-20260509f")).toBe("e2b");
+  });
+
+  test("manifest versions infer their provider too", async () => {
+    const { inferVmProviderForImage } = await import("../services/vms/images/resolver");
+    expect(inferVmProviderForImage("blaxel-bootstrap-20260820a")).toBe("blaxel");
+    expect(inferVmProviderForImage("freestyle-rpclease-20260502a")).toBe("freestyle");
+  });
+
+  test("unknown or absent images infer nothing", async () => {
+    const { inferVmProviderForImage } = await import("../services/vms/images/resolver");
+    expect(inferVmProviderForImage("not-in-the-manifest")).toBeNull();
+    expect(inferVmProviderForImage(undefined)).toBeNull();
+    expect(inferVmProviderForImage("   ")).toBeNull();
+  });
+});
