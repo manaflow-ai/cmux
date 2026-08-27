@@ -279,7 +279,11 @@ final class AgentJournalLifecycleCenter: Sendable {
             assignment: AgentLifecycleAssignment(
                 surfaceId: surfaceId,
                 agentKey: canonical.agentKey,
-                phase: state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey)
+                phase: state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey),
+                pendingWork: state.combinedPendingWork(
+                    surfaceId: surfaceId,
+                    agentKey: canonical.agentKey
+                )
             ),
             workspaceHint: canonical.draft.workspaceId
         )
@@ -328,6 +332,9 @@ final class AgentJournalLifecycleCenter: Sendable {
         var assignments: [AgentLifecycleAssignment] = []
         for (surfaceId, byAgent) in startup.phases {
             for (agentKey, phase) in byAgent {
+                // No pending work on replay: a relaunch tore down the PTYs that
+                // owned any background task, so nothing survives to refuse
+                // hibernation. The next live event reports it honestly.
                 assignments.append(
                     AgentLifecycleAssignment(surfaceId: surfaceId, agentKey: agentKey, phase: phase)
                 )

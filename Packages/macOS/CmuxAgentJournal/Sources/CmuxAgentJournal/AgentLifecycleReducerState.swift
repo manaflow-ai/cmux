@@ -34,6 +34,25 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         return "@\(draft.source)"
     }
 
+    /// Whether a draft asserts a phase for the whole pane rather than for one
+    /// session.
+    ///
+    /// A declared phase with no session id comes from a corrector that read the
+    /// pane's screen, and a screen has no session: it is saying "whatever is
+    /// running in this pane, it is in this phase now". Such an event applies to
+    /// every live session on the surface instead of opening a bucket beside
+    /// them — the correction has to be able to move the session it corrects,
+    /// and ``AgentLifecyclePhase/combinePrecedence`` ranks `running` above
+    /// every phase a corrector can declare.
+    ///
+    /// - Parameter draft: The event's draft.
+    /// - Returns: `true` when the draft is a whole-pane assertion.
+    public static func isPaneLevelAssertion(_ draft: AgentJournalEventDraft) -> Bool {
+        draft.kind == .stateChanged
+            && draft.declaredPhase != nil
+            && (draft.sessionId?.isEmpty ?? true)
+    }
+
     /// Combined phase for one surface/agent pair across its live sessions,
     /// or `nil` when every session has ended (the sidebar entry clears).
     ///
@@ -115,5 +134,17 @@ public struct AgentLifecycleReducerState: Sendable, Equatable {
         sessionKey: String
     ) -> AgentSessionLifecycleState? {
         sessions[surfaceId]?[agentKey]?[sessionKey]
+    }
+
+    /// Keys of every session for this surface/agent that has not ended, sorted
+    /// so the fold visits them in a stable order.
+    ///
+    /// - Parameters:
+    ///   - surfaceId: The surface.
+    ///   - agentKey: The agent key.
+    /// - Returns: The live session keys.
+    func liveSessionKeys(surfaceId: String, agentKey: String) -> [String] {
+        guard let bySession = sessions[surfaceId]?[agentKey] else { return [] }
+        return bySession.compactMap { $0.value.ended ? nil : $0.key }.sorted()
     }
 }
