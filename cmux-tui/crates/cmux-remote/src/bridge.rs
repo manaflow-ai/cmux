@@ -8,7 +8,7 @@ use cmux_remote_protocol::{MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceContro
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Semaphore, oneshot};
 
-use crate::mux_codec::MAX_MUX_LINE_BYTES;
+use crate::mux_codec::{MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, mux_line_payload_len};
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
 use crate::services::ServicesError;
 
@@ -320,7 +320,7 @@ where
                     remote.close().await?;
                     break;
                 }
-                if line.len() > MAX_MUX_LINE_BYTES {
+                if mux_line_payload_len(&line) > MAX_MUX_LINE_BYTES.saturating_sub(1) {
                     return Err(BridgeError::MuxLineTooLarge(line.len()));
                 }
                 if mux_input_v1 && let Some(input) = crate::mux_input::encode_local_line(&line)? {
@@ -337,8 +337,9 @@ where
         }
     };
     let download = async move {
-        let mut assembler =
-            crate::mux_codec::MuxLineAssembler::<Option<crate::service::StreamBudget>>::default();
+        let mut assembler = crate::mux_codec::MuxLineAssembler::<
+            Option<crate::service::StreamBudget>,
+        >::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES);
         loop {
             let chunk = if let Some(chunk) = initial.pop_front() {
                 Some(chunk)
