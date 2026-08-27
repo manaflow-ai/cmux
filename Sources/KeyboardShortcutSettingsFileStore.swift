@@ -1,4 +1,5 @@
 import Combine
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -935,7 +936,8 @@ final class CmuxSettingsFileStore {
         }
 
         if section.keys.contains("remoteDebuggingPort") {
-            guard let port = jsonInt(section["remoteDebuggingPort"]), (0...65_535).contains(port) else {
+            guard let port = jsonInt(section["remoteDebuggingPort"]),
+                  ChromiumRemoteDebuggingPort(rawValue: port) != nil else {
                 logInvalid("browser.remoteDebuggingPort", sourcePath: sourcePath)
                 return
             }

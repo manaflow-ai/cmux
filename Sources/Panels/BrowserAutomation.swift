@@ -8,6 +8,7 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
     case sourceProfileNotFound(String)
     case destinationProfileNotFound(String)
     case destinationProfileCreationFailed(String)
+    case chromiumCookiesUnsupported
 
     var errorDescription: String? {
         switch self {
@@ -55,6 +56,11 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
                     defaultValue: "Failed to create cmux browser profile '%@'"
                 ),
                 name
+            )
+        case .chromiumCookiesUnsupported:
+            return String(
+                localized: "browser.import.automation.error.chromiumCookiesUnsupported",
+                defaultValue: "Cookie import into Chromium is not available yet. Open a WebKit browser pane or set WebKit as the default engine and try again."
             )
         }
     }
@@ -413,6 +419,14 @@ enum BrowserImportAutomation {
         let browser = try selectedBrowser(from: browsers, params: params)
         let sourceProfiles = try selectedSourceProfiles(from: browser, params: params)
         let domainFilters = BrowserDataImporter.parseDomainFilters(domainFilterText(from: params))
+        let destinationEngine = await MainActor.run {
+            BrowserEngineSettingsStore(defaults: .standard).defaultEngineValue(
+                systemDefaultBrowserIsChromium: SystemDefaultBrowserDetector.isChromiumFamily()
+            )
+        }
+        guard destinationEngine != .chromium else {
+            throw BrowserImportAutomationError.chromiumCookiesUnsupported
+        }
 
         let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
             let destinationProfiles = BrowserProfileStore.shared.profiles
@@ -448,7 +462,8 @@ enum BrowserImportAutomation {
             from: browser,
             plan: realizedPlan,
             scope: .cookiesOnly,
-            domainFilters: domainFilters
+            domainFilters: domainFilters,
+            destinationEngine: destinationEngine
         )
     }
 

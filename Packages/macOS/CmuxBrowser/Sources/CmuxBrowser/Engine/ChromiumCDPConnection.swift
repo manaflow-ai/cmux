@@ -37,6 +37,13 @@ actor ChromiumCDPConnection {
         "Page.frameStoppedLoading",
         "Page.lifecycleEvent",
         "Page.loadEventFired",
+        // A paused document must be resumed or failed before Chromium can
+        // continue; dropping this event would leave the page permanently
+        // suspended at the policy boundary.
+        "Fetch.requestPaused",
+        // Title changes are low-volume but user-visible and must survive a
+        // bounded queue while a command response is in flight.
+        "Runtime.bindingCalled",
         "Page.crashed",
         "Target.targetCrashed",
         "Target.detachedFromTarget",
@@ -285,6 +292,17 @@ actor ChromiumCDPConnection {
 
         guard eventQueue.count < Self.eventBufferCapacity else {
             if Self.priorityEventMethods.contains(event.method) {
+                if event.method == "Fetch.requestPaused" {
+                    // A paused request cannot make progress until this exact
+                    // event is resumed or failed. Never drop it at the bounded
+                    // queue boundary; evict the oldest queued event instead.
+                    let evictIndex = eventQueue.firstIndex(where: {
+                        $0.method != Self.resyncEventMethod
+                    }) ?? 0
+                    eventQueue.remove(at: evictIndex)
+                    eventQueue.append(event)
+                    return
+                }
                 var evictedNormalEvent = false
                 if let evictIndex = eventQueue.firstIndex(where: {
                     !Self.priorityEventMethods.contains($0.method) &&

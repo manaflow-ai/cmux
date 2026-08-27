@@ -81,6 +81,10 @@ public enum CEFRuntime {
     /// - Returns: `true` when CEF is ready to create browsers.
     @discardableResult
     public static func initialize(options: Options) -> Bool {
+        guard options.remoteDebuggingPort == 0 ||
+              (1024...65_535).contains(options.remoteDebuggingPort) else {
+            return false
+        }
         if cmux_cef_is_initialized() != 0 { return true }
         cmux_cef_set_schedule_work_callback(cefScheduleWorkTrampoline)
         return options.rootCachePath.withCString { rootCachePath in

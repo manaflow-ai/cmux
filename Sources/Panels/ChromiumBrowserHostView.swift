@@ -19,6 +19,7 @@ final class ChromiumBrowserHostView: NSView {
     private var viewportTask: Task<Void, Never>?
     private var pointerTrackingArea: NSTrackingArea?
     private var lastViewport: CGSize = .zero
+    private var isSessionRunning = false
     private var hasStarted = false
     /// Whether this host is currently mounted as the visible pane owner.
     private var isPaneVisible = false
@@ -115,11 +116,16 @@ final class ChromiumBrowserHostView: NSView {
                     self.onSnapshot?(snapshot)
                     if case .running = snapshot.state {
                         // The first layout can happen before the child/CDP
-                        // connection is ready. Retry the same geometry when
-                        // the running signal arrives instead of leaving the
-                        // renderer at its 1280x800 default viewport.
-                        self.lastViewport = .zero
+                        // connection is ready. Retry once at the transition
+                        // into the running state; subsequent title/history
+                        // snapshots must not resend identical geometry.
+                        if !self.isSessionRunning {
+                            self.isSessionRunning = true
+                            self.lastViewport = .zero
+                        }
                         self.updateViewportIfNeeded()
+                    } else {
+                        self.isSessionRunning = false
                     }
                 }
             }
@@ -195,6 +201,8 @@ final class ChromiumBrowserHostView: NSView {
         stateTask = nil
         viewportTask = nil
         hasStarted = false
+        isSessionRunning = false
+        lastViewport = .zero
         imageView.image = nil
     }
 

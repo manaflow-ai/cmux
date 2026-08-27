@@ -6569,7 +6569,7 @@ extension BrowserPanel {
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload() {
         if isChromiumBacked {
-            reloadChromium()
+            reloadChromium(hard: true)
             return
         }
         if prepareForReload(reason: "hardReload", mode: .hard) {
@@ -9579,7 +9579,8 @@ enum BrowserDataImporter {
         from browser: InstalledBrowserCandidate,
         plan: RealizedBrowserImportExecutionPlan,
         scope: BrowserImportScope,
-        domainFilters: [String]
+        domainFilters: [String],
+        destinationEngine: BrowserEngineKind = .webkit
     ) async -> BrowserImportOutcome {
         var outcomeEntries: [BrowserImportOutcomeEntry] = []
         var warnings: [String] = []
@@ -9592,7 +9593,8 @@ enum BrowserDataImporter {
                 destinationProfileID: entry.destinationProfileID,
                 destinationProfileName: entry.destinationProfileName,
                 scope: scope,
-                domainFilters: domainFilters
+                domainFilters: domainFilters,
+                destinationEngine: destinationEngine
             )
             outcomeEntries.append(outcomeEntry)
             for warning in outcomeEntry.warnings where seenWarnings.insert(warning).inserted {
@@ -9626,17 +9628,28 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         destinationProfileName: String,
         scope: BrowserImportScope,
-        domainFilters: [String]
+        domainFilters: [String],
+        destinationEngine: BrowserEngineKind
     ) async -> BrowserImportOutcomeEntry {
         let resolvedSourceProfiles = sourceProfiles.isEmpty ? browser.profiles : sourceProfiles
         var cookieResult = CookieImportResult()
         if scope.includesCookies {
-            cookieResult = await importCookies(
-                from: browser,
-                sourceProfiles: resolvedSourceProfiles,
-                destinationProfileID: destinationProfileID,
-                domainFilters: domainFilters
-            )
+            if destinationEngine == .chromium {
+                cookieResult = CookieImportResult(
+                    warnings: [String(
+                        localized: "browser.import.warning.chromiumCookiesUnsupported",
+                        defaultValue: "Cookies were not imported because Chromium uses an isolated cookie store. Select WebKit as the destination engine and try again."
+                    )]
+                )
+            } else {
+                cookieResult = await importCookies(
+                    from: browser,
+                    sourceProfiles: resolvedSourceProfiles,
+                    destinationProfileID: destinationProfileID,
+                    domainFilters: domainFilters,
+                    destinationEngine: destinationEngine
+                )
+            }
         }
 
         var historyResult = HistoryImportResult()
@@ -9665,7 +9678,8 @@ enum BrowserDataImporter {
         from browser: InstalledBrowserCandidate,
         sourceProfiles: [InstalledBrowserProfile],
         destinationProfileID: UUID,
-        domainFilters: [String]
+        domainFilters: [String],
+        destinationEngine: BrowserEngineKind
     ) async -> CookieImportResult {
         switch browser.family {
         case .firefox:
@@ -9673,14 +9687,16 @@ enum BrowserDataImporter {
                 from: browser,
                 sourceProfiles: sourceProfiles,
                 destinationProfileID: destinationProfileID,
-                domainFilters: domainFilters
+                domainFilters: domainFilters,
+                destinationEngine: destinationEngine
             )
         case .chromium:
             return await importChromiumCookies(
                 from: browser,
                 sourceProfiles: sourceProfiles,
                 destinationProfileID: destinationProfileID,
-                domainFilters: domainFilters
+                domainFilters: domainFilters,
+                destinationEngine: destinationEngine
             )
         case .webkit:
             if browser.descriptor.id == "safari" {
@@ -9746,7 +9762,8 @@ enum BrowserDataImporter {
         from browser: InstalledBrowserCandidate,
         sourceProfiles: [InstalledBrowserProfile],
         destinationProfileID: UUID,
-        domainFilters: [String]
+        domainFilters: [String],
+        destinationEngine: BrowserEngineKind
     ) async -> CookieImportResult {
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
@@ -9803,7 +9820,11 @@ enum BrowserDataImporter {
         }
 
         let dedupedCookies = dedupeCookies(cookies)
-        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
+        let importedCount = await setCookiesInStore(
+            dedupedCookies,
+            destinationProfileID: destinationProfileID,
+            destinationEngine: destinationEngine
+        )
         return CookieImportResult(importedCount: importedCount, skippedCount: max(0, dedupedCookies.count - importedCount), warnings: warnings)
     }
 
@@ -9811,7 +9832,8 @@ enum BrowserDataImporter {
         from browser: InstalledBrowserCandidate,
         sourceProfiles: [InstalledBrowserProfile],
         destinationProfileID: UUID,
-        domainFilters: [String]
+        domainFilters: [String],
+        destinationEngine: BrowserEngineKind
     ) async -> CookieImportResult {
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
@@ -9883,7 +9905,11 @@ enum BrowserDataImporter {
         }
 
         let dedupedCookies = dedupeCookies(cookies)
-        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
+        let importedCount = await setCookiesInStore(
+            dedupedCookies,
+            destinationProfileID: destinationProfileID,
+            destinationEngine: destinationEngine
+        )
         if let warning = decryptor.warningMessage(
             browserName: browser.displayName,
             skippedCount: skippedEncryptedCookies
@@ -10116,8 +10142,13 @@ enum BrowserDataImporter {
         }
     }
 
-    private static func setCookiesInStore(_ cookies: [HTTPCookie], destinationProfileID: UUID) async -> Int {
+    private static func setCookiesInStore(
+        _ cookies: [HTTPCookie],
+        destinationProfileID: UUID,
+        destinationEngine: BrowserEngineKind
+    ) async -> Int {
         guard !cookies.isEmpty else { return 0 }
+        guard destinationEngine == .webkit else { return 0 }
         let store = await MainActor.run {
             BrowserProfileStore.shared.websiteDataStore(for: destinationProfileID).httpCookieStore
         }
@@ -10180,11 +10211,21 @@ enum BrowserDataImporter {
         return false
     }
 
-    /// Matches a cookie domain against a URL host in either parent or child
-    /// direction, using the same boundary-aware matcher as import filters.
+    /// Matches a cookie domain against a URL host using RFC cookie scope:
+    /// the request host may equal the cookie domain or be one of its
+    /// subdomains, but a parent-domain cookie must never match in reverse.
     static func cookieDomainMatches(cookieDomain: String, host: String) -> Bool {
-        domainMatches(host: cookieDomain, filters: [host])
-            || domainMatches(host: host, filters: [cookieDomain])
+        let normalizedCookieDomain = cookieDomain
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        let normalizedHost = host
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        guard !normalizedCookieDomain.isEmpty, !normalizedHost.isEmpty else { return false }
+        return normalizedHost == normalizedCookieDomain
+            || normalizedHost.hasSuffix(".\(normalizedCookieDomain)")
     }
 
     /// Applies RFC-style cookie path matching without treating `/foo` as a
@@ -10416,12 +10457,14 @@ final class BrowserDataImportCoordinator {
 
     func presentImportDialog(
         defaultDestinationProfileID: UUID? = nil,
-        defaultScope: BrowserImportScope? = nil
+        defaultScope: BrowserImportScope? = nil,
+        defaultDestinationEngine: BrowserEngineKind? = nil
     ) {
         presentImportDialog(
             prefilledBrowsers: nil,
             defaultDestinationProfileID: defaultDestinationProfileID,
-            defaultScope: defaultScope
+            defaultScope: defaultScope,
+            defaultDestinationEngine: defaultDestinationEngine
         )
     }
 
@@ -10435,7 +10478,8 @@ final class BrowserDataImportCoordinator {
     private func presentImportDialog(
         prefilledBrowsers: [InstalledBrowserCandidate]?,
         defaultDestinationProfileID: UUID?,
-        defaultScope: BrowserImportScope?
+        defaultScope: BrowserImportScope?,
+        defaultDestinationEngine: BrowserEngineKind?
     ) {
         guard !importInProgress else { return }
 #if DEBUG
@@ -10469,6 +10513,11 @@ final class BrowserDataImportCoordinator {
             defaultDestinationProfileID: defaultDestinationProfileID,
             defaultScope: defaultScope
         ) else { return }
+
+        let destinationEngine = defaultDestinationEngine ??
+            BrowserEngineSettingsStore(defaults: .standard).defaultEngineValue(
+                systemDefaultBrowserIsChromium: SystemDefaultBrowserDetector.isChromiumFamily()
+            )
 
 #if DEBUG
         if captureSelectionIfRequested(selection, destinationProfiles: fixtureDestinationProfiles) {
@@ -10512,7 +10561,8 @@ final class BrowserDataImportCoordinator {
                 from: selection.browser,
                 plan: realizedPlan,
                 scope: selection.scope,
-                domainFilters: selection.domainFilters
+                domainFilters: selection.domainFilters,
+                destinationEngine: destinationEngine
             )
 
             await MainActor.run {

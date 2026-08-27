@@ -233,7 +233,12 @@ public struct BrowserSection: View {
                     "",
                     value: Binding(
                         get: { remoteDebuggingPort.current },
-                        set: { remoteDebuggingPort.set(min(max($0, 0), 65_535)) }
+                        set: {
+                            let normalized = $0 == 0
+                                ? 0
+                                : min(max($0, 1024), 65_535)
+                            remoteDebuggingPort.set(normalized)
+                        }
                     ),
                     format: .number
                 )

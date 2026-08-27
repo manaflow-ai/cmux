@@ -1381,11 +1381,13 @@
         },
         "remoteDebuggingPort": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 65535,
+          "oneOf": [
+            { "const": 0 },
+            { "minimum": 1024, "maximum": 65535 }
+          ],
           "default": 0,
           "descriptionKey": "schemaDescriptions.browser.remoteDebuggingPort",
-          "description": "Loopback-only Chromium CDP port. Zero disables external CDP attachment."
+          "description": "Loopback-only Chromium CDP port. Zero disables external CDP attachment; otherwise use a port from 1024 through 65535."
         },
         "defaultSearchEngine": {
           "type": "string",

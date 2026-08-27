@@ -24,6 +24,10 @@ public actor ChromiumBrowserSession {
     private let portAllocator: ChromiumLoopbackPortAllocator
     private let startupCoordinator: ChromiumBrowserStartupCoordinator
     private let extensionDirectoriesProvider: @Sendable () -> [URL]
+    /// Main-actor policy used to pause and vet top-level document requests.
+    private let navigationPolicyHandler: BrowserEngineNavigationPolicyHandler?
+    /// Renderer-side observer used to mirror SPA title mutations.
+    let documentTitleObservation = ChromiumDocumentTitleObservation()
     var process: Process?
     var connection: ChromiumCDPConnection?
     var state: ChromiumSessionState = .stopped
@@ -41,6 +45,8 @@ public actor ChromiumBrowserSession {
     var frameContinuations: [UUID: FrameStream.Continuation] = [:]
     var internalPort: Int?
     var eventTask: Task<Void, Never>?
+    /// Actor-owned request interceptor for streamed Chromium navigations.
+    var navigationInterceptor: ChromiumNavigationInterceptor?
     var frameForwardTask: Task<Void, Never>?
     /// Reconciles the CDP screencast with the latest pane visibility request.
     var screencastUpdateTask: Task<Void, Never>?
@@ -87,7 +93,8 @@ public actor ChromiumBrowserSession {
         profileID: UUID,
         storageID: UUID = UUID(),
         remoteDebuggingPort: ChromiumRemoteDebuggingPort = .disabled,
-        environment: ChromiumBrowserRuntimeEnvironment
+        environment: ChromiumBrowserRuntimeEnvironment,
+        navigationPolicyHandler: BrowserEngineNavigationPolicyHandler? = nil
     ) {
         let storage = ChromiumOwnedStorage(
             fileManager: environment.fileManager,
@@ -106,6 +113,7 @@ public actor ChromiumBrowserSession {
         )
         self.portAllocator = ChromiumLoopbackPortAllocator()
         self.extensionDirectoriesProvider = environment.extensionDirectoriesProvider
+        self.navigationPolicyHandler = navigationPolicyHandler
         self.startupCoordinator = ChromiumBrowserStartupCoordinator(
             loopbackSession: environment.loopbackCDPSession,
             startupDeadline: environment.startupDeadline
@@ -277,6 +285,14 @@ public actor ChromiumBrowserSession {
             }
             _ = try await cdp.send(method: "Page.enable")
             _ = try await cdp.send(method: "Runtime.enable")
+            await installDocumentTitleObservation(using: cdp)
+            if let navigationPolicyHandler {
+                let interceptor = ChromiumNavigationInterceptor(
+                    policyHandler: navigationPolicyHandler
+                )
+                navigationInterceptor = interceptor
+                try await interceptor.install(connection: cdp)
+            }
             _ = try? await cdp.send(
                 method: "Page.setLifecycleEventsEnabled",
                 parameters: .object(["enabled": .bool(true)])
@@ -318,6 +334,7 @@ public actor ChromiumBrowserSession {
         connectionToClose?.close()
         connection = nil
         connectionGeneration = nil
+        navigationInterceptor = nil
         eventTask?.cancel()
         eventTask = nil
         frameForwardTask?.cancel()
@@ -548,6 +565,7 @@ public actor ChromiumBrowserSession {
         connection?.close()
         connection = nil
         connectionGeneration = nil
+        navigationInterceptor = nil
         eventTask?.cancel()
         eventTask = nil
         frameForwardTask?.cancel()
@@ -570,6 +588,23 @@ public actor ChromiumBrowserSession {
         for continuation in waiters.values {
             continuation.resume()
         }
+    }
+
+    /// Installs the renderer-side title observer for the current page target.
+    /// The hook is best-effort because older managed Chromium artifacts may not
+    /// implement `Runtime.addBinding`; regular load events still provide title
+    /// snapshots in that case.
+    private func installDocumentTitleObservation(
+        using connection: ChromiumCDPConnection
+    ) async {
+        _ = try? await connection.send(
+            method: "Runtime.addBinding",
+            parameters: documentTitleObservation.bindingParameters
+        )
+        _ = try? await connection.send(
+            method: "Page.addScriptToEvaluateOnNewDocument",
+            parameters: documentTitleObservation.scriptParameters
+        )
     }
 
     private func refreshMainFrame(using connection: ChromiumCDPConnection) async {

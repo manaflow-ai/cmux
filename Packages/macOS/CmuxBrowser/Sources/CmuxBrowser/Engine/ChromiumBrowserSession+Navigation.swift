@@ -73,11 +73,22 @@ extension ChromiumBrowserSession {
     ///
     /// - Throws: A CDP transport or command error.
     public func reload() async throws {
+        try await reload(ignoreCache: false)
+    }
+
+    /// Reloads the active page while bypassing Chromium's HTTP cache.
+    ///
+    /// - Throws: A CDP transport or command error.
+    public func hardReload() async throws {
+        try await reload(ignoreCache: true)
+    }
+
+    private func reload(ignoreCache: Bool) async throws {
         beginNavigation()
         do {
             _ = try await send(
                 method: "Page.reload",
-                parameters: .object(["ignoreCache": .bool(false)])
+                parameters: .object(["ignoreCache": .bool(ignoreCache)])
             )
         } catch {
             failNavigation()
@@ -184,6 +195,22 @@ extension ChromiumBrowserSession {
         generation: UInt64
     ) async {
         guard isCurrentConnection(connection, generation: generation) else { return }
+        if let navigationInterceptor {
+            do {
+                if try await navigationInterceptor.handle(event, connection: connection) {
+                    return
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                // A paused request must never remain suspended when the policy
+                // bridge fails. Marking the connection crashed closes the
+                // transport and fails the navigation closed rather than
+                // allowing an unchecked request to continue.
+                markCrashed(connection: connection, generation: generation)
+                return
+            }
+        }
         switch event.method {
         case "cmux.cdp.resyncRequired":
             await refreshDocumentState(using: connection, generation: generation)
@@ -240,6 +267,10 @@ extension ChromiumBrowserSession {
                 await refreshTitle(using: connection)
                 publish()
             }
+        case "Runtime.bindingCalled":
+            guard let title = documentTitleObservation.title(from: event) else { return }
+            self.title = title
+            publish()
         case "Page.crashed", "Target.targetCrashed", "Target.detachedFromTarget", "Inspector.detached":
             markCrashed(connection: connection, generation: generation)
         default:
@@ -299,6 +330,7 @@ extension ChromiumBrowserSession {
         guard isCurrentConnection(endedConnection, generation: generation), !isStopping else { return }
         self.connection = nil
         connectionGeneration = nil
+        navigationInterceptor = nil
         screencastUpdateTask?.cancel()
         screencastUpdateTask = nil
         isScreencastActive = false
@@ -325,6 +357,7 @@ extension ChromiumBrowserSession {
         forwardHistoryURLs.removeAll(keepingCapacity: false)
         connection = nil
         connectionGeneration = nil
+        navigationInterceptor = nil
         screencastUpdateTask?.cancel()
         screencastUpdateTask = nil
         isScreencastActive = false
@@ -409,6 +442,7 @@ extension ChromiumBrowserSession {
         }
         connection = nil
         connectionGeneration = nil
+        navigationInterceptor = nil
         eventTask?.cancel()
         eventTask = nil
         frameForwardTask?.cancel()

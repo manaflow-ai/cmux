@@ -10,9 +10,10 @@ public struct ChromiumRemoteDebuggingPort: RawRepresentable, Codable, Equatable,
 
     /// Creates a validated remote-debugging preference.
     ///
-    /// - Parameter rawValue: Zero, or a positive TCP port no greater than 65535.
+    /// - Parameter rawValue: Zero, or a TCP port in the user-port range
+    ///   `1024...65535`.
     public init?(rawValue: Int) {
-        guard (0...65_535).contains(rawValue) else { return nil }
+        guard rawValue == 0 || (1024...65_535).contains(rawValue) else { return nil }
         self.rawValue = rawValue
     }
 

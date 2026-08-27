@@ -69,6 +69,13 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options);
 /// Returns 1 once cmux_cef_initialize has succeeded.
 int cmux_cef_is_initialized(void);
 
+/// Shuts down the process-wide CEF runtime. Main thread only; idempotent.
+void cmux_cef_shutdown(void);
+
+/// Returns 1 when no live CEF request context uses `cache_path`.
+/// Main thread only; callers may remove the path immediately after this check.
+int cmux_cef_profile_cache_is_idle(const char *cache_path);
+
 /// Returns the loopback CDP port captured by the successful process-wide
 /// initialization, or 0 when the external endpoint is disabled.
 int cmux_cef_remote_debugging_port(void);

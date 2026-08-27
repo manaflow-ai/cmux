@@ -82,27 +82,16 @@ enum CEFRuntimeBootstrap {
 
     /// Removes CEF data for one profile after all of its panes have stopped.
     static func removeProfileData(for profileID: UUID) async {
-        let fileManager = FileManager.default
-        if profileID == BrowserProfileRepository.builtInDefaultProfileID {
-            let root = URL(fileURLWithPath: rootCachePath, isDirectory: true)
-            guard let entries = try? fileManager.contentsOfDirectory(
-                at: root,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { return }
-            // Named profiles live below Profiles/; the remaining root entries
-            // belong to CEF's shared default request context.
-            let entriesToRemove = entries.filter { $0.lastPathComponent != "Profiles" }
-            await Task.detached(priority: .utility) {
-                let fileManager = FileManager.default
-                for entry in entriesToRemove { try? fileManager.removeItem(at: entry) }
-            }.value
+        // CEF owns its request-context files while a named context is live.
+        // The profile-data service performs an atomic same-main-thread idle
+        // check before removing the named directory. The built-in default uses
+        // CEF's global context and is intentionally never removed in-process.
+        guard profileID != BrowserProfileRepository.builtInDefaultProfileID else {
             return
         }
+
         let profileURL = URL(fileURLWithPath: profileCachePath(for: profileID), isDirectory: true)
-        await Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: profileURL)
-        }.value
+        _ = CEFRuntimeProfileDataService().removeIfIdle(at: profileURL.path)
     }
 
     /// Initializes CEF on first use.
@@ -132,5 +121,10 @@ enum CEFRuntimeBootstrap {
             logFilePath: nil
         )
         return CEFRuntime.initialize(options: options)
+    }
+
+    /// Shuts down CEF after application-owned browser teardown has begun.
+    static func shutdown() {
+        CEFRuntimeLifecycleService().shutdown()
     }
 }

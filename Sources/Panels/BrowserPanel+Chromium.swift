@@ -91,10 +91,13 @@ extension BrowserPanel {
             storageID: chromiumStorageID,
             remoteDebuggingPort: configuredChromiumRemoteDebuggingPort,
             chromiumRuntimeEnvironment: .cmuxLive,
-            chromiumNavigationPolicy: { [weak self] url in
-                guard let self else { return true }
-                return self.shouldBlockInsecureHTTPNavigation(to: url)
+            chromiumNavigationPolicy: { [weak self] navigation in
+                self?.chromiumNavigationDecision(for: navigation) ?? .cancel
             },
+            initialDocumentScripts: [
+                (source: BrowserPanel.telemetryHookBootstrapScriptSource, isStyle: false),
+                (source: BrowserPanel.dialogTelemetryHookBootstrapScriptSource, isStyle: false),
+            ],
             startPrerequisite: chromiumStartPrerequisite
         )
         controller.setChromiumSnapshotHandler { [weak self] snapshot in
@@ -104,6 +107,35 @@ extension BrowserPanel {
             self?.noteChromiumContentFocused()
         }
         return controller
+    }
+
+    /// Applies the same insecure-HTTP and tab-routing policy to navigations
+    /// initiated by a streamed Chromium document (including redirects).
+    func chromiumNavigationDecision(
+        for navigation: BrowserEngineNavigationRequest
+    ) -> BrowserEngineNavigationDecision {
+        guard let url = navigation.request.url else { return .cancel }
+        let intent: BrowserInsecureHTTPNavigationIntent = switch navigation.disposition {
+        case .currentTab: .currentTab
+        case .newTab: .newTab
+        }
+        if shouldBlockInsecureHTTPNavigation(to: url) {
+            presentInsecureHTTPAlert(
+                for: navigation.request,
+                intent: intent,
+                recordTypedNavigation: false
+            )
+            return .cancel
+        }
+        if !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
+            return .cancel
+        }
+        if navigation.disposition == .newTab {
+            openLinkInNewTab(request: navigation.request)
+            return .cancel
+        }
+        return .allow
     }
 
     var isChromiumBacked: Bool {
@@ -608,13 +640,17 @@ extension BrowserPanel {
         }
     }
 
-    func reloadChromium() {
+    func reloadChromium(hard: Bool = false) {
         guard isChromiumBacked, !chromiumIsolationPending else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.browserEngineController.waitForStartupReadiness()
             guard !Task.isCancelled else { return }
-            try? await self.browserEngineController.adapter.reload()
+            if hard {
+                try? await self.browserEngineController.adapter.hardReload()
+            } else {
+                try? await self.browserEngineController.adapter.reload()
+            }
         }
     }
 

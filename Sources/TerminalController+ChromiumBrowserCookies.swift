@@ -10,6 +10,7 @@ extension TerminalController {
         name: String? = nil,
         domain: String? = nil,
         path: String? = nil,
+        url: URL? = nil,
         timeout: TimeInterval = 5.0
     ) -> Result<[[String: Any]], any Error> {
         switch v2RunChromiumCommand(
@@ -27,15 +28,32 @@ extension TerminalController {
             let cookies = rawCookies.compactMap(Self.v2ChromiumCookieDictionary)
                 .filter { cookie in
                     if let name, cookie["name"] as? String != name { return false }
-                    if let domain,
-                       let cookieDomain = cookie["domain"] as? String,
-                       cookieDomain.range(
-                           of: domain,
-                           options: .caseInsensitive,
-                           range: nil,
-                           locale: Locale(identifier: "en_US_POSIX")
-                       ) == nil { return false }
+                    if let domain {
+                        guard let cookieDomain = cookie["domain"] as? String else { return false }
+                        let filters = BrowserDataImporter.parseDomainFilters(domain)
+                        guard !filters.isEmpty,
+                              BrowserDataImporter.domainMatches(
+                                host: cookieDomain,
+                                filters: filters
+                              ) else { return false }
+                    }
                     if let path, cookie["path"] as? String != path { return false }
+                    if let url {
+                        guard let cookieDomain = cookie["domain"] as? String,
+                              let host = url.host,
+                              BrowserDataImporter.cookieDomainMatches(
+                                cookieDomain: cookieDomain,
+                                host: host
+                              ),
+                              BrowserDataImporter.cookiePathMatches(
+                                cookiePath: cookie["path"] as? String ?? "/",
+                                urlPath: url.path
+                              ) else { return false }
+                        if (cookie["secure"] as? Bool) == true,
+                           url.scheme?.caseInsensitiveCompare("https") != .orderedSame {
+                            return false
+                        }
+                    }
                     return true
                 }
             return .success(cookies)
@@ -73,9 +91,10 @@ extension TerminalController {
         name: String?,
         domain: String?,
         path: String?,
+        url: URL?,
         timeout: TimeInterval = 5.0
     ) -> Result<Int, any Error> {
-        let clearAll = all || (name == nil && domain == nil && path == nil)
+        let clearAll = all || (name == nil && domain == nil && path == nil && url == nil)
         if clearAll {
             let cookieCount: Int
             switch v2GetChromiumCookies(browserPanel: browserPanel, timeout: timeout) {
@@ -101,6 +120,7 @@ extension TerminalController {
             name: name,
             domain: domain,
             path: path,
+            url: url,
             timeout: timeout
         ) {
         case .failure(let error):

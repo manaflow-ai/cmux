@@ -1814,7 +1814,7 @@
         "browser": {
           "defaultEngine": "新しく作成する組み込みブラウザペインのレンダリングエンジンです。「自動」はシステムのデフォルトブラウザに従い、WebKit または Chromium を明示指定できます。Chromium は別プロセスで実行されます。",
           "chromiumExtensionDirectories": "新しい Chromium ペインで読み込む、展開済み Chromium 拡張機能ディレクトリの絶対パスを改行区切りで指定します。",
-          "remoteDebuggingPort": "ループバック専用の Chromium CDP ポートです。0 にすると外部からの CDP 接続を無効にします。",
+          "remoteDebuggingPort": "ループバック専用の Chromium CDP ポートです。0 にすると外部からの CDP 接続を無効にし、それ以外は 1024〜65535 のポートを指定します。",
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",

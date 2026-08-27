@@ -11,7 +11,8 @@ final class BrowserPaneEngineController {
     private var chromiumSnapshotHandler: ((ChromiumSessionSnapshot) -> Void)?
     private var chromiumFocusHandler: (() -> Void)?
     private let chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment
-    private let chromiumNavigationPolicy: ((URL) -> Bool)?
+    private let chromiumNavigationPolicy: BrowserEngineNavigationPolicyHandler?
+    private let initialDocumentScripts: [(source: String, isStyle: Bool)]
     private let profileID: UUID
     private let storageID: UUID
     private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
@@ -31,7 +32,8 @@ final class BrowserPaneEngineController {
         storageID: UUID,
         remoteDebuggingPort: ChromiumRemoteDebuggingPort,
         chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment,
-        chromiumNavigationPolicy: ((URL) -> Bool)? = nil,
+        chromiumNavigationPolicy: BrowserEngineNavigationPolicyHandler? = nil,
+        initialDocumentScripts: [(source: String, isStyle: Bool)] = [],
         startPrerequisite: Task<Bool, Never>? = nil
     ) {
         self.profileID = profileID
@@ -40,6 +42,7 @@ final class BrowserPaneEngineController {
         self.startPrerequisite = startPrerequisite
         self.chromiumRuntimeEnvironment = chromiumRuntimeEnvironment
         self.chromiumNavigationPolicy = chromiumNavigationPolicy
+        self.initialDocumentScripts = initialDocumentScripts
         switch kind {
         case .webkit:
             adapter = WebKitBrowserPaneEngineAdapter(webView: webView)
@@ -52,6 +55,7 @@ final class BrowserPaneEngineController {
                     profileID: profileID,
                     storageID: storageID,
                     remoteDebuggingPort: remoteDebuggingPort,
+                    documentScripts: initialDocumentScripts,
                     startPrerequisite: startPrerequisite,
                     navigationPolicy: chromiumNavigationPolicy
                 )
@@ -65,7 +69,8 @@ final class BrowserPaneEngineController {
                     storageID: storageID,
                     remoteDebuggingPort: remoteDebuggingPort,
                     environment: chromiumRuntimeEnvironment,
-                    startPrerequisite: startPrerequisite
+                    startPrerequisite: startPrerequisite,
+                    navigationPolicyHandler: chromiumNavigationPolicy
                 )
             }
         }
@@ -123,7 +128,8 @@ final class BrowserPaneEngineController {
                 remoteDebuggingPort: remoteDebuggingPort,
                 environment: chromiumRuntimeEnvironment,
                 documentScripts: documentScripts,
-                startPrerequisite: stopTask
+                startPrerequisite: stopTask,
+                navigationPolicyHandler: chromiumNavigationPolicy
             )
             replacement.onSnapshot = chromiumSnapshotHandler
             replacement.onContentFocused = chromiumFocusHandler
@@ -136,7 +142,8 @@ final class BrowserPaneEngineController {
             storageID: storageID,
             remoteDebuggingPort: remoteDebuggingPort,
             environment: chromiumRuntimeEnvironment,
-            documentScripts: documentScripts
+            documentScripts: documentScripts,
+            navigationPolicyHandler: chromiumNavigationPolicy
         )
         replacement.onSnapshot = chromiumSnapshotHandler
         replacement.onContentFocused = chromiumFocusHandler
@@ -166,7 +173,8 @@ final class BrowserPaneEngineController {
             remoteDebuggingPort: remoteDebuggingPort,
             environment: chromiumRuntimeEnvironment,
             documentScripts: oldCEF.documentScriptDefinitions(),
-            startPrerequisite: stopTask
+            startPrerequisite: stopTask,
+            navigationPolicyHandler: chromiumNavigationPolicy
         )
         replacement.onSnapshot = chromiumSnapshotHandler
         replacement.onContentFocused = chromiumFocusHandler

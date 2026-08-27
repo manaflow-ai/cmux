@@ -261,7 +261,8 @@ extension TerminalController {
                     all: clearAll,
                     name: name,
                     domain: domain,
-                    path: path
+                    path: path,
+                    url: urlFilter
                 ) {
                 case .success(let count):
                     return .ok(v2BrowserPanelFields(ctx, adding: ["cleared": count]))

@@ -41,6 +41,10 @@ final class WebKitBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         webView.reload()
     }
 
+    func hardReload() async throws {
+        webView.reloadFromOrigin()
+    }
+
     func evaluateJavaScript(_ script: String, awaitPromise: Bool) async throws -> CDPValue {
         try await withCheckedThrowingContinuation { continuation in
             if #available(macOS 11.0, *), awaitPromise {

@@ -14,6 +14,7 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     /// on this task before opening a profile that may still be locked.
     private var stopTask: Task<Bool, Never>?
     private let startPrerequisite: Task<Bool, Never>?
+    private let navigationPolicyHandler: BrowserEngineNavigationPolicyHandler?
     private var hasStarted = false
     private var initScriptSources: [String] = []
     private var styleScriptSources: [String] = []
@@ -42,17 +43,20 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         remoteDebuggingPort: ChromiumRemoteDebuggingPort,
         environment: ChromiumBrowserRuntimeEnvironment,
         documentScripts: [(source: String, isStyle: Bool)] = [],
-        startPrerequisite: Task<Bool, Never>? = nil
+        startPrerequisite: Task<Bool, Never>? = nil,
+        navigationPolicyHandler: BrowserEngineNavigationPolicyHandler? = nil
     ) {
         let session = ChromiumBrowserSession(
             profileID: profileID,
             storageID: storageID,
             remoteDebuggingPort: remoteDebuggingPort,
-            environment: environment
+            environment: environment,
+            navigationPolicyHandler: navigationPolicyHandler
         )
         self.session = session
         self.hostView = ChromiumBrowserHostView(session: session)
         self.startPrerequisite = startPrerequisite
+        self.navigationPolicyHandler = navigationPolicyHandler
         initScriptSources = documentScripts.filter { !$0.isStyle }.map(\.source)
         styleScriptSources = documentScripts.filter(\.isStyle).map(\.source)
         hostView.onSnapshot = { [weak self] snapshot in
@@ -174,6 +178,11 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     func reload() async throws {
         await startupTask?.value
         try await session.reload()
+    }
+
+    func hardReload() async throws {
+        await startupTask?.value
+        try await session.hardReload()
     }
 
     func evaluateJavaScript(_ script: String, awaitPromise: Bool) async throws -> CDPValue {

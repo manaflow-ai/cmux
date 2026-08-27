@@ -2307,6 +2307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
+        CEFRuntimeBootstrap.shutdown()
         GhosttyCrashBreadcrumb.markCleanExit()
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")

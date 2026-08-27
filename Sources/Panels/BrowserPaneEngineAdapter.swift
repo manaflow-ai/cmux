@@ -17,6 +17,7 @@ protocol BrowserPaneEngineAdapter: AnyObject {
     func goBack() async throws
     func goForward() async throws
     func reload() async throws
+    func hardReload() async throws
     func evaluateJavaScript(_ script: String, awaitPromise: Bool) async throws -> CDPValue
     func screenshotPNG() async throws -> Data
 }

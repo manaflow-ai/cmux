@@ -36,6 +36,11 @@ final class ChromiumInputEventQueue {
     private let session: ChromiumBrowserSession
     private var pending: [Event] = []
     private var worker: Task<Void, Never>?
+    /// Identity of the currently installed worker. A canceled worker may
+    /// still resume after a replacement has started, so it may clear only its
+    /// own generation's reference.
+    private var workerGeneration: UInt64?
+    private var nextWorkerGeneration: UInt64 = 0
     private let maximumPendingEvents = 512
 
     var onFailure: ((any Error) -> Void)?
@@ -59,22 +64,31 @@ final class ChromiumInputEventQueue {
     func cancel() {
         worker?.cancel()
         worker = nil
+        workerGeneration = nil
         pending.removeAll(keepingCapacity: false)
     }
 
     private func startWorkerIfNeeded() {
         guard worker == nil else { return }
-        worker = Task { @MainActor [weak self] in
+        nextWorkerGeneration &+= 1
+        let generation = nextWorkerGeneration
+        workerGeneration = generation
+        worker = Task { @MainActor [weak self, generation] in
             guard let self else { return }
-            while !Task.isCancelled, !pending.isEmpty {
+            while !Task.isCancelled,
+                  self.workerGeneration == generation,
+                  !self.pending.isEmpty {
                 let event = pending.removeFirst()
                 do {
                     try await dispatch(event)
                 } catch {
+                    guard self.workerGeneration == generation else { return }
                     onFailure?(error)
                 }
             }
+            guard self.workerGeneration == generation else { return }
             worker = nil
+            workerGeneration = nil
             if !pending.isEmpty, !Task.isCancelled {
                 startWorkerIfNeeded()
             }

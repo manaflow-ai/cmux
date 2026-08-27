@@ -29089,6 +29089,23 @@
         }
       }
     },
+    "browser.import.automation.error.chromiumCookiesUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie import into Chromium is not available yet. Open a WebKit browser pane or set WebKit as the default engine and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium への Cookie インポートにはまだ対応していません。WebKit ブラウザペインを開くか、既定のエンジンに WebKit を設定して再試行してください。"
+          }
+        }
+      }
+    },
     "browser.import.automation.error.destinationProfileNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -31014,6 +31031,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Імпорт закладок, налаштувань і розширень ще недоступний. Імпортовано лише cookies та історію."
+          }
+        }
+      }
+    },
+    "browser.import.warning.chromiumCookiesUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies were not imported because Chromium uses an isolated cookie store. Select WebKit as the destination engine and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium は Cookie ストアを分離しているため、Cookie をインポートしませんでした。宛先エンジンに WebKit を選択して再試行してください。"
           }
         }
       }

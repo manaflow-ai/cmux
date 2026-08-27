@@ -2395,7 +2395,8 @@ struct BrowserPanelView: View {
         isBrowserImportHintPopoverPresented = false
         DispatchQueue.main.async {
             BrowserDataImportCoordinator.shared.presentImportDialog(
-                defaultDestinationProfileID: panel.profileID
+                defaultDestinationProfileID: panel.profileID,
+                defaultDestinationEngine: panel.engineKind
             )
         }
     }
@@ -2404,7 +2405,8 @@ struct BrowserPanelView: View {
         isBrowserProfileMenuPresented = false
         DispatchQueue.main.async {
             BrowserDataImportCoordinator.shared.presentImportDialog(
-                defaultDestinationProfileID: panel.profileID
+                defaultDestinationProfileID: panel.profileID,
+                defaultDestinationEngine: panel.engineKind
             )
         }
     }

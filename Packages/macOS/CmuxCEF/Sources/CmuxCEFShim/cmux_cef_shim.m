@@ -36,8 +36,12 @@
 
 static int g_initialized = 0;
 static int g_initialize_attempted = 0;
+static int g_shutdown_called = 0;
 static int g_remote_debugging_port = 0;
 static void (*g_schedule_work)(int64_t delay_ms) = NULL;
+struct cmux_cef_browser;
+static struct cmux_cef_browser *g_browsers = NULL;
+static size_t g_browser_count = 0;
 
 // The cef_app_t and its process handler live for the process lifetime.
 static cef_app_t g_app;
@@ -111,7 +115,26 @@ struct cmux_cef_browser {
   cef_window_t *window;
   cef_registration_t *devtools_registration;
   int closed;
+  int registered;
+  struct cmux_cef_browser *next;
 };
+
+static void browser_registry_add(struct cmux_cef_browser *wrapper) {
+  wrapper->registered = 1;
+  wrapper->next = g_browsers;
+  g_browsers = wrapper;
+  g_browser_count += 1;
+}
+
+static void browser_registry_remove(struct cmux_cef_browser *wrapper) {
+  if (!wrapper || !wrapper->registered) return;
+  struct cmux_cef_browser **cursor = &g_browsers;
+  while (*cursor && *cursor != wrapper) cursor = &(*cursor)->next;
+  if (*cursor == wrapper) *cursor = wrapper->next;
+  wrapper->registered = 0;
+  wrapper->next = NULL;
+  if (g_browser_count > 0) g_browser_count -= 1;
+}
 
 static void browser_retain(struct cmux_cef_browser *wrapper) {
   atomic_fetch_add_explicit(&wrapper->refs, 1, memory_order_relaxed);
@@ -314,6 +337,7 @@ static void CEF_CALLBACK life_span_on_before_close(
     cef_life_span_handler_t *self, cef_browser_t *browser) {
   struct cmux_cef_browser *wrapper = life_span_wrapper(self);
   if (wrapper->browser != browser) return;
+  browser_registry_remove(wrapper);
   wrapper->closed = 1;
   if (wrapper->devtools_registration) {
     cef_registration_t *registration = wrapper->devtools_registration;
@@ -611,6 +635,11 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options) {
   if (g_initialize_attempted) return g_initialized;
   g_initialize_attempted = 1;
   if (!options || !options->root_cache_path) return 0;
+  if (options->remote_debugging_port != 0 &&
+      (options->remote_debugging_port < 1024 ||
+       options->remote_debugging_port > 65535)) {
+    return 0;
+  }
   if (!load_framework(options->framework_directory)) return 0;
 
   install_application_conformance();
@@ -657,6 +686,11 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options) {
   settings.remote_debugging_port = options->remote_debugging_port;
   settings.log_severity = LOGSEVERITY_WARNING;
   set_cef_string(&settings.root_cache_path, options->root_cache_path);
+  // An empty CefSettings.cache_path makes the global request context
+  // incognito. Use the cmux-owned root so the built-in profile persists
+  // cookies, localStorage, and other profile data across launches. Named
+  // profiles still provide their own explicit request-context cache paths.
+  set_cef_string(&settings.cache_path, options->root_cache_path);
   // Fixed helper names keep per-tag product names out of process discovery.
   NSString *helperPath = [frameworks_directory(options->framework_directory)
       stringByAppendingPathComponent:
@@ -688,6 +722,60 @@ int cmux_cef_is_initialized(void) {
   return g_initialized;
 }
 
+static void request_browser_close(struct cmux_cef_browser *wrapper) {
+  if (!wrapper || wrapper->closed) return;
+  if (wrapper->window && wrapper->window->close) {
+    wrapper->window->close(wrapper->window);
+    return;
+  }
+  if (wrapper->browser) {
+    cef_browser_host_t *host = wrapper->browser->get_host(wrapper->browser);
+    if (host) {
+      host->close_browser(host, 1);
+      ((cef_base_ref_counted_t *)host)->release((cef_base_ref_counted_t *)host);
+    }
+  }
+}
+
+void cmux_cef_shutdown(void) {
+  if (!g_initialized || g_shutdown_called) return;
+  g_shutdown_called = 1;
+  g_schedule_work = NULL;
+
+  // Browser/window close callbacks are asynchronous in chrome-style CEF. Keep
+  // pumping the externally-owned message loop until every wrapper has reached
+  // `on_before_close`, or until the bounded termination deadline expires.
+  for (struct cmux_cef_browser *wrapper = g_browsers; wrapper;) {
+    struct cmux_cef_browser *next = wrapper->next;
+    request_browser_close(wrapper);
+    wrapper = next;
+  }
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:15.0];
+  while (g_browser_count > 0 && [deadline timeIntervalSinceNow] > 0) {
+    cef_do_message_loop_work();
+    NSDate *next = [NSDate dateWithTimeIntervalSinceNow:0.01];
+    [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:next];
+  }
+  if (g_browser_count > 0) {
+    NSLog(@"cmux_cef: shutdown deadline expired with %zu browser(s)",
+          g_browser_count);
+  }
+  cef_shutdown();
+  g_initialized = 0;
+  g_remote_debugging_port = 0;
+}
+
+int cmux_cef_profile_cache_is_idle(const char *cache_path) {
+  if (!cache_path || !cache_path[0]) return 0;
+  for (struct cmux_cef_profile_context *entry = g_profile_contexts;
+       entry; entry = entry->next) {
+    if (strcmp(entry->cache_path, cache_path) == 0 && entry->users > 0) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int cmux_cef_remote_debugging_port(void) {
   return g_remote_debugging_port;
 }
@@ -703,11 +791,13 @@ void cmux_cef_do_work(void) {
 cmux_cef_browser_t *cmux_cef_browser_create(
     const char *url, const char *cache_path,
     const cmux_cef_browser_callbacks_t *callbacks) {
-  if (!g_initialized || !callbacks) return NULL;
+  if (!g_initialized || g_shutdown_called || !callbacks) return NULL;
   struct cmux_cef_browser *wrapper = calloc(1, sizeof(*wrapper));
+  if (!wrapper) return NULL;
   atomic_init(&wrapper->refs, 1);  // Caller's reference.
   wrapper->callbacks = *callbacks;
   wrapper->initial_url = strdup(url ?: "about:blank");
+  browser_registry_add(wrapper);
 
   client_init_base(wrapper, &wrapper->client.base, sizeof(wrapper->client));
   wrapper->client.get_life_span_handler = client_get_life_span_handler;
@@ -753,6 +843,7 @@ cmux_cef_browser_t *cmux_cef_browser_create(
     if (!wrapper->profile_context || !wrapper->request_context) {
       profile_context_release(wrapper->profile_context);
       wrapper->profile_context = NULL;
+      browser_registry_remove(wrapper);
       browser_release_ref(wrapper);
       return NULL;
     }
@@ -768,6 +859,7 @@ cmux_cef_browser_t *cmux_cef_browser_create(
     }
     profile_context_release(wrapper->profile_context);
     wrapper->profile_context = NULL;
+    browser_registry_remove(wrapper);
     browser_release_ref(wrapper);
     return NULL;
   }

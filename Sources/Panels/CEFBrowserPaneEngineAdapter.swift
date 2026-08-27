@@ -31,7 +31,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private let storageID: UUID
     private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
     private let startPrerequisite: Task<Bool, Never>?
-    private let navigationPolicy: ((URL) -> Bool)?
+    private let navigationPolicy: BrowserEngineNavigationPolicyHandler?
     private var browser: CEFBrowser?
     private var devTools: CEFDevToolsClient?
     private var eventTask: Task<Void, Never>?
@@ -74,7 +74,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         remoteDebuggingPort: ChromiumRemoteDebuggingPort = .disabled,
         documentScripts: [(source: String, isStyle: Bool)] = [],
         startPrerequisite: Task<Bool, Never>? = nil,
-        navigationPolicy: ((URL) -> Bool)? = nil
+        navigationPolicy: BrowserEngineNavigationPolicyHandler? = nil
     ) {
         self.profileID = profileID
         self.storageID = storageID
@@ -143,6 +143,13 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         guard CEFRuntimeBootstrap.initializeIfNeeded() else {
             throw CDPError.notConnected
         }
+        let activeRemoteDebuggingPort = CEFRuntime.activeRemoteDebuggingPort ?? 0
+        guard activeRemoteDebuggingPort == remoteDebuggingPort.rawValue else {
+            // CEF's listener is process-wide. Route a pane whose preference
+            // changed after initialization to the streamed engine rather than
+            // exposing metadata for a port that does not exist.
+            throw CDPError.notConnected
+        }
         // CEF captures the port during process-wide initialization. A later
         // pane or settings change cannot move that listener, so publish only
         // the port CEF actually owns.
@@ -154,15 +161,26 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         }
         // The default profile uses CEF's global request context: command-line
         // extensions (--load-extension) only attach there, matching Chrome's
-        // per-profile extension model. Named profiles get isolated contexts.
+        // per-profile extension model. CEFRuntime's global `cache_path` is
+        // explicitly set to the cmux root, so `nil` here selects a persistent
+        // built-in profile rather than CEF's incognito default. Named profiles
+        // get isolated contexts below that root.
         let isDefaultProfile = profileID == BrowserProfileRepository.builtInDefaultProfileID
         let cachePath = isDefaultProfile
             ? nil
             : CEFRuntimeBootstrap.profileCachePath(for: profileID)
+        let shouldBlockNavigation: ((URL) -> Bool)? = navigationPolicy.map { policy in
+            { url in
+                policy(BrowserEngineNavigationRequest(
+                    request: URLRequest(url: url),
+                    disposition: .currentTab
+                )) == .cancel
+            }
+        }
         guard let browser = CEFBrowser.create(
             url: URL(string: "about:blank")!,
             cachePath: cachePath,
-            shouldBlockNavigation: navigationPolicy
+            shouldBlockNavigation: shouldBlockNavigation
         ) else {
             remoteDebuggingEndpoint = nil
             throw CDPError.notConnected
@@ -344,6 +362,21 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         try await ready()
         beginNavigation()
         browser?.reload()
+    }
+
+    func hardReload() async throws {
+        try await ready()
+        beginNavigation()
+        do {
+            _ = try await sendCommand(
+                method: "Page.reload",
+                parameters: .object(["ignoreCache": .bool(true)])
+            )
+        } catch {
+            isLoading = false
+            publishSnapshot(state: .running(nil))
+            throw error
+        }
     }
 
     func evaluateJavaScript(_ script: String, awaitPromise: Bool) async throws -> CDPValue {
