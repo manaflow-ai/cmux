@@ -2067,6 +2067,56 @@ mod tests {
         assert!(mux.surface(surface.id).is_none());
     }
 
+    #[test]
+    fn terminal_close_tombstones_an_exited_receipt_without_a_live_runtime() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let host_id = mux
+            .terminal_registry_snapshot()
+            .unwrap()
+            .terminals
+            .into_iter()
+            .next()
+            .unwrap()
+            .terminal_id;
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+            exited_at_ms: 4_567_890,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+        assert!(
+            mux.resource_surface_for_terminal(&public_id).is_none(),
+            "exit detach must retire the terminal runtime"
+        );
+
+        let closed = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-exited-terminal-receipt"),
+            ),
+        )
+        .expect("terminal.close must retire an exited receipt without a live runtime");
+
+        assert_eq!(closed["replayed"], false);
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != public_id.as_str()),
+            "a closed exited receipt must leave the public session snapshot"
+        );
+        let tombstone = mux.resolve_terminal(&host_id).unwrap().unwrap();
+        assert_eq!(
+            tombstone.terminal.lifecycle,
+            crate::workspace_registry::TerminalLifecycle::Tombstoned
+        );
+        mux.shutdown();
+    }
+
     #[cfg(unix)]
     #[test]
     fn terminal_wait_exit_resolves_detached_id_after_exit_upsert() {
