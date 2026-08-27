@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,7 +14,12 @@ use crate::services::MessageStream;
 type PendingResponse = Result<RpcResponse, String>;
 type RequestRegistry = Arc<Mutex<WorkspaceRequestRegistry>>;
 const DROPPED_CANCELLATION_QUEUE: usize = 128;
-const MAX_IGNORED_RESPONSES: usize = 4096;
+// Keep the random UUID's high 80-bit prefix and use its low 48 bits as a
+// monotonic sequence. This preserves the UUID version and variant bits while
+// making every ID issued by a channel recognizable without tombstone storage.
+const REQUEST_ID_SEQUENCE_BITS: u32 = 48;
+const REQUEST_ID_SEQUENCE_MASK: u128 = (1u128 << REQUEST_ID_SEQUENCE_BITS) - 1;
+const REQUEST_ID_SEQUENCE_MAX: u64 = (1u64 << REQUEST_ID_SEQUENCE_BITS) - 1;
 
 pub struct WorkspaceClient {
     multiplexer: Arc<ServiceMultiplexer>,
@@ -32,47 +37,48 @@ struct WorkspaceRpcChannel {
     shutdown: watch::Sender<bool>,
 }
 
-#[derive(Default)]
 struct WorkspaceRequestRegistry {
-    // Live and retired IDs share one lock so cancellation cannot expose a
-    // response-routing gap between removing a pending request and retiring it.
+    // The namespace and sequence identify every ID issued by this channel.
+    // Keeping that identity is constant-size and avoids a finite tombstone
+    // queue turning a valid delayed response into an unknown response.
+    // `retire` and `route_response` both mutate the pending map under this
+    // registry lock, so cancellation has no observable removal gap.
+    namespace: u128,
+    next_sequence: u64,
     pending: HashMap<RequestId, oneshot::Sender<PendingResponse>>,
-    ignored: IgnoredResponses,
 }
 
 impl WorkspaceRequestRegistry {
+    fn new() -> Self {
+        let random = uuid::Uuid::new_v4().as_u128();
+        Self {
+            namespace: random >> REQUEST_ID_SEQUENCE_BITS,
+            next_sequence: 0,
+            pending: HashMap::new(),
+        }
+    }
+
+    fn allocate(&mut self) -> Option<RequestId> {
+        let sequence = self
+            .next_sequence
+            .checked_add(1)
+            .filter(|sequence| *sequence <= REQUEST_ID_SEQUENCE_MAX)?;
+        self.next_sequence = sequence;
+        Some(RequestId::from_u128(
+            (self.namespace << REQUEST_ID_SEQUENCE_BITS) | u128::from(sequence),
+        ))
+    }
+
     fn retire(&mut self, id: RequestId) -> bool {
-        let was_pending = self.pending.remove(&id).is_some();
-        if was_pending {
-            self.ignored.insert(id);
-        }
-        was_pending
-    }
-}
-
-#[derive(Default)]
-struct IgnoredResponses {
-    ids: HashSet<RequestId>,
-    order: VecDeque<RequestId>,
-}
-
-impl IgnoredResponses {
-    fn insert(&mut self, id: RequestId) {
-        if self.ids.insert(id) {
-            self.order.push_back(id);
-        }
-        while self.order.len() > MAX_IGNORED_RESPONSES {
-            let Some(oldest) = self.order.pop_front() else { break };
-            self.ids.remove(&oldest);
-        }
+        self.pending.remove(&id).is_some()
     }
 
-    fn remove(&mut self, id: &RequestId) -> bool {
-        let removed = self.ids.remove(id);
-        if removed {
-            self.order.retain(|queued| queued != id);
-        }
-        removed
+    fn was_issued(&self, id: RequestId) -> bool {
+        let raw = id.as_u128();
+        let sequence = raw & REQUEST_ID_SEQUENCE_MASK;
+        raw >> REQUEST_ID_SEQUENCE_BITS == self.namespace
+            && sequence != 0
+            && sequence <= u128::from(self.next_sequence)
     }
 }
 
@@ -159,9 +165,8 @@ impl WorkspaceClient {
         self.begin_request_with_timeout(request, timeout).await?.receive().await
     }
 
-    /// Cancel an in-flight request. The daemon keeps a bounded cancellation
-    /// tombstone if this control-lane request overtakes a target on another
-    /// lane.
+    /// Cancel an in-flight request. The daemon records the cancellation if
+    /// this control-lane request overtakes a target on another lane.
     pub async fn cancel_request(&self, target: RequestId) -> Result<bool, RpcError> {
         let response = self.request(WorkspaceRequest::CancelRequest { request: target }).await?;
         match response {
@@ -178,14 +183,20 @@ impl WorkspaceClient {
         timeout: Option<(u64, Duration)>,
     ) -> Result<PendingWorkspaceRequest, RpcError> {
         let channel = self.channel(rpc_traffic_class(&request));
-        let id = self.next_request_id();
         let timeout_ms = timeout.map(|(milliseconds, _)| milliseconds);
         let deadline = timeout.map(|(_, duration)| tokio::time::Instant::now() + duration);
         let cancellable = crate::workspace::request_supports_cancellation(&request);
-        let encoded = serde_json::to_vec(&RpcRequest { id, timeout_ms, request })
-            .map_err(|error| RpcError::new("protocol", error.to_string()))?;
         let (sender, receiver) = oneshot::channel();
-        request_registry(&channel.requests).pending.insert(id, sender);
+        // Register before encoding or sending so a response can never observe
+        // an issued ID without its pending receiver.
+        let id = {
+            let mut requests = request_registry(&channel.requests);
+            let id = requests.allocate().ok_or_else(|| {
+                RpcError::new("resource-exhausted", "workspace RPC request ID sequence exhausted")
+            })?;
+            requests.pending.insert(id, sender);
+            id
+        };
         let mut pending = PendingWorkspaceRequest {
             id,
             receiver: Some(receiver),
@@ -195,6 +206,13 @@ impl WorkspaceClient {
             dropped_cancellations: self.dropped_cancellations.clone(),
             origin_shutdown: channel.shutdown.clone(),
             armed: true,
+        };
+        let encoded = match serde_json::to_vec(&RpcRequest { id, timeout_ms, request }) {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                pending.disarm();
+                return Err(RpcError::new("protocol", error.to_string()));
+            }
         };
         if let Err(error) = channel.messages.send(&encoded).await {
             pending.disarm();
@@ -211,10 +229,6 @@ impl WorkspaceClient {
             RpcTrafficClass::Cancellation => &self.cancellation,
             RpcTrafficClass::Bulk => &self.bulk,
         }
-    }
-
-    fn next_request_id(&self) -> RequestId {
-        RequestId::from_uuid(uuid::Uuid::new_v4())
     }
 
     pub async fn process_events(
@@ -386,7 +400,7 @@ async fn connect_rpc_channel(
         .map_err(transport_error)?;
     await_opened(&stream, rpc_lane(class)).await?;
     let messages = Arc::new(MessageStream::with_lane(Arc::new(stream), rpc_lane(class)));
-    let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
+    let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
     let (shutdown, mut shutdown_rx) = watch::channel(false);
     let failure_shutdown = shutdown.clone();
     let channel =
@@ -432,20 +446,20 @@ fn request_registry(
 }
 
 fn route_response(response: RpcResponse, requests: &RequestRegistry) -> Result<(), String> {
-    // A response without a live request indicates a peer that lost protocol
-    // state. Retired IDs are the bounded exception for cancellation and
-    // callers that timed out or were dropped while their response was in
-    // flight.
+    // A response without a live request is safe to consume when its ID was
+    // issued by this channel. Such responses belong to requests that already
+    // completed, timed out, or were dropped. Only a foreign ID is a protocol
+    // failure.
     let mut requests = request_registry(requests);
     if let Some(sender) = requests.pending.remove(&response.id) {
         drop(requests);
         let _ = sender.send(Ok(response));
         return Ok(());
     }
-    if requests.ignored.remove(&response.id) {
+    if requests.was_issued(response.id) {
         return Ok(());
     }
-    Err(format!("workspace RPC response has unknown request id {}", response.id))
+    Err("workspace RPC response could not be matched to a request".to_string())
 }
 
 fn cancellation_worker(
@@ -456,7 +470,13 @@ fn cancellation_worker(
         mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
     tokio::spawn(async move {
         while let Some(dropped) = receiver.recv().await {
-            let cancel_id = RequestId::from_uuid(uuid::Uuid::new_v4());
+            let Some(cancel_id) = request_registry(&requests).allocate() else {
+                dropped.origin_shutdown.send_replace(true);
+                while let Ok(queued) = receiver.try_recv() {
+                    queued.origin_shutdown.send_replace(true);
+                }
+                break;
+            };
             let request = RpcRequest {
                 id: cancel_id,
                 timeout_ms: None,
@@ -469,9 +489,7 @@ fn cancellation_worker(
                     continue;
                 }
             };
-            request_registry(&requests).ignored.insert(cancel_id);
             if messages.send(&encoded).await.is_err() {
-                request_registry(&requests).ignored.remove(&cancel_id);
                 dropped.origin_shutdown.send_replace(true);
                 while let Ok(queued) = receiver.try_recv() {
                     queued.origin_shutdown.send_replace(true);
@@ -680,14 +698,14 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_response_fails_pending_request() {
-        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
+        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
         let (sender, receiver) = oneshot::channel();
-        let expected = RequestId::from_u128(1);
+        let expected = request_registry(&requests).allocate().expect("request ID available");
         request_registry(&requests).pending.insert(expected, sender);
 
         let failure = route_response(
             RpcResponse {
-                id: RequestId::from_u128(2),
+                id: RequestId::from_u128(0),
                 result: Err(RpcError::new("server", "unexpected")),
             },
             &requests,
@@ -697,14 +715,15 @@ mod tests {
             let _ = sender.send(Err(failure.clone()));
         }
 
+        assert_eq!(failure, "workspace RPC response could not be matched to a request");
         assert_eq!(receiver.await.unwrap().unwrap_err(), failure);
     }
 
     #[tokio::test]
     async fn known_response_is_delivered_to_pending_request() {
-        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
+        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
         let (sender, receiver) = oneshot::channel();
-        let id = RequestId::from_u128(1);
+        let id = request_registry(&requests).allocate().expect("request ID available");
         request_registry(&requests).pending.insert(id, sender);
 
         route_response(
@@ -718,21 +737,23 @@ mod tests {
     }
 
     #[test]
-    fn ignored_response_is_consumed_without_failing_channel() {
-        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
-        let id = RequestId::from_u128(1);
-        request_registry(&requests).ignored.insert(id);
+    fn retired_response_is_consumed_without_failing_channel() {
+        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+        let id = request_registry(&requests).allocate().expect("request ID available");
+        let (sender, _receiver) = oneshot::channel();
+        request_registry(&requests).pending.insert(id, sender);
+        assert!(request_registry(&requests).retire(id));
 
         route_response(RpcResponse { id, result: Err(RpcError::new("server", "late")) }, &requests)
             .expect("a retired response should be consumed");
-        assert!(!request_registry(&requests).ignored.remove(&id));
+        assert!(request_registry(&requests).was_issued(id));
     }
 
     #[test]
     fn response_racing_with_request_drop_is_delivered_or_ignored_atomically() {
-        for sequence in 0..128_u128 {
-            let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
-            let id = RequestId::from_u128(sequence + 1);
+        for _ in 0..128 {
+            let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+            let id = request_registry(&requests).allocate().expect("request ID available");
             let (response_sender, response_receiver) = oneshot::channel();
             request_registry(&requests).pending.insert(id, response_sender);
             let (dropped_cancellations, mut cancellation_receiver) = mpsc::channel(1);
@@ -772,7 +793,7 @@ mod tests {
 
             routed.expect("a response racing with drop must not look unknown");
             assert!(request_registry(&requests).pending.is_empty());
-            assert!(!request_registry(&requests).ignored.remove(&id));
+            assert!(request_registry(&requests).was_issued(id));
             match cancellation_receiver.try_recv() {
                 Ok(dropped) => assert_eq!(dropped.target, id),
                 Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => {
@@ -782,19 +803,29 @@ mod tests {
     }
 
     #[test]
-    fn removing_an_ignored_response_does_not_evict_live_ids_early() {
-        let mut ignored = IgnoredResponses::default();
-        let live = RequestId::from_u128(1);
-        let consumed = RequestId::from_u128(2);
-        ignored.insert(live);
-        ignored.insert(consumed);
-        assert!(ignored.remove(&consumed));
+    fn retired_ids_remain_recognizable_after_many_requests() {
+        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::new()));
+        let retired = request_registry(&requests).allocate().expect("request ID available");
+        let (sender, _receiver) = oneshot::channel();
+        request_registry(&requests).pending.insert(retired, sender);
+        assert!(request_registry(&requests).retire(retired));
 
-        for id in 3..(3 + (MAX_IGNORED_RESPONSES as u128 - 1)) {
-            ignored.insert(RequestId::from_u128(id));
+        for _ in 0..4096 {
+            request_registry(&requests).allocate().expect("request ID available");
         }
 
-        assert!(ignored.ids.contains(&live));
-        assert!(ignored.remove(&live));
+        assert!(request_registry(&requests).was_issued(retired));
+    }
+
+    #[test]
+    fn request_id_sequence_exhaustion_does_not_reuse_ids() {
+        let mut requests = WorkspaceRequestRegistry::new();
+        requests.next_sequence = REQUEST_ID_SEQUENCE_MAX - 1;
+
+        let last = requests.allocate().expect("last request ID available");
+
+        assert_eq!(last.as_u128() & REQUEST_ID_SEQUENCE_MASK, u128::from(REQUEST_ID_SEQUENCE_MAX));
+        assert!(requests.was_issued(last));
+        assert!(requests.allocate().is_none());
     }
 }
