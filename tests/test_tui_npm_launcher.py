@@ -81,6 +81,7 @@ def run_launcher(
     cache: Path,
     registry: str,
     *args: str,
+    env_extra: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
@@ -90,6 +91,7 @@ def run_launcher(
             "NO_COLOR": "1",
         }
     )
+    env.update(env_extra or {})
     return subprocess.run(
         ["node", str(launcher), *args],
         check=False,
@@ -99,11 +101,11 @@ def run_launcher(
     )
 
 
-def write_launcher(tmp_path: Path) -> Path:
+def write_launcher(tmp_path: Path, version: str = "1.2.3") -> Path:
     package = tmp_path / "package"
     (package / "bin").mkdir(parents=True)
     (package / "package.json").write_text(
-        json.dumps({"name": "cmux", "version": "1.2.3"}) + "\n"
+        json.dumps({"name": "cmux", "version": version}) + "\n"
     )
     launcher = package / "bin/cmux.js"
     launcher.write_bytes(LAUNCHER.read_bytes())
@@ -183,6 +185,23 @@ def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> 
     assert "could not obtain the native binary" in result.stderr
 
 
+def test_managed_launcher_honors_development_binary_override(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path, "0.0.0-managed")
+    binary = tmp_path / "dev-cmux-tui"
+    binary.write_text("#!/bin/sh\nprintf '%s\\n' 'development override'\n")
+    binary.chmod(0o755)
+    result = run_launcher(
+        launcher,
+        tmp_path / "cache",
+        "http://127.0.0.1:1",
+        env_extra={"CMUX_TUI_BIN": str(binary)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "development override\n"
+
+
 def main() -> None:
     if sys.platform == "win32":
         return
@@ -191,6 +210,7 @@ def main() -> None:
         test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
+        test_managed_launcher_honors_development_binary_override(root / "override")
 
 
 if __name__ == "__main__":
