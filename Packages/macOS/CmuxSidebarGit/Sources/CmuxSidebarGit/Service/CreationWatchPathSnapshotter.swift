@@ -70,7 +70,7 @@ struct CreationWatchPathSnapshotter: Sendable {
             if let destination = try? fileManager.destinationOfSymbolicLink(
                 atPath: next.path
             ) {
-                components.append("(next.path)=(destination)")
+                components.append("\(next.path)=\(destination)")
             }
             current = next
         }
