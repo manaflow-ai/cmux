@@ -445,11 +445,28 @@ function extractBinEntries(tarBuffer) {
     if (header.every((b) => b === 0)) break;
     const rawName = header.toString("utf8", 0, 100).replace(/\0.*$/, "");
     const prefix = header.toString("utf8", 345, 500).replace(/\0.*$/, "");
-    const size = parseInt(header.toString("utf8", 124, 136).replace(/\0.*$/, "").trim(), 8) || 0;
+    const sizeText = header
+      .toString("utf8", 124, 136)
+      .replace(/\0.*$/, "")
+      .trim();
+    if (sizeText && !/^[0-7]+$/.test(sizeText)) {
+      throw new Error("invalid tar entry size");
+    }
+    const size = sizeText ? Number.parseInt(sizeText, 8) : 0;
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error("invalid tar entry size");
+    }
     const typeflag = String.fromCharCode(header[156]);
     const dataStart = offset + 512;
+    if (size > tarBuffer.length - dataStart) {
+      throw new Error("truncated tar entry");
+    }
+    const nextOffset = dataStart + Math.ceil(size / 512) * 512;
+    if (nextOffset <= offset || nextOffset > tarBuffer.length) {
+      throw new Error("invalid tar entry bounds");
+    }
     const data = tarBuffer.subarray(dataStart, dataStart + size);
-    offset = dataStart + Math.ceil(size / 512) * 512;
+    offset = nextOffset;
 
     if (typeflag === "x" || typeflag === "g") {
       const records = parsePaxRecords(data);

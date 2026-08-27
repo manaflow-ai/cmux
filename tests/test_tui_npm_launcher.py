@@ -34,6 +34,14 @@ def make_tarball() -> bytes:
     return gzip.compress(tar_buffer.getvalue(), mtime=0)
 
 
+def make_negative_size_tarball() -> bytes:
+    tar = bytearray(gzip.decompress(make_tarball()))
+    # -1000 is -512 in octal. The launcher must reject it before the tar
+    # cursor can move backwards and parse the same header forever.
+    tar[124:136] = b"-1000" + b"\0" * 7
+    return gzip.compress(bytes(tar), mtime=0)
+
+
 class RegistryHandler(http.server.BaseHTTPRequestHandler):
     tarball = make_tarball()
     metadata_requests = 0
@@ -84,6 +92,7 @@ def run_launcher(
     registry: str,
     *args: str,
     env_extra: dict[str, str] | None = None,
+    timeout_seconds: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
@@ -100,6 +109,7 @@ def run_launcher(
         capture_output=True,
         text=True,
         env=env,
+        timeout=timeout_seconds,
     )
 
 
@@ -155,6 +165,33 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
     assert cached.is_file()
     assert cached.stat().st_mode & stat.S_IXUSR
     assert not (cache / platform_key / "v/1.2.3/.active").exists()
+
+
+def test_launcher_rejects_negative_tar_size_without_hanging(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    original_tarball = RegistryHandler.tarball
+    RegistryHandler.tarball = make_negative_size_tarball()
+    server, thread, registry = start_registry()
+    try:
+        try:
+            result = run_launcher(
+                launcher,
+                cache,
+                registry,
+                "--version",
+                timeout_seconds=2,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise AssertionError("malformed tar header caused the launcher to hang") from error
+    finally:
+        server.shutdown()
+        thread.join()
+        RegistryHandler.tarball = original_tarball
+    assert result.returncode != 0
+    assert "could not obtain the native binary" in result.stderr
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
@@ -282,6 +319,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-tui-launcher-test-") as directory:
         root = Path(directory)
         test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
+        test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
