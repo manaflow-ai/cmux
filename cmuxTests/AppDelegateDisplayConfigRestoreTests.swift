@@ -352,6 +352,18 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     @Test
+    func createdMainWindowsDoNotRecalculateUnusedAppKitKeyViewLoops() {
+        let appDelegate = testAppDelegate()
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: emptyWindowSnapshot(),
+            shouldActivate: false
+        )
+        defer { closeCreatedWindow(appDelegate, windowId: windowId) }
+
+        #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == false)
+    }
+
+    @Test
     func reconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
         let appDelegate = testAppDelegate()
         appDelegate.isScreenChangeCaptureSuppressed = true
