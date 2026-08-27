@@ -460,7 +460,7 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .browser(let row) = CloudTreeNodeBuilder.flattened(nodes)[3].kind {
             XCTAssertTrue(row.isOpen)
             XCTAssertEqual(row.workspaceTitle, "web")
-            XCTAssertEqual(CloudTreeBrowserRowContent.detail(for: row), "cmux.com")
+            XCTAssertEqual(CloudTreeBrowserDetail.text(for: row), "cmux.com")
         } else { XCTFail("expected browser row") }
     }
 
@@ -662,8 +662,10 @@ final class MachinesPanelModelTests: XCTestCase {
         }
         XCTAssertEqual(CloudTreeStyle.defaultStyle, .compact, "the default is the compact variant")
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
+        // The presets are different shapes, not one look at five sizes.
+        XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
         // Two-line cards grow with the stats line; single-line rows never do.
-        XCTAssertGreaterThan(CloudTreeStyle.classic.machineRowHeight(hasStats: true), CloudTreeStyle.classic.machineRowHeight(hasStats: false))
+        XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
         XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 

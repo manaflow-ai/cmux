@@ -1,10 +1,12 @@
 import Foundation
 import SwiftUI
 
-/// One visual preset for the Cloud tree. Pure metrics and switches; the rows,
-/// the cell, and the outline read the active style, and the debug gallery
+/// One visual preset for the Cloud tree. The presets are deliberately
+/// different *shapes*, not one look at five font sizes: each picks a leaf
+/// layout, an icon treatment, a group-label voice, and a metadata placement.
+/// Rows, the cell, and the outline read the active style; the debug gallery
 /// (Debug → Debug Windows → Cloud Tree Style Gallery…) renders every preset
-/// side by side so a variant can be picked by looking, not by rebuilding.
+/// side by side so a variant is picked by looking, not by rebuilding.
 struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     enum MachineRowLayout: String, Sendable {
         /// Name line plus a dim subtitle (and stats when enabled).
@@ -13,11 +15,33 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         case singleLine
     }
 
-    enum IconTint: String, Sendable {
-        /// Secondary/tertiary label colors only (the Files-tree look).
+    enum LeafLayout: String, Sendable {
+        /// Title and dim detail on one baseline.
+        case singleLine
+        /// Title over its dim detail, like a rich list cell.
+        case twoLine
+    }
+
+    enum IconTreatment: String, Sendable {
+        /// Secondary/tertiary label-colored glyphs (the Files-tree look).
         case monochrome
-        /// Finder-like: folders and machines carry their semantic color.
+        /// Semantic-colored glyphs (folder blue, display teal).
         case tinted
+        /// System Settings-style filled squircle chips with white glyphs.
+        case chips
+    }
+
+    enum GroupLabelStyle: String, Sendable {
+        case plain
+        /// UPPERCASE tracked mini-caps, like Finder sidebar sections.
+        case uppercased
+    }
+
+    enum MetaPlacement: String, Sendable {
+        /// Dim detail right after the title.
+        case inline
+        /// Dim detail right-aligned into a trailing column (table feel).
+        case trailing
     }
 
     let id: String
@@ -25,6 +49,16 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let name: String
     let rowHeight: CGFloat
     let machineRowLayout: MachineRowLayout
+    let leafLayout: LeafLayout
+    let iconTreatment: IconTreatment
+    let groupLabelStyle: GroupLabelStyle
+    let metaPlacement: MetaPlacement
+    /// Machine rows draw a full-width tinted band behind the name.
+    let machineBand: Bool
+    /// Every text run uses the monospaced design (the TUI/table voice).
+    let monospacedText: Bool
+    /// A hairline under each non-machine row.
+    let rowSeparators: Bool
     let machineNameSize: CGFloat
     let titleSize: CGFloat
     let detailSize: CGFloat
@@ -33,7 +67,6 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     /// Width reserved for the leaf glyph column; 0 hides icons entirely.
     let iconSlot: CGFloat
     let iconGap: CGFloat
-    let iconTint: IconTint
     /// Dim size number after pool labels ("Terminals 3").
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
@@ -42,13 +75,14 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
 
+    var fontDesign: Font.Design { monospacedText ? .monospaced : .default }
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
 
     func machineRowHeight(hasStats: Bool) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
-            return rowHeight + 2
+            return rowHeight + (machineBand ? 7 : 2)
         case .twoLine:
             let lines = machineNameLineHeight + CloudTreeRowGrid.machineLineSpacing + machineSubtitleLineHeight
                 + (hasStats && showsMachineStats ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
@@ -58,58 +92,72 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
 
     // MARK: Presets
 
-    /// The pre-iteration look: roomy two-line machine cards, monochrome glyphs.
-    static let classic = CloudTreeStyle(
-        id: "classic", name: "Classic",
-        rowHeight: 24, machineRowLayout: .twoLine,
+    /// The default: quiet Finder-like single lines, monochrome glyphs, tight.
+    static let compact = CloudTreeStyle(
+        id: "compact", name: "Compact",
+        rowHeight: 20, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
+        machineBand: false, monospacedText: false, rowSeparators: false,
+        machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 10.5,
+        iconSize: 9.5, iconSlot: 14, iconGap: 6,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        machineVerticalPadding: 3
+    )
+
+    /// System Settings voice: filled color squircles with white glyphs, so
+    /// each kind reads by color before you read a word.
+    static let chips = CloudTreeStyle(
+        id: "chips", name: "Chips",
+        rowHeight: 26, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        iconTreatment: .chips, groupLabelStyle: .plain, metaPlacement: .inline,
+        machineBand: false, monospacedText: false, rowSeparators: false,
         machineNameSize: 12.5, titleSize: 12, detailSize: 10.5, groupLabelSize: 11,
-        iconSize: 10, iconSlot: 16, iconGap: 8, iconTint: .monochrome,
+        iconSize: 10.5, iconSlot: 22, iconGap: 7,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        machineVerticalPadding: 3
+    )
+
+    /// Editorial sections: machines are tinted full-width bands, group labels
+    /// are UPPERCASE mini-caps, leaves stay quiet under their headers.
+    static let sections = CloudTreeStyle(
+        id: "sections", name: "Sections",
+        rowHeight: 21, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        iconTreatment: .tinted, groupLabelStyle: .uppercased, metaPlacement: .inline,
+        machineBand: true, monospacedText: false, rowSeparators: false,
+        machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 9,
+        iconSize: 10, iconSlot: 15, iconGap: 6,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        machineVerticalPadding: 3
+    )
+
+    /// A table, not a tree: monospaced text, metadata right-aligned into a
+    /// column, hairline row separators. The htop of sidebars.
+    static let ledger = CloudTreeStyle(
+        id: "ledger", name: "Ledger",
+        rowHeight: 18, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        iconTreatment: .monochrome, groupLabelStyle: .uppercased, metaPlacement: .trailing,
+        machineBand: false, monospacedText: true, rowSeparators: true,
+        machineNameSize: 11, titleSize: 10.5, detailSize: 9.5, groupLabelSize: 8.5,
+        iconSize: 8.5, iconSlot: 11, iconGap: 5,
+        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
+        machineVerticalPadding: 2
+    )
+
+    /// Roomy and demo-friendly: two-line leaves (title over detail), large
+    /// tinted glyphs, two-line machine cards with the stats line back.
+    static let aero = CloudTreeStyle(
+        id: "aero", name: "Aero",
+        rowHeight: 34, machineRowLayout: .twoLine, leafLayout: .twoLine,
+        iconTreatment: .tinted, groupLabelStyle: .plain, metaPlacement: .inline,
+        machineBand: false, monospacedText: false, rowSeparators: false,
+        machineNameSize: 13, titleSize: 12.5, detailSize: 10.5, groupLabelSize: 11,
+        iconSize: 14, iconSlot: 22, iconGap: 8,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
         machineVerticalPadding: 4
     )
 
-    /// The default: one line per machine, tighter rows, everything else intact.
-    static let compact = CloudTreeStyle(
-        id: "compact", name: "Compact",
-        rowHeight: 20, machineRowLayout: .singleLine,
-        machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 10.5,
-        iconSize: 9.5, iconSlot: 14, iconGap: 6, iconTint: .monochrome,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
-        machineVerticalPadding: 3
-    )
-
-    /// As many rows on screen as legibility allows.
-    static let dense = CloudTreeStyle(
-        id: "dense", name: "Dense",
-        rowHeight: 17, machineRowLayout: .singleLine,
-        machineNameSize: 11, titleSize: 11, detailSize: 9.5, groupLabelSize: 10,
-        iconSize: 9, iconSlot: 12, iconGap: 5, iconTint: .monochrome,
-        showsGroupCounts: false, showsViewBadges: true, showsMachineStats: false,
-        machineVerticalPadding: 2
-    )
-
-    /// Finder sidebar: single line, larger tinted glyphs, folder-blue workspaces.
-    static let finder = CloudTreeStyle(
-        id: "finder", name: "Finder",
-        rowHeight: 22, machineRowLayout: .singleLine,
-        machineNameSize: 12.5, titleSize: 12, detailSize: 10.5, groupLabelSize: 11,
-        iconSize: 12, iconSlot: 18, iconGap: 6, iconTint: .tinted,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
-        machineVerticalPadding: 3
-    )
-
-    /// Structure from indentation alone: no leaf glyphs, no counts, quiet text.
-    static let minimal = CloudTreeStyle(
-        id: "minimal", name: "Minimal",
-        rowHeight: 19, machineRowLayout: .singleLine,
-        machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 10.5,
-        iconSize: 0, iconSlot: 0, iconGap: 0, iconTint: .monochrome,
-        showsGroupCounts: false, showsViewBadges: true, showsMachineStats: false,
-        machineVerticalPadding: 3
-    )
-
     /// Gallery order. `compact` is the shipped default.
-    static let presets: [CloudTreeStyle] = [.compact, .classic, .dense, .finder, .minimal]
+    static let presets: [CloudTreeStyle] = [.compact, .chips, .sections, .ledger, .aero]
 
     static let defaultStyle: CloudTreeStyle = .compact
 
