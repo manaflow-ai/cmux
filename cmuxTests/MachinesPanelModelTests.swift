@@ -577,6 +577,7 @@ final class MachinesPanelModelTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCloudTreeExpansionStoreDefaultsToExpandedAndPersistsMachineCollapse() {
         let defaults = UserDefaults(suiteName: "CloudTreeExpansionStoreTests-\(UUID().uuidString)")!
         let store = CloudTreeExpansionStore(defaults: defaults)
