@@ -156,7 +156,9 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
             } else {
                 result = .failure(Self.posixError(errorCode))
             }
-            Task { await self?.writeFinished(result) }
+            Task { @Sendable [weak self, result] in
+                await self?.writeFinished(result)
+            }
         }
     }
 

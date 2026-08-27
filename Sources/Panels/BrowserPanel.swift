@@ -2778,7 +2778,8 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
         if isChromiumBacked {
-            guard hiddenWebViewDiscardManager.isDiscardedForMemory else { return false }
+            guard !chromiumIsolationPending,
+                  hiddenWebViewDiscardManager.isDiscardedForMemory else { return false }
             guard chromiumMemoryDiscardTask == nil else { return false }
             shouldRenderWebView = true
             hiddenWebViewDiscardManager.clearDiscardState(reason: "chromium.\(reason)")

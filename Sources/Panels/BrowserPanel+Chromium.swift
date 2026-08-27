@@ -31,7 +31,9 @@ extension BrowserPanel {
     /// change cookies and request routing under an existing page. A later
     /// explicit navigation after the policy is relaxed may start Chromium again.
     func enforceChromiumIsolationIfNeeded(reason: String) {
-        guard isChromiumBacked, !chromiumIsolationPending else { return }
+        guard isChromiumBacked,
+              !chromiumIsolationPending,
+              chromiumMemoryDiscardTask == nil else { return }
         let effective = Self.effectiveBrowserEngine(
             requested: .chromium,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -289,6 +291,7 @@ extension BrowserPanel {
         guard isChromiumBacked,
               !chromiumIsolationPending,
               chromiumMemoryDiscardTask == nil,
+              !isWebViewVisibleInUI,
               shouldRenderWebView,
               currentURL != nil else { return false }
         cancelHiddenWebViewDiscard()
@@ -312,7 +315,14 @@ extension BrowserPanel {
             self.chromiumMemoryDiscardTask = nil
             self.refreshNavigationAvailability()
             self.refreshWebViewLifecycleState()
-            if self.isWebViewVisibleInUI {
+            let effectiveEngine = Self.effectiveBrowserEngine(
+                requested: .chromium,
+                isRemoteWorkspace: self.isRemoteWorkspace,
+                isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive
+            )
+            if effectiveEngine != .chromium {
+                self.enforceChromiumIsolationIfNeeded(reason: "memory_discard_policy")
+            } else if self.isWebViewVisibleInUI {
                 self.restoreDeferredChromiumIfNeeded(reason: "memory_discard_complete")
             }
         }
@@ -487,6 +497,7 @@ extension BrowserPanel {
         guard isChromiumBacked,
               !chromiumIsolationPending,
               !preservesExplicitEphemeralWebsiteDataStoreForProfileSwitch else { return false }
+        guard chromiumMemoryDiscardTask == nil else { return false }
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID
             : BrowserProfileStore.shared.builtInDefaultProfileID
