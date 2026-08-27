@@ -29,6 +29,7 @@ struct CMUXMobileRootView: View {
     /// capability closures are rebuilt for the newly selected method.
     @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
@@ -255,7 +256,11 @@ struct CMUXMobileRootView: View {
             pairingSheet(initialPresentation: pairingPresentation)
         }
         #endif
-        .animation(.snappy(duration: 0.18), value: isAuthenticated)
+        // Full-screen surface swaps (sign-in <-> onboarding <-> shell) get a
+        // longer, softer curve than in-shell phase changes; 0.18s reads as a
+        // hard cut across two unrelated screens.
+        .animation(.smooth(duration: 0.35), value: isAuthenticated)
+        .animation(.smooth(duration: 0.35), value: shouldShowOnboarding)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
@@ -470,9 +475,19 @@ struct CMUXMobileRootView: View {
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
+            // Sign-in hands directly into onboarding, so the swap reads as a
+            // forward push in the tour's paging direction rather than a cut.
             onboardingFlow
+                .transition(reduceMotion ? .opacity : .asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .opacity
+                ))
         } else if !isAuthenticated {
             SignInView()
+                .transition(reduceMotion ? .opacity : .asymmetric(
+                    insertion: .opacity,
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
         } else {
             switch MobileRootAuthGate.shellSurface(
                 connectionState: store.connectionState,
