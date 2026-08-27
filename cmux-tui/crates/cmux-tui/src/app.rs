@@ -26294,7 +26294,8 @@ mod tests {
             view.collapse_priority = 10;
         }
 
-        // 50 columns cannot fit three minimum rails and the content area.
+        // 60 columns cannot fit three minimum rails and the content area,
+        // but can fit the two rails that remain after the first collapse.
         // Equal priorities must collapse the first configured rail, matching
         // the previous `min_by_key` plus `remove(index)` behavior.
         let layout = sidebar_layout_for(
@@ -26302,7 +26303,7 @@ mod tests {
             true,
             false,
             true,
-            (50, 30),
+            (60, 30),
             SidebarWidthOverrides::default(),
         );
         assert_eq!(layout.machine, None);
