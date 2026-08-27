@@ -228,6 +228,9 @@
         "free": "Gratis",
         "pro": "Pro",
         "loading": "Laster…"
+      },
+      "pro": {
+        "entitledBody": "Din cmux Pro-tilgang er aktiv."
       }
     }
   },

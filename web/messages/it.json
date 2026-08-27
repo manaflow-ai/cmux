@@ -228,6 +228,9 @@
         "free": "Gratis",
         "pro": "Pro",
         "loading": "Caricamento…"
+      },
+      "pro": {
+        "entitledBody": "Il tuo accesso a cmux Pro è attivo."
       }
     }
   },

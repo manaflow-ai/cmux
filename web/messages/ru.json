@@ -228,6 +228,9 @@
         "free": "Бесплатно",
         "pro": "Pro",
         "loading": "Загрузка…"
+      },
+      "pro": {
+        "entitledBody": "Доступ к cmux Pro активен."
       }
     }
   },

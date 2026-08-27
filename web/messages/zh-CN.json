@@ -228,6 +228,9 @@
         "free": "免费",
         "pro": "Pro",
         "loading": "加载中…"
+      },
+      "pro": {
+        "entitledBody": "你的 cmux Pro 访问权限已启用。"
       }
     }
   },

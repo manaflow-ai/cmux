@@ -228,6 +228,9 @@
         "free": "무료",
         "pro": "Pro",
         "loading": "불러오는 중…"
+      },
+      "pro": {
+        "entitledBody": "cmux Pro 이용 권한이 활성화되어 있습니다."
       }
     }
   },

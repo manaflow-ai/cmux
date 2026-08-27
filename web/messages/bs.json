@@ -228,6 +228,9 @@
         "free": "Besplatno",
         "pro": "Pro",
         "loading": "Učitavanje…"
+      },
+      "pro": {
+        "entitledBody": "Vaš cmux Pro pristup je aktivan."
       }
     }
   },
