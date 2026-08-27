@@ -88,9 +88,14 @@ enum ClaudeHookLiveDeliveryHarness {
         resolverMethodAvailable: Bool = true,
         acknowledgesPIDResolution: Bool = true,
         resumeClearSucceeds: Bool = true,
-        resumeClearOwnsCheckpoint: Bool? = true
+        resumeClearOwnsCheckpoint: Bool? = true,
+        readerStartDelay: TimeInterval = 0
     ) -> DispatchSemaphore {
-        startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+        startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            readerStartDelay: readerStartDelay
+        ) { line in
             guard let payload = jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -162,6 +167,20 @@ enum ClaudeHookLiveDeliveryHarness {
             default:
                 return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
+        }
+    }
+
+    /// `hook_event_name` of every `feed.push` the mock server received, in
+    /// arrival order.
+    static func feedEventNames(in context: Context) -> [String] {
+        context.state.snapshot().compactMap { command -> String? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event["hook_event_name"] as? String
         }
     }
 
@@ -271,9 +290,13 @@ enum ClaudeHookLiveDeliveryHarness {
         return fd
     }
 
+    /// - Parameter readerStartDelay: Test-only scheduling latency injected
+    ///   before each client reader starts, to model a cold reader thread on a
+    ///   loaded runner.
     private static func startMockServer(
         listenerFD: Int32,
         state: ServerState,
+        readerStartDelay: TimeInterval,
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
@@ -297,6 +320,11 @@ enum ClaudeHookLiveDeliveryHarness {
                     defer {
                         Darwin.close(clientFD)
                         handled.signal()
+                    }
+                    if readerStartDelay > 0 {
+                        // Scenario pacing only: models the reader being
+                        // scheduled late, not synchronization.
+                        Thread.sleep(forTimeInterval: readerStartDelay)
                     }
 
                     func writeResponse(_ response: String) {
