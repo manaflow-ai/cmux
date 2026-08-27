@@ -8011,13 +8011,6 @@ impl SidebarColumnNode {
         }
     }
 
-    fn first_kind(&self) -> RailKind {
-        match self {
-            SidebarColumnNode::Leaf { kind, .. } => *kind,
-            SidebarColumnNode::Split { children, .. } => children[0].1.first_kind(),
-        }
-    }
-
     fn collect_rails(&self, rails: &mut Vec<RailKind>) {
         match self {
             SidebarColumnNode::Leaf { kind, .. } => rails.push(*kind),
@@ -8259,7 +8252,6 @@ fn sidebar_layout_for_state(
     struct Spec {
         node: SidebarColumnNode,
         key: String,
-        first_kind: RailKind,
         desired: u16,
         max_width: u16,
         priority: u16,
@@ -8286,7 +8278,7 @@ fn sidebar_layout_for_state(
         .filter_map(|layout_node| {
             let node =
                 prune_sidebar_layout_node(layout_node, views, hidden_views, machine_visible)?;
-            let (key, first_kind, desired, max_width, priority) = match &node {
+            let (key, desired, max_width, priority) = match &node {
                 SidebarColumnNode::Leaf { view_index, kind, priority } => {
                     let view = views.get(*view_index)?;
                     let width_override = match kind {
@@ -8318,7 +8310,7 @@ fn sidebar_layout_for_state(
                             RailKind::Tabs | RailKind::Projection(_) => view.max_width,
                         }
                     };
-                    (view.id.clone(), *kind, desired, max_width, *priority)
+                    (view.id.clone(), desired, max_width, *priority)
                 }
                 SidebarColumnNode::Split { id, priority, .. } => {
                     // A pruned single-child split resolves as a leaf above,
@@ -8329,16 +8321,10 @@ fn sidebar_layout_for_state(
                         .copied()
                         .or(split.map(|split| split.width))
                         .unwrap_or(22);
-                    (
-                        id.clone(),
-                        node.first_kind(),
-                        desired,
-                        split.map_or(0, |split| split.max_width),
-                        *priority,
-                    )
+                    (id.clone(), desired, split.map_or(0, |split| split.max_width), *priority)
                 }
             };
-            Some(Spec { node, key, first_kind, desired, max_width, priority })
+            Some(Spec { node, key, desired, max_width, priority })
         })
         .collect::<Vec<_>>();
 
@@ -8353,7 +8339,7 @@ fn sidebar_layout_for_state(
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.first_kind).is_none())
+        while specs.iter().any(|spec| !previous.has_column(&spec.key))
             && width
                 < MIN_CONTENT_WIDTH
                     .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
@@ -8362,7 +8348,7 @@ fn sidebar_layout_for_state(
             let Some((index, _)) = specs
                 .iter()
                 .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.first_kind).is_none())
+                .filter(|(_, spec)| !previous.has_column(&spec.key))
                 .min_by_key(|(_, spec)| spec.priority)
             else {
                 break;
@@ -10451,6 +10437,13 @@ impl App {
         }
     }
 
+    /// Width and divider overrides are local to the active profile. Drop both
+    /// maps together whenever a profile replacement changes that owner.
+    fn clear_profile_sidebar_geometry(&mut self) {
+        self.projection_sidebar_width_overrides.clear();
+        self.sidebar_split_fractions.clear();
+    }
+
     /// Replace the active profile's projection specification and invalidate
     /// snapshots in one place. View ids are profile-local, so a reused id may
     /// describe a different resource tree after the replacement.
@@ -10466,7 +10459,7 @@ impl App {
         self.config.sidebar.views = views;
         self.config.sidebar.layout = layout;
         if profile_changed {
-            self.sidebar_split_fractions.clear();
+            self.clear_profile_sidebar_geometry();
         }
         self.invalidate_projection_rows_if_sidebar_spec_changed(previous);
     }
@@ -14341,7 +14334,7 @@ impl App {
         self.sidebar_view = config.sidebar.view;
         self.config = config;
         if previous_profile != self.config.sidebar.active_profile {
-            self.sidebar_split_fractions.clear();
+            self.clear_profile_sidebar_geometry();
         }
         self.invalidate_projection_rows_if_sidebar_spec_changed(previous_projection);
         let mut valid_view_ids =
@@ -27239,9 +27232,11 @@ mod tests {
         app.sidebar_split_fractions.insert("left".into(), vec![0.8, 0.2]);
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.ordered[0].rect.height, 24);
+        app.projection_sidebar_width_overrides.insert("left".into(), 50);
 
         app.activate_sidebar_profile(1);
         assert!(app.sidebar_split_fractions.is_empty());
+        assert!(app.projection_sidebar_width_overrides.is_empty());
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.ordered[0].rect.height, 23);
     }
@@ -27302,6 +27297,50 @@ mod tests {
             Some(&at_boundary),
         );
         assert!(revealed.machine.is_some());
+    }
+
+    #[test]
+    fn split_hysteresis_tracks_column_after_inner_child_pruning() {
+        let mut config = split_sidebar_config();
+        // The first child is pruned by the split's minimum height, while the
+        // top-level split column itself remains rendered.
+        config.sidebar.views[0].collapse_priority = 10;
+        config.sidebar.views[1].collapse_priority = 20;
+
+        let previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert!(previous.has_column("left"));
+        assert!(previous.rail(RailKind::Workspace).is_none());
+        assert!(previous.rail(RailKind::Projection(1)).is_some());
+
+        let current = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            Some(&previous),
+        );
+        assert!(current.has_column("left"));
+        assert!(current.rail(RailKind::Projection(1)).is_some());
     }
 
     fn split_sidebar_config() -> Config {
