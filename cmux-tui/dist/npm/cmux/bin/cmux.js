@@ -107,10 +107,22 @@ function versionChannel(version) {
   return match ? match[1].toLowerCase() : "stable";
 }
 
-function sameVersionChannel(left, right) {
-  const leftChannel = versionChannel(left);
-  const rightChannel = versionChannel(right);
-  return leftChannel !== null && leftChannel === rightChannel;
+function stateVersionChannel(state) {
+  if (!state || !validVersion(state.version)) return null;
+  const inferred = versionChannel(state.version);
+  if (
+    typeof state.channel === "string" &&
+    state.channel.toLowerCase() !== inferred
+  ) {
+    return null;
+  }
+  return inferred;
+}
+
+function latestDistTag(version) {
+  const channel = versionChannel(version);
+  if (!channel) return null;
+  return channel === "stable" ? "latest" : channel;
 }
 
 function isManagedPlaceholder(version) {
@@ -1119,10 +1131,10 @@ function wantedVersion(pkg) {
   }
   if (
     state &&
-    sameVersionChannel(state.version, pinned) &&
+    stateVersionChannel(state) === versionChannel(pinned) &&
     compareVersions(state.version, pinned) > 0
   ) {
-    return validVersion(state.version) ? state.version : pinned;
+    return state.version;
   }
   return pinned;
 }
@@ -1156,6 +1168,20 @@ async function resolveBinary(pkg, wanted) {
   }
 }
 
+async function latestVersionForChannel(version) {
+  const channel = versionChannel(version);
+  const distTag = latestDistTag(version);
+  if (!channel || !distTag) {
+    fail("could not determine the launcher release channel");
+  }
+  const latestMeta = await fetchJson(`${registryBase()}/cmux/${distTag}`);
+  const latest = latestMeta && latestMeta.version;
+  if (!validVersion(latest) || versionChannel(latest) !== channel) {
+    fail(`could not determine the latest published ${channel} release`);
+  }
+  return latest;
+}
+
 // `cmux update`: move the launcher to the latest published version without
 // npm reifying anything, which is what makes upgrades immune to the npx
 // cache ENOTEMPTY bug. The shim stays as-is; only the binary moves.
@@ -1167,9 +1193,7 @@ async function runUpdate(pkg, args) {
   }
   if (checkOnly) {
     const current = wantedVersion(pkg);
-    const latestMeta = await fetchJson(`${registryBase()}/cmux/latest`);
-    const latest = latestMeta && latestMeta.version;
-    if (!validVersion(latest)) fail("could not determine the latest published release");
+    const latest = await latestVersionForChannel(current);
     if (compareVersions(latest, current) <= 0) {
       console.log(`cmux ${current} is up to date (latest is ${latest}).`);
       return;
@@ -1189,9 +1213,8 @@ async function runUpdate(pkg, args) {
     // Re-read the state after acquiring the lock. Another updater may have
     // completed before this process obtained it.
     const current = wantedVersion(pkg);
-    const latestMeta = await fetchJson(`${registryBase()}/cmux/latest`);
-    const latest = latestMeta && latestMeta.version;
-    if (!validVersion(latest)) fail("could not determine the latest published release");
+    const channel = versionChannel(current);
+    const latest = await latestVersionForChannel(current);
     if (compareVersions(latest, current) <= 0) {
       console.log(`cmux ${current} is up to date (latest is ${latest}).`);
       return;
@@ -1201,6 +1224,7 @@ async function runUpdate(pkg, args) {
     await downloadVersion(pkg, latest);
     writeState({
       version: latest,
+      channel,
       updatedAt: new Date().toISOString(),
     });
     pruneCache(latest);
