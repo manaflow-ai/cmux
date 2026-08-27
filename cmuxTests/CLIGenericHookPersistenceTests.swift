@@ -1796,6 +1796,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_BUNDLED_CLI_PATH": root.path,
+                // Pinned-dispatch installs embed the app socket into the hook
+                // command, so the CLI refuses to install without one.
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-agy-install-shape.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3863,6 +3866,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-notification.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4025,6 +4029,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-preserve.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4086,6 +4091,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-metadata.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4216,6 +4222,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "GROK_HOME": grokRoot.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-file-dir.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
