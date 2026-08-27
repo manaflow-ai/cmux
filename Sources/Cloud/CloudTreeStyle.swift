@@ -59,6 +59,10 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let monospacedText: Bool
     /// A hairline under each non-machine row.
     let rowSeparators: Bool
+    /// How far each outline depth level shifts its children. The disclosure
+    /// chevron (~10pt) still fits down to ~10; smaller indents are the single
+    /// biggest horizontal-space win in a 3-level tree.
+    let indentPerLevel: CGFloat
     let machineNameSize: CGFloat
     let titleSize: CGFloat
     let detailSize: CGFloat
@@ -98,6 +102,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 20, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
+        indentPerLevel: 11,
         machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 10.5,
         iconSize: 9.5, iconSlot: 14, iconGap: 6,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
@@ -111,6 +116,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 26, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .chips, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
+        indentPerLevel: 13,
         machineNameSize: 12.5, titleSize: 12, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 10.5, iconSlot: 22, iconGap: 7,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
@@ -124,6 +130,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 21, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .tinted, groupLabelStyle: .uppercased, metaPlacement: .inline,
         machineBand: true, monospacedText: false, rowSeparators: false,
+        indentPerLevel: 12,
         machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 9,
         iconSize: 10, iconSlot: 15, iconGap: 6,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
@@ -137,6 +144,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 18, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .uppercased, metaPlacement: .trailing,
         machineBand: false, monospacedText: true, rowSeparators: true,
+        indentPerLevel: 9,
         machineNameSize: 11, titleSize: 10.5, detailSize: 9.5, groupLabelSize: 8.5,
         iconSize: 8.5, iconSlot: 11, iconGap: 5,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: false,
@@ -150,6 +158,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 34, machineRowLayout: .twoLine, leafLayout: .twoLine,
         iconTreatment: .tinted, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
+        indentPerLevel: 15,
         machineNameSize: 13, titleSize: 12.5, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 14, iconSlot: 22, iconGap: 8,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,

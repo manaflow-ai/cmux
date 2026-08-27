@@ -152,14 +152,12 @@ struct CloudTreeRowContentView: View {
         }
     }
 
-    /// A section label ("Terminals", "Workspaces"): dim text, no icon, but the
-    /// icon slot stays reserved so the label lines up with its sibling rows'
-    /// titles. `.uppercased` styles speak in tracked mini-caps.
+    /// A section label ("Terminals", "Workspaces"): dim text, no icon and no
+    /// reserved icon slot — the label starts at its level's edge so the gutter
+    /// stays narrow; child titles indent past it naturally. `.uppercased`
+    /// styles speak in tracked mini-caps.
     private func groupRow(title: String, count: Int? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: style.iconGap) {
-            if style.iconSlot > 0 {
-                Color.clear.frame(width: style.iconSlot, height: 1)
-            }
             HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
                 Text(style.groupLabelStyle == .uppercased ? title.uppercased() : title)
                     .tracking(style.groupLabelStyle == .uppercased ? 0.8 : 0)

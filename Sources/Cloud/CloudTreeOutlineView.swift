@@ -94,13 +94,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// selection; the structure changed (rows added/removed/reordered/re-kinded) →
         /// `reloadData` plus expansion/selection restore. During a drag everything is
         /// deferred until the session ends.
-        /// Switch the visual preset: every row's height and content change, so
-        /// this is always a full reload (cheap — the tree is small).
+        /// Switch the visual preset: every row's height, indent and content
+        /// change, so this is always a full reload (cheap — the tree is small).
         func apply(style: CloudTreeStyle) {
             guard style != self.style else { return }
             self.style = style
             guard let outlineView else { return }
             outlineView.treeStyle = style
+            outlineView.indentationPerLevel = style.indentPerLevel
             withProgrammaticUpdate {
                 outlineView.reloadData()
                 restoreExpansion(in: outlineView)
@@ -545,9 +546,10 @@ final class CloudTreeContainerView: NSView {
         outlineView.style = .plain
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .custom
-        // One 16pt slot per level: the disclosure chevron lives in the last slot
-        // before a row's content, and leaves keep the slot so glyphs form a column.
-        outlineView.indentationPerLevel = CloudTreeRowGrid.disclosureSlot
+        // One slot per level (style-sized): the disclosure chevron lives in the
+        // last slot before a row's content, and leaves keep the slot so glyphs
+        // form a column. `apply(style:)` keeps this in step with the preset.
+        outlineView.indentationPerLevel = CloudTreeStyleStore.current.indentPerLevel
         outlineView.allowsMultipleSelection = false
         outlineView.autoresizesOutlineColumn = true
         outlineView.floatsGroupRows = false
