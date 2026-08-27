@@ -278,6 +278,138 @@ import Testing
     }
 
     @MainActor
+    @Test func orderedRelayRoutePipelinesAtMostFourRequests() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldAllTerminalInputs(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .websocket
+        )
+        let completionTracker = TerminalRawInputTaskCompletionTracker()
+
+        for character in ["a", "z", "i", "z"] {
+            await store.submitTerminalRawInput(
+                Data(character.utf8),
+                surfaceID: RoutingHostRouter.terminalA
+            )
+            await completionTracker.recordCompletion()
+        }
+        for character in ["!", "\n"] {
+            Task { @MainActor in
+                await store.submitTerminalRawInput(
+                    Data(character.utf8),
+                    surfaceID: RoutingHostRouter.terminalA
+                )
+                await completionTracker.recordCompletion()
+            }
+        }
+
+        #expect(await waitForTerminalInputCount(4, router: router))
+        #expect(await router.recordedTerminalInputInFlightCount() == 4)
+        #expect(
+            await router.recordedTerminalInputMaximumInFlightCount() == 4
+        )
+
+        await router.releaseAllTerminalInputs()
+        #expect(await waitForTerminalInputCount(6, router: router))
+        await router.releaseAllTerminalInputs()
+        #expect(await waitForProducerCompletion(
+            expectedCount: 6,
+            tracker: completionTracker
+        ))
+        #expect(await waitForTerminalInputQuiescence(router: router))
+        #expect(
+            await router.recordedTerminalInputs().map(\.text).joined()
+                == "aziz!\n"
+        )
+    }
+
+    /// A definitive bearer rejection on a pipelined relay request must park
+    /// the connection on the awaited input path (which owns token refresh and
+    /// the re-auth decision) instead of jumping to the re-auth prompt, and
+    /// later input must still deliver, serialized.
+    @MainActor
+    @Test func relayPipelinedAuthRejectionParksConnectionOnAwaitedPath() async throws {
+        let router = RoutingHostRouter()
+        await router.setRejectTerminalInput(at: 0, code: "unauthorized")
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .websocket
+        )
+
+        await store.submitTerminalRawInput(
+            Data("a".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        #expect(await waitForAuthorizationFallback(store: store))
+        #expect(store.connectionRequiresReauth == false)
+        #expect(store.connectionState != .disconnected)
+
+        await router.setHoldAllTerminalInputs(true)
+        let completionTracker = TerminalRawInputTaskCompletionTracker()
+        for character in ["b", "c"] {
+            Task { @MainActor in
+                await store.submitTerminalRawInput(
+                    Data(character.utf8),
+                    surfaceID: RoutingHostRouter.terminalA
+                )
+                await completionTracker.recordCompletion()
+            }
+        }
+
+        // The awaited path serializes: "c" must wait for "b" to settle, so
+        // exactly one request is in flight while the host holds it open.
+        #expect(await waitForTerminalInputCount(2, router: router))
+        #expect(await router.recordedTerminalInputInFlightCount() == 1)
+
+        await router.releaseAllTerminalInputs()
+        #expect(await waitForTerminalInputCount(3, router: router))
+        await router.releaseAllTerminalInputs()
+        #expect(await waitForProducerCompletion(
+            expectedCount: 2,
+            tracker: completionTracker
+        ))
+        #expect(await waitForTerminalInputQuiescence(router: router))
+        #expect(
+            await router.recordedTerminalInputs().map(\.text)
+                == ["a", "b", "c"]
+        )
+        #expect(store.connectionRequiresReauth == false)
+    }
+
+    /// Iroh requests carry no per-request bearer, so an auth-shaped rejection
+    /// there keeps its existing disconnect semantics.
+    @MainActor
+    @Test func irohPipelinedAuthRejectionKeepsDisconnectSemantics() async throws {
+        let router = RoutingHostRouter()
+        await router.setRejectTerminalInput(at: 0, code: "unauthorized")
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .iroh
+        )
+
+        await store.submitTerminalRawInput(
+            Data("x".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+
+        #expect(await waitForConnectionRequiresReauth(store: store))
+        #expect(
+            store.terminalInputPipelineHasAuthorizationFallbackForTesting()
+                == false
+        )
+    }
+
+    @MainActor
     @Test func pipelinedFailureUsesOperationalErrorPath() async throws {
         let router = RoutingHostRouter()
         await router.setRejectTerminalInput(at: 0)
@@ -453,6 +585,38 @@ import Testing
 
         #expect(store.connectionError == nil)
         #expect(store.connectionState == .connected)
+    }
+
+    @MainActor
+    private func waitForAuthorizationFallback(
+        store: MobileShellComposite,
+        deadline deadlineDuration: Duration = .milliseconds(500)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: deadlineDuration)
+        while clock.now < deadline {
+            if store.terminalInputPipelineHasAuthorizationFallbackForTesting() {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
+    }
+
+    @MainActor
+    private func waitForConnectionRequiresReauth(
+        store: MobileShellComposite,
+        deadline deadlineDuration: Duration = .milliseconds(500)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: deadlineDuration)
+        while clock.now < deadline {
+            if store.connectionRequiresReauth {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
     }
 
     private func waitForTerminalInputCount(
