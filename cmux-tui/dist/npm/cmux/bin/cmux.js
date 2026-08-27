@@ -240,26 +240,47 @@ function processIsAlive(pid) {
 }
 
 // Remove a lock only when its owner file still matches the observed token.
-// The comparison prevents a stale-lock cleanup from deleting a newer owner.
+// Rename the directory first, so the compare and delete cannot race a newer
+// owner that acquires the path after stale-lock cleanup starts.
 function removeCacheLockIfOwned(owner, allowEmpty = false) {
-  let current;
+  const lockPath = cacheLockPath();
+  let observed;
   try {
-    current = fs.readFileSync(cacheLockOwnerPath(), "utf8");
+    observed = fs.readFileSync(cacheLockOwnerPath(), "utf8");
   } catch {
     if (!allowEmpty) return false;
-    try {
-      fs.rmSync(cacheLockPath(), { recursive: true, force: false });
-      return true;
-    } catch {
-      return false;
-    }
   }
-  if (current !== owner.raw) return false;
+  if (observed !== undefined && observed !== owner.raw) return false;
+
+  const quarantine = `${lockPath}.reclaim-${process.pid}-${Date.now().toString(36)}-${crypto
+    .randomBytes(8)
+    .toString("hex")}`;
+  let removed = false;
   try {
-    fs.rmSync(cacheLockPath(), { recursive: true, force: false });
+    // rename is atomic within the cache directory. A competing stale-lock
+    // cleaner either loses the rename or sees the replacement owner.
+    fs.renameSync(lockPath, quarantine);
+    let actual;
+    try {
+      actual = fs.readFileSync(path.join(quarantine, "owner"), "utf8");
+    } catch {
+      actual = undefined;
+    }
+    if (actual !== owner.raw && !(allowEmpty && actual === undefined)) return false;
+    fs.rmSync(quarantine, { recursive: true, force: false });
+    removed = true;
     return true;
   } catch {
     return false;
+  } finally {
+    if (!removed) {
+      // Restore the lock only when the path is still vacant. If a new owner
+      // won the path, leave its lock untouched and retain this quarantine for
+      // conservative operator cleanup.
+      try {
+        fs.renameSync(quarantine, lockPath);
+      } catch {}
+    }
   }
 }
 
@@ -498,7 +519,7 @@ function requireNetworkRuntime() {
     typeof AbortSignal === "function" && typeof AbortSignal.timeout === "function";
   if (nodeMajor < MIN_NODE_MAJOR || !hasFetch || !hasAbortTimeout) {
     fail(
-      "network operations require Node.js 18 or newer with global fetch and " +
+      "network access requires Node.js 18 or newer with global fetch and " +
         "AbortSignal.timeout"
     );
   }
