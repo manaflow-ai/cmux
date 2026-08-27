@@ -17397,12 +17397,23 @@ impl App {
         let Some(current) = self.tree.active_workspace().map(|workspace| workspace.id) else {
             return;
         };
+        if self.tree.active_workspace == index
+            && self.workspace_preview.is_some_and(|preview| preview.target == target)
+        {
+            return;
+        }
         let origin = self.workspace_preview.map_or(current, |preview| preview.origin);
         let origin_scroll = self
             .workspace_preview
             .map_or(self.workspace_rail_scroll, |preview| preview.origin_scroll);
         if target == origin {
+            if self.workspace_preview.is_some() && !self.prepare_pty_input_before_mutation() {
+                return;
+            }
             self.cancel_workspace_preview();
+            return;
+        }
+        if !self.prepare_pty_input_before_mutation() {
             return;
         }
         self.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll });
