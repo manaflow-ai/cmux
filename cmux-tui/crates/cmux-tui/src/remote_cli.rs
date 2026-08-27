@@ -3094,6 +3094,70 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_state_fifo_is_rejected_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+        use std::sync::mpsc;
+
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("daemon.log");
+        let fifo_bytes = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        let result = unsafe { libc::mkfifo(fifo_bytes.as_ptr(), 0o600) };
+        assert_eq!(result, 0, "mkfifo failed: {}", io::Error::last_os_error());
+
+        let (sender, receiver) = mpsc::channel();
+        let path = fifo.clone();
+        let worker = thread::spawn(move || {
+            sender.send(open_private_daemon_file(&path, true).map(|_| ())).unwrap();
+        });
+
+        let outcome = receiver.recv_timeout(Duration::from_secs(1));
+        if outcome.is_err() {
+            // Release a writer that used blocking open in an unfixed build so
+            // this regression test fails promptly instead of leaking a thread.
+            let reader =
+                OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo).unwrap();
+            let _ = receiver.recv_timeout(Duration::from_secs(1));
+            drop(reader);
+        }
+        worker.join().unwrap();
+        let error = outcome.unwrap().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_lock_rejects_insecure_parent_before_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let shared = directory.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        let state = shared.join("sessions").join("main");
+
+        let error = lock_daemon_start(&state).unwrap_err();
+        assert!(error.to_string().contains("secure daemon state directory"));
+        assert!(!state.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_lock_rejects_symlink_parent_before_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let alias = directory.path().join("alias");
+        std::os::unix::fs::symlink(target.path(), &alias).unwrap();
+        let state = alias.join("sessions").join("main");
+
+        let error = lock_daemon_start(&state).unwrap_err();
+        assert!(error.to_string().contains("secure daemon state directory"));
+        assert!(!target.path().join("sessions").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn timed_out_detached_child_is_killed_and_reaped() {
         let directory = tempfile::tempdir().unwrap();
         let socket = directory.path().join("missing.sock");
