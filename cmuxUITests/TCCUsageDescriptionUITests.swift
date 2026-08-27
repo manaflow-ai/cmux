@@ -14,6 +14,7 @@ final class TCCUsageDescriptionUITests: XCTestCase {
             "NSFileProviderDomainUsageDescription",
             "NSNetworkVolumesUsageDescription",
             "NSRemovableVolumesUsageDescription",
+            "NSAudioCaptureUsageDescription",
             "NSBluetoothAlwaysUsageDescription",
             "NSCalendarsUsageDescription",
             "NSCalendarsFullAccessUsageDescription",
