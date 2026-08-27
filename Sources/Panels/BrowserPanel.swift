@@ -2307,6 +2307,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
     private(set) var navigationDelegate: BrowserNavigationDelegate?
+    /// Provenance for an app-owned local document, retained across WebView replacement.
     private var trustedLocalFileURL: URL?
     private var pendingTrustedLocalFileURL: URL?
     private var uiDelegate: BrowserUIDelegate?
@@ -5402,7 +5403,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> WKNavigation? {
         let request = URLRequest(url: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
-        beginTrustedLocalFileNavigation(url)
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         if !policy.allowsTrustedInternalURL(url) {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             onNavigationStarted?(nil)
@@ -5433,6 +5434,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         let request = URLRequest(url: url, cachePolicy: cachePolicy)
         return navigateWithoutInsecureHTTPPrompt(
             request: request,
@@ -5457,9 +5459,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         cancelHiddenWebViewDiscard()
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
-        if trustedInternalNavigation {
-            beginTrustedLocalFileNavigation(url)
-        }
         let policyAllowsURL = trustedInternalNavigation
             ? policy.allowsTrustedInternalURL(url)
             : policy.allows(url)
@@ -5467,6 +5466,9 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
+        }
+        if trustedInternalNavigation {
+            beginTrustedLocalFileNavigation(url)
         }
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
@@ -5542,6 +5544,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         let trustedInternalNavigation = BrowserURLAllowlistPolicy
             .trustedInternalSchemes
             .contains(originalURL.scheme?.lowercased() ?? "")
@@ -6056,17 +6059,15 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 }
 
 extension BrowserPanel {
+    /// Records a local file navigation started by cmux itself.
     func beginTrustedLocalFileNavigation(_ url: URL) {
         guard url.isFileURL,
               url.scheme?.lowercased() == "file",
-              BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else {
-            pendingTrustedLocalFileURL = nil
-            trustedLocalFileURL = nil
-            return
-        }
+              BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else { return }
         pendingTrustedLocalFileURL = url
     }
 
+    /// Promotes the pending local file navigation to the current document.
     func commitTrustedLocalFileNavigation(_ url: URL) {
         guard pendingTrustedLocalFileURL != nil else { return }
         pendingTrustedLocalFileURL = nil
@@ -6077,10 +6078,12 @@ extension BrowserPanel {
             : nil
     }
 
+    /// Drops a pending local file navigation after it fails or is superseded.
     func failTrustedLocalFileNavigation() {
         pendingTrustedLocalFileURL = nil
     }
 
+    /// Returns whether `url` is the app-owned local document for this panel.
     func isTrustedLocalFileDocument(_ url: URL) -> Bool {
         guard let trustedURL = trustedLocalFileURL ?? pendingTrustedLocalFileURL else { return false }
         return trustedURL.isFileURL
@@ -6094,6 +6097,7 @@ extension BrowserPanel {
             && url.scheme?.lowercased() == "file"
     }
 
+    /// Clears local-file provenance when a different main-frame URL takes over.
     func clearTrustedLocalFileDocumentIfNeeded(for url: URL) {
         guard isTrustedLocalFileDocument(url) else {
             pendingTrustedLocalFileURL = nil
@@ -6109,6 +6113,7 @@ extension BrowserPanel {
     }
 
     private func markTrustedInternalNavigationIfNeeded(for url: URL?) {
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         guard let url,
               let scheme = url.scheme?.lowercased(),
               BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(scheme),

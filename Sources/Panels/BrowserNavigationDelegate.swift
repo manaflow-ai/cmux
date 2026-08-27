@@ -110,6 +110,7 @@ import WebKit
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         activeMainFrameNavigation = navigation
+        (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
         shouldPrintAfterCurrentNavigationFinishes = false
         didClearPDFDocument?()
@@ -161,6 +162,7 @@ import WebKit
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
         if isCurrentNavigation {
             owner?.failTrustedLocalFileNavigation()
+            (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
             trustedInternalNavigationURL = nil
         }
         clearActiveMainFrameNavigation(ifMatching: navigation)
@@ -171,6 +173,7 @@ import WebKit
         if isCurrentNavigation {
             trustedInternalNavigationURL = nil
             owner?.failTrustedLocalFileNavigation()
+            (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         }
         let nsError = error as NSError
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
@@ -325,6 +328,7 @@ import WebKit
             let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             if isMainFrame, !isTrustedInternal {
+                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
                 owner?.clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
@@ -749,6 +753,7 @@ import WebKit
             let isMainFrame = navigationResponse.isForMainFrame
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             if isMainFrame, !isTrustedInternal {
+                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
                 owner?.clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
