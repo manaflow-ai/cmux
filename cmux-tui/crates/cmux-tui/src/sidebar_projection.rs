@@ -282,6 +282,11 @@ fn append_level(
                 vec![context.map_or(selected_workspace, |context| context.workspace)]
             };
             let order_by_recency = all_workspaces && agent_only;
+            // Complexity note: this is the only O(A log A) projection path,
+            // where A is the all-scope agent-row count. The sort preserves the
+            // user-visible updated_at order; every other path appends in O(A).
+            // The ignored 1000-workspace fixture below is the measurement hook
+            // for this intentional tradeoff, without claiming a local timing.
             // (last status change, insertion order) so an `all`-scoped agents
             // view reads chronologically, newest first. `u64::MAX - ...`
             // inverts recency while the tree-order index breaks ties.
@@ -753,5 +758,48 @@ mod tests {
         state.reconcile_selection(&reordered);
         assert_eq!(state.selected_target, Some(selected_target));
         assert_eq!(reordered[state.selected].target, selected_target);
+    }
+
+    /// Manual performance fixture for the intentional all-scope agent sort.
+    /// Run with `--ignored --nocapture` when a hosted or local timing sample is
+    /// needed. This test records no threshold and makes no timing claim.
+    #[test]
+    #[ignore = "manual projection performance measurement"]
+    fn benchmark_all_scope_agents_at_thousand_workspaces() {
+        let tree = TreeView {
+            workspaces: (0..1_000)
+                .map(|index| {
+                    workspace(
+                        index as WorkspaceId + 1,
+                        "workspace",
+                        index as PaneId + 10,
+                        [index as SurfaceId + 100, index as SurfaceId + 10_100],
+                    )
+                })
+                .collect(),
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let agents = (0..1_000)
+            .map(|index| AgentInfo {
+                surface: index as SurfaceId + 100,
+                state: "working".into(),
+                source: "fixture".into(),
+                session: None,
+                updated_at_ms: index as u64,
+            })
+            .collect::<Vec<_>>();
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+
+        let started = Instant::now();
+        let projected = rows(&all_spec, &tree, &agents, 0, &HashSet::new());
+        eprintln!(
+            "all-scope agent projection: {} rows in {:?}",
+            projected.len(),
+            started.elapsed()
+        );
+        assert_eq!(projected.len(), 1_000);
     }
 }
