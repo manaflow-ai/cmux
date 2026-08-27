@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxRelayTransport
 import Foundation
 import OSLog
 import SwiftUI
@@ -93,11 +94,35 @@ struct cmuxApp: App {
         let fallbackRegistrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
+        // The cmux mobile relay (`.websocket` routes, synthesized only when a
+        // Computer's connection method is Relay). Ticket minting reads live
+        // auth, so building the factory here costs nothing while the method
+        // is unused; no route with this kind is ever dialed otherwise.
+        let relayCoordinator = auth.coordinator
+        let relayTicketProvider = RelayTicketClient(
+            apiBaseURL: {
+                let baseURL = auth.config.apiBaseURL
+                return baseURL.isEmpty ? nil : URL(string: baseURL)
+            },
+            authorizationHeaders: {
+                guard let access = try? await relayCoordinator.accessToken(),
+                      let refresh = await relayCoordinator.refreshToken() else { return nil }
+                return [
+                    "Authorization": "Bearer \(access)",
+                    "X-Stack-Refresh-Token": refresh,
+                ]
+            }
+        )
+        let relayFactory = RelayClientTransportFactory(
+            deviceID: { await DeviceRegistryService.deviceID() },
+            ticketProvider: relayTicketProvider
+        )
         let registrations = [
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
                 factory: irxEnabled ? irx.transportFactory : iroh.transportFactory
             ),
+            CmxRouteTransportFactoryRegistration(kind: .websocket, factory: relayFactory),
         ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
         do {

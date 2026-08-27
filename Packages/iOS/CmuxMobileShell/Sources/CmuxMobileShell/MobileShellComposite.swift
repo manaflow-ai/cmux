@@ -7,6 +7,7 @@ public import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import CmuxMobileTransport
+internal import CmuxRelayTransport
 public import Foundation
 import Observation
 internal import OSLog
@@ -10038,6 +10039,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if directOnly || ticketMethod == .direct {
             return supportedRoutes.filter { $0.kind == .iroh }
         }
+        // Relay is just as exclusive: one synthesized WebSocket route to the
+        // cmux relay, nothing else, and no other method ever adds it. The
+        // route is synthesized (never advertised by the Mac) because the dial
+        // target is a constant and the per-connect authority is the minted
+        // ticket, not the route.
+        if ticketMethod == .relay {
+            let advertised = supportedRoutes.filter { $0.kind == .websocket }
+            if !advertised.isEmpty { return advertised }
+            guard let relayRoute = Self.synthesizedRelayRoute() else { return [] }
+            return [relayRoute]
+        }
         if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
@@ -10059,6 +10071,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Iroh endpoint advertising no relays and no direct addresses must
         // not starve it or a dev simulator can never pair.
         return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
+    }
+
+    /// The one WebSocket route the Relay method dials: the production relay
+    /// connect URL (a Debug env override supports dev relay workers). Returns
+    /// nil only if the constant ever fails validation, which fails the dial
+    /// closed instead of substituting another method.
+    static func synthesizedRelayRoute() -> CmxAttachRoute? {
+        var urlString = RelayProtocol.defaultRelayURL
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_MOBILE_RELAY_URL"],
+           !override.isEmpty {
+            urlString = override
+        }
+        #endif
+        return try? CmxAttachRoute(
+            id: "relay",
+            kind: .websocket,
+            endpoint: .url(urlString),
+            priority: 0
+        )
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.

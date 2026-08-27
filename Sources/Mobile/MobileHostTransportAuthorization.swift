@@ -15,6 +15,12 @@ import os
 enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case stackBearer
     case irohAdmission(CmxIrohAdmittedPeer)
+    /// A session tunneled through the cmux mobile relay (HostRelay Durable
+    /// Object). Per-request authorization is identical to `.stackBearer` —
+    /// every RPC re-verifies the same-account Stack token — but the case is
+    /// separate so legacy TCP listener restarts (`removeStackBearerConnections`)
+    /// never tear down relay sessions.
+    case relaySession
 }
 
 extension MobileHostConnectionAuthorizationContext {

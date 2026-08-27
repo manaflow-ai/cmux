@@ -48,6 +48,17 @@ public struct MobileCatalogSection: SettingCatalogSection {
     private static let iOSPairingHostDefault = false
     #endif
 
+    /// Mac-side mobile relay host (the cmux Cloudflare relay). OFF by default
+    /// on EVERY build channel: while off the Mac never mints a relay ticket
+    /// and never opens the relay WebSocket, so "off" is provably zero relay
+    /// connections. Independent of the Tailscale listener toggle above; the
+    /// two transports never substitute for each other.
+    public let relayHost = DefaultsKey<Bool>(
+        id: "mobile.relayHost.enabled",
+        defaultValue: false,
+        userDefaultsKey: "mobile.relayHost.enabled"
+    )
+
     /// Port both Mac-side iOS listeners prefer to bind: the legacy TCP
     /// pairing listener and the Iroh endpoint's UDP socket (the port Direct
     /// addresses dial).

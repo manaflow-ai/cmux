@@ -172,6 +172,13 @@ export const env = createEnv({
     // cannot turn reconnect/readiness fan-out into an auth-request storm.
     CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_MOBILE_RELAY_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Shared HMAC secret for mobile relay tickets (workers/mobile-relay).
+    // Optional: the ticket route returns "not configured" until it is set.
+    CMUX_MOBILE_RELAY_TICKET_SECRET: z.string().min(32).max(512).optional(),
+    // WebSocket connect URL handed to clients with each ticket. Defaults to
+    // the production worker; point it at cmux-mobile-relay-dev for dev stacks.
+    CMUX_MOBILE_RELAY_URL: z.string().url().optional(),
     // The deployed handoff route fails closed when this limiter is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
@@ -349,6 +356,9 @@ export const env = createEnv({
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
     ),
+    CMUX_MOBILE_RELAY_RATE_LIMIT_ID: trimEnv(process.env.CMUX_MOBILE_RELAY_RATE_LIMIT_ID),
+    CMUX_MOBILE_RELAY_TICKET_SECRET: trimEnv(process.env.CMUX_MOBILE_RELAY_TICKET_SECRET),
+    CMUX_MOBILE_RELAY_URL: trimEnv(process.env.CMUX_MOBILE_RELAY_URL),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
     ),

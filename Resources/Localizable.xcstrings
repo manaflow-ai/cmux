@@ -185888,6 +185888,57 @@
         }
       }
     },
+    "settings.mobile.relayHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Remote Access"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーリモートアクセス"
+          }
+        }
+      }
+    },
+    "settings.mobile.relayHost.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: this Mac never connects to the cmux relay. Independent of Tailscale pairing; the two never substitute for each other."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ: この Mac は cmux リレーに接続しません。Tailscale ペアリングとは独立しており、相互に代替されることはありません。"
+          }
+        }
+      }
+    },
+    "settings.mobile.relayHost.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac stays reachable from your iPhone anywhere through the cmux relay."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は cmux リレーを通じて、どこからでも iPhone から接続できます。"
+          }
+        }
+      }
+    },
     "settings.mobile.route.iroh": {
       "extractionState": "manual",
       "localizations": {
@@ -202078,6 +202129,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "モバイル ios iphone ペアリング ポート tcp リスナー ファイアウォール 競合 バインド"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.mobile.relayHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone relay remote access cloudflare websocket anywhere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル ios iphone リレー リモートアクセス cloudflare websocket どこでも"
           }
         }
       }

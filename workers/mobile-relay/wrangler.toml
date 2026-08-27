@@ -1,0 +1,42 @@
+# cmux mobile relay — Cloudflare Worker + one Durable Object class.
+#
+# One HostRelay Durable Object per host device (idFromName from the VERIFIED
+# Stack user id + host device UUID, never client input). The host (a Mac today,
+# any cmux host later) keeps one outbound WebSocket to its own object; each
+# phone keeps one WebSocket to the object of the host it is attached to. The
+# object relays opaque per-session data frames between them and stores nothing
+# durable, so deploys never need data migrations beyond the class list below.
+#
+# This worker is deliberately separate from workers/presence (cmux-presence)
+# and cmux-tui/relays/cloudflare-do (cmux-remote-relay): separate name, domain,
+# secrets, and migration lineage, so a bad deploy here cannot touch either.
+#
+# Deploys run from .github/workflows/mobile-relay.yml. The [[migrations]]
+# block is append-only; never hand-edit past tags.
+#
+# Secrets (survive deploys, never in [vars]):
+#   wrangler secret put MOBILE_RELAY_TICKET_SECRET   # base64/hex >= 32 bytes,
+#                                                    # shared only with the web
+#                                                    # app's ticket mint route
+
+name = "cmux-mobile-relay"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "HOST_RELAY"
+class_name = "HostRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HostRelay"]
+
+# Production custom domain on the cmux.dev zone (same Cloudflare account).
+# `custom_domain = true` provisions DNS + TLS with the deploy; the workers.dev
+# URL stays as the dev/staging entrypoint.
+[[routes]]
+pattern = "mr.cmux.dev"
+custom_domain = true
