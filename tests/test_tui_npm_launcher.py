@@ -145,3 +145,21 @@ def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path
     assert "could not obtain the native binary" in result.stderr
     assert "127.0.0.1" not in result.stderr
     assert "CMUX_" not in result.stderr
+
+
+def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> None:
+    launcher = write_launcher(tmp_path)
+    package = tmp_path / "node_modules/cmux-tui-darwin-arm64"
+    package.mkdir(parents=True)
+    (package / "package.json").write_text(
+        json.dumps({"name": "cmux-tui-darwin-arm64", "version": "1.2.2"}) + "\n"
+    )
+    binary = package / "bin/cmux-tui"
+    binary.parent.mkdir()
+    binary.write_text("#!/bin/sh\nprintf '%s\\n' 'wrong binary'\n")
+    binary.chmod(0o755)
+
+    result = run_launcher(launcher, tmp_path / "cache", "http://127.0.0.1:1", "--version")
+    assert result.returncode != 0
+    assert result.stdout == ""
+    assert "could not obtain the native binary" in result.stderr
