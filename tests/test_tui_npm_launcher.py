@@ -260,6 +260,7 @@ def test_launcher_requires_network_runtime_capabilities(tmp_path: Path) -> None:
     assert "fetch" in result.stderr
     assert "AbortSignal.timeout" in result.stderr
     assert "127.0.0.1" not in result.stderr
+    assert not (tmp_path / "cache" / host_platform_key() / "v/1.2.3/.active").exists()
 
 
 def test_launcher_declares_node_engine_requirement() -> None:

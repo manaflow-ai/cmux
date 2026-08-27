@@ -949,6 +949,10 @@ async function resolveBinary(pkg, wanted) {
   const cached = cachedBinary(wanted);
   if (cached) return cached;
 
+  // Check the runtime before entering the generic download error boundary so
+  // an unsupported Node version gets a useful, actionable message instead of
+  // being flattened into a network failure.
+  requireNetworkRuntime();
   try {
     return await downloadVersion(pkg, wanted);
   } catch {
