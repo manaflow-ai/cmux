@@ -57,6 +57,48 @@ struct CodexResumeBindingVerificationTests {
         #expect(results[2] == .missing)
     }
 
+    @Test func batchLegacyVerificationTrustsMetadataWhenFilenameNamesAnotherSession() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let filenameSessionID = "019ff9a7-cbe1-7231-9478-0c55a8c44560"
+        let metadataSessionID = "019ff9a8-cbe1-7231-9478-0c55a8c44560"
+        _ = try fixture.writeRollout(
+            sessionId: metadataSessionID,
+            filename: "rollout-\(filenameSessionID)-renamed.jsonl",
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            [CodexSessionResumeVerificationRequest(sessionId: metadataSessionID)],
+            codexHome: fixture.codexHome.path
+        )
+
+        guard case .exists(let evidence) = results.first else {
+            Issue.record("session_meta.id must remain authoritative after a rollout rename")
+            return
+        }
+        #expect(evidence.sessionId == metadataSessionID)
+        #expect(evidence.source == .legacyRollout)
+    }
+
+    @Test func batchVerificationMarksRequestsBeyondBoundUnavailable() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let requests = (0...CodexSessionResumeVerificationLimits.maximumBatchRequests).map {
+            CodexSessionResumeVerificationRequest(sessionId: "batch-session-\($0)")
+        }
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            requests,
+            codexHome: fixture.codexHome.path
+        )
+
+        #expect(results.count == requests.count)
+        #expect(results[CodexSessionResumeVerificationLimits.maximumBatchRequests] == .unavailable)
+    }
+
     @Test func codexHomeResolverPrefersLaunchMetadataOverAmbientState() {
         let resolver = CodexHomeResolver()
         let launchCodexHome = "/tmp/launch-codex"
@@ -502,6 +544,7 @@ struct CodexResumeBindingVerificationTests {
 
         func writeRollout(
             sessionId: String,
+            filename: String? = nil,
             source: String? = nil,
             originator: String? = nil,
             nestedSource: [String: Any]? = nil
@@ -514,7 +557,7 @@ struct CodexResumeBindingVerificationTests {
             if let nestedSource { payload["source"] = nestedSource }
             let line: [String: Any] = ["type": "session_meta", "payload": payload]
             let data = try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])
-            let url = directory.appendingPathComponent("rollout-\(sessionId).jsonl")
+            let url = directory.appendingPathComponent(filename ?? "rollout-\(sessionId).jsonl")
             try data.write(to: url, options: .atomic)
             return url
         }

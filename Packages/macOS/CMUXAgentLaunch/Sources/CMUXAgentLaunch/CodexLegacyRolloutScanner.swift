@@ -4,8 +4,6 @@ import Foundation
 /// requests. The scanner has no retained state; one instance can be reused for
 /// every request in a verification batch.
 struct CodexLegacyRolloutScanner: Sendable {
-    private static let maximumRolloutBytes = 8 * 1024 * 1024
-    private static let maximumRolloutLines = 32
     private static let maximumFallbackCandidates = 512
     private static let maximumMatchingCandidates = 32
     private static let maximumScannedEntries = 8_192
@@ -27,10 +25,14 @@ struct CodexLegacyRolloutScanner: Sendable {
     func scan(
         sessionIDs: Set<String>,
         sessionsRoot: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        readBudget: inout CodexSessionResumeVerificationLimits
     ) -> (found: [String: (path: String, metadata: SessionMetadata)], sawUnavailable: Bool) {
         guard !sessionIDs.isEmpty else {
             return (found: [:], sawUnavailable: false)
+        }
+        guard readBudget.hasRemainingBytes else {
+            return (found: [:], sawUnavailable: true)
         }
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: sessionsRoot.path, isDirectory: &isDirectory) else {
@@ -51,6 +53,10 @@ struct CodexLegacyRolloutScanner: Sendable {
         var matchingCandidatesBySessionID: [String: Int] = [:]
         var found: [String: (path: String, metadata: SessionMetadata)] = [:]
         while let item = enumerator.nextObject() as? URL {
+            if !readBudget.hasRemainingBytes {
+                sawUnavailable = true
+                break
+            }
             scannedEntries += 1
             if scannedEntries > Self.maximumScannedEntries {
                 sawUnavailable = true
@@ -72,15 +78,37 @@ struct CodexLegacyRolloutScanner: Sendable {
                     return true
                 }
                 guard !eligibleSessionIDs.isEmpty else { continue }
-                switch readRollout(atPath: item.path, fileManager: fileManager) {
-                case .metadata(let metadata) where eligibleSessionIDs.contains(metadata.sessionId):
-                    if found[metadata.sessionId] == nil {
+                switch readRollout(
+                    atPath: item.path,
+                    fileManager: fileManager,
+                    readBudget: &readBudget
+                ) {
+                case .metadata(let metadata):
+                    guard sessionIDs.contains(metadata.sessionId) else { break }
+                    // A rollout may have been renamed or copied while its
+                    // `session_meta.id` stayed authoritative. Keep metadata
+                    // matches even when the filename's UUID points at a
+                    // different requested record.
+                    let count: Int
+                    if eligibleSessionIDs.contains(metadata.sessionId) {
+                        count = matchingCandidatesBySessionID[metadata.sessionId, default: 0]
+                    } else {
+                        count = matchingCandidatesBySessionID[metadata.sessionId, default: 0] + 1
+                        matchingCandidatesBySessionID[metadata.sessionId] = count
+                    }
+                    if count <= Self.maximumMatchingCandidates,
+                       found[metadata.sessionId] == nil {
                         found[metadata.sessionId] = (item.path, metadata)
+                    } else if count > Self.maximumMatchingCandidates {
+                        sawUnavailable = true
                     }
                 case .unavailable:
                     sawUnavailable = true
-                default:
-                    continue
+                case .readableWithoutMetadata:
+                    break
+                }
+                if !readBudget.hasRemainingBytes {
+                    sawUnavailable = true
                 }
                 if found.count == sessionIDs.count {
                     break
@@ -93,15 +121,27 @@ struct CodexLegacyRolloutScanner: Sendable {
             return (found: found, sawUnavailable: sawUnavailable)
         }
         for candidate in fallbackCandidates {
-            switch readRollout(atPath: candidate.path, fileManager: fileManager) {
-            case .metadata(let metadata) where sessionIDs.contains(metadata.sessionId):
+            guard readBudget.hasRemainingBytes else {
+                sawUnavailable = true
+                break
+            }
+            switch readRollout(
+                atPath: candidate.path,
+                fileManager: fileManager,
+                readBudget: &readBudget
+            ) {
+            case .metadata(let metadata):
+                guard sessionIDs.contains(metadata.sessionId) else { break }
                 if found[metadata.sessionId] == nil {
                     found[metadata.sessionId] = (candidate.path, metadata)
                 }
             case .unavailable:
                 sawUnavailable = true
-            default:
-                continue
+            case .readableWithoutMetadata:
+                break
+            }
+            if !readBudget.hasRemainingBytes {
+                sawUnavailable = true
             }
             if found.count == sessionIDs.count {
                 break
@@ -114,18 +154,37 @@ struct CodexLegacyRolloutScanner: Sendable {
         in filename: String,
         requested: Set<String>
     ) -> [String] {
-        let bytes = Array(filename.utf8)
-        guard bytes.count >= 36 else { return [] }
-        var matches: [String] = []
-        for start in 0...(bytes.count - 36) {
-            let candidate = String(decoding: bytes[start..<(start + 36)], as: UTF8.self)
-            guard requested.contains(candidate), !matches.contains(candidate) else { continue }
-            matches.append(candidate)
-        }
-        return matches
+        // Codex normally uses UUIDs, but older/fixture stores may use another
+        // stable identifier. Preserve the original focused `contains` probe;
+        // metadata validation below remains the authority for exact identity.
+        requested
+            .filter { !$0.isEmpty && filename.contains($0) }
+            .sorted {
+                if $0.count != $1.count { return $0.count > $1.count }
+                return $0 < $1
+            }
     }
 
-    func readRollout(atPath path: String, fileManager: FileManager) -> RolloutRead {
+    func readRollout(
+        atPath path: String,
+        fileManager: FileManager,
+        readBudget: inout CodexSessionResumeVerificationLimits
+    ) -> RolloutRead {
+        guard let maximumBytes = readBudget.allowance(for: path, fileManager: fileManager) else {
+            return .unavailable
+        }
+        return readRollout(
+            atPath: path,
+            fileManager: fileManager,
+            maximumBytes: maximumBytes
+        )
+    }
+
+    private func readRollout(
+        atPath path: String,
+        fileManager: FileManager,
+        maximumBytes: Int
+    ) -> RolloutRead {
         guard regularNonEmptyFileExists(atPath: path, fileManager: fileManager),
               let handle = FileHandle(forReadingAtPath: path) else {
             return .unavailable
@@ -136,14 +195,14 @@ struct CodexLegacyRolloutScanner: Sendable {
         var totalBytes = 0
         var lineCount = 0
         var sawJSON = false
-        while totalBytes < Self.maximumRolloutBytes, lineCount < Self.maximumRolloutLines {
-            guard let chunk = try? handle.read(upToCount: min(64 * 1024, Self.maximumRolloutBytes - totalBytes)),
+        while totalBytes < maximumBytes, lineCount < CodexSessionResumeVerificationLimits.maximumRolloutLines {
+            guard let chunk = try? handle.read(upToCount: min(64 * 1024, maximumBytes - totalBytes)),
                   !chunk.isEmpty else {
                 break
             }
             totalBytes += chunk.count
             pending.append(chunk)
-            while let newline = pending.firstIndex(of: 0x0A), lineCount < Self.maximumRolloutLines {
+            while let newline = pending.firstIndex(of: 0x0A), lineCount < CodexSessionResumeVerificationLimits.maximumRolloutLines {
                 let line = Data(pending[..<newline])
                 pending.removeSubrange(...newline)
                 lineCount += 1
@@ -155,7 +214,7 @@ struct CodexLegacyRolloutScanner: Sendable {
                 }
             }
         }
-        if totalBytes >= Self.maximumRolloutBytes && !pending.contains(0x0A) {
+        if totalBytes >= maximumBytes && !pending.contains(0x0A) {
             return .unavailable
         }
         if !pending.isEmpty, let object = jsonObject(pending) {

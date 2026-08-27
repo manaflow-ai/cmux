@@ -56,6 +56,33 @@ public struct CodexSessionResumeVerifier: Sendable {
         codexHome: String,
         fileManager: FileManager = .default
     ) -> [CodexSessionResumeVerification] {
+        var readBudget = CodexSessionResumeVerificationLimits()
+        return verifyBatch(
+            requests,
+            codexHome: codexHome,
+            readBudget: &readBudget,
+            fileManager: fileManager
+        )
+    }
+
+    /// Verifies several identities while consuming a caller-owned byte budget.
+    ///
+    /// Sharing the budget across homes lets an index load bound its total
+    /// filesystem work, rather than applying the limit independently to every
+    /// account directory.
+    ///
+    /// - Parameters:
+    ///   - requests: The exact identities and optional hook rollout candidates.
+    ///   - codexHome: The effective Codex state directory.
+    ///   - readBudget: Shared aggregate rollout-read budget.
+    ///   - fileManager: The filesystem implementation used for inspection.
+    /// - Returns: One durable-state result for every request.
+    public func verifyBatch(
+        _ requests: [CodexSessionResumeVerificationRequest],
+        codexHome: String,
+        readBudget: inout CodexSessionResumeVerificationLimits,
+        fileManager: FileManager = .default
+    ) -> [CodexSessionResumeVerification] {
         guard !requests.isEmpty else { return [] }
         let home = expandedPath(codexHome)
         let databasePath = URL(fileURLWithPath: home, isDirectory: true)
@@ -72,20 +99,32 @@ public struct CodexSessionResumeVerifier: Sendable {
             repeating: CodexSessionResumeVerification.missing,
             count: normalizedRequests.count
         )
-
+        let verificationRequests = Array(
+            normalizedRequests.prefix(CodexSessionResumeVerificationLimits.maximumBatchRequests)
+        )
+        if normalizedRequests.count > verificationRequests.count {
+            for index in verificationRequests.count..<normalizedRequests.count
+                where !normalizedRequests[index].sessionId.isEmpty {
+                // A truncated batch is an inconclusive read, not proof that a
+                // historical checkpoint disappeared. Callers can preserve the
+                // current binding while retrying a later complete load.
+                results[index] = .unavailable
+            }
+        }
         // A missing database is the only state in which the legacy rollout
         // tree is authoritative. Resolve hook transcripts first, then perform
         // one bounded walk for every remaining identifier.
         guard fileManager.fileExists(atPath: databasePath) else {
             var unresolvedSessionIDs = Set<String>()
-            for (index, request) in normalizedRequests.enumerated() {
+            for (index, request) in verificationRequests.enumerated() {
                 guard !request.sessionId.isEmpty else { continue }
                 if let transcriptPath = request.transcriptPath,
                    let evidence = transcriptEvidence(
                        sessionId: request.sessionId,
                        path: transcriptPath,
                        codexHome: home,
-                       fileManager: fileManager
+                       fileManager: fileManager,
+                       readBudget: &readBudget
                    ) {
                     results[index] = .exists(evidence)
                 } else {
@@ -97,9 +136,10 @@ public struct CodexSessionResumeVerifier: Sendable {
                     sessionIDs: unresolvedSessionIDs,
                     sessionsRoot: URL(fileURLWithPath: home, isDirectory: true)
                         .appendingPathComponent("sessions", isDirectory: true),
-                    fileManager: fileManager
+                    fileManager: fileManager,
+                    readBudget: &readBudget
                 )
-                for (index, request) in normalizedRequests.enumerated()
+                for (index, request) in verificationRequests.enumerated()
                     where !request.sessionId.isEmpty && results[index] == .missing {
                     if let match = scan.found[request.sessionId] {
                         results[index] = .exists(makeEvidence(
@@ -119,7 +159,7 @@ public struct CodexSessionResumeVerifier: Sendable {
         }
 
         guard let indexedResults = indexedThreads(
-            sessionIDs: Set(normalizedRequests.map(\.sessionId).filter { !$0.isEmpty }),
+            sessionIDs: Set(verificationRequests.map(\.sessionId).filter { !$0.isEmpty }),
             databasePath: databasePath,
             codexHome: home,
             fileManager: fileManager
@@ -129,13 +169,14 @@ public struct CodexSessionResumeVerifier: Sendable {
             }
             return results
         }
-        for (index, request) in normalizedRequests.enumerated() {
+        for (index, request) in verificationRequests.enumerated() {
             guard !request.sessionId.isEmpty else { continue }
             switch indexedResults[request.sessionId] ?? .threadMissing {
             case .found(let thread):
                 switch legacyRolloutScanner.readRollout(
                     atPath: thread.rolloutPath,
-                    fileManager: fileManager
+                    fileManager: fileManager,
+                    readBudget: &readBudget
                 ) {
                 case .metadata(let metadata) where metadata.sessionId == request.sessionId:
                     results[index] = .exists(makeEvidence(
@@ -158,9 +199,14 @@ public struct CodexSessionResumeVerifier: Sendable {
                        sessionId: request.sessionId,
                        path: transcriptPath,
                        codexHome: home,
-                       fileManager: fileManager
+                       fileManager: fileManager,
+                       readBudget: &readBudget
                    ) {
                     results[index] = .exists(evidence)
+                } else if !readBudget.hasRemainingBytes {
+                    // A shared budget exhaustion is an inconclusive read, not
+                    // evidence that this indexed-missing thread is absent.
+                    results[index] = .unavailable
                 }
             case .databaseMissing, .unavailable:
                 // The database existed when the batch started, so a race
@@ -294,10 +340,15 @@ public struct CodexSessionResumeVerifier: Sendable {
         sessionId: String,
         path: String,
         codexHome: String,
-        fileManager: FileManager
+        fileManager: FileManager,
+        readBudget: inout CodexSessionResumeVerificationLimits
     ) -> CodexSessionResumeEvidence? {
         let resolvedPath = resolvePath(path, relativeTo: codexHome)
-        switch legacyRolloutScanner.readRollout(atPath: resolvedPath, fileManager: fileManager) {
+        switch legacyRolloutScanner.readRollout(
+            atPath: resolvedPath,
+            fileManager: fileManager,
+            readBudget: &readBudget
+        ) {
         case .metadata(let metadata) where metadata.sessionId == sessionId:
             return makeEvidence(
                 sessionId: sessionId,

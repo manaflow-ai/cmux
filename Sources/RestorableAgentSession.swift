@@ -1576,6 +1576,8 @@ struct RestorableAgentSessionIndex: Sendable {
         var codexVerificationByKey: [String: CodexSessionResumeVerification] = [:]
         var codexRequestsByHome: [String: [CodexSessionResumeVerificationRequest]] = [:]
         var codexRequestKeys = Set<String>()
+        var codexRequestCount = 0
+        var codexPlanWasTruncated = false
 
         func codexVerificationKey(
             for record: RestorableAgentHookSessionRecord
@@ -1609,7 +1611,12 @@ struct RestorableAgentSessionIndex: Sendable {
             if fileManager.fileExists(atPath: fileURL.path),
                let data = try? Data(contentsOf: fileURL),
                let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) {
-                for rawRecord in state.sessions.values {
+                for rawRecord in state.sessions.values.sorted(by: {
+                    if $0.updatedAt != $1.updatedAt {
+                        return $0.updatedAt > $1.updatedAt
+                    }
+                    return $0.sessionId > $1.sessionId
+                }) {
                     var record = rawRecord
                     record.launchCommand = trustedLaunchCommand(
                         record.launchCommand,
@@ -1622,7 +1629,13 @@ struct RestorableAgentSessionIndex: Sendable {
                         record.launchCommand = nil
                     }
                     guard let key = codexVerificationKey(for: record) else { continue }
-                    guard codexRequestKeys.insert(key.key).inserted else { continue }
+                    guard !codexRequestKeys.contains(key.key) else { continue }
+                    guard codexRequestCount < CodexSessionResumeVerificationLimits.maximumBatchRequests else {
+                        codexPlanWasTruncated = true
+                        continue
+                    }
+                    codexRequestKeys.insert(key.key)
+                    codexRequestCount += 1
                     codexRequestsByHome[key.home, default: []].append(
                         CodexSessionResumeVerificationRequest(
                             sessionId: key.sessionID,
@@ -1632,11 +1645,19 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
             }
         }
+        if codexPlanWasTruncated {
+            // Some historical records were intentionally left unverified;
+            // preserve the current binding and retry on a later index load.
+            isComplete = false
+        }
         let codexResumeVerifier = CodexSessionResumeVerifier()
-        for (home, requests) in codexRequestsByHome {
+        var codexReadBudget = CodexSessionResumeVerificationLimits()
+        for home in codexRequestsByHome.keys.sorted() {
+            guard let requests = codexRequestsByHome[home] else { continue }
             let results = codexResumeVerifier.verifyBatch(
                 requests,
                 codexHome: home,
+                readBudget: &codexReadBudget,
                 fileManager: fileManager
             )
             for (request, result) in zip(requests, results) {
