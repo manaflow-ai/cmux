@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -125,7 +126,45 @@ struct PluginRegistryMetadata {
     id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum InstallJournalPhase {
+    Prepared,
+    Committed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct InstallJournal {
+    name: String,
+    target_backup: PathBuf,
+    metadata_backup: PathBuf,
+    temp_dir: PathBuf,
+    metadata_temp: PathBuf,
+    target_existed: bool,
+    metadata_existed: bool,
+    config_snapshot: Option<ConfigSnapshot>,
+    phase: InstallJournalPhase,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ConfigSnapshot {
+    path: PathBuf,
+    sidebar_plugin: Option<Value>,
+}
+
+struct PluginOperationLock(fs::File);
+
+fn acquire_plugin_operation_lock() -> anyhow::Result<PluginOperationLock> {
+    let root = install_root()?;
+    fs::create_dir_all(&root)?;
+    let path = root.join(".install.lock");
+    let file = fs::OpenOptions::new().create(true).read(true).write(true).open(path)?;
+    file.lock()?;
+    Ok(PluginOperationLock(file))
+}
+
 pub(crate) fn execute(positionals: &[String], options: CliOptions) -> Result<Value, ManagerError> {
+    let _lock = acquire_plugin_operation_lock().map_err(ManagerError::Failure)?;
     match positionals.first().map(String::as_str) {
         Some("install") => install_command(positionals, &options),
         Some("list") => list_command(positionals, &options),
@@ -149,6 +188,7 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
     }
     let root = install_root()?;
     fs::create_dir_all(&root)?;
+    reconcile_install_transactions(&root)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
     let clone_result =
         run_git(["clone", "--depth", "1", positionals[1].as_str()], Some(&temp_dir), None);
@@ -180,16 +220,26 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         let metadata_temp = write_registry_metadata_temp(&root, &name, &metadata)?;
         metadata_temp_path = Some(metadata_temp.clone());
         let id = metadata.id;
-        replace_installed_plugin(&root, &name, &temp_dir, &metadata_temp)?;
         let selected = selected_plugin_cwd()?.is_some_and(|cwd| same_path(&cwd, &target));
-        if selected {
-            let command = resolved_run_command(&manifest, &target)?;
-            let cwd = canonical_path(&target)?;
-            persist_sidebar_plugin(Some(&SidebarPluginConfig {
-                command,
-                cwd: Some(cwd.display().to_string()),
-            }))?;
-        }
+        let config_snapshot = selected.then(capture_config_snapshot).transpose()?;
+        replace_installed_plugin_with_config(
+            &root,
+            &name,
+            &temp_dir,
+            &metadata_temp,
+            config_snapshot,
+            || {
+                if selected {
+                    let command = resolved_run_command(&manifest, &target)?;
+                    let cwd = canonical_path(&target)?;
+                    config::write_sidebar_plugin(Some(&SidebarPluginConfig {
+                        command,
+                        cwd: Some(cwd.display().to_string()),
+                    }))?;
+                }
+                Ok(())
+            },
+        )?;
         Ok(json!({"plugin": plugin_json(&InstalledPlugin {
             id,
             name,
@@ -321,6 +371,7 @@ fn reject_plugin_flags(
 
 fn installed_plugins() -> anyhow::Result<Vec<InstalledPlugin>> {
     let root = install_root()?;
+    reconcile_install_transactions(&root)?;
     let selected = selected_plugin_cwd()?;
     let mut plugins = Vec::new();
     let entries = match fs::read_dir(&root) {
@@ -620,6 +671,167 @@ fn unique_backup_path(parent: &Path, name: &str, suffix: &str) -> PathBuf {
     }
 }
 
+fn install_journal_path(install_root: &Path, name: &str) -> PathBuf {
+    install_root.join(format!(".{name}.install-journal.json"))
+}
+
+fn write_install_journal(path: &Path, journal: &InstallJournal) -> anyhow::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let temp = parent.join(format!(
+        ".{}.{}-journal.tmp",
+        path.file_name().unwrap().to_string_lossy(),
+        now_nanos()
+    ));
+    let encoded = serde_json::to_vec(journal)?;
+    let result = (|| -> anyhow::Result<()> {
+        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        file.write_all(&encoded)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, path)?;
+        sync_directory(parent)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> anyhow::Result<()> {
+    fs::File::open(path)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+fn remove_path_if_present(path: &Path) -> anyhow::Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
+    let entries = match fs::read_dir(install_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else { continue };
+        if !name.starts_with('.') || !name.ends_with(".install-journal.json") {
+            continue;
+        }
+        let journal: InstallJournal =
+            serde_json::from_slice(&fs::read(&path)?).map_err(|error| {
+                anyhow::anyhow!("invalid install journal {}: {error}", path.display())
+            })?;
+        match journal.phase {
+            InstallJournalPhase::Committed => {
+                remove_path_if_present(&journal.target_backup)?;
+                remove_path_if_present(&journal.metadata_backup)?;
+                remove_path_if_present(&journal.temp_dir)?;
+                remove_path_if_present(&journal.metadata_temp)?;
+            }
+            InstallJournalPhase::Prepared => {
+                if let Some(snapshot) = &journal.config_snapshot {
+                    restore_config_snapshot(snapshot)?;
+                }
+                if journal.target_existed {
+                    if journal.target_backup.exists() {
+                        remove_path_if_present(&install_root.join(&journal.name))?;
+                        fs::rename(&journal.target_backup, install_root.join(&journal.name))?;
+                    }
+                } else {
+                    remove_path_if_present(&install_root.join(&journal.name))?;
+                }
+                if journal.metadata_existed {
+                    let metadata_path = registry_metadata_path(install_root, &journal.name);
+                    if journal.metadata_backup.exists() {
+                        remove_path_if_present(&metadata_path)?;
+                        fs::rename(&journal.metadata_backup, metadata_path)?;
+                    }
+                } else {
+                    remove_path_if_present(&registry_metadata_path(install_root, &journal.name))?;
+                }
+                remove_path_if_present(&journal.temp_dir)?;
+                remove_path_if_present(&journal.metadata_temp)?;
+            }
+        }
+        remove_path_if_present(&path)?;
+    }
+    Ok(())
+}
+
+fn restore_config_snapshot(snapshot: &ConfigSnapshot) -> anyhow::Result<()> {
+    let mut root = match fs::read_to_string(&snapshot.path) {
+        Ok(text) if text.trim().is_empty() => json!({}),
+        Ok(text) => serde_json::from_str(&text)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(error) => return Err(error.into()),
+    };
+    let Some(root_object) = root.as_object_mut() else {
+        anyhow::bail!("{} must contain a JSON object", snapshot.path.display());
+    };
+    match &snapshot.sidebar_plugin {
+        Some(plugin) => {
+            let sidebar = root_object.entry("sidebar").or_insert_with(|| json!({}));
+            if !sidebar.is_object() {
+                *sidebar = json!({});
+            }
+            sidebar
+                .as_object_mut()
+                .expect("sidebar was just made an object")
+                .insert("plugin".to_string(), plugin.clone());
+        }
+        None => {
+            if let Some(sidebar) = root_object.get_mut("sidebar")
+                && let Some(sidebar_object) = sidebar.as_object_mut()
+            {
+                sidebar_object.remove("plugin");
+            }
+        }
+    }
+    write_config_value_atomic_local(&snapshot.path, &root)
+}
+
+fn write_config_value_atomic_local(path: &Path, value: &Value) -> anyhow::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
+    let temp =
+        parent.join(format!(".{file_name}.{}.{}-restore.tmp", std::process::id(), now_nanos()));
+    let result = (|| -> anyhow::Result<()> {
+        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        serde_json::to_writer_pretty(&mut file, value)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, path)?;
+        sync_directory(parent)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
 fn replace_installed_plugin(
     install_root: &Path,
     name: &str,
@@ -632,15 +844,52 @@ fn replace_installed_plugin(
         name,
         temp_dir,
         metadata_temp,
+        None,
+        || Ok(()),
     )
 }
 
-fn replace_installed_plugin_with_fs<F: InstallFilesystem>(
+fn replace_installed_plugin_with_config<C: FnOnce() -> anyhow::Result<()>>(
+    install_root: &Path,
+    name: &str,
+    temp_dir: &Path,
+    metadata_temp: &Path,
+    config_snapshot: Option<ConfigSnapshot>,
+    after_install: C,
+) -> anyhow::Result<()> {
+    replace_installed_plugin_with_fs(
+        &StandardInstallFilesystem,
+        install_root,
+        name,
+        temp_dir,
+        metadata_temp,
+        config_snapshot,
+        after_install,
+    )
+}
+
+fn capture_config_snapshot() -> anyhow::Result<ConfigSnapshot> {
+    let path = config::config_path()?;
+    let sidebar_plugin = match fs::read_to_string(&path) {
+        Ok(text) if text.trim().is_empty() => None,
+        Ok(text) => serde_json::from_str::<Value>(&text)?
+            .get("sidebar")
+            .and_then(|sidebar| sidebar.get("plugin"))
+            .cloned(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(ConfigSnapshot { path, sidebar_plugin })
+}
+
+fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow::Result<()>>(
     filesystem: &F,
     install_root: &Path,
     name: &str,
     temp_dir: &Path,
     metadata_temp: &Path,
+    config_snapshot: Option<ConfigSnapshot>,
+    after_install: C,
 ) -> anyhow::Result<()> {
     let target = install_root.join(name);
     let target_exists = target.exists();
@@ -649,6 +898,19 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem>(
     let metadata_backup =
         unique_backup_path(&install_root.join(".registry"), name, ".metadata-backup.json");
     let metadata_exists = metadata_path.exists();
+    let journal_path = install_journal_path(install_root, name);
+    let journal = InstallJournal {
+        name: name.to_string(),
+        target_backup: target_backup.clone(),
+        metadata_backup: metadata_backup.clone(),
+        temp_dir: temp_dir.to_path_buf(),
+        metadata_temp: metadata_temp.to_path_buf(),
+        target_existed: target_exists,
+        metadata_existed: metadata_exists,
+        config_snapshot,
+        phase: InstallJournalPhase::Prepared,
+    };
+    write_install_journal(&journal_path, &journal)?;
     let mut target_backed_up = false;
     let mut metadata_backed_up = false;
     let mut target_installed = false;
@@ -675,27 +937,57 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem>(
             anyhow::anyhow!("failed to persist {}: {error}", metadata_path.display())
         })?;
         metadata_installed = true;
+        after_install()?;
+        write_install_journal(
+            &journal_path,
+            &InstallJournal { phase: InstallJournalPhase::Committed, ..journal.clone() },
+        )?;
         Ok(())
     })();
 
     if let Err(error) = result {
         let mut rollback_errors = Vec::new();
-        if metadata_installed
-            && let Err(rollback_error) = filesystem.rename(&metadata_path, metadata_temp)
-        {
-            rollback_errors.push(format!("metadata staging: {rollback_error}"));
+        if metadata_installed {
+            if let Err(rollback_error) = filesystem.rename(&metadata_path, metadata_temp) {
+                rollback_errors.push(format!("metadata staging: {rollback_error}"));
+                match filesystem.remove_file(&metadata_path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => rollback_errors.push(format!("metadata removal: {error}")),
+                }
+            }
         }
-        if metadata_backed_up
-            && let Err(rollback_error) = filesystem.rename(&metadata_backup, &metadata_path)
-        {
-            rollback_errors.push(format!("metadata restore: {rollback_error}"));
+        if metadata_backed_up {
+            if let Err(rollback_error) = filesystem.rename(&metadata_backup, &metadata_path) {
+                rollback_errors.push(format!("metadata restore: {rollback_error}"));
+            }
         }
-        if target_installed && let Err(rollback_error) = filesystem.rename(&target, temp_dir) {
-            rollback_errors.push(format!("plugin staging: {rollback_error}"));
+        if target_installed {
+            if let Err(rollback_error) = filesystem.rename(&target, temp_dir) {
+                rollback_errors.push(format!("plugin staging: {rollback_error}"));
+                match filesystem.remove_dir_all(&target) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => rollback_errors.push(format!("plugin removal: {error}")),
+                }
+            }
         }
-        if target_backed_up && let Err(rollback_error) = filesystem.rename(&target_backup, &target)
+        if target_backed_up {
+            if let Err(rollback_error) = filesystem.rename(&target_backup, &target) {
+                rollback_errors.push(format!("plugin restore: {rollback_error}"));
+            }
+        }
+        if let Some(snapshot) = &journal.config_snapshot
+            && let Err(rollback_error) = restore_config_snapshot(snapshot)
         {
-            rollback_errors.push(format!("plugin restore: {rollback_error}"));
+            rollback_errors.push(format!("config restore: {rollback_error}"));
+        }
+        if rollback_errors.is_empty() {
+            if let Err(rollback_error) = filesystem.remove_file(&journal_path)
+                && rollback_error.kind() != std::io::ErrorKind::NotFound
+            {
+                rollback_errors.push(format!("journal cleanup: {rollback_error}"));
+            }
         }
         if !rollback_errors.is_empty() {
             anyhow::bail!("{error}; rollback failed: {}", rollback_errors.join("; "));
@@ -703,11 +995,23 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem>(
         return Err(error);
     }
 
-    // The replacement is committed once both new paths are in place. Cleanup is
-    // deliberately best effort: retaining an old same-parent backup is safe and
-    // preserves recovery data if the process loses access after commit.
-    let _ = filesystem.remove_dir_all(&target_backup);
-    let _ = filesystem.remove_file(&metadata_backup);
+    // The replacement is committed once both new paths are in place. Keep the
+    // committed journal until all cleanup succeeds, so a later invocation can
+    // retry cleanup if access is temporarily unavailable.
+    let backup_dir_clean = match filesystem.remove_dir_all(&target_backup) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(_) => false,
+    };
+    let metadata_backup_clean = match filesystem.remove_file(&metadata_backup) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(_) => false,
+    };
+    let backups_clean = backup_dir_clean && metadata_backup_clean;
+    if backups_clean {
+        let _ = filesystem.remove_file(&journal_path);
+    }
     Ok(())
 }
 
@@ -963,9 +1267,16 @@ mod tests {
     fn replacement_failure_after_backup_restores_plugin_and_metadata() {
         let (root, target, temp_dir, metadata_temp) = replacement_fixture("rollback");
         let filesystem = FailingRenameFilesystem { fail_at: 2, calls: Cell::new(0) };
-        let error =
-            replace_installed_plugin_with_fs(&filesystem, &root, "demo", &temp_dir, &metadata_temp)
-                .unwrap_err();
+        let error = replace_installed_plugin_with_fs(
+            &filesystem,
+            &root,
+            "demo",
+            &temp_dir,
+            &metadata_temp,
+            None,
+            || Ok(()),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("back up"));
         assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "old");
         assert_eq!(
@@ -994,6 +1305,87 @@ mod tests {
             .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
             .count();
         assert_eq!(visible_entries, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reconciliation_restores_an_interrupted_replacement() {
+        let (root, target, temp_dir, metadata_temp) = replacement_fixture("reconcile");
+        let metadata_path = registry_metadata_path(&root, "demo");
+        let target_backup = root.join(".demo.recovery.plugin-backup");
+        let metadata_backup = root.join(".registry/.demo.recovery.metadata-backup.json");
+        fs::rename(&target, &target_backup).unwrap();
+        fs::rename(&metadata_path, &metadata_backup).unwrap();
+        fs::rename(&temp_dir, &target).unwrap();
+        let journal_path = install_journal_path(&root, "demo");
+        write_install_journal(
+            &journal_path,
+            &InstallJournal {
+                name: "demo".into(),
+                target_backup: target_backup.clone(),
+                metadata_backup: metadata_backup.clone(),
+                temp_dir: temp_dir.clone(),
+                metadata_temp: metadata_temp.clone(),
+                target_existed: true,
+                metadata_existed: true,
+                config_snapshot: None,
+                phase: InstallJournalPhase::Prepared,
+            },
+        )
+        .unwrap();
+
+        reconcile_install_transactions(&root).unwrap();
+        assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "old");
+        assert_eq!(
+            read_registry_metadata(&root, "demo").unwrap().id,
+            "sidebar_plugin_11111111111111111111111111111111"
+        );
+        assert!(!journal_path.exists());
+        assert!(!target_backup.exists());
+        assert!(!metadata_backup.exists());
+        assert!(!metadata_temp.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn config_callback_failure_rolls_back_filesystem_and_config() {
+        let (root, target, temp_dir, metadata_temp) = replacement_fixture("config-rollback");
+        let config_path = root.join("config.json");
+        fs::write(
+            &config_path,
+            "{\"sidebar\":{\"plugin\":{\"command\":[\"old\"]}},\"theme\":{\"name\":\"keep\"}}\n",
+        )
+        .unwrap();
+        let snapshot = ConfigSnapshot {
+            path: config_path.clone(),
+            sidebar_plugin: Some(json!({"command": ["old"]})),
+        };
+        let error = replace_installed_plugin_with_fs(
+            &StandardInstallFilesystem,
+            &root,
+            "demo",
+            &temp_dir,
+            &metadata_temp,
+            Some(snapshot),
+            || {
+                fs::write(
+                    &config_path,
+                    "{\"sidebar\":{\"plugin\":{\"command\":[\"new\"]}},\"theme\":{\"name\":\"keep\"}}\n",
+                )?;
+                anyhow::bail!("injected config failure")
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("injected config failure"));
+        assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "old");
+        let restored: Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        assert_eq!(restored["sidebar"]["plugin"]["command"], json!(["old"]));
+        assert_eq!(restored["theme"]["name"], json!("keep"));
+        assert_eq!(
+            read_registry_metadata(&root, "demo").unwrap().id,
+            "sidebar_plugin_11111111111111111111111111111111"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
