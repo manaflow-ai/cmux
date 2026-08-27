@@ -47,7 +47,10 @@ def main() -> int:
         )
         make_executable(
             live_managed_bin / "claude",
-            "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
+            """#!/usr/bin/env bash
+set -euo pipefail
+exec "$FAKE_CLAUDE_PROVIDER" "$@"
+""",
         )
 
         claude_log = tmp / "claude.log"
@@ -90,6 +93,7 @@ exit 86
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
         env["FAKE_CLAUDE_LOG"] = str(claude_log)
         env["FAKE_CODEX_LOG"] = str(codex_log)
+        env["FAKE_CLAUDE_PROVIDER"] = str(fallback_bin / "claude")
         env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
         proc = subprocess.run(
