@@ -56,7 +56,7 @@ use crate::browser_input::{
 };
 use crate::config::{
     Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
-    SidebarResourceKind, SidebarView, SidebarViewSpec,
+    SidebarResourceKind, SidebarView, SidebarViewScope, SidebarViewSpec,
 };
 use crate::keys;
 use crate::localization;
@@ -101,15 +101,112 @@ use crate::ui::{
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const MAX_PROJECTION_ROWS_CACHE_ENTRIES: usize = 8;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ProjectionFocusKey {
+    workspace_id: Option<WorkspaceId>,
+    screen_id: Option<ScreenId>,
+    pane_id: Option<PaneId>,
+    tab_index: Option<usize>,
+    surface_id: Option<SurfaceId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProjectionSurfaceChange {
+    Agent,
+    Title,
+}
+
 #[derive(Clone)]
 struct ProjectionRowsCache {
     view_id: String,
     workspace_revision: u64,
     pane_revision: Option<u64>,
-    agent_revision: u64,
     invalidation_revision: u64,
     selected_workspace: usize,
+    focus: ProjectionFocusKey,
+    /// All surfaces that can contribute an agent row to this snapshot. This
+    /// includes currently hidden/filtered rows so an agent state transition
+    /// cannot leave an old empty snapshot cached.
+    agent_surfaces: HashSet<SurfaceId>,
+    /// Surfaces whose title can affect a visible row in this snapshot.
+    title_surfaces: HashSet<SurfaceId>,
     rows: Vec<ProjectionRow>,
+}
+
+fn projection_focus_key(tree: &TreeView) -> ProjectionFocusKey {
+    let Some(workspace) = tree.active_workspace() else { return ProjectionFocusKey::default() };
+    let Some(screen) = workspace.active_screen_ref() else {
+        return ProjectionFocusKey {
+            workspace_id: Some(workspace.id),
+            ..ProjectionFocusKey::default()
+        };
+    };
+    let pane = screen.pane(screen.active_pane);
+    ProjectionFocusKey {
+        workspace_id: Some(workspace.id),
+        screen_id: Some(screen.id),
+        pane_id: Some(screen.active_pane),
+        tab_index: pane.map(|pane| pane.active_tab),
+        surface_id: pane.and_then(|pane| pane.active_surface()),
+    }
+}
+
+fn projection_cache_dependencies(
+    spec: &SidebarViewSpec,
+    tree: &TreeView,
+    rows: &[ProjectionRow],
+    selected_workspace: usize,
+) -> (HashSet<SurfaceId>, HashSet<SurfaceId>) {
+    let selected_workspace = selected_workspace.min(tree.workspaces.len().saturating_sub(1));
+    let mut agent_surfaces = HashSet::new();
+    if spec.includes(SidebarResourceKind::Agents) {
+        // A nested agent level below Workspaces contributes rows from every
+        // workspace. A flat workspace-scoped level follows the selected one.
+        let agent_depth = spec.levels.iter().position(|kind| *kind == SidebarResourceKind::Agents);
+        let all_workspaces = spec.scope == SidebarViewScope::All
+            || agent_depth.is_some_and(|depth| {
+                spec.levels[..depth].contains(&SidebarResourceKind::Workspaces)
+            });
+        for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+            if !all_workspaces && workspace_index != selected_workspace {
+                continue;
+            }
+            for screen in &workspace.screens {
+                for pane in &screen.panes {
+                    agent_surfaces.extend(pane.tabs.iter().map(|tab| tab.surface));
+                }
+            }
+        }
+    }
+
+    let active_surfaces_by_pane = if spec.includes(SidebarResourceKind::Panes) {
+        tree.workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .filter_map(|pane| pane.active_surface().map(|surface| (pane.id, surface)))
+            .collect::<HashMap<_, _>>()
+    } else {
+        HashMap::new()
+    };
+    let mut title_surfaces = HashSet::new();
+    for row in rows {
+        match (row.resource, row.target) {
+            (
+                SidebarResourceKind::Tabs | SidebarResourceKind::Agents,
+                ProjectionTarget::Surface { surface, .. },
+            ) => {
+                title_surfaces.insert(surface);
+            }
+            (SidebarResourceKind::Panes, ProjectionTarget::Pane { pane, .. }) => {
+                if let Some(surface) = active_surfaces_by_pane.get(&pane) {
+                    title_surfaces.insert(*surface);
+                }
+            }
+            _ => {}
+        }
+    }
+    (agent_surfaces, title_surfaces)
 }
 
 // Projection rows are a render snapshot. Keep only the most recently used
@@ -6942,7 +7039,13 @@ pub struct App {
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_rows_cache: VecDeque<ProjectionRowsCache>,
     projection_rows_revision: u64,
-    projection_agent_revision: u64,
+    /// Projection surfaces seen by the most recent rendered snapshots. These
+    /// sets cover caches evicted by the bounded LRU, so an update still wakes
+    /// a visible rail even when its snapshot is not retained.
+    projection_agent_surfaces: HashSet<SurfaceId>,
+    projection_title_surfaces: HashSet<SurfaceId>,
+    /// Coalesce surface updates until the next successful rendered frame.
+    projection_paint_pending: bool,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9454,7 +9557,9 @@ fn run_with_machine_updates_inner(
         projection_rails: HashMap::new(),
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
-        projection_agent_revision: 0,
+        projection_agent_surfaces: HashSet::new(),
+        projection_title_surfaces: HashSet::new(),
+        projection_paint_pending: false,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -10212,46 +10317,48 @@ impl App {
             .get(&spec.id)
             .map(|state| state.collapsed.clone())
             .unwrap_or_default();
-        let agents = if spec.includes(SidebarResourceKind::Agents) {
-            // Finished reports are historical records, not active agents.
-            // Otherwise detached "surface..." rows remain forever after exit.
-            // An `all`-scoped view is a chronological status board, so it
-            // keeps done agents; unknown stays out everywhere.
-            let keep_done = spec.scope == crate::config::SidebarViewScope::All;
-            self.session
-                .agents()
-                .into_iter()
-                .filter(|agent| match agent.state.as_str() {
-                    "unknown" => false,
-                    "done" => keep_done,
-                    _ => true,
-                })
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
         let selected_workspace = self.sidebar_workspace_selection;
         let workspace_revision = self.tree.workspace_revision;
         let pane_revision = self.tree.pane_revision;
-        let agent_revision = self.projection_agent_revision;
         let invalidation_revision = self.projection_rows_revision;
+        let focus = projection_focus_key(&self.tree);
         let cache_index = self.projection_rows_cache.iter().position(|cache| {
             cache.view_id == spec.id
                 && cache.workspace_revision == workspace_revision
                 && cache.pane_revision == pane_revision
-                && cache.agent_revision == agent_revision
                 && cache.invalidation_revision == invalidation_revision
                 && cache.selected_workspace == selected_workspace
+                && cache.focus == focus
         });
         let rows = if let Some(cache_index) = cache_index {
             let cache = self
                 .projection_rows_cache
                 .remove(cache_index)
                 .expect("projection cache index came from the cache");
+            self.projection_agent_surfaces.extend(cache.agent_surfaces.iter().copied());
+            self.projection_title_surfaces.extend(cache.title_surfaces.iter().copied());
             let rows = cache.rows.clone();
             self.projection_rows_cache.push_front(cache);
             rows
         } else {
+            let agents = if spec.includes(SidebarResourceKind::Agents) {
+                // Finished reports are historical records, not active agents.
+                // Otherwise detached "surface..." rows remain forever after exit.
+                // An `all`-scoped view is a chronological status board, so it
+                // keeps done agents; unknown stays out everywhere.
+                let keep_done = spec.scope == crate::config::SidebarViewScope::All;
+                self.session
+                    .agents()
+                    .into_iter()
+                    .filter(|agent| match agent.state.as_str() {
+                        "unknown" => false,
+                        "done" => keep_done,
+                        _ => true,
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
             let rows = crate::sidebar_projection::rows(
                 &spec,
                 &self.tree,
@@ -10259,13 +10366,19 @@ impl App {
                 selected_workspace,
                 &collapsed,
             );
+            let (agent_surfaces, title_surfaces) =
+                projection_cache_dependencies(&spec, &self.tree, &rows, selected_workspace);
+            self.projection_agent_surfaces.extend(agent_surfaces.iter().copied());
+            self.projection_title_surfaces.extend(title_surfaces.iter().copied());
             self.projection_rows_cache.push_front(ProjectionRowsCache {
                 view_id: spec.id.clone(),
                 workspace_revision,
                 pane_revision,
-                agent_revision,
                 invalidation_revision,
                 selected_workspace,
+                focus,
+                agent_surfaces,
+                title_surfaces,
                 rows: rows.clone(),
             });
             self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
@@ -10278,11 +10391,48 @@ impl App {
     fn invalidate_projection_rows_cache(&mut self) {
         self.projection_rows_revision = self.projection_rows_revision.wrapping_add(1);
         self.projection_rows_cache.clear();
+        self.projection_agent_surfaces.clear();
+        self.projection_title_surfaces.clear();
+        self.projection_paint_pending = false;
     }
 
-    fn invalidate_agent_projection_rows_cache(&mut self) {
-        self.projection_agent_revision = self.projection_agent_revision.wrapping_add(1);
-        self.invalidate_projection_rows_cache();
+    /// Drop only snapshots that depend on the changed surface. The event
+    /// stream can deliver several updates before the next frame, so return
+    /// whether this surface needs to schedule the first paint boundary.
+    fn invalidate_projection_rows_for_surface(
+        &mut self,
+        surface: SurfaceId,
+        change: ProjectionSurfaceChange,
+    ) -> bool {
+        let was_affected = self.projection_rows_cache.iter().any(|cache| match change {
+            ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
+            ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
+        });
+        self.projection_rows_cache.retain(|cache| match change {
+            ProjectionSurfaceChange::Agent => !cache.agent_surfaces.contains(&surface),
+            ProjectionSurfaceChange::Title => !cache.title_surfaces.contains(&surface),
+        });
+        let visible = match change {
+            ProjectionSurfaceChange::Agent => self.projection_agent_surfaces.contains(&surface),
+            ProjectionSurfaceChange::Title => self.projection_title_surfaces.contains(&surface),
+        };
+        if !(was_affected || visible) || self.projection_paint_pending {
+            return false;
+        }
+        self.projection_paint_pending = true;
+        true
+    }
+
+    fn schedule_projection_paint(&mut self) -> bool {
+        if self.projection_paint_pending {
+            return false;
+        }
+        self.projection_paint_pending = true;
+        true
+    }
+
+    fn clear_pending_projection_paint(&mut self) {
+        self.projection_paint_pending = false;
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -13160,21 +13310,21 @@ impl App {
         RenderAction::Draw
     }
 
-    fn apply_mux_titles(&mut self) -> bool {
+    fn apply_mux_titles(&mut self) -> HashSet<SurfaceId> {
         let titles = self.mux_titles.take_dirty();
         self.apply_mux_title_snapshot(titles)
     }
 
     fn reapply_mux_titles(&mut self) -> bool {
         let titles = self.mux_titles.snapshot();
-        self.apply_mux_title_snapshot(titles)
+        !self.apply_mux_title_snapshot(titles).is_empty()
     }
 
-    fn apply_mux_title_snapshot(&mut self, titles: HashMap<SurfaceId, Arc<str>>) -> bool {
-        if titles.is_empty() {
-            return false;
-        }
-        let mut changed = false;
+    fn apply_mux_title_snapshot(
+        &mut self,
+        titles: HashMap<SurfaceId, Arc<str>>,
+    ) -> HashSet<SurfaceId> {
+        let mut changed = HashSet::new();
         for (surface, title) in titles {
             let Some([workspace, screen, pane, tab]) = self.tab_locations.get(&surface).copied()
             else {
@@ -13192,7 +13342,7 @@ impl App {
             };
             if tab.title.as_str() != title.as_ref() {
                 tab.title = title.to_string();
-                changed = true;
+                changed.insert(surface);
             }
         }
         changed
@@ -13465,6 +13615,7 @@ impl App {
                 crate::ui::draw(self, frame);
             })
         })??;
+        self.clear_pending_projection_paint();
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -15215,10 +15366,18 @@ impl App {
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
                 let changed = self.apply_mux_titles();
-                if changed {
-                    self.invalidate_projection_rows_cache();
+                let changed_any = !changed.is_empty();
+                for surface in changed {
+                    self.invalidate_projection_rows_for_surface(
+                        surface,
+                        ProjectionSurfaceChange::Title,
+                    );
                 }
-                Ok(if changed { RenderAction::Paint } else { RenderAction::None })
+                Ok(if changed_any && self.schedule_projection_paint() {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                })
             }
             AppEvent::StatusCommandsUpdated => {
                 self.status_poke_pending.store(false, Ordering::Release);
@@ -15429,14 +15588,24 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
-            AppEvent::Mux(MuxEvent::AgentChanged { .. }) => {
-                self.invalidate_agent_projection_rows_cache();
-                Ok(RenderAction::Draw)
-            }
-            AppEvent::Mux(MuxEvent::TitleChanged { .. }) => {
-                self.invalidate_projection_rows_cache();
-                Ok(RenderAction::Draw)
-            }
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => Ok(
+                if self
+                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Agent)
+                {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                },
+            ),
+            AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
+                if self
+                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Title)
+                {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                },
+            ),
             AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
                 let duplicate = self
                     .pairing_dialog
@@ -42190,6 +42359,216 @@ mod tests {
     }
 
     #[test]
+    fn projection_agent_update_keeps_an_unrelated_workspace_cache() {
+        let (mux, first) = test_mux("projection-agent-cache-scope-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "agents-first".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+            SidebarViewSpec {
+                id: "agents-second".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        app.projection_rows(1);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: SurfaceId::MAX,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "an agent outside every projected scope must not schedule a paint"
+        );
+        assert_eq!(app.projection_rows_cache.len(), 2);
+
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: first.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.projection_rows_cache
+                .iter()
+                .map(|cache| cache.view_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["agents-second"],
+            "an agent update must retain caches for other workspace scopes"
+        );
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: first.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 2,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "repeated updates for one surface share one paint boundary"
+        );
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_title_update_keeps_an_unrelated_workspace_cache() {
+        let (mux, first) = test_mux("projection-title-cache-scope-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "tabs-first".into(),
+                levels: vec![SidebarResourceKind::Tabs],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+            SidebarViewSpec {
+                id: "tabs-second".into(),
+                levels: vec![SidebarResourceKind::Tabs],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        app.projection_rows(1);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::TitleChanged {
+                surface: SurfaceId::MAX,
+                title: "unrelated".into(),
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "a title outside every projected scope must not schedule a paint"
+        );
+        assert_eq!(app.projection_rows_cache.len(), 2);
+
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::TitleChanged {
+                surface: first.id,
+                title: "renamed".into(),
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.projection_rows_cache
+                .iter()
+                .map(|cache| cache.view_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tabs-second"],
+            "a title update must retain caches for other workspace scopes"
+        );
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_cache_refreshes_active_tab_after_focus_changes() {
+        let (mux, first) = test_mux("projection-active-focus-cache-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let before = app.projection_rows(0);
+        let before_active = app.tree.active_surface().unwrap();
+        let after_active = if before_active == first.id { second.id } else { first.id };
+        let after_index = app
+            .tree
+            .pane(pane)
+            .unwrap()
+            .tabs
+            .iter()
+            .position(|tab| tab.surface == after_active)
+            .unwrap();
+        app.select_tab_for_client(Some(pane), Some(after_index), None);
+        let after = app.projection_rows(0);
+
+        assert!(before.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == before_active && row.active
+            )
+        }));
+        assert!(after.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == after_active && row.active
+            )
+        }));
+        assert!(after.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == before_active && !row.active
+            )
+        }));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
     fn projection_stale_action_selection_does_not_retarget_resource_row() {
         let (mux, surface) = test_mux("projection-stale-action-selection-test", None);
         mux.report_agent(
@@ -44334,7 +44713,9 @@ mod tests {
             projection_rails: HashMap::new(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
-            projection_agent_revision: 0,
+            projection_agent_surfaces: HashSet::new(),
+            projection_title_surfaces: HashSet::new(),
+            projection_paint_pending: false,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
