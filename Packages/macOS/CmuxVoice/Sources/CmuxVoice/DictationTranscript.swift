@@ -112,8 +112,19 @@ public struct DictationTranscript: Equatable, Sendable {
     }
 
     private func isOpeningPunctuation(_ character: Character) -> Bool {
-        if character == "\"" || character == "'" { return true }
-        return character.unicodeScalars.contains { scalar in
+        if character == "\"" || character == "'" {
+            // ASCII quotes have no opening/closing Unicode category. Treat a
+            // quote after a word as closing so `James' Bond` and `"hi" world`
+            // retain their normal word boundary; a quote at the start of a
+            // segment (or after whitespace/opening punctuation) is opening.
+            guard let preceding = committedText.dropLast().last else { return true }
+            return preceding.isWhitespace || isOpeningBracket(preceding)
+        }
+        return isOpeningBracket(character)
+    }
+
+    private func isOpeningBracket(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
             switch scalar.properties.generalCategory {
             case .openPunctuation, .initialPunctuation:
                 return true

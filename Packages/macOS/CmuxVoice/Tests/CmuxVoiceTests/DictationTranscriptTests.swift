@@ -61,6 +61,20 @@ struct DictationTranscriptTests {
         var opening = DictationTranscript()
         _ = opening.apply(.final("("))
         #expect(opening.apply(.final("hello")) == "hello")
+
+        var quote = DictationTranscript()
+        _ = quote.apply(.final("\""))
+        #expect(quote.apply(.final("hello")) == "hello")
+    }
+
+    @Test func closingQuotesAndApostrophesKeepWordSpacing() {
+        var apostrophe = DictationTranscript()
+        _ = apostrophe.apply(.final("James'"))
+        #expect(apostrophe.apply(.final("Bond")) == " Bond")
+
+        var quote = DictationTranscript()
+        _ = quote.apply(.final("\"hello\""))
+        #expect(quote.apply(.final("world")) == " world")
     }
 
     @Test func noDoubleSeparatorWhenSegmentsAlreadySpaced() {

@@ -198,7 +198,12 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private func handleRecognition(text: String?, isFinal: Bool, errorDescription: String?) {
         if let text, !isFinal {
             yield(.partial(text))
-            return
+            // Apple may deliver a last partial hypothesis together with an
+            // error. Preserve the hypothesis, then apply the same terminal or
+            // retry policy as an error-only callback so the cycle cannot hang.
+            if errorDescription == nil {
+                return
+            }
         }
         if let text, isFinal {
             consecutiveErrorCycles = 0
@@ -213,7 +218,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
             }
             return
         }
-        if errorDescription != nil {
+        if let errorDescription {
             recognitionTask = nil
             if isFinishing {
                 // Cancellation/no-speech at shutdown is expected; the
@@ -225,7 +230,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
             // restart the cycle; give up after several in a row.
             consecutiveErrorCycles += 1
             if consecutiveErrorCycles >= 3 {
-                failStream(.transcriptionFailed(errorDescription ?? "recognition failed"))
+                failStream(.transcriptionFailed(errorDescription))
             } else {
                 scheduleRecognitionRetry()
             }

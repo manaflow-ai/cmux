@@ -17,22 +17,36 @@ extension AppDelegate {
     /// Resolves the focused terminal panel for the key window, mirroring
     /// the multi-window resolution used by other text-insertion features.
     ///
-    /// Fails closed: when a non-main window (Settings, a detached panel), or
-    /// no window at all, is key, dictation refuses to start rather than
-    /// typing into a terminal the user is not looking at.
-    private func voiceDictationFocusedTerminalPanel() -> TerminalPanel? {
+    /// Fails closed when a non-main window (Settings, a detached panel) is key,
+    /// rather than typing into a terminal the user is not looking at. If no key
+    /// window exists during startup, the app-level fallback remains available.
+    func voiceDictationFocusedTerminalPanel() -> TerminalPanel? {
         guard let window = NSApp.keyWindow else {
+            // There is no window-owned focus state to consult in this narrow
+            // startup/test state; preserve the existing app-level fallback.
+            return tabManager?.selectedWorkspace?.focusedTerminalPanel
+        }
+
+        // The focus controller is authoritative even while AppKit's first
+        // responder is still a stale main-terminal view (a common transition
+        // state when the right sidebar is being mounted). Resolve the Dock's
+        // selected terminal when it owns focus and reject every other sidebar
+        // mode so text can never land in an invisible main PTY.
+        guard let context = contextForMainTerminalWindow(window) else {
             return nil
         }
-        if let panel = contextForMainTerminalWindow(window)?
-            .tabManager.selectedWorkspace?.focusedTerminalPanel {
+        switch context.keyboardFocusCoordinator.activeRightSidebarMode {
+        case .dock:
+            guard let dock = existingWindowDock(forWindowId: context.windowId),
+                  let panelId = dock.focusedPanelId,
+                  let panel = dock.panels[panelId] as? TerminalPanel else {
+                return nil
+            }
             return panel
+        case .some:
+            return nil
+        case nil:
+            return context.tabManager.selectedWorkspace?.focusedTerminalPanel
         }
-        if let windowId = mainWindowId(from: window),
-           let panel = tabManagerFor(windowId: windowId)?
-               .selectedWorkspace?.focusedTerminalPanel {
-            return panel
-        }
-        return nil
     }
 }

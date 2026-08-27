@@ -16,7 +16,11 @@ extension KeyboardShortcutSettings {
             managedBySettingsFile: managedBySettingsFile
         )
 
-        if action == .reopenClosedBrowserPanel,
+        // These defaults were introduced after older user settings could have
+        // claimed their strokes. Route both through the shared resolver so an
+        // existing explicit binding retains upgrade precedence.
+        if action == .reopenClosedBrowserPanel
+            || (action == .toggleVoiceDictation && !hasExplicitShortcutOverride(for: action)),
            resolvedShortcut == action.defaultShortcut,
            configuredShortcut != resolvedShortcut {
             return defaultShortcutResolvingLegacyConflicts(

@@ -72,6 +72,78 @@ final class ShortcutUnbindingRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount)
     }
 
+    func testImplicitVoiceDefaultYieldsToExistingExplicitBinding() throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-voice-shortcut-\(UUID().uuidString).json")
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: settingsFileURL)
+        }
+
+        let existingAction = KeyboardShortcutSettings.Action.toggleSidebar
+        let existingShortcut = KeyboardShortcutSettings.Action.toggleVoiceDictation.defaultShortcut
+        let existingData = try JSONEncoder().encode(existingShortcut)
+        let defaults = UserDefaults.standard
+        defaults.set(existingData, forKey: existingAction.defaultsKey)
+        defer { defaults.removeObject(forKey: existingAction.defaultsKey) }
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: existingAction),
+            existingShortcut
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .toggleVoiceDictation),
+            .unbound,
+            "A newly introduced implicit voice default must not steal an existing binding"
+        )
+
+        defaults.removeObject(forKey: existingAction.defaultsKey)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .toggleVoiceDictation),
+            existingShortcut
+        )
+    }
+
+    func testSettingsFileBindingDisplacesImplicitVoiceDefault() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-voice-shortcut-file-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json")
+        try """
+        {
+          "shortcuts": {
+            "toggleSidebar": "ctrl+cmd+v"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        defer { KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore }
+
+        let voiceDefault = KeyboardShortcutSettings.Action.toggleVoiceDictation.defaultShortcut
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .toggleSidebar),
+            voiceDefault
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .toggleVoiceDictation),
+            .unbound
+        )
+    }
+
     private func makeKeyDownEvent(windowNumber: Int) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,

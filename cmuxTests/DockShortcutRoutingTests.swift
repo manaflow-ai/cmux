@@ -18,6 +18,64 @@ private typealias AppStoredShortcut = cmux.StoredShortcut
 
 @Suite("Dock shortcut routing", .serialized)
 struct DockShortcutRoutingTests {
+    @Test("Voice dictation follows Dock focus and fails closed for other sidebar modes")
+    @MainActor
+    func voiceDictationFocusUsesAuthoritativeSidebarOwner() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let dockTerminalID = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let dockTerminal = try #require(
+                    harness.dock.panels[dockTerminalID] as? TerminalPanel
+                )
+
+                // AppKit can still report the main terminal while a Dock
+                // surface owns the focus intent. The resolver must follow the
+                // window-scoped Dock selection in that transition.
+                harness.dock.focusPanel(dockTerminalID)
+                #expect(
+                    harness.appDelegate.voiceDictationFocusedTerminalPanel() ===
+                        dockTerminal
+                )
+
+                // A non-terminal sidebar owns focus, so routing to the main
+                // workspace terminal would be unsafe and must fail closed.
+                harness.appDelegate.noteRightSidebarKeyboardFocusIntent(
+                    mode: .files,
+                    in: harness.window
+                )
+                #expect(
+                    harness.appDelegate.voiceDictationFocusedTerminalPanel() ==
+                        nil
+                )
+
+                // Even in Dock mode, a focused browser is not an insertable
+                // terminal target for this coordinator.
+                harness.appDelegate.noteRightSidebarKeyboardFocusIntent(
+                    mode: .dock,
+                    in: harness.window
+                )
+                let dockBrowserID = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                harness.dock.focusPanel(dockBrowserID)
+                #expect(
+                    harness.appDelegate.voiceDictationFocusedTerminalPanel() ==
+                        nil
+                )
+            }
+        }
+    }
+
     @Test("Focused browser resolution prefers the Dock browser over the background workspace")
     @MainActor
     func focusedBrowserResolutionPrefersDockBrowser() async throws {

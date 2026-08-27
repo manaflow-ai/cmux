@@ -110,7 +110,8 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var resultsTask: Task<Void, Never>?
     private var configurationChangeTask: Task<Void, Never>?
     private var outputContinuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
-    private var reservedLocale: Locale?
+    private var ownedReservedLocale: Locale?
+    private var analyzerStarted = false
     private var isFinishing = false
 
     /// Caps queued audio to roughly a third of a second at the 4096-frame
@@ -146,12 +147,15 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         self.transcriber = transcriber
 
         do {
-            // Keep one app-owned reservation for the active session. The
-            // controller serializes sessions, so releasing this reservation
-            // on every exit prevents cycling languages from exhausting
-            // AssetInventory.maximumReservedLocales.
-            _ = try await AssetInventory.reserve(locale: supportedLocale)
-            reservedLocale = supportedLocale
+            // AssetInventory returns false when another app-owned reservation
+            // already covers this locale. Only release a reservation acquired
+            // by this session; releasing a pre-existing one would invalidate
+            // its actual owner.
+            let acquiredReservation = try await AssetInventory.reserve(locale: supportedLocale)
+            if acquiredReservation {
+                ownedReservedLocale = supportedLocale
+            }
+            try Task.checkCancellation()
             if let installationRequest = try await AssetInventory.assetInstallationRequest(
                 supporting: [transcriber]
             ) {
@@ -208,25 +212,33 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             try startAudioEngine()
         } catch is CancellationError {
             await finishInputPipeline(cancelConversion: true)
+            await cancelAnalyzer()
             await releaseReservedLocale()
             throw CancellationError()
         } catch {
             await finishInputPipeline(cancelConversion: true)
+            await cancelAnalyzer()
             await releaseReservedLocale()
             throw DictationFailure.audioCaptureFailed(error.localizedDescription)
         }
 
         do {
             try await analyzer.start(inputSequence: inputSequence)
+            guard self.analyzer === analyzer, !isFinishing else {
+                throw CancellationError()
+            }
+            analyzerStarted = true
             try Task.checkCancellation()
         } catch is CancellationError {
             stopAudioEngine()
             await finishInputPipeline(cancelConversion: true)
+            await cancelAnalyzer()
             await releaseReservedLocale()
             throw CancellationError()
         } catch {
             stopAudioEngine()
             await finishInputPipeline(cancelConversion: true)
+            await cancelAnalyzer()
             await releaseReservedLocale()
             throw DictationFailure.transcriptionFailed(error.localizedDescription)
         }
@@ -268,23 +280,36 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         // transcribe() calls this again after startup completes to tear
         // down the engine the first call could not see yet.
         isFinishing = true
+        let analyzer = self.analyzer
+        let shouldFinalize = analyzerStarted
+        self.analyzer = nil
+        analyzerStarted = false
         stopAudioEngine()
         await finishInputPipeline(cancelConversion: false)
-        do {
-            // Finalizes the trailing volatile hypothesis; the results
-            // sequence then ends, which ends the caller's event stream.
-            try await analyzer?.finalizeAndFinishThroughEndOfInput()
-        } catch {
-            // The results sequence may never end after a failed finalize.
-            // End it directly, but preserve the failure so the controller
-            // cannot settle the session as a successful stop after losing the
-            // trailing hypothesis.
-            let failure = (error as? DictationFailure)
-                ?? .transcriptionFailed(error.localizedDescription)
-            outputContinuation?.finish(throwing: failure)
-            cancelResultsTask()
+        if let analyzer {
+            do {
+                if shouldFinalize {
+                    // Finalizes the trailing volatile hypothesis; the results
+                    // sequence then ends, which ends the caller's event stream.
+                    try await analyzer.finalizeAndFinishThroughEndOfInput()
+                } else {
+                    // finalizeAndFinishThroughEndOfInput() waits for a future
+                    // input sequence when start() never succeeded. Immediate
+                    // cancellation is the only bounded cleanup in that state.
+                    await analyzer.cancelAndFinishNow()
+                }
+            } catch {
+                // The results sequence may never end after a failed finalize.
+                // End it directly, but preserve the failure so the controller
+                // cannot settle the session as a successful stop after losing the
+                // trailing hypothesis.
+                let failure = (error as? DictationFailure)
+                    ?? .transcriptionFailed(error.localizedDescription)
+                outputContinuation?.finish(throwing: failure)
+                cancelResultsTask()
+                await analyzer.cancelAndFinishNow()
+            }
         }
-        analyzer = nil
         transcriber = nil
         outputContinuation = nil
         await releaseReservedLocale()
@@ -371,9 +396,18 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     private func releaseReservedLocale() async {
-        guard let reservedLocale else { return }
-        self.reservedLocale = nil
+        guard let reservedLocale = ownedReservedLocale else { return }
+        ownedReservedLocale = nil
         _ = await AssetInventory.release(reservedLocale: reservedLocale)
+    }
+
+    /// Cancels analysis without waiting for an input sequence to exist.
+    private func cancelAnalyzer() async {
+        let analyzer = self.analyzer
+        self.analyzer = nil
+        analyzerStarted = false
+        transcriber = nil
+        await analyzer?.cancelAndFinishNow()
     }
 
     private func finishInputPipeline(cancelConversion: Bool) async {
@@ -434,8 +468,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             )
             cancelResultsTask()
             outputContinuation = nil
-            analyzer = nil
-            transcriber = nil
+            await cancelAnalyzer()
             await releaseReservedLocale()
         }
     }

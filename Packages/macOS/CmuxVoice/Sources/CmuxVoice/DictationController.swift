@@ -39,11 +39,17 @@ public final class DictationController {
     private let inserter: any DictationTextInserting
     private let makeTranscriber: @MainActor () -> any SpeechTranscribing
     private let localeProvider: @MainActor () -> Locale
+    private let clock: any Clock<Duration>
     private var activeTranscriber: (any SpeechTranscribing)?
     private var sessionTask: Task<Void, Never>?
     private var finishTask: Task<Void, Never>?
+    private var stopRecoveryTask: Task<Void, Never>?
     private var sessionGeneration = 0
     private var insertionSessionActive = false
+
+    /// Bounds recovery from a transcriber that never completes its final flush.
+    /// This is a user-visible shutdown deadline, not a polling interval.
+    private static let stopRecoveryTimeout: Duration = .seconds(3)
 
     /// Creates a controller.
     ///
@@ -54,16 +60,19 @@ public final class DictationController {
     ///   - makeTranscriber: Factory producing a fresh engine per session.
     ///   - localeProvider: Supplies the dictation language at session start
     ///     (read from settings each time, so changes apply immediately).
+    ///   - clock: Clock used for the bounded stop-recovery deadline.
     public init(
         authorizer: any DictationAuthorizing,
         inserter: any DictationTextInserting,
         makeTranscriber: @escaping @MainActor () -> any SpeechTranscribing,
-        localeProvider: @escaping @MainActor () -> Locale
+        localeProvider: @escaping @MainActor () -> Locale,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.authorizer = authorizer
         self.inserter = inserter
         self.makeTranscriber = makeTranscriber
         self.localeProvider = localeProvider
+        self.clock = clock
     }
 
     /// Whether a session is running (any phase other than the resting
@@ -89,6 +98,8 @@ public final class DictationController {
         guard !isActive else { return }
         finishTask?.cancel()
         finishTask = nil
+        stopRecoveryTask?.cancel()
+        stopRecoveryTask = nil
         sessionGeneration += 1
         let generation = sessionGeneration
         phase = .requestingAuthorization
@@ -111,6 +122,7 @@ public final class DictationController {
             sessionTask?.cancel()
         }
         requestFinish(for: sessionGeneration)
+        armStopRecovery(for: sessionGeneration)
     }
 
     private func runSession(generation: Int) async {
@@ -226,6 +238,7 @@ public final class DictationController {
 
     private func settle(generation: Int) {
         guard sessionGeneration == generation, isActive else { return }
+        cancelStopRecovery()
         endInsertionSessionIfActive()
         activeTranscriber = nil
         sessionTask = nil
@@ -240,6 +253,7 @@ public final class DictationController {
         let transcriber = activeTranscriber
         requestFinish(transcriber: transcriber, generation: generation)
         sessionTask?.cancel()
+        cancelStopRecovery()
         endInsertionSessionIfActive()
         activeTranscriber = nil
         sessionTask = nil
@@ -266,6 +280,33 @@ public final class DictationController {
             guard let self, self.sessionGeneration == generation else { return }
             self.finishTask = nil
         }
+    }
+
+    /// Starts the one-shot deadline that recovers a permanently stuck stop.
+    private func armStopRecovery(for generation: Int) {
+        stopRecoveryTask?.cancel()
+        let clock = self.clock
+        stopRecoveryTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(for: Self.stopRecoveryTimeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self,
+                  self.sessionGeneration == generation,
+                  self.phase == .stopping else {
+                return
+            }
+            self.fail(
+                .transcriptionFailed("dictation stop timed out"),
+                generation: generation
+            )
+        }
+    }
+
+    private func cancelStopRecovery() {
+        stopRecoveryTask?.cancel()
+        stopRecoveryTask = nil
     }
 
     private func endInsertionSessionIfActive() {
