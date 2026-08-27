@@ -1,0 +1,15 @@
+#!/bin/sh
+# cmux Daytona sandbox entrypoint (/usr/local/bin/cmux-daytona-entrypoint).
+# Daytona containers have no systemd; this loop is the cmuxd-remote
+# supervisor. Daytona re-runs the registered entrypoint on every sandbox
+# start, which is what brings the daemon back after a stop/start (cmux
+# pause/resume) cycle. The serve flags are the daytona.ts driver contract:
+# WebSocket PTY+RPC on 7777, lease files under /tmp/cmux, PTY shell
+# /usr/local/bin/cmux-cloud-shell (the driver's repair fallback launches the
+# identical command).
+mkdir -p /tmp/cmux
+chmod 700 /tmp/cmux
+while true; do
+  /usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /usr/local/bin/cmux-cloud-shell
+  sleep 2
+done

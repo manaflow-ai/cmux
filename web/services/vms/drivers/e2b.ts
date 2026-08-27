@@ -49,8 +49,11 @@ export class E2BProvider implements VMProvider {
       },
       async (span) => {
         try {
+          // options.envs carries the coderouter model-plane env minted at
+          // create (see CreateOptions.envs); it goes to the provider call
+          // only, never into persisted handle metadata.
           const sandbox = await Sandbox.create(image, {
-            envs: DEFAULT_SANDBOX_ENVS,
+            envs: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) },
             network: { allowPublicTraffic: false },
           });
           span.setAttribute("cmux.vm.id", sandbox.sandboxId);

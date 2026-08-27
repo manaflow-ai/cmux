@@ -113,10 +113,13 @@ export class DaytonaProvider implements VMProvider {
       },
       async (span) => {
         try {
+          // options.envs carries the coderouter model-plane env minted at
+          // create (see CreateOptions.envs); it goes to the provider call
+          // only, never into persisted handle metadata.
           const sandbox = await client().create(
             {
               snapshot: image,
-              envVars: DEFAULT_SANDBOX_ENVS,
+              envVars: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) },
               // Persistent cloud computer shape: never auto-stop. Pause/resume is an explicit
               // cmux workflow, mapped onto Daytona stop/start below.
               autoStopInterval: 0,

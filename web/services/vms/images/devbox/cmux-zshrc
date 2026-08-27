@@ -1,0 +1,23 @@
+# cmux Cloud zsh profile (/etc/cmux/zshrc). bash is the devbox's default
+# interactive shell (/etc/cmux/bashrc); this profile keeps zsh usable for
+# users who prefer it and satisfies the Freestyle driver's managed-shell
+# probe (web/services/vms/drivers/freestyle.ts readFreestyleCloudShellState
+# requires zsh, a readable /etc/cmux/zshrc, and a readable /home/cmux/.zshrc
+# before it trusts a VM's shell integration; a failed probe rewrites
+# /usr/local/bin/cmux-cloud-shell with the driver's fallback shell).
+# Personal overrides go in ~/.zshrc.local.
+export PATH="/opt/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export SHELL="$(command -v zsh 2>/dev/null || printf /bin/zsh)"
+autoload -Uz colors 2>/dev/null && colors
+setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
+PROMPT_EOL_MARK=''
+unsetopt prompt_sp 2>/dev/null || true
+HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
+HISTSIZE="${HISTSIZE:-50000}"
+SAVEHIST="${SAVEHIST:-50000}"
+bindkey -e 2>/dev/null || true
+if [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}"
+fi
+PROMPT='%F{135}%n@%m%f in %F{118}%~%f λ '
