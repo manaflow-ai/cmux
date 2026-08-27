@@ -45,6 +45,10 @@ def make_negative_size_tarball() -> bytes:
 
 class RegistryHandler(http.server.BaseHTTPRequestHandler):
     tarball = make_tarball()
+    latest_version = "1.2.3"
+    block_tarball = False
+    tarball_started = threading.Event()
+    tarball_release = threading.Event()
     metadata_requests = 0
     tarball_requests = 0
     authorization_headers: list[str | None] = []
@@ -52,7 +56,9 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802, required by BaseHTTPRequestHandler
         type(self).authorization_headers.append(self.headers.get("Authorization"))
-        if self.path.endswith((
+        if self.path == "/cmux/latest":
+            body = json.dumps({"version": type(self).latest_version}).encode()
+        elif self.path.endswith((
             "/cmux-tui-darwin-arm64/1.2.3",
             "/cmux-tui-darwin-x64/1.2.3",
             "/cmux-tui-linux-arm64/1.2.3",
@@ -70,6 +76,9 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
             ).encode()
         elif self.path == "/tarball.tgz":
             type(self).tarball_requests += 1
+            if type(self).block_tarball:
+                type(self).tarball_started.set()
+                type(self).tarball_release.wait(timeout=10)
             body = self.tarball
         else:
             self.send_error(404)
@@ -191,6 +200,10 @@ def start_registry() -> tuple[http.server.ThreadingHTTPServer, threading.Thread,
     RegistryHandler.tarball_requests = 0
     RegistryHandler.authorization_headers = []
     RegistryHandler.status = 200
+    RegistryHandler.latest_version = "1.2.3"
+    RegistryHandler.block_tarball = False
+    RegistryHandler.tarball_started = threading.Event()
+    RegistryHandler.tarball_release = threading.Event()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RegistryHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -415,6 +428,30 @@ def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> 
     assert result.returncode != 0
     assert result.stdout == ""
     assert "could not obtain the native binary" in result.stderr
+
+
+def test_launcher_runs_matching_installed_binary_without_cache_access(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    package_name = f"cmux-tui-{host_platform_key()}"
+    package = tmp_path / "node_modules" / package_name
+    package.mkdir(parents=True)
+    (package / "package.json").write_text(
+        json.dumps({"name": package_name, "version": "1.2.3"}) + "\n"
+    )
+    binary = package / "bin/cmux-tui"
+    binary.parent.mkdir()
+    binary.write_text("#!/bin/sh\nprintf '%s\\n' 'installed offline binary'\n")
+    binary.chmod(0o755)
+    cache_file = tmp_path / "cache-file"
+    cache_file.write_text("cache is intentionally unavailable\n")
+
+    result = run_launcher(launcher, cache_file, "http://127.0.0.1:1", "--version")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "installed offline binary\n"
+    assert cache_file.read_text() == "cache is intentionally unavailable\n"
 
 
 def test_managed_launcher_honors_development_binary_override(tmp_path: Path) -> None:
@@ -656,6 +693,79 @@ def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Pa
     assert old_process.returncode == 0
 
 
+def test_update_lease_protects_download_from_concurrent_prune(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    update_launcher = write_launcher(tmp_path / "update", "1.0.0")
+    launch_launcher = write_launcher(tmp_path / "launch", "1.1.0")
+    cache = tmp_path / "cache"
+    write_cached_binary(cache, "1.0.0", "#!/bin/sh\nexit 0\n", managed=True)
+    write_cached_binary(
+        cache,
+        "1.1.0",
+        "#!/bin/sh\nprintf '%s\\n' 'cached while update is downloading'\n",
+        managed=True,
+    )
+    # This version is deliberately un-managed. A concurrent launcher's prune
+    # would delete it unless the update process publishes its lease first.
+    target = write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'fake cmux-tui 1.2.3'\n",
+    )
+
+    server, thread, registry = start_registry()
+    RegistryHandler.block_tarball = True
+    env = os.environ.copy()
+    env.update(
+        {
+            "CMUX_TUI_LAUNCHER_CACHE": str(cache),
+            "CMUX_NPM_REGISTRY": registry,
+            "NO_COLOR": "1",
+        }
+    )
+    update_process = subprocess.Popen(
+        ["node", str(update_launcher), "update"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    update_stdout = ""
+    update_stderr = ""
+    try:
+        assert RegistryHandler.tarball_started.wait(timeout=3), (
+            "update did not start its download"
+        )
+        active_root = cache / host_platform_key() / "v/1.2.3/.active"
+        assert any(entry.is_dir() for entry in active_root.iterdir()), (
+            "update did not publish its target lease before downloading"
+        )
+        launch_result = run_launcher(
+            launch_launcher,
+            cache,
+            registry,
+            "--version",
+            timeout_seconds=5,
+        )
+        assert launch_result.returncode == 0, launch_result.stderr
+        assert launch_result.stdout == "cached while update is downloading\n"
+        assert target.is_file(), "concurrent prune removed the leased update target"
+    finally:
+        RegistryHandler.tarball_release.set()
+        try:
+            update_stdout, update_stderr = update_process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            update_process.kill()
+            update_stdout, update_stderr = update_process.communicate(timeout=5)
+        server.shutdown()
+        thread.join()
+
+    assert update_process.returncode == 0, update_stderr or update_stdout
+    assert target.is_file()
+    assert (target.parent.parent / "managed").is_file()
+
+
 def test_launcher_prunes_old_managed_cache_after_download(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -701,6 +811,7 @@ def main() -> None:
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
         test_launcher_scopes_registry_token_to_npmrc_path(root / "npmrc-scope")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
+        test_launcher_runs_matching_installed_binary_without_cache_access(root / "installed-offline")
         test_managed_launcher_honors_development_binary_override(root / "override")
         test_binary_override_works_on_an_unsupported_platform(root / "unsupported-override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
@@ -710,6 +821,7 @@ def main() -> None:
         test_launcher_reclaims_stale_empty_lease_during_prune(root / "stale-empty-lease")
         test_launcher_keeps_fresh_empty_lease_during_prune(root / "fresh-empty-lease")
         test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
+        test_update_lease_protects_download_from_concurrent_prune(root / "update-concurrent")
         test_launcher_prunes_old_managed_cache_after_download(root / "prune")
 
 

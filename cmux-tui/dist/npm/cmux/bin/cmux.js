@@ -980,12 +980,18 @@ async function runUpdate(pkg, args) {
     console.log(`cmux ${latest} is available (current: ${current}). Run: cmux update`);
     return;
   }
-  await downloadVersion(pkg, latest);
-  writeState({
-    version: latest,
-    updatedAt: new Date().toISOString(),
-  });
-  pruneCache(latest);
+  const lease = acquireVersionLease(latest);
+  if (!lease) fail("could not reserve the native binary for update");
+  try {
+    await downloadVersion(pkg, latest);
+    writeState({
+      version: latest,
+      updatedAt: new Date().toISOString(),
+    });
+    pruneCache(latest);
+  } finally {
+    releaseVersionLease(lease);
+  }
   console.log(`cmux updated: ${current} -> ${latest}. The new version runs on the next start.`);
 }
 
@@ -1017,16 +1023,20 @@ async function main() {
   try {
     cleanupStaging();
     const wanted = override ? null : wantedVersion(pkg);
+    // A matching installed package is independent of the launcher cache. Do
+    // not require a writable cache or create a lease when it can run directly.
+    const installed = wanted ? installedPackage(pkg) : null;
+    const installedBin = installed && installed.version === wanted ? installed.binPath : null;
     // Lease creation serializes with pruning. If another process owns the
     // lock, fail closed rather than launching an unleased binary that a prune
     // can remove while it is running.
-    lease = wanted ? acquireVersionLease(wanted) : null;
-    if (wanted && !lease) {
+    lease = wanted && !installedBin ? acquireVersionLease(wanted) : null;
+    if (wanted && !installedBin && !lease) {
       fail("could not reserve the native binary for launch");
     }
     if (lease) process.once("exit", () => releaseVersionLease(lease));
-    const binPath = await resolveBinary(pkg, wanted);
-    if (wanted) pruneCache(wanted);
+    const binPath = installedBin || (await resolveBinary(pkg, wanted));
+    if (lease) pruneCache(wanted);
     const result = spawnSync(binPath, args, { stdio: "inherit" });
     if (result.error) {
       fail("failed to launch the native binary");
