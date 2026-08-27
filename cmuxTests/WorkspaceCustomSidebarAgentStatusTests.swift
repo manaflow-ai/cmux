@@ -30,7 +30,7 @@ struct WorkspaceCustomSidebarAgentStatusTests {
     }
 
     @MainActor
-    @Test("Error wins the reduction across sibling status keys")
+    @Test("Error wins the reduction across the same agent's status keys")
     func errorWinsAcrossSiblingKeys() throws {
         let workspace = Workspace()
 
@@ -38,13 +38,14 @@ struct WorkspaceCustomSidebarAgentStatusTests {
         let tab = try #require(workspace.bonsplitController.tabs(inPane: paneId).first)
         let panelId = try #require(workspace.panelIdFromSurfaceId(tab.id))
 
-        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
-        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .error)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .error)
         workspace.setAgentLifecycle(key: "cmux.feed.attention:codex", panelId: panelId, lifecycle: .needsInput)
 
         let snapshot = workspace.customSidebarWorkspaceSnapshot(index: 0, selectedId: workspace.id, unreadCount: 0)
         let surface = try #require(snapshot.surfaces.first { $0.panelId == panelId })
         #expect(surface.agentStatus == .error)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .error)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["cmux.feed.attention:codex"] == .needsInput)
     }
 
     @MainActor

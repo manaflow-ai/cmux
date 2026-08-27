@@ -197,6 +197,8 @@ struct AgentStateScannerTests {
             "The build failed with exception NullPointer",
             "Raised the rate limit in the config",
             "Investigating why the request errored",
+            "MAX · 10.9%",
+            "Cursor Grok 4.6 High Fast  MAX · 10.9%",
         ] {
             #expect(
                 !AgentStateScanner.screenShowsLimitBanner(prose),

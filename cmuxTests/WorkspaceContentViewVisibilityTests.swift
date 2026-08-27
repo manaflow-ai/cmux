@@ -761,12 +761,13 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     func agentStatusResolvePrefersErrorOverEverything() {
-        // Error/quota is the loudest signal: it has to win even while a
-        // sibling status key still reports the agent as blocked or working.
+        // Error/quota is the loudest signal *for one agent*: it has to win
+        // even while that agent's Feed attention key still reports blocked.
+        // A leftover error from a different agent does not: see
+        // `agentStatusResolveDoesNotLetAPreviousAgentsErrorPaintOverTheOccupant`.
         let lifecycles: [String: AgentHibernationLifecycleState] = [
             "codex": .error,
             "cmux.feed.attention:codex": .needsInput,
-            "claude_code": .running,
         ]
 
         #expect(AgentStatus.resolve(lifecycles: lifecycles) == .error)

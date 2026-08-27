@@ -18,26 +18,30 @@ extension AgentStatus {
     /// Reduces every agent reporting under one pane to the single presentation status
     /// that should drive both the pane border and the custom-sidebar row.
     ///
-    /// Precedence is `error` > `needsInput` > `running` > `idle`. This deliberately
-    /// differs from `Workspace.agentHibernationLifecycleState`, which ranks `running`
-    /// first because it answers "is anything still working?" for hibernation. A border
-    /// or sidebar row answers "does this pane want me?", so a blocked or errored agent
-    /// has to win even while a sibling agent under another status key is still running —
-    /// the Feed publishes exactly that shape, writing `needsInput` under
-    /// `cmux.feed.attention:<agent>` while the agent's own key still reads `running`.
+    /// Each agent is reduced first: `error` > `needsInput` > `running` > `idle`.
+    /// That keeps the Feed shape working — `cmux.feed.attention:<agent>` can
+    /// outrank the same agent's `running` so a permission prompt still paints
+    /// orange. Across agents, a `running` occupant wins: a leftover error from
+    /// a previous agent in the same terminal must not paint the pane red over
+    /// the one that is actually working.
     ///
     /// Reserved `manual` / `manual:<id>` keys drive the sidebar loading spinner rather
     /// than an agent, so they are filtered out. An empty or unknown-only map resolves
     /// to `.none` (a plain terminal).
     static func resolve(lifecycles: [String: AgentHibernationLifecycleState]) -> AgentStatus {
-        var winner: AgentStatus = .none
+        var perAgent: [String: AgentStatus] = [:]
         for (key, lifecycle) in lifecycles {
-            guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else { continue }
+            guard let owner = AgentHibernationLifecycleStatusKeys.owningAgent(for: key) else {
+                continue
+            }
             guard let candidate = AgentStatus(lifecycle: lifecycle) else { continue }
-            if candidate.attentionRank < winner.attentionRank {
-                winner = candidate
+            let current = perAgent[owner] ?? .none
+            if candidate.attentionRank < current.attentionRank {
+                perAgent[owner] = candidate
             }
         }
-        return winner
+        let statuses = Array(perAgent.values)
+        if statuses.contains(.running) { return .running }
+        return statuses.min { $0.attentionRank < $1.attentionRank } ?? .none
     }
 }

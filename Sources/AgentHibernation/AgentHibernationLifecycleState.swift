@@ -85,4 +85,41 @@ enum AgentHibernationLifecycleStatusKeys {
     static func isAllowed(_ key: String) -> Bool {
         allowedStatusKeys.contains(key)
     }
+
+    /// Prefix the Feed uses when it publishes attention under a second key
+    /// beside the agent's own lifecycle key.
+    static let feedAttentionPrefix = "cmux.feed.attention:"
+
+    /// The agent a lifecycle key speaks for, or `nil` for reserved manual keys.
+    ///
+    /// Feed attention keys (`cmux.feed.attention:<agent>`) belong to that agent
+    /// so a permission prompt can outrank the same agent's `running` without
+    /// being treated as a second occupant of the pane.
+    static func owningAgent(for key: String) -> String? {
+        if isManualKey(key) { return nil }
+        if key.hasPrefix(feedAttentionPrefix) {
+            let agent = String(key.dropFirst(feedAttentionPrefix.count))
+            return agent.isEmpty ? nil : agent
+        }
+        return key
+    }
+
+    /// Records `lifecycle` under `key` and drops every other agent's keys, so a
+    /// leftover error from a previous occupant cannot paint over the one that
+    /// is actually in the pane. Manual keys and the same agent's Feed attention
+    /// key are kept.
+    static func applying(
+        key: String,
+        lifecycle: AgentHibernationLifecycleState,
+        to states: [String: AgentHibernationLifecycleState]
+    ) -> [String: AgentHibernationLifecycleState] {
+        var next = states
+        if let owner = owningAgent(for: key) {
+            next = next.filter { existing, _ in
+                owningAgent(for: existing).map { $0 == owner } ?? true
+            }
+        }
+        next[key] = lifecycle
+        return next
+    }
 }

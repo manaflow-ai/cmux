@@ -288,7 +288,11 @@ extension DockSplitStore {
         lifecycle: AgentHibernationLifecycleState
     ) {
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
-            $0.agentLifecycleStates[key] = lifecycle
+            $0.agentLifecycleStates = AgentHibernationLifecycleStatusKeys.applying(
+                key: key,
+                lifecycle: lifecycle,
+                to: $0.agentLifecycleStates
+            )
         }
     }
 
