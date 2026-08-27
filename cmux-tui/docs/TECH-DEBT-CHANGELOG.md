@@ -1,6 +1,6 @@
 # cmux-tui aggregate change log
 
-Current snapshot: 2026-08-27T12:20:00Z. The audited source is pinned to
+Current snapshot: 2026-08-27T12:35:00Z. The audited source is pinned to
 `origin/main` at [`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50),
 committed 2026-08-27T05:25:26-07:00 with subject
 `refactor(tui): share draw and paint render path (#10970)`. This documentation-only
@@ -9,7 +9,7 @@ refresh keeps the prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and
 records. The session receipt and lower-bound ledger are retained from the prior
 audit; no new session scan was performed.
 
-## Current main tail (2026-08-27, main `de3902db48d2924c227b5acb26cbe1d89fe03cc0`)
+## Current main tail (2026-08-27, main `aa8ca45e0b3a140678c4a6ae588e201cb421ac50`)
 
 Each row includes the merged PR, author, merge SHA, change, and exact rollback
 command. The commits are single-parent squash merges, so no `-m` option is

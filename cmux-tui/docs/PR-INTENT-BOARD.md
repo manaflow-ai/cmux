@@ -1,6 +1,6 @@
 # cmux TUI PR intent and merge board
 
-Current snapshot: 2026-08-27T12:20:00Z. This board is pinned to
+Current snapshot: 2026-08-27T12:35:00Z. This board is pinned to
 `origin/main` at [`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50),
 committed 2026-08-27T05:25:26-07:00 with subject
 `refactor(tui): share draw and paint render path (#10970)`. The working branch
