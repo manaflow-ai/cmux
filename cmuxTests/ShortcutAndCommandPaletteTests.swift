@@ -1192,9 +1192,22 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
+        .switchRightSidebarToMachines,
+    ]
+    /// The digit defaults are positional over the visible tabs, so the
+    /// expectations below pin every mode gate on and clear any tab
+    /// customization; otherwise the test host's own settings would shift the
+    /// digits.
+    private let touchedTabEnvironmentKeys: [String] = [
+        RightSidebarBetaFeatureSettings.feedEnabledKey,
+        RightSidebarBetaFeatureSettings.dockEnabledKey,
+        RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey,
+        "rightSidebar.tabs.order",
+        "rightSidebar.tabs.hidden",
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var savedTabEnvironment: [String: Any?] = [:]
     private var temporaryDirectoryURL: URL?
 
     override func setUpWithError() throws {
@@ -1205,6 +1218,16 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 (action, UserDefaults.standard.data(forKey: action.defaultsKey))
             }
         )
+        savedTabEnvironment = Dictionary(
+            uniqueKeysWithValues: touchedTabEnvironmentKeys.map { key in
+                (key, UserDefaults.standard.object(forKey: key))
+            }
+        )
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        UserDefaults.standard.removeObject(forKey: "rightSidebar.tabs.order")
+        UserDefaults.standard.removeObject(forKey: "rightSidebar.tabs.hidden")
 
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1227,6 +1250,13 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 UserDefaults.standard.set(data, forKey: action.defaultsKey)
             } else {
                 UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+            }
+        }
+        for key in touchedTabEnvironmentKeys {
+            if case let .some(.some(value)) = savedTabEnvironment[key] {
+                UserDefaults.standard.set(value, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
             }
         }
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
@@ -1266,6 +1296,26 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .machines
+        )
+    }
+
+    /// The reported bug: Feed and Dock hidden leaves Cloud as the 4th visible
+    /// tab, so ctrl+4 must select it (the old static table pinned Cloud to
+    /// ctrl+6 while ctrl+4 fell on the invisible Feed and did nothing).
+    func testModeShortcutDigitsFollowVisibleTabPositions() {
+        UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
+            .machines
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23))
         )
     }
 
