@@ -44,6 +44,7 @@ extension CMUXCLI {
         processEnvironment: [String: String]
     ) throws {
         let selector = try restoreSelector(commandArgs)
+        let workingDirectoryBeforeRestore = FileManager.default.currentDirectoryPath
         var params: [String: Any] = [:]
         if let surface = selector.surface {
             let surfaceID = try normalizeSurfaceHandle(
@@ -114,9 +115,10 @@ extension CMUXCLI {
             )
         }
 
+        let bindingPayload = payload["resume_binding"] as? [String: Any]
         if let codexValidation = codexRestoreValidation(
             record: record,
-            bindingPayload: payload["resume_binding"] as? [String: Any],
+            bindingPayload: bindingPayload,
             processEnvironment: processEnvironment
         ) {
             let shouldContinue: Bool
@@ -130,11 +132,12 @@ extension CMUXCLI {
                 try handleRejectedCodexRestore(
                     codexValidation,
                     record: record,
-                    bindingPayload: payload["resume_binding"] as? [String: Any],
+                    bindingPayload: bindingPayload,
                     surfaceID: params["surface_id"] as? String,
                     workspaceID: payload["workspace_id"] as? String
                         ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                    client: client
+                    client: client,
+                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
                 )
                 return
             }
@@ -217,6 +220,26 @@ extension CMUXCLI {
                 preflight,
                 appliedWorkingDirectory: effectiveWorkingDirectory
             )
+        }
+        if let bindingCheckpoint = codexRestoreBindingCheckpoint(bindingPayload),
+           bindingCheckpoint == normalizedHookValue(record.checkpointID),
+           !claimCodexRestoreBinding(
+               record: record,
+               bindingPayload: bindingPayload,
+               surfaceID: params["surface_id"] as? String,
+               client: client
+           ) {
+            try handleRejectedCodexRestore(
+                .bindingChanged,
+                record: record,
+                bindingPayload: bindingPayload,
+                surfaceID: params["surface_id"] as? String,
+                workspaceID: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                client: client,
+                workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+            )
+            return
         }
         client.close()
         try execRestoreInvocation(

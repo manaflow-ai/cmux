@@ -178,6 +178,7 @@ public struct AgentRestorePlanner: Sendable {
             captured["CODEX_HOME"] = CodexHomeResolver().resolve(
                 launchEnvironment: ["CODEX_HOME": rawCodexHome],
                 launchWorkingDirectory: launchWorkingDirectory,
+                launchVerificationHome: request.launchCommand?.verificationHome,
                 fallbackHomeDirectory: launchWorkingDirectory
             )
         }

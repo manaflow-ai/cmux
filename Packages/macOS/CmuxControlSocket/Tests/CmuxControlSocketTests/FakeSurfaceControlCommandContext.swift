@@ -8,10 +8,16 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
+    var resumeGetClaim: (
+        checkpointID: String?,
+        source: String?,
+        updatedAt: Double?
+    )?
     var resumeClearAgentSessionEnded: Bool?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
-        launchCommandMustBeValid: "launch_command must be valid"
+        launchCommandMustBeValid: "launch_command must be valid",
+        restoreClaimMustBeValid: "restore claim must be valid"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -74,9 +80,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution {
-        resumeResolution
+        resumeGetClaim = (claimCheckpointID, claimSource, claimUpdatedAt)
+        return resumeResolution
     }
 
     func controlSurfaceResumeClear(

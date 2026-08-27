@@ -30,26 +30,49 @@ public struct CodexHomeResolver: Sendable {
         fallbackHomeDirectory: String? = nil
     ) -> String {
         if let launchCodexHome = normalized(launchEnvironment?["CODEX_HOME"]) {
-            return standardized(launchCodexHome, relativeTo: launchWorkingDirectory)
+            return standardized(
+                launchCodexHome,
+                relativeTo: launchWorkingDirectory,
+                tildeHome: launchHomeForTildeExpansion(
+                    launchEnvironment: launchEnvironment,
+                    launchVerificationHome: launchVerificationHome
+                )
+            )
         }
         if let launchHome = normalized(launchVerificationHome) {
-            return codexDirectory(forHome: launchHome, relativeTo: launchWorkingDirectory)
+            return codexDirectory(
+                forHome: launchHome,
+                relativeTo: launchWorkingDirectory,
+                tildeHome: launchHome
+            )
         }
         if let launchHome = normalized(launchEnvironment?["HOME"]) {
-            return codexDirectory(forHome: launchHome, relativeTo: launchWorkingDirectory)
+            return codexDirectory(
+                forHome: launchHome,
+                relativeTo: launchWorkingDirectory,
+                tildeHome: launchHome
+            )
         }
         if let ambientCodexHome = normalized(ambientEnvironment["CODEX_HOME"]) {
-            return standardized(ambientCodexHome)
+            return standardized(
+                ambientCodexHome,
+                tildeHome: normalized(ambientEnvironment["HOME"])
+            )
         }
         if let ambientHome = normalized(ambientEnvironment["HOME"]) {
-            return codexDirectory(forHome: ambientHome)
+            return codexDirectory(forHome: ambientHome, tildeHome: ambientHome)
         }
-        return codexDirectory(forHome: fallbackHomeDirectory ?? NSHomeDirectory())
+        let fallbackHome = fallbackHomeDirectory ?? NSHomeDirectory()
+        return codexDirectory(forHome: fallbackHome, tildeHome: fallbackHome)
     }
 
-    private func codexDirectory(forHome home: String, relativeTo base: String? = nil) -> String {
+    private func codexDirectory(
+        forHome home: String,
+        relativeTo base: String? = nil,
+        tildeHome: String? = nil
+    ) -> String {
         URL(
-            fileURLWithPath: expanded(home, relativeTo: base),
+            fileURLWithPath: expanded(home, relativeTo: base, tildeHome: tildeHome),
             isDirectory: true
         )
         .appendingPathComponent(".codex", isDirectory: true)
@@ -57,12 +80,20 @@ public struct CodexHomeResolver: Sendable {
         .path
     }
 
-    private func standardized(_ path: String, relativeTo base: String? = nil) -> String {
-        (expanded(path, relativeTo: base) as NSString).standardizingPath
+    private func standardized(
+        _ path: String,
+        relativeTo base: String? = nil,
+        tildeHome: String? = nil
+    ) -> String {
+        (expanded(path, relativeTo: base, tildeHome: tildeHome) as NSString).standardizingPath
     }
 
-    private func expanded(_ path: String, relativeTo base: String? = nil) -> String {
-        let expandedPath = NSString(string: path).expandingTildeInPath
+    private func expanded(
+        _ path: String,
+        relativeTo base: String? = nil,
+        tildeHome: String? = nil
+    ) -> String {
+        let expandedPath = expandTilde(path, using: tildeHome)
         guard !expandedPath.hasPrefix("/"),
               let base,
               let normalizedBase = normalized(base) else {
@@ -71,10 +102,29 @@ public struct CodexHomeResolver: Sendable {
         return URL(
             fileURLWithPath: expandedPath,
             relativeTo: URL(
-                fileURLWithPath: NSString(string: normalizedBase).expandingTildeInPath,
+                fileURLWithPath: expandTilde(normalizedBase, using: tildeHome),
                 isDirectory: true
             )
         ).standardizedFileURL.path
+    }
+
+    private func launchHomeForTildeExpansion(
+        launchEnvironment: [String: String]?,
+        launchVerificationHome: String?
+    ) -> String? {
+        normalized(launchVerificationHome)
+            ?? normalized(launchEnvironment?["HOME"])
+    }
+
+    private func expandTilde(_ path: String, using home: String?) -> String {
+        guard path == "~" || path.hasPrefix("~/"),
+              let home = normalized(home) else {
+            return NSString(string: path).expandingTildeInPath
+        }
+        let expandedHome = NSString(string: home).expandingTildeInPath
+        return path == "~"
+            ? expandedHome
+            : expandedHome + String(path.dropFirst())
     }
 
     private func normalized(_ value: String?) -> String? {

@@ -258,7 +258,8 @@ public protocol ControlSurfaceContext: AnyObject {
         inputs: ControlSurfaceResumeSetInputs
     ) -> ControlSurfaceResumeResolution
 
-    /// Reads the resume binding for `surface.resume.get`.
+    /// Reads the resume binding for the surface resume get command, optionally claiming
+    /// one binding generation for an imminent restore launch.
     ///
     /// - Parameter routing: The routing selectors (with the surface-resume
     ///   precedence).
@@ -266,7 +267,10 @@ public protocol ControlSurfaceContext: AnyObject {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution
 
     /// Clears the resume binding for `surface.resume.clear`, honoring the optional

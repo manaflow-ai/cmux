@@ -106,6 +106,43 @@ extension CMUXCLI {
         }
     }
 
+    /// Atomically claims the binding generation that produced a validated
+    /// restore record. The app keeps this claim until the same session's hook
+    /// refresh arrives, preventing a newer child/parent publication from
+    /// winning between validation and process execution.
+    func claimCodexRestoreBinding(
+        record: RestoreRecord,
+        bindingPayload: [String: Any]?,
+        surfaceID: String?,
+        client: SocketClient
+    ) -> Bool {
+        guard record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
+              record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+              let checkpointID = normalizedHookValue(record.checkpointID),
+              codexRestoreBindingCheckpoint(bindingPayload) == checkpointID,
+              let surfaceID,
+              let source = normalizedHookValue(bindingPayload?["source"] as? String),
+              let updatedAt = (bindingPayload?["updated_at"] as? NSNumber)?.doubleValue,
+              updatedAt.isFinite else {
+            return false
+        }
+        let result: [String: Any]
+        do {
+            result = try client.sendV2(
+                method: "surface.resume.get",
+                params: [
+                    "surface_id": surfaceID,
+                    "claim_checkpoint_id": checkpointID,
+                    "claim_source": source,
+                    "claim_updated_at": updatedAt,
+                ]
+            )
+        } catch {
+            return false
+        }
+        return result["resume_claimed"] as? Bool == true
+    }
+
     /// Leaves the shell in the recorded directory, then retires only the
     /// stale checkpoint that was actually rejected. The checkpoint guard in
     /// surface.resume.clear means a concurrently published parent binding is
@@ -116,7 +153,8 @@ extension CMUXCLI {
         bindingPayload: [String: Any]?,
         surfaceID: String?,
         workspaceID: String?,
-        client: SocketClient
+        client: SocketClient,
+        workingDirectoryBeforeRestore: String? = nil
     ) throws {
         let shouldHandle: Bool
         switch result {
@@ -133,7 +171,10 @@ extension CMUXCLI {
         // A binding-change response is different: the returned record is stale,
         // so do not move the shell away from the newer parent's cwd.
         if case .bindingChanged = result {
-            // Preserve the current shell directory and the authoritative binding.
+            // Restore the shell directory from before this command changed it.
+            // The app-owned binding remains authoritative; only the stale
+            // restore attempt's local chdir is undone.
+            _ = try? applyRestoreWorkingDirectory(workingDirectoryBeforeRestore)
         } else {
             let workingDirectory = requestedRestoreWorkingDirectory(for: record)
                 ?? normalizedHookValue(bindingPayload?["cwd"] as? String)
@@ -189,7 +230,7 @@ extension CMUXCLI {
         throw loggedRestoreError(stage: stage, message: message)
     }
 
-    private func codexRestoreBindingCheckpoint(
+    func codexRestoreBindingCheckpoint(
         _ bindingPayload: [String: Any]?
     ) -> String? {
         guard let bindingPayload,
