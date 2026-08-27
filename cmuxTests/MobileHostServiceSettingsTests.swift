@@ -508,4 +508,38 @@ struct MobileHostIrohRelayDiagReportTests {
         Source: none installed (no relay policy this launch)
         """)
     }
+
+    @Test func missingPolicyWithFailingRefreshReportsFailingSince() {
+        let text = MobileHostIrohRuntime.relayDiagReport(
+            policy: nil,
+            refreshFailure: MobileHostIrohRuntime.RelayDiagRefreshFailure(
+                since: Date(timeIntervalSince1970: 1_782_000_000),
+                consecutiveFailures: 4
+            ),
+            debugOverrideRelayURL: nil
+        )
+        #expect(text == """
+        Active relay profile
+        Source: none — policy refresh failing since 2026-06-21T00:00:00Z (4 consecutive failures)
+        """)
+    }
+
+    @Test func installedPolicyWithFailingRefreshAppendsFailureLine() {
+        let text = MobileHostIrohRuntime.relayDiagReport(
+            policy: MobileHostIrohRuntime.RelayDiagState(
+                source: .managedUnavailable,
+                usedCachedPolicy: false,
+                relayURLs: [],
+                refreshFailingSince: Date(timeIntervalSince1970: 1_782_000_000),
+                consecutiveRefreshFailures: 7
+            ),
+            debugOverrideRelayURL: nil
+        )
+        #expect(text == """
+        Active relay profile
+        Source: managed selection unavailable (relays disabled)
+        Relays: (none)
+        Policy refresh: failing since 2026-06-21T00:00:00Z (7 consecutive failures)
+        """)
+    }
 }
