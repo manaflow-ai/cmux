@@ -64,11 +64,13 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
     tarball_requests = 0
     latest_requests: list[str] = []
     authorization_headers: list[str | None] = []
+    request_paths: list[str] = []
     status = 200
 
     def do_GET(self) -> None:  # noqa: N802, required by BaseHTTPRequestHandler
         type(self).authorization_headers.append(self.headers.get("Authorization"))
         metadata_path = urllib.parse.urlsplit(self.path).path
+        type(self).request_paths.append(metadata_path)
         metadata_match = re.search(
             r"/cmux-tui-[A-Za-z0-9._-]+/"
             r"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$",
@@ -96,6 +98,46 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
                         "integrity": "sha512-"
                         + base64.b64encode(hashlib.sha512(tarball).digest()).decode(),
                     }
+                }
+            ).encode()
+        elif metadata_path != "/tarball.tgz" and re.fullmatch(
+            r"/[A-Za-z0-9._-]+", metadata_path
+        ):
+            # npm's configured transport requests a package packument before
+            # selecting a version. Return the same fixture tarballs as the raw
+            # `/package/version` endpoint so ambient npm config cannot escape
+            # this deterministic loopback registry.
+            type(self).metadata_requests += 1
+            package_name = metadata_path[1:]
+            versions = {
+                type(self).latest_version,
+                type(self).nightly_version,
+                *type(self).tarballs.keys(),
+            }
+            version_records = {}
+            for version in versions:
+                tarball = type(self).tarballs.get(version, type(self).tarball)
+                dist = {
+                    "tarball": (
+                        f"http://127.0.0.1:{self.server.server_port}/tarball.tgz?"
+                        f"version={urllib.parse.quote(version, safe='')}"
+                    ),
+                    "integrity": "sha512-"
+                    + base64.b64encode(hashlib.sha512(tarball).digest()).decode(),
+                }
+                version_records[version] = {
+                    "name": package_name,
+                    "version": version,
+                    "dist": dist,
+                }
+            body = json.dumps(
+                {
+                    "name": package_name,
+                    "dist-tags": {
+                        "latest": type(self).latest_version,
+                        "nightly": type(self).nightly_version,
+                    },
+                    "versions": version_records,
                 }
             ).encode()
         elif urllib.parse.urlsplit(self.path).path == "/tarball.tgz":
@@ -380,6 +422,7 @@ def start_registry(
     RegistryHandler.metadata_requests = 0
     RegistryHandler.tarball_requests = 0
     RegistryHandler.authorization_headers = []
+    RegistryHandler.request_paths = []
     RegistryHandler.status = 200
     RegistryHandler.latest_version = "1.2.3"
     RegistryHandler.nightly_version = NIGHTLY_VERSION
