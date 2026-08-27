@@ -1162,10 +1162,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     while index < args.len() {
         match args[index].as_str() {
             "--socket" | "--session" | "--machine" => {
-                if args.get(index + 1).is_none() {
-                    return;
-                }
-                index += 2;
+                index = startup_option_value_end(args, index).unwrap_or(args.len());
             }
             "--json" | "--jsonl" | "--quiet" => {
                 output_mode = true;
@@ -1188,53 +1185,79 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
+const STARTUP_VALUE_OPTIONS: &[&str] = &[
+    "--socket",
+    "--session",
+    "--machine",
+    "--terminal",
+    "--state",
+    "--machine-provider",
+    "--cloud-host",
+    "--cloud-user",
+    "--cloud-port",
+    "--cloud-identity",
+    "--ws",
+    "--ws-token",
+    "--remote-ws",
+    "--remote-http",
+    "--remote-state-dir",
+    "--remote-link-socket",
+    "--remote-admin-socket",
+    "--remote-resume-lease-seconds",
+    "--relay",
+    "--relay-slot",
+    "--relay-ticket",
+    "--relay-ticket-file",
+    "--relay-ticket-command",
+    "--relay-ticket-command-arg",
+    "--advertise",
+    "--term",
+];
+
+/// Return the first argument after a startup option and its value.
+///
+/// Startup routing, relay-ticket protection, and lifecycle rewriting all need
+/// to skip the same value-bearing options. Keeping the spans in one helper
+/// prevents a new startup option from being handled by only one scanner.
+fn startup_option_value_end(args: &[String], index: usize) -> Option<usize> {
+    let option = args.get(index)?.as_str();
+    if STARTUP_VALUE_OPTIONS.contains(&option) {
+        return Some(index + 2);
+    }
+    if option == "--machine-provider-command" {
+        let mut end = index + 1;
+        while end < args.len() && args[end] != "--" {
+            end += 1;
+        }
+        return Some(end + 1);
+    }
+    None
+}
+
+fn is_inline_relay_ticket(value: &str) -> bool {
+    value == "--relay-ticket" || value.starts_with("--relay-ticket=")
+}
+
 fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
-        match args[index].as_str() {
-            option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
+        let option = args[index].as_str();
+        if is_inline_relay_ticket(option) {
+            return true;
+        }
+        if let Some(end) = startup_option_value_end(args, index) {
+            // A helper argument or provider command may intentionally contain
+            // the literal `--relay-ticket`; those payloads are not startup
+            // credentials and must remain untouched.
+            if option != "--relay-ticket-command-arg"
+                && option != "--machine-provider-command"
+                && args.get(index + 1).is_some_and(|value| is_inline_relay_ticket(value))
+            {
                 return true;
             }
-            "--session"
-            | "--socket"
-            | "--machine"
-            | "--terminal"
-            | "--state"
-            | "--machine-provider"
-            | "--cloud-host"
-            | "--cloud-user"
-            | "--cloud-port"
-            | "--cloud-identity"
-            | "--ws"
-            | "--ws-token"
-            | "--remote-ws"
-            | "--remote-http"
-            | "--remote-state-dir"
-            | "--remote-link-socket"
-            | "--remote-admin-socket"
-            | "--remote-resume-lease-seconds"
-            | "--relay"
-            | "--relay-slot"
-            | "--relay-ticket-file"
-            | "--relay-ticket-command"
-            | "--advertise"
-            | "--term" => {
-                if args.get(index + 1).is_some_and(|value| {
-                    value == "--relay-ticket" || value.starts_with("--relay-ticket=")
-                }) {
-                    return true;
-                }
-                index += 2;
-            }
-            "--relay-ticket-command-arg" => index += 2,
-            "--machine-provider-command" => {
-                index += 1;
-                while index < args.len() && args[index] != "--" {
-                    index += 1;
-                }
-                index += 1;
-            }
-            _ => index += 1,
+            index = end;
+        } else {
+            index += 1;
         }
     }
     false
@@ -1247,40 +1270,8 @@ fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--session"
-            | "--socket"
-            | "--machine"
-            | "--terminal"
-            | "--state"
-            | "--machine-provider"
-            | "--cloud-host"
-            | "--cloud-user"
-            | "--cloud-port"
-            | "--cloud-identity"
-            | "--ws"
-            | "--ws-token"
-            | "--remote-ws"
-            | "--remote-http"
-            | "--remote-state-dir"
-            | "--remote-link-socket"
-            | "--remote-admin-socket"
-            | "--remote-resume-lease-seconds"
-            | "--relay"
-            | "--relay-slot"
-            | "--relay-ticket-file"
-            | "--relay-ticket-command"
-            | "--relay-ticket-command-arg"
-            | "--advertise"
-            | "--term" => index += 2,
-            "--machine-provider-command" => {
-                index += 1;
-                while index < args.len() && args[index] != "--" {
-                    index += 1;
-                }
-                index += 1;
-            }
             "-h" | "--help" | "--json" | "--jsonl" | "--quiet" => return true,
-            _ => index += 1,
+            _ => index = startup_option_value_end(args, index).unwrap_or(index + 1),
         }
     }
     false
@@ -1294,33 +1285,11 @@ fn is_cli_invocation(args: &[String]) -> bool {
     }
     let mut index = 0;
     while index < args.len() {
-        match args[index].as_str() {
-            "--socket"
-            | "--session"
-            | "--machine"
-            | "--terminal"
-            | "--state"
-            | "--machine-provider"
-            | "--cloud-host"
-            | "--cloud-user"
-            | "--cloud-port"
-            | "--cloud-identity"
-            | "--ws"
-            | "--ws-token"
-            | "--remote-ws"
-            | "--remote-http"
-            | "--remote-state-dir"
-            | "--remote-link-socket"
-            | "--remote-admin-socket"
-            | "--remote-resume-lease-seconds"
-            | "--relay"
-            | "--relay-slot"
-            | "--relay-ticket"
-            | "--relay-ticket-file"
-            | "--relay-ticket-command"
-            | "--relay-ticket-command-arg"
-            | "--advertise"
-            | "--term" => index += 2,
+        let value = args[index].as_str();
+        if value == "--machine-provider-command" {
+            return false;
+        }
+        match value {
             "--json" | "--jsonl" | "--quiet" => index += 1,
             "--ephemeral"
             | "--cloud"
@@ -1329,15 +1298,22 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--remote"
             | "--remote-ws-insecure-bind"
             | "--iroh" => index += 1,
-            "--machine-provider-command" => return false,
             "-h" | "--help" | "help" => return true,
             "attach" => return false,
             value if cli::is_public_scope(value) => return true,
-            value if value.starts_with('-') => index += 1,
-            // Session startup has no positional arguments. Route unknown
-            // top-level words through the public parser so typos cannot fall
-            // into the unrelated legacy startup help.
-            _ => return true,
+            _ => {
+                if let Some(end) = startup_option_value_end(args, index) {
+                    index = end;
+                } else if value.starts_with('-') {
+                    index += 1;
+                } else {
+                    // Session startup has no positional arguments. Route
+                    // unknown top-level words through the public parser so
+                    // typos cannot fall into the unrelated legacy startup
+                    // help.
+                    return true;
+                }
+            }
         }
     }
     false
@@ -2819,6 +2795,29 @@ mod tests {
         let mut quiet = ["server", "start", "--quiet"].map(str::to_string).to_vec();
         rewrite_server_start(&mut quiet);
         assert_eq!(quiet, ["server", "start", "--quiet"]);
+    }
+
+    #[test]
+    fn startup_scanners_share_option_value_boundaries() {
+        for option in STARTUP_VALUE_OPTIONS
+            .iter()
+            .copied()
+            .filter(|option| !matches!(*option, "--relay-ticket" | "--relay-ticket-command-arg"))
+        {
+            let args = [option, "--help"].map(str::to_string);
+            assert!(!is_cli_invocation(&args), "{option} consumed a value boundary");
+            assert!(!server_start_has_cli_routing_flag(&args), "{option} routed its value");
+        }
+
+        assert!(!has_inline_relay_ticket_argument(
+            &["--relay-ticket-command", "helper", "--relay-ticket-command-arg", "--relay-ticket",]
+                .map(str::to_string)
+        ));
+        assert!(!has_inline_relay_ticket_argument(
+            &["--machine-provider-command", "provider", "--relay-ticket", "--",]
+                .map(str::to_string)
+        ));
+        assert!(server_start_has_cli_routing_flag(&["--json"].map(str::to_string)));
     }
 
     #[test]
