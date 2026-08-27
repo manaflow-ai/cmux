@@ -282,9 +282,9 @@ fn clock_jumped(wall_delta_ms: i64, monotonic_delta: Duration, threshold: Durati
 /// the negotiated heartbeat cadence once hello_accepted names it.
 fn read_liveness_deadline(heartbeat_interval: Option<Duration>) -> Duration {
     match heartbeat_interval {
-        Some(interval) => interval
-            .saturating_mul(READ_LIVENESS_HEARTBEATS)
-            .saturating_add(READ_LIVENESS_GRACE),
+        Some(interval) => {
+            interval.saturating_mul(READ_LIVENESS_HEARTBEATS).saturating_add(READ_LIVENESS_GRACE)
+        }
         None => PRE_HELLO_READ_DEADLINE,
     }
 }
