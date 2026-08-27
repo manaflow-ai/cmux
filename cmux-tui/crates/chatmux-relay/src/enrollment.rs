@@ -17,8 +17,8 @@ use std::path::Path;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use serde_json::Value;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use url::{Host, Url};
 
 use crate::config::{Config, ManagedEvents, ManagedIdentity};
