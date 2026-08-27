@@ -52,6 +52,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     /// The one in-flight refresh armed behind a cache-first dial, so a burst
     /// of warm dials converges the route cache once instead of per dial.
     private var cacheFirstRefreshTask: Task<Void, Never>?
+    /// Lifecycle fence for the cache-first refresh: bumped whenever the
+    /// authorizing context changes (policy identity replacement, runtime
+    /// teardown), so a refresh started under an older context can never
+    /// mutate newer provider state.
+    private var cacheFirstRefreshGeneration: UInt64 = 0
 
     /// Creates a public-route provider from the generation-less seam.
     public init(
@@ -421,6 +426,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             authoritativeDiscovery = nil
             staleDiscoveryPeers.removeAll(keepingCapacity: false)
             staleDiscoveryDeviceIDs.removeAll(keepingCapacity: false)
+            cancelCacheFirstRefresh()
         }
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
@@ -496,19 +502,37 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         targetIdentity: CmxIrohPeerIdentity
     ) {
         guard cacheFirstRefreshTask == nil else { return }
+        let generation = cacheFirstRefreshGeneration
         cacheFirstRefreshTask = Task { [weak self] in
             await self?.runCacheFirstRefresh(
                 for: request,
-                targetIdentity: targetIdentity
+                targetIdentity: targetIdentity,
+                generation: generation
             )
         }
     }
 
+    /// Cancels the refresh armed behind a cache-first dial and fences any
+    /// already-running one off provider state. The owning runtime calls this
+    /// from network teardown, and a policy identity replacement calls it from
+    /// ``updatePolicy``, so refresh work can never outlive the lifecycle that
+    /// authorized it or mutate a newer context's caches.
+    func cancelCacheFirstRefresh() {
+        cacheFirstRefreshGeneration &+= 1
+        cacheFirstRefreshTask?.cancel()
+        cacheFirstRefreshTask = nil
+    }
+
     private func runCacheFirstRefresh(
         for request: CmxByteTransportRequest,
-        targetIdentity: CmxIrohPeerIdentity
+        targetIdentity: CmxIrohPeerIdentity,
+        generation: UInt64
     ) async {
-        defer { cacheFirstRefreshTask = nil }
+        defer {
+            if generation == cacheFirstRefreshGeneration {
+                cacheFirstRefreshTask = nil
+            }
+        }
         let fresh: CmxIrohDiscoveryResponse
         do {
             fresh = try await sharedDiscover(
@@ -522,6 +546,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             // next dial refetches once the broker recovers.
             return
         }
+        guard generation == cacheFirstRefreshGeneration else { return }
         // Re-validate and prune the stored record against the fresh snapshot.
         // A vanished or replaced target marks the peer stale so the NEXT dial
         // rebuilds from fresh discovery instead of redialing the corpse.
@@ -535,6 +560,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         } catch {
             confirmed = nil
         }
+        guard generation == cacheFirstRefreshGeneration else { return }
         if confirmed == nil {
             markDiscoveryStale(
                 identity: targetIdentity,

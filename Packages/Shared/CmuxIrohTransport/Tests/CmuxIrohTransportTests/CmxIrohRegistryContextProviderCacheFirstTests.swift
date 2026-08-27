@@ -148,6 +148,61 @@ struct CmxIrohRegistryContextProviderCacheFirstTests {
         #expect(await broker.discoveryRequestCount() == 2)
     }
 
+    /// A refresh armed behind a cache-first dial must not outlive the
+    /// context that authorized it: after cancellation (runtime teardown,
+    /// policy identity replacement) its late result cannot mutate provider
+    /// state, so the cached record still serves the next dial.
+    @Test
+    func cancelledCacheFirstRefreshCannotMutateProviderState() async throws {
+        let fixture = try RegistryFixture()
+        let seeded = try await seedOfflinePolicy(fixture: fixture)
+        // The held snapshot would prove the target vanished, which an
+        // un-fenced late refresh would turn into a staleness mark.
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [], includeTarget: false),
+            pairGrantResponses: []
+        )
+        await broker.holdDiscoverCalls()
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            offlinePolicy: seeded.policy
+        )
+
+        let first = try await provider.context(for: fixture.request(hints: []))
+        #expect(first.credential.pairGrantToken == seeded.grant.grant)
+        var refreshHeld = false
+        for _ in 0 ..< 50_000 {
+            if await broker.heldDiscoverCallCount() >= 1 {
+                refreshHeld = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(refreshHeld)
+
+        await provider.cancelCacheFirstRefresh()
+        await broker.releaseHeldDiscoverCalls()
+        var refreshDrained = false
+        for _ in 0 ..< 50_000 {
+            if await broker.discoveryRequestCount() >= 1 {
+                refreshDrained = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(refreshDrained)
+        for _ in 0 ..< 2_000 {
+            await Task.yield()
+        }
+
+        // The fenced-off result must not have marked the peer stale: the
+        // next dial is still served from the verified cached record.
+        let second = try await provider.context(for: fixture.request(hints: []))
+        #expect(second.credential.pairGrantToken == seeded.grant.grant)
+        #expect(await broker.pairGrantRequestCount() == 0)
+    }
+
     // MARK: - Support
 
     private func makeProvider(
