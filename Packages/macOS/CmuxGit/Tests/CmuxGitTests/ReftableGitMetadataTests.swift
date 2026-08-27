@@ -48,6 +48,18 @@ private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
         #expect(candidates.contains("/Library/Developer/CommandLineTools/usr/bin/git"))
     }
 
+    @Test func statusRunnerSelectionKeepsOrdinaryCandidateBound() {
+        let path = (0..<128)
+            .map { "/Users/cmux-tests/path-\($0)" }
+            .joined(separator: ":")
+        let selector = GitReferenceRunnerSelector(
+            environment: ["PATH": path],
+            probesReferenceFormat: false
+        )
+
+        #expect(selector.candidateRunners.count <= 8)
+    }
+
     @Test func legacyReferenceProbeSkipsUnusableGitCandidate() throws {
         let first = FakeWorkspaceChangesGitRunner(results: [
             ["rev-parse", "--show-ref-format"]: .result(exitCode: 1),

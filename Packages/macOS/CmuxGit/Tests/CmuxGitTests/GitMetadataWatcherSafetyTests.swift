@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -121,6 +122,35 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(!descriptor.containsRelevantChange(path: workTreeChange))
         #expect(descriptor.containsRelevantChange(path: indexPath))
         #expect(descriptor.degradation == .unreadableIndex)
+    }
+
+    @Test func expiredWatchPlanStillBuildsConservativeDescriptor() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let now = DispatchTime.now().uptimeNanoseconds
+        let expiredDeadline = DispatchTime(
+            uptimeNanoseconds: now > 1_000_000 ? now - 1_000_000 : 0
+        )
+        let inputs = GitMetadataWatchInputs(
+            deadline: expiredDeadline,
+            configPathsByRepository: [:],
+            watchOnlyPathsByRepository: [:],
+            metadataSentinelPathsByRepository: [:],
+            indexSnapshotsByRepository: [:],
+            forceWorkTreeRootRepositories: [repository.workTreeRoot]
+        )
+
+        let descriptor = await GitMetadataService().watchDescriptorBlocking(
+            for: fixture.root.path,
+            repository: repository,
+            safetyConfiguration: GitMetadataSafetyConfiguration(),
+            watchInputs: inputs
+        )
+
+        #expect(descriptor != nil)
     }
 
     @Test func forcedRootRebuildsOnlyForGitMetadataEvents() throws {

@@ -277,6 +277,35 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(result.paths.contains(fixture.gitDirectory.standardizedFileURL.path))
     }
 
+    @Test func deferredIncludeOutsideGitDirectoryStillInvalidatesMetadata() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let deferredInclude = fixture.root.appendingPathComponent("remotes.inc")
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git
+        """.write(to: deferredInclude, atomically: true, encoding: .utf8)
+        let missingIncludes = (0..<255)
+            .map { "    path = missing-\($0).inc" }
+            .joined(separator: "\n")
+        try """
+        [include]
+        (missingIncludes)
+            path = ../remotes.inc
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(descriptor.metadataSentinelPaths.contains(deferredInclude.path))
+        #expect(descriptor.containsGitMetadataChange(paths: [deferredInclude.path]))
+    }
+
     @Test func watchesGitDirectoryUntilMissingWorktreeConfigAppears() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
