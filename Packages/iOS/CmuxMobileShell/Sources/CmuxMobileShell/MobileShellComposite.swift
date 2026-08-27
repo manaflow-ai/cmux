@@ -1437,7 +1437,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// replay. Render-grid deltas stay deliverable until a full frame is
     /// actually processed and re-establishes the verified baseline.
     var terminalCompatibilityFallbackSurfaceIDs: Set<String>
-    var terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID: [String: UUID]
     /// Surfaces whose bounded stream buffer already triggered replacement
     /// recovery. Suppresses duplicate replay requests until the replacement is
     /// acknowledged or the consumer is remounted.
@@ -1849,7 +1848,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalActiveScreenUnknownSinceBySurfaceID = [:]
         self.terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs = []
         self.terminalCompatibilityFallbackSurfaceIDs = []
-        self.terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
         self.terminalOutputStreamOverflowRecoverySurfaceIDs = []
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
         self.terminalMirrorHydrationNeededSurfaceIDs = []
@@ -10713,7 +10711,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenUnknownSinceBySurfaceID = [:]
         terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs = []
         terminalCompatibilityFallbackSurfaceIDs = []
-        terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
         terminalOutputStreamOverflowRecoverySurfaceIDs = []
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
@@ -13368,6 +13365,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         guard let activeScreen else {
             terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+            guard terminalOutputTransport != .rawBytes else {
+                terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
+                terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
+                terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(surfaceID)
+                return
+            }
             if !wasUnknown {
                 terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(surfaceID)
             }
@@ -13464,7 +13467,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
-        terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamOverflowRecoverySurfaceIDs.remove(surfaceID)
         terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
@@ -13527,7 +13529,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
         terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
-        terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamOverflowRecoverySurfaceIDs.remove(surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
@@ -13606,14 +13607,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
-        let compatibilityFallbackActive =
+        let compatibilityFallbackAllowsDelta =
             terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID)
+                && renderGrid.anchor != .screen
         if source == "replay",
            let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            renderGrid.stateSeq >= pendingSeq { return false }
         guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
               renderGrid.stateSeq < pendingSeq else {
-            if compatibilityFallbackActive {
+            if compatibilityFallbackAllowsDelta {
                 // Compatibility mode bypasses baseline repair, but it still
                 // admits only frames at or beyond the latest input ACK.
                 return false
@@ -13997,8 +13999,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                         }
                     }
-                    self.recordTerminalRenderGridDelivery(renderGrid)
-                    self.recordTerminalRenderGridHistoryContinuity(renderGrid)
                     self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
                     // A delivered grid is progress even if the payload omitted
                     // its sequence; fall back to the frame's own sequence so
@@ -14078,9 +14078,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID
                     )
                     self.terminalCompatibilityFallbackSurfaceIDs.insert(surfaceID)
-                    self.terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(
-                        forKey: surfaceID
-                    )
                 }
                 if accepted {
                     self.recordTerminalReplayFallbackScreen(

@@ -321,6 +321,7 @@ final class VerifiedTerminalReplayStateMachine {
         guard compatibilityFallbackActive,
               phase != .invalidated,
               !frame.full,
+              frame.anchor != .screen,
               !frame.renderEpoch.isEmpty,
               frame.renderRevision > 0,
               frame.renderEpoch == activeRenderEpoch,

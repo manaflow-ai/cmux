@@ -21,14 +21,6 @@ extension MobileShellComposite {
         let wasUnknown = terminalActiveScreenUnknownSurfaceIDs.remove(renderGrid.surfaceID) != nil
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
         terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(renderGrid.surfaceID)
-        if renderGrid.full,
-           terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID),
-           let streamToken = terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] {
-            // Do not clear the shell escape until the UI acknowledges this
-            // exact full frame after verification. A failed frame reset keeps
-            // later deltas on the compatibility path.
-            terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID[renderGrid.surfaceID] = streamToken
-        }
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
@@ -137,7 +129,9 @@ extension MobileShellComposite {
             #endif
             return
         }
-        let compatibilityFallbackActive = terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID)
+        let compatibilityFallbackAllowsDelta =
+            terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID)
+                && renderGrid.anchor != .screen
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         // The alternate baseline flag is maintained by DELIVERED frames only,
@@ -153,7 +147,7 @@ extension MobileShellComposite {
                     && !hasAlternateBaseline
                     && renderGrid.isReplaceableViewportPatchForMobileDelivery
             )
-        let needsRenderGridBaseline = !compatibilityFallbackActive && (
+        let needsRenderGridBaseline = !compatibilityFallbackAllowsDelta && (
             (
                 terminalOutputTransport == .renderGrid
                     && !establishesRenderGridBaseline
@@ -199,7 +193,7 @@ extension MobileShellComposite {
             return
         }
         if source == "event",
-           !compatibilityFallbackActive,
+           !compatibilityFallbackAllowsDelta,
            let deliveryDecision = renderGridEventDeliveryDecision(renderGrid, previous: previousScreen) {
             if renderGrid.full,
                terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil {
@@ -250,7 +244,7 @@ extension MobileShellComposite {
         // is malformed and fails closed the same way. Skipped while a replay
         // barrier is active - the barrier already drops deltas and resolves
         // with an authoritative replay.
-        if !compatibilityFallbackActive,
+        if !compatibilityFallbackAllowsDelta,
            !renderGrid.full,
            renderGrid.anchor == .screen,
            renderGrid.activeScreen == .primary,
@@ -315,16 +309,11 @@ extension MobileShellComposite {
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID[renderGrid.surfaceID] =
                 terminalReplayBarrierDroppedOutputCountsBySurfaceID[renderGrid.surfaceID] ?? 0
         }
-        recordTerminalRenderGridDelivery(renderGrid)
         markTerminalBytesDelivered(
             surfaceID: renderGrid.surfaceID,
             endSeq: renderGrid.stateSeq,
             fullReplacement: renderGrid.full
         )
-        recordTerminalRenderGridHistoryContinuity(renderGrid)
-        if renderGrid.full, renderGrid.scrollbackRows > 0 {
-            terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
-        }
         #if DEBUG
         MobileLatencyTrace.stamp(
             "gate",
@@ -580,15 +569,18 @@ extension MobileShellComposite {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
         terminalOutputStreamOverflowRecoverySurfaceIDs.remove(surfaceID)
-        if terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID[surfaceID] == streamToken,
-           queue.currentInFlightDelivery?.sourceRenderGridFrame?.full == true {
-            // The UI calls this only after the full frame's verified
-            // transaction has completed. End the shell-level legacy escape now
-            // that a trustworthy grid is visible again.
-            terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(
-                forKey: surfaceID
-            )
-            terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
+        if let renderGrid = queue.currentInFlightDelivery?.sourceRenderGridFrame {
+            recordTerminalRenderGridDelivery(renderGrid)
+            recordTerminalRenderGridHistoryContinuity(renderGrid)
+            if renderGrid.full, renderGrid.scrollbackRows > 0 {
+                terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
+            }
+            if renderGrid.full,
+               terminalCompatibilityFallbackSurfaceIDs.contains(surfaceID) {
+                // A full frame is the only acknowledgement that exits the
+                // shell's compatibility escape.
+                terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
+            }
         }
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
@@ -689,11 +681,6 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
-        // The full frame did not verify, so keep the compatibility escape
-        // active while discarding its pending acknowledgement token.
-        terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(
-            forKey: surfaceID
-        )
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
                 terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)

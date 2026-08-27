@@ -158,7 +158,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.hostedAltScreenKnown = activeScreenState != .unknown
         surfaceView.hostedAltScreenActive = activeScreenState == .alternate
         context.coordinator.setTerminalScreenRecoveryRequired(
-            activeScreenState == .unknown,
+            store.terminalScreenRecoveryRequired(surfaceID: surfaceID),
             surfaceView: surfaceView
         )
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay

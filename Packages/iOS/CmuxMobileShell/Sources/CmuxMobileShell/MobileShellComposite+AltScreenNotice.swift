@@ -18,6 +18,18 @@ extension MobileShellComposite {
         return activeScreen == .alternate ? .alternate : .primary
     }
 
+    /// Returns whether an unknown screen should present the terminal recovery
+    /// affordance. Raw-byte-only hosts have no structured screen channel by
+    /// design, so they keep their legacy behavior without a misleading alert;
+    /// hybrid hosts must resolve the discriminator before suppressing bytes.
+    ///
+    /// - Parameter surfaceID: The terminal surface identifier to inspect.
+    /// - Returns: `true` for an unresolved hybrid screen state.
+    public func terminalScreenRecoveryRequired(surfaceID: String) -> Bool {
+        terminalOutputTransport == .hybrid
+            && terminalActiveScreenState(surfaceID: surfaceID) == .unknown
+    }
+
     /// Returns whether the latest render-grid frame for a surface is alternate screen.
     ///
     /// - Parameter surfaceID: The terminal surface identifier to inspect.
