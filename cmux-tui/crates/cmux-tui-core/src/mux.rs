@@ -21676,6 +21676,25 @@ mod tests {
     }
 
     #[test]
+    fn stale_same_terminal_hook_sequence_cannot_overwrite_newer_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+            ContentPublicId::Terminal(id) => id.clone(),
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        });
+        let newer = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude", "PermissionRequest", Some(&terminal_id.to_string()), serde_json::json!({}),
+        ).unwrap();
+        let older = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude", "UserPromptSubmit", Some(&terminal_id.to_string()), serde_json::json!({}),
+        ).unwrap();
+        mux.apply_agent_hook_record(&newer, 2);
+        mux.apply_agent_hook_record(&older, 1);
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Blocked);
+    }
+
+    #[test]
     fn replayed_agent_hook_events_do_not_rewrite_the_record() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

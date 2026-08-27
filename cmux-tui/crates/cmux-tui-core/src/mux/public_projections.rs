@@ -238,4 +238,24 @@ mod tests {
         assert_eq!(restored.notification_ledger[0].terminal_id, Some(terminal));
         assert!(restored.terminal_notifications.is_empty());
     }
+
+    #[test]
+    fn done_agent_records_are_not_restored_into_live_roster() {
+        let terminal = terminal_id(9);
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000009").unwrap(),
+                terminal_id: terminal,
+                state: "done".into(),
+                source: "hook".into(),
+                updated_at_ms: 1,
+                source_session: None,
+            }],
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert!(restored.agent_records.is_empty());
+    }
 }
