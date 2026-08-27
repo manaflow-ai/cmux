@@ -44,3 +44,19 @@ Deploys run from `.github/workflows/mobile-relay.yml` (workflow_dispatch,
 `wrangler.toml`); dev serves the `cmux-mobile-relay-dev` workers.dev URL.
 This worker is intentionally independent of `cmux-presence` and
 `cmux-remote-relay`: separate name, domain, secrets, and migration lineage.
+
+## Local relay latency
+
+`bun tools/measure-local-do.ts` opens one host socket and one client socket on
+the same computer. It reports connection time, both forwarding directions, and
+the echo round trip. It excludes iOS input, PTY work, and terminal rendering.
+
+For the local emulator:
+
+```bash
+npx wrangler dev --config wrangler.dev.toml --local --port 8787 \
+  --var MOBILE_RELAY_TICKET_SECRET:<32+ character secret>
+RELAY_URL=ws://127.0.0.1:8787/v1/connect \
+RELAY_TICKET_SECRET=<same secret> \
+bun tools/measure-local-do.ts
+```
