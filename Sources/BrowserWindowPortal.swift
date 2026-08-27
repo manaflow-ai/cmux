@@ -2876,10 +2876,12 @@ final class WindowBrowserPortal: NSObject {
         guard let containerView = entry.containerView else { return }
         if let context {
             containerView.setPaneDropContext(context)
-        } else if entry.visibleInUI, !containerView.isHidden {
-            // A visible portal can lose its SwiftUI routing snapshot during
-            // reparenting. Keep the stable Dock ownership until the portal is
-            // actually hidden or released.
+        } else if !containerView.isHidden {
+            // A mounted portal can lose its SwiftUI routing snapshot during
+            // reparenting before the entry's visibility flag catches up. Use
+            // the physical slot state here: while the slot is still visible,
+            // retain its stable Dock ownership until a real hide/release path
+            // calls clearPaneDropContext().
             containerView.setPaneDropContext(nil)
         } else {
             containerView.clearPaneDropContext()

@@ -277,16 +277,15 @@ extension DockSplitStore {
                 paneDropContext: paneDropContext
             )
         }
-        if let paneDropContext {
-            // Reconciliation can observe an already-bound portal whose SwiftUI
-            // update has not delivered its Dock context yet. Refresh ownership
-            // independently of the attachment/readiness check so that an
-            // existing slot cannot remain classified as ordinary content.
-            BrowserWindowPortalRegistry.updatePaneDropContext(
-                for: webView,
-                context: paneDropContext
-            )
-        }
+        // Reconciliation is also responsible for clearing an obsolete active
+        // drop target when the panel-to-pane mapping briefly disappears. The
+        // portal keeps Dock divider ownership separately while its visible slot
+        // is mounted, so a nil context is safe here and will not lose the
+        // trailing-edge hit-test classification.
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: webView,
+            context: paneDropContext
+        )
 
         if !wasReady && !dockBrowserPortalReady(browser) {
             BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
