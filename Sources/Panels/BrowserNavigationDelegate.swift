@@ -117,11 +117,12 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
         }
         didCommit?(webView, navigation)
-        if let cmuxWebView = webView as? CmuxWebView {
+        if isCurrentNavigation, let cmuxWebView = webView as? CmuxWebView {
             if let committedURL = webView.url {
                 // The response callback consumes the one-shot delegate
                 // marker before commit; the WebView keeps the pending marker
@@ -131,18 +132,24 @@ import WebKit
                 cmuxWebView.clearTrustedInternalDocumentIfNeeded(for: committedURL)
             }
         }
-        trustedInternalNavigationURL = nil
+        if isCurrentNavigation {
+            trustedInternalNavigationURL = nil
+        }
         clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         didFinish?(webView)
-        if let cmuxWebView = webView as? CmuxWebView,
+        if isCurrentNavigation,
+           let cmuxWebView = webView as? CmuxWebView,
            let finishedURL = webView.url {
             cmuxWebView.commitTrustedInternalDocument(finishedURL)
             cmuxWebView.clearTrustedInternalDocumentIfNeeded(for: finishedURL)
         }
-        trustedInternalNavigationURL = nil
+        if isCurrentNavigation {
+            trustedInternalNavigationURL = nil
+        }
         clearActiveMainFrameNavigation(ifMatching: navigation)
         if shouldPrintAfterCurrentNavigationFinishes {
             shouldPrintAfterCurrentNavigationFinishes = false
@@ -151,19 +158,25 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
-        (webView as? CmuxWebView)?.failTrustedInternalNavigation()
-        trustedInternalNavigationURL = nil
+        if isCurrentNavigation {
+            (webView as? CmuxWebView)?.failTrustedInternalNavigation()
+            trustedInternalNavigationURL = nil
+        }
         clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        trustedInternalNavigationURL = nil
-        (webView as? CmuxWebView)?.failTrustedInternalNavigation()
+        let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
+        if isCurrentNavigation {
+            trustedInternalNavigationURL = nil
+            (webView as? CmuxWebView)?.failTrustedInternalNavigation()
+        }
         let nsError = error as NSError
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
 
@@ -910,6 +923,12 @@ import WebKit
     private func clearActiveMainFrameNavigation(ifMatching navigation: WKNavigation?) {
         guard activeMainFrameNavigation === navigation else { return }
         activeMainFrameNavigation = nil
+    }
+
+    private func isCurrentMainFrameNavigation(_ navigation: WKNavigation?) -> Bool {
+        guard let navigation else { return true }
+        guard let activeMainFrameNavigation else { return false }
+        return activeMainFrameNavigation === navigation
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

@@ -59,7 +59,11 @@ final class CmuxWebView: WKWebView {
         if trustedURL.isFileURL || url.isFileURL {
             return trustedURL.isFileURL
                 && url.isFileURL
+                && trustedURL.scheme?.lowercased() == url.scheme?.lowercased()
                 && trustedURL.host?.lowercased() == url.host?.lowercased()
+                && trustedURL.port == url.port
+                && trustedURL.user == url.user
+                && trustedURL.password == url.password
                 && trustedURL.path == url.path
         }
         return trustedURL.absoluteString == url.absoluteString
