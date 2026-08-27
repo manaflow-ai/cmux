@@ -579,7 +579,7 @@ function wantedVersion(pkg) {
 async function resolveBinary(pkg, wanted) {
   const override = process.env.CMUX_TUI_BIN;
   if (override) {
-    if (!fs.existsSync(override)) fail(`CMUX_TUI_BIN does not exist: ${override}`);
+    if (!fs.existsSync(override)) fail("configured native binary override does not exist");
     return override;
   }
   if (wanted === undefined || wanted === null) wanted = wantedVersion(pkg);
