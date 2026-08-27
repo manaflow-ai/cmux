@@ -4107,6 +4107,8 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
     }
 }
 
+/// Serializes a config value to a private staging file before atomically
+/// replacing the destination and durably syncing its parent directory.
 fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
