@@ -49,6 +49,23 @@ describe("Cloud VM memory allowance", () => {
 });
 
 describe("active-limit response as the paywall moment", () => {
+  test("a zero-allowance free plan is told Cloud VMs require a cmux Pro subscription", async () => {
+    const response = vmActiveLimitExceededResponse({
+      limit: 0,
+      planId: "free",
+      retryAction: "delete one first",
+    });
+    expect(response.status).toBe(402);
+    const payload = await body(response);
+    expect(payload.error).toBe("vm_active_limit_exceeded");
+    expect(payload.message).toBe("Cloud VMs require a cmux Pro subscription.");
+    expect(String(payload.action)).toContain("Subscribe to cmux Pro");
+    expect(String(payload.action)).toContain("up to 5 active machines");
+    expect(String(payload.action)).not.toContain("cmux vm rm");
+    expect(payload.upgradeRequired).toBe(true);
+    expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
+  });
+
   test("a free plan over the limit is prompted to upgrade to Pro", async () => {
     const response = vmActiveLimitExceededResponse({
       limit: 3,

@@ -389,7 +389,7 @@ struct MachinesPanelView: View {
         if plan.maxActiveVms <= 0 {
             return String(
                 localized: "machines.empty.upgrade.none",
-                defaultValue: "Upgrade to cmux Pro to use machines"
+                defaultValue: "Subscribe to cmux Pro to use up to 5 machines"
             )
         }
         if plan.isSingleMachinePlan {

@@ -125250,13 +125250,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upgrade to cmux Pro to use machines"
+            "value": "Subscribe to cmux Pro to use up to 5 machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Pro にアップグレードしてマシンを利用できます"
+            "value": "cmux Pro に登録すると最大 5 台のマシンを利用できます"
           }
         }
       }
