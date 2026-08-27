@@ -942,9 +942,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(restoreRecord["kind"] as? String, "hermes-agent")
         XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
         XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
-        // A binding-only record keeps the compatibility-shell path. Typed argv
-        // is rebuilt only when a newer binding supersedes a stale snapshot.
-        XCTAssertNil(restoreRecord["prepared_arguments"] as? [String])
+        // An agent-hook binding projects a managed restorable snapshot
+        // (3131545160), so even a command-only binding yields the typed
+        // shell-free argv for `cmux restore`; the legacy command below stays
+        // for older CLIs.
+        XCTAssertEqual(
+            restoreRecord["prepared_arguments"] as? [String],
+            ["hermes", "--resume", checkpointID]
+        )
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
         XCTAssertTrue(
             legacyCommand.contains("config set model.provider"),
@@ -1136,10 +1141,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let snapshotEnvironment = try XCTUnwrap(
             snapshotLaunch["environment"] as? [String: Any]
         )
-        XCTAssertEqual(
-            snapshotEnvironment["CODEX_HOME"] as? String,
-            "/tmp/stale-codex-home"
-        )
+        // The newer OMP hook binding projected its own managed snapshot over
+        // the stale Codex one (3131545160), so clearing the binding falls
+        // back to the OMP snapshot — never to the superseded Codex session.
+        XCTAssertEqual(snapshotRecord["checkpoint_id"] as? String, ompSessionID)
+        XCTAssertNil(snapshotEnvironment["CODEX_HOME"])
+        XCTAssertEqual(snapshotEnvironment["PATH"] as? String, "/opt/omp/bin:/usr/bin:/bin")
         XCTAssertNil(snapshotEnvironment["OPENAI_API_KEY"])
     }
 
@@ -1273,7 +1280,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             replacementRecord["working_directory"] as? String,
             restoredDirectory
         )
-        XCTAssertNil(replacementRecord["prepared_arguments"] as? [String])
+        // The replacement binding projects a managed snapshot that reuses the
+        // kind's registration, so the typed argv is rebuilt from the
+        // replacement session and cwd — never from the superseded snapshot's
+        // saved or restore-time directory.
+        XCTAssertEqual(
+            replacementRecord["prepared_arguments"] as? [String],
+            ["/opt/cwd-agent", "--cwd", replacementDirectory, "--session", replacementSessionID]
+        )
         let replacementLegacyCommand = try XCTUnwrap(
             replacementRecord["legacy_command"] as? String
         )
