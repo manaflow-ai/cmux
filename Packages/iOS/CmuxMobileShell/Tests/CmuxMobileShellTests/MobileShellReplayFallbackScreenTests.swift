@@ -37,12 +37,16 @@ import Testing
         seq: 3,
         text: "alt",
         columns: 20,
-        activeScreen: .alternate
+        activeScreen: .alternate,
+        anchor: .screen,
+        historyRows: 1
     ))
     let altDelivered = try await pollUntil {
         collector.viewportPolicies.last == .remoteGrid(columns: 20, rows: 4)
     }
     #expect(altDelivered)
+    #expect(store.terminalAlternateRenderGridBaselineSurfaceIDs.contains("live-terminal"))
+    #expect(store.terminalRenderGridHistoryContinuityBySurfaceID["live-terminal"] == 1)
 
     let replayCountAfterAlternate = await router.count(of: "mobile.terminal.replay")
     let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: "live-terminal")
@@ -63,6 +67,14 @@ import Testing
         "a compatibility fallback without active_screen must not reuse stale alternate-screen sizing"
     )
     #expect(store.terminalActiveScreenBySurfaceID["live-terminal"] == .alternate)
+    #expect(
+        !store.terminalAlternateRenderGridBaselineSurfaceIDs.contains("live-terminal"),
+        "an unknown-screen compatibility replacement must not retain an old grid baseline"
+    )
+    #expect(
+        store.terminalRenderGridHistoryContinuityBySurfaceID["live-terminal"] == nil,
+        "compatibility bytes do not preserve the render-grid history chain"
+    )
     #expect(store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil)
 
     await transport.deliver(try terminalBytesEventFrame(

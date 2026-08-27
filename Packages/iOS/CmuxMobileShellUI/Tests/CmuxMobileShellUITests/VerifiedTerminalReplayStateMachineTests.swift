@@ -154,6 +154,11 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last verified")
         #expect(machine.isFrozen)
 
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: pending) else {
+            Issue.record("a frame from the canceled verified transaction must stay rejected")
+            return
+        }
+
         let partial = try frame(
             renderEpoch: "epoch-compatibility",
             renderRevision: 3,
