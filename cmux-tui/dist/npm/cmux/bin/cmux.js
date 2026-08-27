@@ -554,7 +554,15 @@ function cacheVersionIsReadOnly(version) {
   }
   for (const directory of directories) {
     try {
-      if (!fs.statSync(directory).isDirectory()) return false;
+      const stat = fs.statSync(directory);
+      if (!stat.isDirectory()) return false;
+      // `fs.accessSync(W_OK)` reports success for uid 0 even when an
+      // administrator deliberately provisioned this tree without any write
+      // permission bits. Treat the Unix mode as the read-only contract before
+      // consulting access, so root can use the documented offline path too.
+      if (process.platform !== "win32" && (stat.mode & 0o222) === 0) {
+        continue;
+      }
       fs.accessSync(directory, fs.constants.W_OK);
       // Any writable directory could publish a lease or remove a version
       // through its parent, so do not use an unleased launch path.
@@ -582,8 +590,11 @@ function cacheVersionIsReadOnly(version) {
     try {
       const stat = fs.lstatSync(file);
       if (!stat.isFile()) return false;
-      if (process.platform !== "win32" && (stat.mode & 0o222) !== 0) {
-        return false;
+      if (process.platform !== "win32") {
+        // See the directory check above. Mode bits are the only reliable
+        // signal for a root process, whose access(2) call otherwise succeeds
+        // even for a deliberately immutable provisioned file.
+        if ((stat.mode & 0o222) === 0) continue;
       }
       fs.accessSync(file, fs.constants.W_OK);
       return false;
@@ -1772,6 +1783,7 @@ function parsePaxRecords(buffer) {
 // [{ name, data }] for regular files under package/bin/.
 function extractBinEntries(tarBuffer) {
   const entries = [];
+  const names = new Set();
   let offset = 0;
   let paxPath = null;
   let gnuLongName = null;
@@ -1822,6 +1834,11 @@ function extractBinEntries(tarBuffer) {
     if (!base || base.includes("/") || base.includes("\\") || base === "." || base === "..") {
       continue;
     }
+    // A later duplicate would overwrite the first file during extraction.
+    // Reject duplicate names so every authenticated tar entry maps to exactly
+    // one cache file and the publisher's binary digest cannot be bypassed.
+    if (names.has(base)) throw new Error("platform package contains duplicate bin entries");
+    names.add(base);
     entries.push({ name: base, data: Buffer.from(data) });
   }
   return entries;
