@@ -285,12 +285,20 @@ function digestHex(buffer) {
 }
 
 function sameFileIdentity(left, right) {
-  // Windows does not expose stable dev/inode values through every Node
-  // version. Unix launchers have the descriptor identity needed for the
-  // symlink and replacement checks below.
+  // Node exposes the volume and file-index pair as dev/ino on supported
+  // Unix and Windows runtimes. If either side lacks a usable identity, fail
+  // closed. Windows callers that cannot prove path identity use a private
+  // snapshot from the already-open handle instead of spawning the path.
+  const usable = (stat) => {
+    if (!stat || stat.dev === undefined || stat.ino === undefined) return false;
+    if (typeof stat.ino === "bigint") return stat.ino !== 0n;
+    return Number.isSafeInteger(stat.ino) && stat.ino !== 0;
+  };
   return (
-    process.platform === "win32" ||
-    (left.dev === right.dev && left.ino === right.ino)
+    usable(left) &&
+    usable(right) &&
+    left.dev === right.dev &&
+    left.ino === right.ino
   );
 }
 
@@ -303,7 +311,12 @@ function openCachedBinary(bin) {
     if (process.platform !== "win32" && typeof noFollow !== "number") return null;
     fd = fs.openSync(bin, fs.constants.O_RDONLY | noFollow);
     const openedStat = fs.fstatSync(fd);
-    if (!openedStat.isFile() || !sameFileIdentity(linkStat, openedStat)) {
+    // Windows callers copy verified bytes from this handle into a private
+    // snapshot, so they do not rely on a later path lookup for identity.
+    if (
+      !openedStat.isFile() ||
+      (process.platform !== "win32" && !sameFileIdentity(linkStat, openedStat))
+    ) {
       fs.closeSync(fd);
       fd = undefined;
       return null;
@@ -342,7 +355,11 @@ function readVerifiedCachedBinary(fd, expected) {
   if (!before.isFile()) return null;
   const data = fs.readFileSync(fd);
   const after = fs.fstatSync(fd);
-  if (!after.isFile() || !sameFileIdentity(before, after) || after.size !== data.length) {
+  if (
+    !after.isFile() ||
+    (process.platform !== "win32" && !sameFileIdentity(before, after)) ||
+    after.size !== data.length
+  ) {
     return null;
   }
   const actual = Buffer.from(digestHex(data), "hex");
@@ -428,7 +445,12 @@ function snapshotVerifiedCachedBinary(candidate) {
     ) {
       return null;
     }
-    if (!cachedBinaryPathIsUnchanged(candidate.bin, verified.stat)) return null;
+    if (
+      process.platform !== "win32" &&
+      !cachedBinaryPathIsUnchanged(candidate.bin, verified.stat)
+    ) {
+      return null;
+    }
     snapshotDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-tui-launch-"));
     snapshot = path.join(snapshotDirectory, BIN_NAME);
     snapshotFd = fs.openSync(
@@ -1701,8 +1723,13 @@ function removeCachedPayload(version) {
 }
 
 // Download pkg@version from the registry, verify integrity, extract bin/
-// into the launcher cache. Returns the binary path.
-async function downloadVersion(pkg, version) {
+// into the launcher cache. Returns the binary path, or a verified candidate
+// when the caller will create a private launch snapshot.
+async function downloadVersion(
+  pkg,
+  version,
+  { verifyCache = true, returnCandidate = false } = {}
+) {
   const meta = await fetchJson(`${registryBase()}/${pkg}/${version}`, {
     packageName: pkg,
     selector: version,
@@ -1794,9 +1821,30 @@ async function downloadVersion(pkg, version) {
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
   }
-  const binPath = cachedBinary(version);
-  if (!binPath) throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
-  return binPath;
+  const finalPath = path.join(finalDir, BIN_NAME);
+  if (!verifyCache) {
+    let stat;
+    try {
+      stat = fs.lstatSync(finalPath);
+    } catch {
+      stat = null;
+    }
+    if (!stat || !stat.isFile()) {
+      throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
+    }
+  } else {
+    const binPath = cachedBinary(version);
+    if (!binPath) throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
+  }
+  if (returnCandidate) {
+    const expected = entries.find((entry) => entry.name === BIN_NAME);
+    if (!expected) throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
+    return {
+      path: finalPath,
+      candidate: { bin: finalPath, expected: digestHex(expected.data) },
+    };
+  }
+  return finalPath;
 }
 
 function isManagedCacheVersion(versionRoot) {
@@ -1924,7 +1972,12 @@ function wantedVersion(pkg) {
   return pinned;
 }
 
-async function resolveBinary(pkg, wanted, cachedCandidate = null) {
+async function resolveBinary(
+  pkg,
+  wanted,
+  cachedCandidate = null,
+  { snapshotCache = false } = {}
+) {
   const override = process.env.CMUX_TUI_BIN;
   if (override) {
     if (!fs.existsSync(override)) fail("configured native binary override does not exist");
@@ -1936,15 +1989,27 @@ async function resolveBinary(pkg, wanted, cachedCandidate = null) {
   if (installed && installed.version === wanted) {
     return installed.binPath;
   }
-  const cached = cachedBinary(wanted, cachedCandidate);
-  if (cached) return cached;
+  if (snapshotCache && cachedCandidate) {
+    const snapshot = snapshotVerifiedCachedBinary(cachedCandidate);
+    if (snapshot) return { path: snapshot.path, snapshot };
+  } else {
+    const cached = cachedBinary(wanted, cachedCandidate);
+    if (cached) return cached;
+  }
 
   // Check the runtime before entering the generic download error boundary so
   // an unsupported Node version gets a useful, actionable message instead of
   // being flattened into a network failure.
   requireNetworkRuntime();
   try {
-    return await downloadVersion(pkg, wanted);
+    const downloaded = await downloadVersion(pkg, wanted, {
+      verifyCache: !snapshotCache,
+      returnCandidate: snapshotCache,
+    });
+    if (!snapshotCache) return downloaded;
+    const snapshot = snapshotVerifiedCachedBinary(downloaded.candidate);
+    if (!snapshot) fail("the cached native binary changed before launch");
+    return { path: snapshot.path, snapshot };
   } catch {
     fail(
       "could not obtain the native binary. Check network access or install " +
@@ -2012,7 +2077,12 @@ async function runUpdate(pkg, args) {
     }
     lease = await acquireVersionLeaseForProcess(latest);
     if (!lease) fail("could not reserve the native binary for update");
-    await downloadVersion(pkg, latest);
+    // Update never executes the returned path. On Windows, let the launch
+    // path use its private snapshot fallback when file IDs are unavailable;
+    // the tarball integrity check still validates every extracted byte here.
+    await downloadVersion(pkg, latest, {
+      verifyCache: process.platform !== "win32",
+    });
     writeState({
       version: latest,
       channel,
@@ -2087,7 +2157,18 @@ async function main() {
       if (!launchSnapshot) fail("the cached native binary changed before launch");
       binPath = launchSnapshot.path;
     } else if (!binPath) {
-      binPath = await resolveBinary(pkg, wanted, cachedCandidate);
+      const resolved = await resolveBinary(pkg, wanted, cachedCandidate, {
+        // Windows does not guarantee path identity through every supported
+        // Node filesystem build. Resolve cache hits into a private snapshot
+        // so the spawned path cannot be replaced after digest verification.
+        snapshotCache: process.platform === "win32",
+      });
+      if (resolved && typeof resolved === "object" && resolved.snapshot) {
+        launchSnapshot = resolved.snapshot;
+        binPath = resolved.path;
+      } else {
+        binPath = resolved;
+      }
     }
     if (lease) pruneCache(wanted);
     const result = spawnSync(binPath, args, { stdio: "inherit" });
