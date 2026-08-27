@@ -17,12 +17,6 @@ final class CmuxWebView: WKWebView {
     /// must pass the browser URL policy's trusted-load seam. Page callbacks
     /// never add to this set.
     private var trustedInternalNavigationURLs: Set<String> = []
-    /// The currently committed document that was loaded through that seam.
-    /// Keeping only the current document preserves reload/history and live
-    /// policy enforcement without granting page scripts a scheme-wide bypass.
-    private var trustedInternalDocumentURL: URL?
-    /// A trusted navigation that has started but has not committed yet.
-    private var pendingTrustedInternalDocumentURL: URL?
 
     @MainActor
     func markTrustedInternalNavigation(_ url: URL) {
@@ -31,50 +25,12 @@ final class CmuxWebView: WKWebView {
 
     @MainActor
     func consumeTrustedInternalNavigation(_ url: URL) -> Bool {
-        guard trustedInternalNavigationURLs.remove(url.absoluteString) != nil else {
-            return false
-        }
-        pendingTrustedInternalDocumentURL = url
-        return true
+        trustedInternalNavigationURLs.remove(url.absoluteString) != nil
     }
 
     @MainActor
-    func commitTrustedInternalDocument(_ url: URL) {
-        guard pendingTrustedInternalDocumentURL != nil else { return }
-        trustedInternalDocumentURL = url
-        pendingTrustedInternalDocumentURL = nil
-    }
-
-    @MainActor
-    func failTrustedInternalNavigation() {
+    func resetTrustedInternalNavigationState() {
         trustedInternalNavigationURLs.removeAll()
-        pendingTrustedInternalDocumentURL = nil
-    }
-
-    @MainActor
-    func isTrustedInternalDocument(_ url: URL) -> Bool {
-        guard let trustedURL = trustedInternalDocumentURL ?? pendingTrustedInternalDocumentURL else {
-            return false
-        }
-        if trustedURL.isFileURL || url.isFileURL {
-            return trustedURL.isFileURL
-                && url.isFileURL
-                && trustedURL.scheme?.lowercased() == url.scheme?.lowercased()
-                && trustedURL.host?.lowercased() == url.host?.lowercased()
-                && trustedURL.port == url.port
-                && trustedURL.user == url.user
-                && trustedURL.password == url.password
-                && trustedURL.path == url.path
-        }
-        return trustedURL.absoluteString == url.absoluteString
-    }
-
-    @MainActor
-    func clearTrustedInternalDocumentIfNeeded(for url: URL) {
-        guard !isTrustedInternalDocument(url) else { return }
-        trustedInternalNavigationURLs.removeAll()
-        pendingTrustedInternalDocumentURL = nil
-        trustedInternalDocumentURL = nil
     }
 
     // WebKit registers web-content edit commands on the view's `undoManager`;

@@ -122,15 +122,12 @@ import WebKit
             clearAttemptedRequest(discardPendingBypasses: true)
         }
         didCommit?(webView, navigation)
-        if isCurrentNavigation, let cmuxWebView = webView as? CmuxWebView {
-            if let committedURL = webView.url {
-                // The response callback consumes the one-shot delegate
-                // marker before commit; the WebView keeps the pending marker
-                // until this point so the document trust survives lifecycle
-                // callbacks.
-                cmuxWebView.commitTrustedInternalDocument(committedURL)
-                cmuxWebView.clearTrustedInternalDocumentIfNeeded(for: committedURL)
-            }
+        if isCurrentNavigation, let committedURL = webView.url {
+            // The response callback consumes the one-shot delegate marker
+            // before commit; the panel keeps the pending marker until this
+            // point so document trust survives WebView replacement.
+            owner?.commitTrustedLocalFileNavigation(committedURL)
+            owner?.clearTrustedLocalFileDocumentIfNeeded(for: committedURL)
         }
         if isCurrentNavigation {
             trustedInternalNavigationURL = nil
@@ -141,11 +138,9 @@ import WebKit
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         didFinish?(webView)
-        if isCurrentNavigation,
-           let cmuxWebView = webView as? CmuxWebView,
-           let finishedURL = webView.url {
-            cmuxWebView.commitTrustedInternalDocument(finishedURL)
-            cmuxWebView.clearTrustedInternalDocumentIfNeeded(for: finishedURL)
+        if isCurrentNavigation, let finishedURL = webView.url {
+            owner?.commitTrustedLocalFileNavigation(finishedURL)
+            owner?.clearTrustedLocalFileDocumentIfNeeded(for: finishedURL)
         }
         if isCurrentNavigation {
             trustedInternalNavigationURL = nil
@@ -165,7 +160,7 @@ import WebKit
         let failedURL = webView.url?.absoluteString ?? ""
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
         if isCurrentNavigation {
-            (webView as? CmuxWebView)?.failTrustedInternalNavigation()
+            owner?.failTrustedLocalFileNavigation()
             trustedInternalNavigationURL = nil
         }
         clearActiveMainFrameNavigation(ifMatching: navigation)
@@ -175,7 +170,7 @@ import WebKit
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         if isCurrentNavigation {
             trustedInternalNavigationURL = nil
-            (webView as? CmuxWebView)?.failTrustedInternalNavigation()
+            owner?.failTrustedLocalFileNavigation()
         }
         let nsError = error as NSError
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
@@ -329,12 +324,11 @@ import WebKit
         if let url = navigationAction.request.url {
             let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
-            let cmuxWebView = webView as? CmuxWebView
             if isMainFrame, !isTrustedInternal {
-                cmuxWebView?.clearTrustedInternalDocumentIfNeeded(for: url)
+                owner?.clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
-                && cmuxWebView?.isTrustedInternalDocument(url) == true
+                && owner?.isTrustedLocalFileDocument(url) == true
             if !isTrustedInternal,
                !isTrustedDocument,
                url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
@@ -754,12 +748,11 @@ import WebKit
         if let url = navigationResponse.response.url {
             let isMainFrame = navigationResponse.isForMainFrame
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
-            let cmuxWebView = webView as? CmuxWebView
             if isMainFrame, !isTrustedInternal {
-                cmuxWebView?.clearTrustedInternalDocumentIfNeeded(for: url)
+                owner?.clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
-                && cmuxWebView?.isTrustedInternalDocument(url) == true
+                && owner?.isTrustedLocalFileDocument(url) == true
             if !isTrustedInternal,
                !isTrustedDocument,
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
@@ -883,8 +876,14 @@ import WebKit
               cmuxWebView.consumeTrustedInternalNavigation(url) else {
             return false
         }
+        owner?.beginTrustedLocalFileNavigation(url)
         trustedInternalNavigationURL = url
         return true
+    }
+
+    func resetTrustedInternalNavigationState() {
+        trustedInternalNavigationURL = nil
+        activeMainFrameNavigation = nil
     }
 
     /// Applies a newly changed policy to the currently displayed document.
@@ -892,9 +891,9 @@ import WebKit
         guard let url = displayURL ?? webView.url else { return }
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
         if policy.allows(url) { return }
-        if let cmuxWebView = webView as? CmuxWebView,
+        if let owner,
            url.isFileURL,
-           cmuxWebView.isTrustedInternalDocument(url),
+           owner.isTrustedLocalFileDocument(url),
            policy.allowsTrustedInternalURL(url) {
             return
         }

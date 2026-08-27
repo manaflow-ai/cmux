@@ -2307,6 +2307,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
     private(set) var navigationDelegate: BrowserNavigationDelegate?
+    private var trustedLocalFileURL: URL?
+    private var pendingTrustedLocalFileURL: URL?
     private var uiDelegate: BrowserUIDelegate?
     var downloadDelegate: BrowserDownloadDelegate?
     private let webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -3064,7 +3066,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
-        configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
+        configureMoveTabToNewWorkspaceContextMenu(for: webView)
+        navigationDelegate?.resetTrustedInternalNavigationState()
+        configureNavigationDelegateCallbacks()
         automationDocumentReadiness.bind(to: webViewInstanceID, hasCommittedDocument: webView.backForwardList.currentItem != nil)
         automationNavigationCoordinator.bind(to: webViewInstanceID)
         webView.cmuxDownloadDelegate = downloadDelegate
@@ -4969,6 +4973,8 @@ final class BrowserPanel: Panel, ObservableObject {
     func close() {
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        trustedLocalFileURL = nil
+        pendingTrustedLocalFileURL = nil
         automationNavigationCoordinator.invalidate()
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         mobileBrowserDialogBroker.resolveAll()
@@ -5396,6 +5402,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> WKNavigation? {
         let request = URLRequest(url: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        beginTrustedLocalFileNavigation(url)
         if !policy.allowsTrustedInternalURL(url) {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             onNavigationStarted?(nil)
@@ -5450,6 +5457,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         cancelHiddenWebViewDiscard()
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        if trustedInternalNavigation {
+            beginTrustedLocalFileNavigation(url)
+        }
         let policyAllowsURL = trustedInternalNavigation
             ? policy.allowsTrustedInternalURL(url)
             : policy.allows(url)
@@ -5532,12 +5542,18 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
+        let trustedInternalNavigation = BrowserURLAllowlistPolicy
+            .trustedInternalSchemes
+            .contains(originalURL.scheme?.lowercased() ?? "")
+        if trustedInternalNavigation {
+            beginTrustedLocalFileNavigation(originalURL)
+        } else {
+            clearTrustedLocalFileDocumentIfNeeded(for: originalURL)
+        }
         let startedNavigation = browserLoadRequest(
             effectiveRequest,
             in: webView,
-            trustedInternalNavigation: BrowserURLAllowlistPolicy
-                .trustedInternalSchemes
-                .contains(originalURL.scheme?.lowercased() ?? "")
+            trustedInternalNavigation: trustedInternalNavigation
         )
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
@@ -5978,6 +5994,8 @@ extension BrowserPanel {
 
         pageTitle = ""
         currentURL = nil
+        trustedLocalFileURL = nil
+        pendingTrustedLocalFileURL = nil
         renderedPDFDocumentURL = nil
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         faviconPNGData = nil
@@ -6038,6 +6056,52 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 }
 
 extension BrowserPanel {
+    func beginTrustedLocalFileNavigation(_ url: URL) {
+        guard url.isFileURL,
+              url.scheme?.lowercased() == "file",
+              BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else {
+            pendingTrustedLocalFileURL = nil
+            trustedLocalFileURL = nil
+            return
+        }
+        pendingTrustedLocalFileURL = url
+    }
+
+    func commitTrustedLocalFileNavigation(_ url: URL) {
+        guard pendingTrustedLocalFileURL != nil else { return }
+        pendingTrustedLocalFileURL = nil
+        trustedLocalFileURL = url.isFileURL
+            && url.scheme?.lowercased() == "file"
+            && BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url)
+            ? url
+            : nil
+    }
+
+    func failTrustedLocalFileNavigation() {
+        pendingTrustedLocalFileURL = nil
+    }
+
+    func isTrustedLocalFileDocument(_ url: URL) -> Bool {
+        guard let trustedURL = trustedLocalFileURL ?? pendingTrustedLocalFileURL else { return false }
+        return trustedURL.isFileURL
+            && url.isFileURL
+            && trustedURL.scheme?.lowercased() == url.scheme?.lowercased()
+            && trustedURL.host?.lowercased() == url.host?.lowercased()
+            && trustedURL.port == url.port
+            && trustedURL.user == url.user
+            && trustedURL.password == url.password
+            && trustedURL.path == url.path
+            && url.scheme?.lowercased() == "file"
+    }
+
+    func clearTrustedLocalFileDocumentIfNeeded(for url: URL) {
+        guard isTrustedLocalFileDocument(url) else {
+            pendingTrustedLocalFileURL = nil
+            trustedLocalFileURL = nil
+            return
+        }
+    }
+
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
@@ -6051,6 +6115,7 @@ extension BrowserPanel {
               BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else {
             return
         }
+        beginTrustedLocalFileNavigation(url)
         (webView as? CmuxWebView)?.markTrustedInternalNavigation(url)
     }
 

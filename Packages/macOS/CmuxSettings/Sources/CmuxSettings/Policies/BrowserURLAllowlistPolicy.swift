@@ -303,9 +303,9 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     /// and be hostless (or use the `localhost` host); network-host and relative
     /// file URLs remain denied.
     public func allowsTrustedInternalURL(_ url: URL) -> Bool {
-        guard isActive else { return true }
         guard let scheme = url.scheme?.lowercased() else { return false }
         if scheme == "file" { return isLocalFileURL(url) }
+        guard isActive else { return true }
         return Self.trustedInternalSchemes.contains(scheme) || allows(url)
     }
 
