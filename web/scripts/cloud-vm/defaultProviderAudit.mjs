@@ -2,9 +2,9 @@
 //
 // The 2026-08-26 outage: code shipped assuming CMUX_VM_DEFAULT_PROVIDER=blaxel
 // while production still said freestyle, and no BLAXEL_SANDBOX_IMAGE was set.
-// Key-presence auditing could not catch that; the default provider's VALUE has
-// to agree with the manifest. Everything here derives from manifest.json (each
-// entry carries its provider and env var), so a new provider cannot be added
+// Key-presence auditing could not catch that; provider VALUES have to agree
+// with the manifest. Image env vars derive from manifest.json (each entry
+// carries its provider and env var), so a new provider cannot be added
 // without this audit learning about it.
 
 /**
@@ -18,34 +18,32 @@ const PROVIDER_CREDENTIAL_KEYS = {
   blaxel: ["BL_API_KEY", "BL_WORKSPACE"],
 };
 
-// Mirrors defaultProviderId() in services/vms/drivers/index.ts.
-const CODE_DEFAULT_PROVIDER = "blaxel";
+// Mirrors defaultProviderId() in services/vms/drivers/index.ts. Shipped CLIs
+// also hardcode this provider's image ids (cmux.swift cloudVMDesktopImage /
+// cloudVMBaseImage), so it must stay provisionable in production even when
+// the env deliberately selects a different default as a rollback.
+export const CODE_DEFAULT_PROVIDER = "blaxel";
 
-/**
- * @param {Record<string, string | undefined>} env deployed runtime env values
- * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
- * @returns {{ provider: string, envVar: string | null, image: string | null, problems: string[] }}
- */
 // What `vercel env pull` writes for values it cannot decrypt. The default
 // provider and its image id are configuration, not secrets; stored as
 // Sensitive they become unauditable, which defeats this check.
 const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
 
-export function auditDefaultProviderImage(env, manifest) {
+/**
+ * Audit one provider: its image env var must name a validated manifest entry
+ * and its API credentials must exist.
+ *
+ * @param {string} provider
+ * @param {Record<string, string | undefined>} env deployed runtime env values
+ * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
+ * @returns {{ provider: string, envVar: string | null, image: string | null, problems: string[] }}
+ */
+export function auditProviderReadiness(provider, env, manifest) {
   const problems = [];
-  const rawProvider = (env.CMUX_VM_DEFAULT_PROVIDER ?? CODE_DEFAULT_PROVIDER).trim();
-  if (rawProvider === SENSITIVE_PLACEHOLDER) {
-    problems.push(
-      "CMUX_VM_DEFAULT_PROVIDER is stored as a Sensitive env var, so its value " +
-      "cannot be audited; store it as a plain env var (it is configuration, not a secret)",
-    );
-    return { provider: null, envVar: null, image: null, problems };
-  }
-  const provider = rawProvider;
   const entries = manifest.images.filter((entry) => entry.provider === provider);
   if (entries.length === 0) {
     problems.push(
-      `default provider ${provider} has no entries in the image manifest; ` +
+      `provider ${provider} has no entries in the image manifest; ` +
       "every imageless create will fail closed in deployed runtimes",
     );
     return { provider, envVar: null, image: null, problems };
@@ -55,8 +53,8 @@ export function auditDefaultProviderImage(env, manifest) {
   const image = env[envVar]?.trim() || null;
   if (!image) {
     problems.push(
-      `${envVar} is not set; deployed runtimes fail closed on imageless creates ` +
-      `for default provider ${provider}`,
+      `${envVar} is not set; deployed runtimes fail closed on imageless ` +
+      `creates for provider ${provider}`,
     );
   } else if (image === SENSITIVE_PLACEHOLDER) {
     problems.push(
@@ -80,9 +78,47 @@ export function auditDefaultProviderImage(env, manifest) {
 
   for (const key of PROVIDER_CREDENTIAL_KEYS[provider] ?? []) {
     if (!env[key]?.trim()) {
-      problems.push(`${key} is not set but ${provider} is the default provider`);
+      problems.push(`${key} is not set but provider ${provider} must be provisionable`);
     }
   }
 
   return { provider, envVar, image, problems };
+}
+
+/**
+ * Full coherence audit. Two legs:
+ * - the env-selected default provider (what imageless creates use), and
+ * - the code default (blaxel) whenever the env selects something else,
+ *   because shipped clients hardcode blaxel image ids: an env rollback to
+ *   another default must not leave blaxel unprovisionable. This second leg
+ *   is what would have caught the 2026-08-26 production env, where a fully
+ *   coherent freestyle default coexisted with clients that only send blaxel.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
+ * @returns {{ selected: object | null, codeDefault: object | null, problems: string[] }}
+ */
+export function auditCloudVmProviderCoherence(env, manifest) {
+  const rawProvider = (env.CMUX_VM_DEFAULT_PROVIDER ?? CODE_DEFAULT_PROVIDER).trim();
+  if (rawProvider === SENSITIVE_PLACEHOLDER) {
+    return {
+      selected: null,
+      codeDefault: null,
+      problems: [
+        "CMUX_VM_DEFAULT_PROVIDER is stored as a Sensitive env var, so its value " +
+        "cannot be audited; store it as a plain env var (it is configuration, not a secret)",
+      ],
+    };
+  }
+
+  const selected = auditProviderReadiness(rawProvider, env, manifest);
+  const problems = selected.problems.map((problem) => `default provider: ${problem}`);
+  let codeDefault = null;
+  if (rawProvider !== CODE_DEFAULT_PROVIDER) {
+    codeDefault = auditProviderReadiness(CODE_DEFAULT_PROVIDER, env, manifest);
+    problems.push(
+      ...codeDefault.problems.map((problem) => `code default (${CODE_DEFAULT_PROVIDER}): ${problem}`),
+    );
+  }
+  return { selected, codeDefault, problems };
 }

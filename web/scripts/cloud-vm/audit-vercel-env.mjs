@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { auditDefaultProviderImage } from "./defaultProviderAudit.mjs";
+import { auditCloudVmProviderCoherence } from "./defaultProviderAudit.mjs";
 import {
   forbiddenRuntimeEnvKeys,
   legacyCloudVmEnvKeys,
@@ -27,17 +27,18 @@ try {
   const legacyCloudVmPresent = legacyCloudVmEnvKeys.filter((key) => present.has(key));
 
   // Key presence alone missed the 2026-08-26 outage (stale
-  // CMUX_VM_DEFAULT_PROVIDER value): the default provider's image env value
-  // must exist in the image manifest the same deploy ships.
+  // CMUX_VM_DEFAULT_PROVIDER value): provider VALUES must exist in the image
+  // manifest the same deploy ships, for the env-selected default AND for the
+  // code default that shipped clients hardcode.
   const manifest = JSON.parse(
     readFileSync(path.join(webDir, "services", "vms", "images", "manifest.json"), "utf8"),
   );
-  const defaultProvider = auditDefaultProviderImage(env, manifest);
+  const providerCoherence = auditCloudVmProviderCoherence(env, manifest);
 
   const result = {
     ok: missingRequired.length === 0 &&
       forbiddenPresent.length === 0 &&
-      defaultProvider.problems.length === 0,
+      providerCoherence.problems.length === 0,
     target,
     project: project.projectName,
     envKeyCount: keys.length,
@@ -46,7 +47,7 @@ try {
     missingRecommended,
     forbiddenPresent,
     legacyCloudVmPresent,
-    defaultProvider,
+    providerCoherence,
   };
 
   console.log(JSON.stringify(result, null, 2));
