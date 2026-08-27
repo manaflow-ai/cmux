@@ -382,4 +382,107 @@ import CmuxGit
         await descriptorReader.resumeNext(with: nil)
         service.resetAllWorkspaceGitProbeTracking()
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func symlinkRetargetRebindsTheResolvedCreationWatcher() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let firstTargetDirectory = fixture.root.appendingPathComponent(
+            "first-target",
+            isDirectory: true
+        )
+        let secondTargetDirectory = fixture.root.appendingPathComponent(
+            "second-target",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: firstTargetDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: secondTargetDirectory,
+            withIntermediateDirectories: true
+        )
+        let logicalLink = fixture.root.appendingPathComponent("retarget-link")
+        try FileManager.default.createSymbolicLink(
+            atPath: logicalLink.path,
+            withDestinationPath: firstTargetDirectory.path
+        )
+        let targetPath = logicalLink.appendingPathComponent("future.inc").path
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "retarget-first",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
+            creationWatchPaths: [targetPath]
+        ))
+        var logIterator = logEvents.makeAsyncIterator()
+        _ = try #require(await logIterator.next())
+
+        try FileManager.default.removeItem(at: logicalLink)
+        try FileManager.default.createSymbolicLink(
+            atPath: logicalLink.path,
+            withDestinationPath: secondTargetDirectory.path
+        )
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        service.workspaceGitMetadataDegradationLoggedRepositoryRoots.remove(fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "retarget-second",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
+            creationWatchPaths: [targetPath]
+        ))
+        _ = try #require(await logIterator.next())
+
+        let resolvedSecondTarget = secondTargetDirectory.resolvingSymlinksInPath().path
+        #expect(
+            service.workspaceGitMetadataCreationWatcherAncestorByTargetPath[targetPath]
+                == resolvedSecondTarget
+        )
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
+
+    @Test func externalCreationWatchAncestorIsRejected() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let targetPath = "/private/var/cmux-external-\(UUID().uuidString)/future.inc"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "external-scope",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
+            creationWatchPaths: [targetPath]
+        ))
+        var logIterator = logEvents.makeAsyncIterator()
+        _ = try #require(await logIterator.next())
+
+        #expect(service.workspaceGitMetadataCreationWatchersByAncestor.isEmpty)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
 }
