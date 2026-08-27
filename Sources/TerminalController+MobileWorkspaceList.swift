@@ -264,6 +264,7 @@ extension TerminalController {
         }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
+        let unreadCount = store?.unreadCount(forTabId: workspace.id) ?? 0
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
@@ -299,7 +300,11 @@ extension TerminalController {
             // Mirrors the Mac sidebar's workspace unread badge (notification
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
-            "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            "has_unread": unreadCount > 0,
+            // The badge's exact number (same TerminalNotificationStore count the
+            // Mac sidebar renders). Kept alongside has_unread so released phones
+            // that only know the boolean keep working.
+            "unread_count": unreadCount,
             "terminals": terminals,
             "surfaces": surfaces,
             "simulators": simulators

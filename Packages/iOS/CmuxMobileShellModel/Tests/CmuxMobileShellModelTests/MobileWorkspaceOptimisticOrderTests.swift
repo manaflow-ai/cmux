@@ -113,7 +113,7 @@ import Testing
 
         #expect(expanded.map(\.id) == ["group.g", "workspace.member", "groupFooter.g"])
         #expect(collapsed.map(\.id) == ["group.g"])
-        guard case .groupHeader(_, hasUnread: true) = collapsed[0] else {
+        guard case .groupHeader(_, let unread) = collapsed[0], unread.isUnread else {
             Issue.record("Collapsed header did not rematerialize its aggregate unread state")
             return
         }
