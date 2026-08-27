@@ -193,45 +193,40 @@ pub(crate) fn wait_for_shutdown_signal() {
 }
 
 #[cfg(unix)]
-pub(crate) async fn wait_for_shutdown_signal_async() {
+pub(crate) async fn wait_for_shutdown_signal_async() -> bool {
     if shutdown_requested() {
-        return;
+        return true;
     }
     let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
     if reader < 0 {
-        return;
+        return std::future::pending::<bool>().await;
     }
     let duplicate = unsafe { libc::dup(reader) };
     if duplicate < 0 {
-        return;
+        return std::future::pending::<bool>().await;
     }
     let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
     if stream.set_nonblocking(true).is_err() {
-        return;
+        return std::future::pending::<bool>().await;
     }
     let stream = match tokio::net::UnixStream::from_std(stream) {
         Ok(stream) => stream,
-        Err(_) => return,
+        Err(_) => return std::future::pending::<bool>().await,
     };
     loop {
         if shutdown_requested() {
-            return;
+            return true;
         }
         if stream.readable().await.is_err() {
-            return;
+            return std::future::pending::<bool>().await;
         }
         let mut byte = [0_u8; 1];
         match stream.try_read(&mut byte) {
-            Ok(_) => return,
+            Ok(_) => return true,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
-            Err(_) => return,
+            Err(_) => return std::future::pending::<bool>().await,
         }
     }
-}
-
-#[cfg(not(unix))]
-pub(crate) async fn wait_for_shutdown_signal_async() {
-    std::future::pending::<()>().await;
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
