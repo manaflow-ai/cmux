@@ -188,6 +188,8 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
+            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase) },
+            surfaceProjections: surfaceProjectionRecordsForSession,
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
@@ -250,6 +252,9 @@ extension Workspace {
         } else {
             disconnectRemoteConnection(clearConfiguration: true)
         }
+        // The binding survives restore so the machine's workspace is found again; its pane's
+        // link was a process and is not reconnected here (a fresh open re-attaches).
+        cloudVMBinding = Self.restoredCloudVMBinding(from: snapshot.cloudVM)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -366,6 +371,7 @@ extension Workspace {
         if startupRestoreCommitOwner == .workspaceTopology {
             terminalStartupRestoreCoordinator.commitPendingRestores()
         }
+        restoreSurfaceProjections(snapshot.surfaceProjections, oldToNewPanelIds: oldToNewPanelIds)
         return oldToNewPanelIds
     }
 
@@ -2345,6 +2351,24 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
+/// A cloud machine bound to a workspace through the cmux-tui remote daemon
+/// (`cmux vm shell`/`vm new`/`vm base open`). See `Workspace.cloudVMBinding`.
+struct WorkspaceCloudVMBinding: Equatable, Sendable {
+    let vmID: String
+    /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
+    let isBase: Bool
+
+    /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
+    static func normalizedVMID(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
     enum BrowserPanelCreationPolicy {
         case userInitiated
@@ -2605,6 +2629,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         set { paneTree.paneLayoutVersion = newValue }
     }
 
+    /// Panes being moved to another workspace: their surface projection moves with them
+    /// instead of ending when they leave this one (see `Workspace+SurfaceCatalog.swift`).
+    var surfaceTransferringPanelIds: Set<UUID> = []
+
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
@@ -2705,7 +2733,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
+    @Published var panelDirectories: [UUID: String] = [:] {
+        didSet { surfaceCatalogPanelMetadataDidChange(old: oldValue, new: panelDirectories) }
+    }
     /// Optional human-friendly sidebar label per panel, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
@@ -2717,7 +2747,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.panelDirectoryDisplayLabels }
         set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
     }
-    @Published var panelTitles: [UUID: String] = [:]
+    @Published var panelTitles: [UUID: String] = [:] {
+        didSet { surfaceCatalogPanelMetadataDidChange(old: oldValue, new: panelTitles) }
+    }
     @Published var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
@@ -2796,6 +2828,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
+    /// The cloud machine whose cmux-tui session runs in this workspace's pane. Unlike
+    /// `remoteConfiguration` (app-managed SSH/websocket transports) the session belongs
+    /// to the pane's own `cmux vm-tui-connect` process, so this binding is what the
+    /// Machines panel, the sidebar cloud button, and `cmux vm desktop` use to find the
+    /// machine's workspace. Set through `workspace.cloud_vm_bind` and persisted in the
+    /// session snapshot (`SessionWorkspaceSnapshot.cloudVM`); the pane's one-shot link is
+    /// not replayed on restore, only the binding is.
+    @Published var cloudVMBinding: WorkspaceCloudVMBinding?
+
+    /// The binding a session snapshot restores, or nil when the snapshot has none or its
+    /// machine id is malformed.
+    static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
+        guard let snapshot, let vmID = WorkspaceCloudVMBinding.normalizedVMID(snapshot.vmID) else { return nil }
+        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase)
+    }
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness
@@ -6367,6 +6414,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             payload["local_proxy_port"] = NSNull()
             payload["persistent_daemon_slot"] = NSNull()
         }
+        // A cmux-tui workspace reports its machine under the same key the managed
+        // transports use, so `cmux vm desktop`/the Machines panel find it either way.
+        if let binding = cloudVMBinding {
+            if remoteConfiguration?.managedCloudVMID?.isEmpty != false {
+                payload["managed_cloud_vm_id"] = binding.vmID
+            }
+            payload["cloud_vm_id"] = binding.vmID
+            payload["cloud_vm_base"] = binding.isBase
+            payload["cloud_vm_transport"] = "cmux-remote"
+        } else {
+            payload["cloud_vm_id"] = NSNull()
+            payload["cloud_vm_base"] = NSNull()
+            payload["cloud_vm_transport"] = NSNull()
+        }
         return payload
     }
 
@@ -6915,11 +6976,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     var isManagedCloudVMWorkspace: Bool {
-        guard let managedCloudVMID = remoteConfiguration?.managedCloudVMID?
-            .trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return false
+        cloudVMID != nil
+    }
+
+    /// The cloud machine this workspace hosts, through either transport: the legacy
+    /// remote configuration (`managedCloudVMID`) or the cmux-tui binding. Nil for
+    /// workspaces that are not cloud machines.
+    var cloudVMID: String? {
+        if let managedCloudVMID = remoteConfiguration?.managedCloudVMID?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !managedCloudVMID.isEmpty {
+            return managedCloudVMID
         }
-        return !managedCloudVMID.isEmpty
+        return cloudVMBinding?.vmID
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
@@ -10273,6 +10341,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
+        surfaceTransferringPanelIds.insert(panelId)
+        defer { surfaceTransferringPanelIds.remove(panelId) }
         if let terminalPanel = sourcePanel as? TerminalPanel {
             terminalFontSizeChangeCoordinator?
                 .terminalWillLeaveWorkspace(
@@ -12477,6 +12547,7 @@ extension Workspace: PaneTreeHosting {
     /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
     /// Combine bridge at the exact timing `@Published` used.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
+        surfaceCatalogPanelsWillChange(to: newValue)
         objectWillChange.send()
         setBrowserMediaActivity(
             currentBrowserMediaActivity(panels: newValue),
