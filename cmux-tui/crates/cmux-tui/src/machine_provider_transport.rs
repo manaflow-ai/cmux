@@ -505,6 +505,7 @@ fn spawn_command(
     command
         .args(arguments)
         .env_remove("CMUX_MACHINE_PROVIDER_TOKEN")
+        .env_remove("CMUX_PROVIDER_WORKSPACE_AUTHORITY")
         .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -859,8 +860,10 @@ mod tests {
         wait_for_file(&complete);
         let recorded_environment = fs::read_to_string(environment).expect("read environment");
         assert!(!recorded_environment.contains("CMUX_MACHINE_PROVIDER_TOKEN=provider-token-test"));
-        assert!(!recorded_environment
-            .contains("CMUX_PROVIDER_WORKSPACE_AUTHORITY=provider-authority-test"));
+        assert!(
+            !recorded_environment
+                .contains("CMUX_PROVIDER_WORKSPACE_AUTHORITY=provider-authority-test")
+        );
         drop(control);
         unsafe {
             std::env::remove_var("CMUX_MACHINE_PROVIDER_TOKEN");
