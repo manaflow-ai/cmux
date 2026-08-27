@@ -571,6 +571,10 @@ final class SurfaceCatalog {
     private func evictRetiredMaterialization(_ token: UUID) {
         guard retiredMaterializationTokens.remove(token) != nil else { return }
         retiredMaterializationEvictionTasks.removeValue(forKey: token)?.cancel()
+        // The provider may ignore cancellation and never report a result. Once the bounded
+        // retirement window ends, stop counting that operation against its machine. A later
+        // completion releases the token idempotently and still receives stale-result cleanup.
+        releaseTrackedMaterialization(token)
     }
 
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
