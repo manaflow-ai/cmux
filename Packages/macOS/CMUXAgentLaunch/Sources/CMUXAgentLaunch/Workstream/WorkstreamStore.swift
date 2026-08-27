@@ -58,11 +58,11 @@ public final class WorkstreamStore {
     ///   - initialLoadLimit: Maximum persisted item count loaded at startup.
     ///   - historyPageSize: Page size for older persisted history.
     ///   - clock: Clock used for timestamps and expiry checks.
-    ///   - titleProvider: App boundary hook for localized display titles.
     ///   - workstreamIDNormalizer: Optional migration for legacy ids loaded
     ///     from persistence or received from a producer. The second argument
     ///     is the raw producer identity, including registered agents not yet
     ///     represented by ``WorkstreamSource``.
+    ///   - titleProvider: App boundary hook for localized display titles.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
@@ -70,10 +70,10 @@ public final class WorkstreamStore {
         initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
         historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
         clock: @escaping @Sendable () -> Date = { Date() },
-        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil },
         workstreamIDNormalizer: @escaping @Sendable (String, String) -> String = { rawValue, _ in
             rawValue
-        }
+        },
+        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil }
     ) {
         self.transport = transport
         self.persistence = persistence
