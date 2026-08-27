@@ -2,6 +2,7 @@
 
 /// CDP transport backed by one loopback WebSocket.
 actor ChromiumCDPWebSocketTransport: ChromiumCDPTransport {
+    private static let messageBufferCapacity = 512
     private let endpoint: URL
     private let session: URLSession
     private let messageStream: AsyncStream<Result<Data, CDPError>>
@@ -16,7 +17,9 @@ actor ChromiumCDPWebSocketTransport: ChromiumCDPTransport {
         }
         self.endpoint = endpoint
         self.session = session
-        let pair = AsyncStream<Result<Data, CDPError>>.makeStream()
+        let pair = AsyncStream<Result<Data, CDPError>>.makeStream(
+            bufferingPolicy: .bufferingOldest(Self.messageBufferCapacity)
+        )
         self.messageStream = pair.stream
         self.messageContinuation = pair.continuation
     }
@@ -70,9 +73,9 @@ actor ChromiumCDPWebSocketTransport: ChromiumCDPTransport {
                 let message = try await expectedSocket.receive()
                 switch message {
                 case .string(let text):
-                    messageContinuation.yield(.success(Data(text.utf8)))
+                    guard accept(Data(text.utf8)) else { return }
                 case .data(let data):
-                    messageContinuation.yield(.success(data))
+                    guard accept(data) else { return }
                 @unknown default:
                     throw CDPError.malformedMessage
                 }
@@ -85,6 +88,37 @@ actor ChromiumCDPWebSocketTransport: ChromiumCDPTransport {
             }
             receiveLoopDidEnd(socket: expectedSocket, error: error)
         }
+    }
+
+    /// Enqueues one wire message while enforcing the transport-level bound.
+    /// If the consumer cannot keep up, fail the connection rather than
+    /// silently dropping a command response or lifecycle event.
+    private func accept(_ data: Data) -> Bool {
+        switch messageContinuation.yield(.success(data)) {
+        case .enqueued:
+            return true
+        case .terminated:
+            return false
+        case .dropped:
+            terminateForBufferOverflow()
+            return false
+        @unknown default:
+            terminateForBufferOverflow()
+            return false
+        }
+    }
+
+    private func terminateForBufferOverflow() {
+        guard !isClosed else { return }
+        isClosed = true
+        receiverTask?.cancel()
+        receiverTask = nil
+        socket?.cancel(with: .goingAway, reason: nil)
+        socket = nil
+        _ = messageContinuation.yield(
+            .failure(.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message))
+        )
+        messageContinuation.finish()
     }
 
     private func receiveLoopDidEnd(

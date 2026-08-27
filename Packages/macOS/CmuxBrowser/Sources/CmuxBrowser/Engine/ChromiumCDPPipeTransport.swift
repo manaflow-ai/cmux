@@ -3,6 +3,7 @@ import Foundation
 
 /// Null-delimited CDP transport over Chromium's private inherited descriptors.
 actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
+    private static let messageBufferCapacity = 512
     private static let maximumMessageBytes = 100 * 1024 * 1024
     private static let writeDeadline: Duration = .seconds(15)
 
@@ -37,7 +38,9 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
             Darwin.close(responseDescriptor)
             throw error
         }
-        let pair = AsyncStream<Result<Data, CDPError>>.makeStream()
+        let pair = AsyncStream<Result<Data, CDPError>>.makeStream(
+            bufferingPolicy: .bufferingOldest(Self.messageBufferCapacity)
+        )
         self.messageStream = pair.stream
         self.messageContinuation = pair.continuation
         let writeQueue = DispatchQueue(label: "com.cmux.chromium.cdp-pipe-writer", qos: .userInitiated)
@@ -62,7 +65,13 @@ actor ChromiumCDPPipeTransport: ChromiumCDPTransport {
                 readBuffer.read(
                     from: responseDescriptor,
                     onMessage: { message in
-                        pair.continuation.yield(.success(message))
+                    guard case .enqueued = pair.continuation.yield(.success(message)) else {
+                        _ = pair.continuation.yield(
+                            .failure(.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message))
+                        )
+                        pair.continuation.finish()
+                        return
+                    }
                     },
                     onEnd: { hasPartialMessage, errorCode in
                         if hasPartialMessage {
