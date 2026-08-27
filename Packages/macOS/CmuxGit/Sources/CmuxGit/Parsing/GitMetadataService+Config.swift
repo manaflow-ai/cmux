@@ -23,6 +23,8 @@ extension GitMetadataService {
         static let maximumDiscoveredRemoteURLAssociationCount = 8_192
         static let maximumHasConfigConditionCount = 1_024
         static let maximumHasConfigMatchOperationCount = 65_536
+        static let maximumURLRewriteCount = 4_096
+        static let maximumURLRewriteMatchOperationCount = 65_536
 
         var fileCount = 0
         var byteCount = 0
@@ -333,6 +335,20 @@ extension GitMetadataService {
             }
             outputByteCount += byteCount
             return true
+        }
+
+        mutating func recordURLRewrite(
+            replacement: String,
+            prefix: String
+        ) {
+            guard !exceeded else { return }
+            guard urlRewrites.count < Self.maximumURLRewriteCount else {
+                exceeded = true
+                return
+            }
+            urlRewrites.append(
+                GitRemoteURLRewrite(replacement: replacement, prefix: prefix)
+            )
         }
 
         mutating func recordRemoteURL(
@@ -810,8 +826,9 @@ extension GitMetadataService {
                parts[0].lowercased() == "insteadof" {
                 let prefix = gitConfigUnquotedValue(parts[1])
                 if !prefix.isEmpty {
-                    budget.urlRewrites.append(
-                        GitRemoteURLRewrite(replacement: replacement, prefix: prefix)
+                    budget.recordURLRewrite(
+                        replacement: replacement,
+                        prefix: prefix
                     )
                 }
                 continue
@@ -928,6 +945,11 @@ extension GitMetadataService {
         rewrites: [GitRemoteURLRewrite]
     ) -> String? {
         guard !rewrites.isEmpty else { return output }
+        let lines = output.split(whereSeparator: \.isNewline)
+        guard lines.count <= GitConfigTraversalBudget.maximumURLRewriteMatchOperationCount
+                / rewrites.count else {
+            return nil
+        }
         let orderedRewrites = rewrites.sorted {
             if $0.prefix.count != $1.prefix.count {
                 return $0.prefix.count > $1.prefix.count
@@ -936,7 +958,7 @@ extension GitMetadataService {
         }
         var rewrittenOutput = ""
         var rewrittenByteCount = 0
-        for line in output.split(whereSeparator: \.isNewline) {
+        for line in lines {
             let parts = line.split(whereSeparator: \.isWhitespace)
             let rewrittenLine: String
             guard parts.count >= 3, parts[2] == "(fetch)" else {
@@ -1128,26 +1150,6 @@ extension GitMetadataService {
                 homeDirectory: homeDirectory
             )
         }
-        if lowercasedCondition.hasPrefix("worktree/i:") {
-            let pattern = String(condition.dropFirst("worktree/i:".count))
-            return gitConfigWorktreePatternMatches(
-                pattern,
-                repository: repository,
-                caseInsensitive: true,
-                configURL: configURL,
-                homeDirectory: homeDirectory
-            )
-        }
-        if lowercasedCondition.hasPrefix("worktree:") {
-            let pattern = String(condition.dropFirst("worktree:".count))
-            return gitConfigWorktreePatternMatches(
-                pattern,
-                repository: repository,
-                caseInsensitive: false,
-                configURL: configURL,
-                homeDirectory: homeDirectory
-            )
-        }
         if lowercasedCondition.hasPrefix("onbranch:") {
             var pattern = String(condition.dropFirst("onbranch:".count))
             // Per git, an onbranch pattern ending in "/" matches the whole
@@ -1181,25 +1183,6 @@ extension GitMetadataService {
         return gitConfigPathPatternMatches(
             pattern,
             candidates: candidates,
-            caseInsensitive: caseInsensitive,
-            configURL: configURL,
-            homeDirectory: homeDirectory
-        )
-    }
-
-    private nonisolated static func gitConfigWorktreePatternMatches(
-        _ pattern: String,
-        repository: ResolvedGitRepository,
-        caseInsensitive: Bool,
-        configURL: URL,
-        homeDirectory: URL
-    ) -> Bool {
-        guard !repository.workTreeRoot.isEmpty else { return false }
-        return gitConfigPathPatternMatches(
-            pattern,
-            candidates: [
-                URL(fileURLWithPath: repository.workTreeRoot).standardizedFileURL.path
-            ],
             caseInsensitive: caseInsensitive,
             configURL: configURL,
             homeDirectory: homeDirectory
