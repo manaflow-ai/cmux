@@ -2029,7 +2029,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// receives its own Chromium user-data directory.
     let chromiumStorageID: UUID
     private let chromiumRemoteDebuggingPort: ChromiumRemoteDebuggingPort
-    private let chromiumStartPrerequisite: Task<Bool, Never>?
+    let chromiumStartPrerequisite: Task<Bool, Never>?
 
     /// The underlying web view
     private(set) var webView: WKWebView
