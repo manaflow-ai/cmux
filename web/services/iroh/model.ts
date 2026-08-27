@@ -241,6 +241,51 @@ export function parseRevokeBindingBody(value: unknown): {
   return result;
 }
 
+/// A pkarr SignedPacket is 32 (public key) + 64 (signature) + 8 (timestamp)
+/// header bytes plus a bounded DNS packet (<= 1000 bytes upstream).
+export const IROH_ENDPOINT_RECORD_MIN_BYTES = 105;
+export const IROH_ENDPOINT_RECORD_MAX_BYTES = 1_200;
+
+export function parsePublishEndpointRecordBody(value: unknown): {
+  readonly bindingId: string;
+  readonly record: string;
+  readonly recordEndpointId: string;
+} {
+  const body = record(value);
+  const bindingId = uuid(body.bindingId, "invalid_binding_id");
+  if (
+    typeof body.record !== "string"
+    || !/^[A-Za-z0-9+/]{1,1600}={0,2}$/.test(body.record)
+  ) {
+    throw new IrohInvalidInputError({ code: "invalid_endpoint_record" });
+  }
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(body.record, "base64");
+  } catch {
+    throw new IrohInvalidInputError({ code: "invalid_endpoint_record" });
+  }
+  if (
+    decoded.length < IROH_ENDPOINT_RECORD_MIN_BYTES
+    || decoded.length > IROH_ENDPOINT_RECORD_MAX_BYTES
+    || decoded.toString("base64").replace(/=+$/, "") !== body.record.replace(/=+$/, "")
+  ) {
+    throw new IrohInvalidInputError({ code: "invalid_endpoint_record" });
+  }
+  // The record's signing public key leads the serialized packet. Write
+  // admission requires it to match the authenticated binding's endpoint id;
+  // the ed25519 signature itself is verified by readers (the app's Rust
+  // layer), never trusted from this storage.
+  const recordEndpointId = decoded.subarray(0, 32).toString("hex");
+  const result = {
+    bindingId,
+    record: decoded.toString("base64"),
+    recordEndpointId,
+  } as const;
+  rejectUnknownKeys(body, ["bindingId", "record"]);
+  return result;
+}
+
 export function parsePairGrantRequest(value: unknown): {
   readonly initiatorBindingId: string;
   readonly acceptorBindingId: string;

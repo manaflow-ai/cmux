@@ -230,6 +230,13 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     private struct BindingRequest: Encodable { let bindingId: String }
+    private struct PublishEndpointRecordRequest: Encodable {
+        let bindingId: String
+        let record: String
+    }
+    private struct PublishEndpointRecordResponse: Decodable, Sendable {
+        let published: Bool
+    }
     private struct RelayPolicyBootstrapResponse: Decodable, Sendable {
         let policy: String
         let preference: CmxIrohAccountRelayConfiguration
@@ -476,6 +483,29 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     /// Revokes the caller's own binding.
+    /// Uploads this endpoint's own signed pkarr record as an opaque blob
+    /// attached to its active binding. The broker checks write admission
+    /// (binding-request proof, size, key match); readers re-verify the
+    /// record signature themselves, so broker storage stays untrusted.
+    public func publishEndpointRecord(bindingID: String, record: Data) async throws {
+        guard !record.isEmpty,
+              record.count <= CmxIrohBrokerBinding.maximumEndpointRecordByteCount else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        let response: PublishEndpointRecordResponse = try await send(
+            path: "api/devices/iroh/endpoint-record",
+            method: "POST",
+            body: PublishEndpointRecordRequest(
+                bindingId: bindingID,
+                record: record.base64EncodedString()
+            ),
+            operation: .endpointRecord
+        )
+        guard response.published else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
     public func revoke(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",

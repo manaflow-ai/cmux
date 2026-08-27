@@ -1528,7 +1528,7 @@ private struct MobileIrohSignOutFixture {
                 secureStore: offlineStore
             ),
             endpointFactory: endpointFactory,
-            endpointFactoryProvider: { mode in
+            endpointFactoryProvider: { mode, _ in
                 endpointFactoryModes.record(mode)
                 return endpointFactory
             },

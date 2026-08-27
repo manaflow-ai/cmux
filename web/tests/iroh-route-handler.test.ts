@@ -328,11 +328,13 @@ describe("Iroh route boundary", () => {
       issueEndpointAttestation: namespaced,
       revoke: namespaced,
       issuePairGrant: namespaced,
+      publishEndpointRecord: namespaced,
     });
     const operations = [
       "endpoint_attestation",
       "revoke",
       "pair_grant",
+      "publish_record",
     ] as const;
     for (const operation of operations) {
       const base = authedPost("/api/devices/iroh", {});
@@ -349,11 +351,13 @@ describe("Iroh route boundary", () => {
         operation,
         { verify: async () => USER, broker: namespacedBroker },
       );
-      expect(response.status).toBe(operation === "revoke" ? 200 : 201);
+      expect(response.status).toBe(
+        operation === "revoke" || operation === "publish_record" ? 200 : 201,
+      );
     }
-    expect(received).toEqual(Array(3).fill("dev.cmux.app.demo"));
+    expect(received).toEqual(Array(4).fill("dev.cmux.app.demo"));
     expect(receivedBindingIDs).toEqual(
-      Array(3).fill("123e4567-e89b-42d3-a456-426614174000"),
+      Array(4).fill("123e4567-e89b-42d3-a456-426614174000"),
     );
   });
 
@@ -413,6 +417,7 @@ function broker(overrides: Partial<IrohTrustBrokerShape> = {}): IrohTrustBrokerS
     issueEndpointAttestation: unavailable,
     revoke: unavailable,
     issuePairGrant: unavailable,
+    publishEndpointRecord: unavailable,
     ...overrides,
   };
 }

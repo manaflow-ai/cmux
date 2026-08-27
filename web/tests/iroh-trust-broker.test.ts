@@ -1905,6 +1905,143 @@ describe("Iroh discovery and grants", () => {
   });
 });
 
+describe("Iroh endpoint records", () => {
+  const RECORD_PATH = "api/devices/iroh/endpoint-record";
+
+  function recordFor(endpointIdHex: string, payloadBytes = 200): string {
+    // A stand-in for a pkarr SignedPacket: the signing public key leads the
+    // serialized bytes; the broker never verifies the signature (readers
+    // do), so the remainder only needs to satisfy the size bounds.
+    const record = Buffer.concat([
+      Buffer.from(endpointIdHex, "hex"),
+      Buffer.alloc(payloadBytes, 0xab),
+    ]);
+    return record.toString("base64");
+  }
+
+  async function registeredFixture() {
+    const fixture = makeFixture();
+    const registered = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    )) as { binding: { binding_id: string } };
+    return { fixture, bindingId: registered.binding.binding_id };
+  }
+
+  test("publishes a record and serves it through discovery", async () => {
+    const { fixture, bindingId } = await registeredFixture();
+    const record = recordFor(fixture.endpointId);
+    const body = { bindingId, record };
+
+    const published = await Effect.runPromise(fixture.broker.publishEndpointRecord(
+      USER_A,
+      body,
+      NOW,
+      "legacy",
+      fixture.bindingProof(bindingId, "POST", RECORD_PATH, body),
+    ));
+    expect(published).toEqual({ published: true });
+
+    const snapshot = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { bindings: ReadonlyArray<Record<string, unknown>> };
+    expect(snapshot.bindings[0]?.endpoint_record).toBe(record);
+  });
+
+  test("requires the binding-request proof", async () => {
+    const { fixture, bindingId } = await registeredFixture();
+    const body = { bindingId, record: recordFor(fixture.endpointId) };
+
+    await expectEffectFailure(
+      fixture.broker.publishEndpointRecord(USER_A, body, NOW, "legacy"),
+      "IrohForbiddenError",
+    );
+  });
+
+  test("rejects a record whose key does not match the caller's endpoint", async () => {
+    const { fixture, bindingId } = await registeredFixture();
+    const foreignKey = randomUUID().replaceAll("-", "").repeat(2);
+    const body = { bindingId, record: recordFor(foreignKey) };
+
+    await expectEffectFailure(
+      fixture.broker.publishEndpointRecord(
+        USER_A,
+        body,
+        NOW,
+        "legacy",
+        fixture.bindingProof(bindingId, "POST", RECORD_PATH, body),
+      ),
+      "IrohForbiddenError",
+    );
+
+    const snapshot = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { bindings: ReadonlyArray<Record<string, unknown>> };
+    expect(snapshot.bindings[0]?.endpoint_record).toBeUndefined();
+  });
+
+  test("rejects a proof from a different binding", async () => {
+    const { fixture, bindingId } = await registeredFixture();
+    const body = { bindingId, record: recordFor(fixture.endpointId) };
+
+    await expectEffectFailure(
+      fixture.broker.publishEndpointRecord(
+        USER_A,
+        body,
+        NOW,
+        "legacy",
+        fixture.bindingProof(randomUUID(), "POST", RECORD_PATH, body),
+      ),
+      "IrohNotFoundError",
+    );
+  });
+
+  test("rejects malformed and oversized records", async () => {
+    const { fixture, bindingId } = await registeredFixture();
+
+    for (const record of [
+      "not base64!!",
+      Buffer.alloc(32, 1).toString("base64"),
+      Buffer.alloc(4_000, 1).toString("base64"),
+    ]) {
+      const body = { bindingId, record };
+      await expectEffectFailure(
+        fixture.broker.publishEndpointRecord(
+          USER_A,
+          body,
+          NOW,
+          "legacy",
+          fixture.bindingProof(bindingId, "POST", RECORD_PATH, body),
+        ),
+        "IrohInvalidInputError",
+      );
+    }
+  });
+
+  test("revocation wipes the stored record", async () => {
+    const { fixture, bindingId } = await registeredFixture();
+    const body = { bindingId, record: recordFor(fixture.endpointId) };
+    await Effect.runPromise(fixture.broker.publishEndpointRecord(
+      USER_A,
+      body,
+      NOW,
+      "legacy",
+      fixture.bindingProof(bindingId, "POST", RECORD_PATH, body),
+    ));
+
+    await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId },
+      new Date(NOW.getTime() + 1_000),
+    ));
+
+    const row = fixture.repository.bindings.find((binding) => binding.id === bindingId);
+    expect(row?.revokedAt).not.toBeNull();
+    expect(row?.endpointRecord).toBeNull();
+  });
+});
+
 type MutableBinding = IrohBindingRecord & {
   userId: string;
   directPortV4: number | null;
@@ -2201,6 +2338,21 @@ class MemoryRepository implements IrohRepositoryShape {
       row.userId === userId && row.endpointId === endpointId && !row.revokedAt) ?? null);
   }
 
+  publishEndpointRecord(
+    input: Parameters<IrohRepositoryShape["publishEndpointRecord"]>[0],
+  ) {
+    const bindingRow = this.bindings.find((row) =>
+      row.id === input.bindingId
+      && row.userId === input.userId
+      && row.endpointId === input.endpointId
+      && !row.revokedAt);
+    if (!bindingRow) return Effect.succeed({ published: false });
+    bindingRow.endpointRecord = input.record;
+    bindingRow.endpointRecordUpdatedAt = input.now;
+    bindingRow.updatedAt = input.now;
+    return Effect.succeed({ published: true });
+  }
+
   revokeBinding(input: Parameters<IrohRepositoryShape["revokeBinding"]>[0]) {
     const row = this.bindings.find((candidate) =>
       candidate.id === input.bindingId && candidate.userId === input.userId);
@@ -2262,6 +2414,8 @@ class MemoryRepository implements IrohRepositoryShape {
     if (row.revokedAt) return unchanged(true);
     row.revokedAt = input.now;
     row.revokedReason = "user_requested";
+    row.endpointRecord = null;
+    row.endpointRecordUpdatedAt = null;
     this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
     return Effect.succeed({
       revoked: true,
@@ -2529,6 +2683,8 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     pathHintsNextExpiry: null,
     relayAttachedUrl: null,
     relayAttachReportedAt: null,
+    endpointRecord: null,
+    endpointRecordUpdatedAt: null,
     deviceLimitOverrideUsed: false,
     lastSeenAt: now,
     registeredAt: now,

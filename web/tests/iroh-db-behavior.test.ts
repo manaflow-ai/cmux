@@ -672,6 +672,116 @@ describe("Iroh trust broker database behavior", () => {
     expect(stored?.nextExpiry).toEqual(directExpiry);
   });
 
+  dbTest("stores, guards, and wipes the published endpoint record", async () => {
+    const repo = requiredRepository();
+    const userId = "user-endpoint-record";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "50".repeat(32);
+    const nonceHash = "51".repeat(32);
+    const challenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      clientNamespace: "legacy",
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "52".repeat(32),
+      nonceHash,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+    const registered = await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: challenge.id,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+    }));
+    const bindingId = registered.binding.id;
+    const record = Buffer.concat([
+      Buffer.from(endpointId, "hex"),
+      Buffer.alloc(200, 0xab),
+    ]).toString("base64");
+
+    // A mismatched endpoint id publishes nothing (the row filter fails).
+    const mismatched = await Effect.runPromise(repo.publishEndpointRecord({
+      userId,
+      bindingId,
+      endpointId: "51".repeat(32),
+      record,
+      now: NOW,
+    }));
+    expect(mismatched.published).toBe(false);
+
+    const published = await Effect.runPromise(repo.publishEndpointRecord({
+      userId,
+      bindingId,
+      endpointId,
+      record,
+      now: NOW,
+    }));
+    expect(published.published).toBe(true);
+
+    const [stored] = await requiredSql()<Array<{
+      record: string | null;
+      updatedAt: Date | null;
+    }>>`
+      select
+        endpoint_record as "record",
+        endpoint_record_updated_at as "updatedAt"
+      from iroh_endpoint_bindings
+      where id = ${bindingId}
+    `;
+    expect(stored?.record).toBe(record);
+    expect(stored?.updatedAt).toEqual(NOW);
+
+    // The CHECK constraint refuses non-base64 payloads even on direct SQL.
+    await expect(requiredSql()`
+      update iroh_endpoint_bindings
+      set endpoint_record = 'not base64!!'
+      where id = ${bindingId}
+    `).rejects.toThrow(/endpoint_record_check/);
+
+    // Revocation wipes the record with the same posture as path hints.
+    await Effect.runPromise(repo.revokeBinding({
+      userId,
+      bindingId,
+      now: new Date(NOW.getTime() + 1_000),
+    }));
+    const [afterRevoke] = await requiredSql()<Array<{
+      record: string | null;
+    }>>`
+      select endpoint_record as "record"
+      from iroh_endpoint_bindings
+      where id = ${bindingId}
+    `;
+    expect(afterRevoke?.record).toBeNull();
+
+    // A revoked binding accepts no further records.
+    const afterRevokePublish = await Effect.runPromise(repo.publishEndpointRecord({
+      userId,
+      bindingId,
+      endpointId,
+      record,
+      now: new Date(NOW.getTime() + 2_000),
+    }));
+    expect(afterRevokePublish.published).toBe(false);
+  });
+
   dbTest("persists, updates, and clears family-specific direct ports", async () => {
     const repo = requiredRepository();
     const userId = "user-direct-ports";

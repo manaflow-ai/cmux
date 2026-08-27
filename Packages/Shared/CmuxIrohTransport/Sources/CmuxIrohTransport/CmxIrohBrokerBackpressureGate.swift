@@ -10,6 +10,7 @@ public enum CmxIrohBrokerOperation: String, Codable, CaseIterable, Hashable, Sen
     case relayCredential
     case relayPreference
     case revocation
+    case endpointRecord
 }
 
 /// Selects whether a trust-broker client owns its operation gate.

@@ -178,7 +178,10 @@ public final class MobileIrohRuntimeComposition:
     private let networkPathSnapshotComposer: CmxIrohNetworkPathSnapshotComposer
     private let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     private let endpointFactoryProvider:
-        @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
+        @MainActor (
+            CmxIrohTransportVerificationMode,
+            (any CmxIrohAddressLookupServing)?
+        ) -> any CmxIrohEndpointFactory
     private var transportVerificationMode: CmxIrohTransportVerificationMode
     private let automaticRelayCredentialRefreshEnabled: Bool
     /// The app defaults handle, retained under its existing DEBUG-era name.
@@ -396,8 +399,11 @@ public final class MobileIrohRuntimeComposition:
             endpointFactory: CmxIrohLibEndpointFactory(
                 transportVerificationMode: transportVerificationMode
             ),
-            endpointFactoryProvider: { mode in
-                CmxIrohLibEndpointFactory(transportVerificationMode: mode)
+            endpointFactoryProvider: { mode, addressLookup in
+                CmxIrohLibEndpointFactory(
+                    transportVerificationMode: mode,
+                    addressLookup: addressLookup
+                )
             },
             transportVerificationMode: transportVerificationMode,
             automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
@@ -460,7 +466,10 @@ public final class MobileIrohRuntimeComposition:
         relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot? = nil,
         endpointFactory: any CmxIrohEndpointFactory,
         endpointFactoryProvider: (
-            @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
+            @MainActor (
+                CmxIrohTransportVerificationMode,
+                (any CmxIrohAddressLookupServing)?
+            ) -> any CmxIrohEndpointFactory
         )? = nil,
         transportVerificationMode: CmxIrohTransportVerificationMode = .automatic,
         automaticRelayCredentialRefreshEnabled: Bool = true,
@@ -500,7 +509,7 @@ public final class MobileIrohRuntimeComposition:
         self.customPrivatePaths = customPrivatePaths
         self.networkPathSnapshotComposer = networkPathSnapshotComposer
         self.relayPolicyTrustRoot = relayPolicyTrustRoot
-        self.endpointFactoryProvider = endpointFactoryProvider ?? { _ in endpointFactory }
+        self.endpointFactoryProvider = endpointFactoryProvider ?? { _, _ in endpointFactory }
         self.transportVerificationMode = transportVerificationMode
         self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.debugDefaults = debugDefaults
@@ -1902,8 +1911,32 @@ public final class MobileIrohRuntimeComposition:
         let customPrivatePaths = customPrivatePaths
         let networkPathSnapshotComposer = networkPathSnapshotComposer
         let platformNetworkPathSnapshot = networkPathSnapshot
+        // Debug-flagged custom discovery A/B (default OFF): the endpoint
+        // builder gets the registry address lookup while hint dials remain
+        // untouched (magicsock merges `Source::AddressLookup` records next to
+        // `Source::App` hints). Flag OFF passes a nil lookup, which leaves the
+        // bind options byte-identical. The relay allowlist mirrors the
+        // hint-dial filter: debug override first, then the endpoint
+        // generation's own profile (frozen per generation, like hint dials).
+        let addressLookup: CmxIrohRegistryAddressLookup?
+        if CmxIrohDebugAddressLookupFlag.isEnabled() {
+            let allowlistProfile = endpointRelayProfile
+            let allowlistManaged = managedRelayURLs
+            addressLookup = CmxIrohRegistryAddressLookup(
+                broker: broker,
+                allowedRelayURLs: {
+                    if let overrideURL =
+                        CmxIrohDebugRelayOverrideDiagnostics().activeRelayURL {
+                        return [overrideURL]
+                    }
+                    return allowlistProfile?.allowedRelayURLs ?? allowlistManaged
+                }
+            )
+        } else {
+            addressLookup = nil
+        }
         let runtime = try CmxIrohClientRuntime(
-            factory: endpointFactoryProvider(transportVerificationMode),
+            factory: endpointFactoryProvider(transportVerificationMode, addressLookup),
             broker: broker,
             configuration: configuration,
             pendingRevocations: pendingRevocations,

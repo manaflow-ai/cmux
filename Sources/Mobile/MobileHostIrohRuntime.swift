@@ -290,6 +290,7 @@ final class MobileHostIrohRuntime {
                     || targetAccountID == nil {
             let previousRuntime = runtime
             runtime = nil
+            Self.publishAddressLookupDiagMirror(nil)
             clearIrohRoutePublication(revision: revision)
             selectedPathObservationTask?.cancel()
             selectedPathObservationTask = nil

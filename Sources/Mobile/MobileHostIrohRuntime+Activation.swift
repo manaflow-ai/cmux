@@ -246,9 +246,23 @@ extension MobileHostIrohRuntime {
         let credentialRepository = brokerCredentials
         let hostPolicyCache = hostPolicies
         let lanPublisher = lanPublisher
+        // Debug-flagged custom discovery A/B (default OFF): the endpoint
+        // builder gets the registry address lookup while hint dials remain
+        // untouched, so magicsock merges lookup records (`Source::AddressLookup`)
+        // next to app hints (`Source::App`). Flag OFF binds with byte-identical
+        // endpoint options (nil lookup is uniffi's default).
+        let addressLookup: CmxIrohRegistryAddressLookup? =
+            CmxIrohDebugAddressLookupFlag.isEnabled()
+                ? CmxIrohRegistryAddressLookup(
+                    broker: broker,
+                    allowedRelayURLs: { Self.addressLookupAllowedRelayURLs() }
+                )
+                : nil
+        Self.publishAddressLookupDiagMirror(addressLookup)
         let hostRuntime = CmxIrohHostRuntime(
             factory: CmxIrohLibEndpointFactory(
-                transportVerificationMode: transportVerificationMode
+                transportVerificationMode: transportVerificationMode,
+                addressLookup: addressLookup
             ),
             broker: broker,
             configuration: configuration,

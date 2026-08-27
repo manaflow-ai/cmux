@@ -1,18 +1,27 @@
 public import CMUXMobileCore
 import Foundation
-import IrohLib
+public import IrohLib
 
 /// Production endpoint factory using the forked Iroh Swift bindings.
 public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
     private let transportVerificationMode: CmxIrohTransportVerificationMode
+    private let addressLookup: (any AddressLookupService)?
 
     /// Creates an endpoint factory with an optional debug transport constraint.
     ///
-    /// - Parameter transportVerificationMode: The path class the endpoint may use.
+    /// - Parameters:
+    ///   - transportVerificationMode: The path class the endpoint may use.
+    ///   - addressLookup: An optional custom discovery service installed on
+    ///     every endpoint this factory binds. Nil (the default) leaves the
+    ///     bind options byte-identical to a build without the lookup; hint
+    ///     dials are unaffected either way (magicsock merges lookup results
+    ///     as `Source::AddressLookup` next to `Source::App` hints).
     public init(
-        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic
+        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic,
+        addressLookup: (any AddressLookupService)? = nil
     ) {
         self.transportVerificationMode = transportVerificationMode
+        self.addressLookup = addressLookup
     }
 
     public func bind(
@@ -55,7 +64,8 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
             configuration: configuration,
             socketAddress: socketAddress,
             relayMap: relayMap,
-            transportVerificationMode: transportVerificationMode
+            transportVerificationMode: transportVerificationMode,
+            addressLookup: addressLookup
         )
         return try await Endpoint.bind(options: options)
     }
@@ -64,7 +74,8 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
         configuration: CmxIrohEndpointConfiguration,
         socketAddress: String?,
         relayMap: RelayMap,
-        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic
+        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic,
+        addressLookup: (any AddressLookupService)? = nil
     ) -> EndpointOptions {
         EndpointOptions(
             preset: presetMinimal(),
@@ -74,6 +85,7 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
             relayMode: transportVerificationMode == .directOnly
                 ? RelayMode.disabled()
                 : RelayMode.custom(map: relayMap),
+            addressLookup: addressLookup,
             portMappingEnabled: false,
             deferNatTraversalUntilAuthorized: true,
             initialMaxConcurrentBiStreams: 0,

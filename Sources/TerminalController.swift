@@ -11716,7 +11716,8 @@ class TerminalController {
         // Appended outside the report so relay URLs never enter the
         // privacy-safe DiagnosticLog pipeline; the mirror read is serialized
         // and main-actor-free.
-        return export + "\n" + MobileHostIrohRuntime.relayDiagReportText() + "\n"
+        return export + "\n" + MobileHostIrohRuntime.relayDiagReportText() + "\n\n"
+            + MobileHostIrohRuntime.addressLookupDiagReportText() + "\n"
     }
 
     private nonisolated func readScreenText(_ args: String) -> String {

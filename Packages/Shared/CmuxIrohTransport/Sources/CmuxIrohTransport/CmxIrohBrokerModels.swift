@@ -18,7 +18,13 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         case pathHints = "path_hints"
         case directPorts = "direct_ports"
         case lastSeenAt = "last_seen_at"
+        case endpointRecord = "endpoint_record"
     }
+
+    /// The largest accepted decoded endpoint-record size. A pkarr
+    /// `SignedPacket` is bounded at 32 + 64 + 8 header bytes plus a
+    /// 1000-byte DNS packet; the margin absorbs codec growth.
+    public static let maximumEndpointRecordByteCount = 1_200
 
     public let bindingID: String
     public let deviceID: String
@@ -36,6 +42,13 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
     public let pathHints: [CmxIrohPathHint]
     public let directPorts: CmxIrohDirectPorts?
     public let lastSeenAt: String
+
+    /// The endpoint's own signed pkarr record, stored by the broker as an
+    /// opaque blob. Advisory: signature and endpoint-id verification happen
+    /// at resolve time (`CmxIrohEndpointRecordPolicy`, then Rust), so an
+    /// invalid or oversized blob decodes as nil instead of failing the
+    /// discovery snapshot.
+    public let endpointRecord: Data?
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -92,6 +105,20 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         self.pathHints = pathHints
         self.directPorts = directPorts
         self.lastSeenAt = lastSeenAt
+        endpointRecord = Self.decodedEndpointRecord(
+            try container.decodeIfPresent(String.self, forKey: .endpointRecord)
+        )
+    }
+
+    private static func decodedEndpointRecord(_ encoded: String?) -> Data? {
+        guard let encoded,
+              encoded.utf8.count <= maximumEndpointRecordByteCount * 2,
+              let record = Data(base64Encoded: encoded),
+              !record.isEmpty,
+              record.count <= maximumEndpointRecordByteCount else {
+            return nil
+        }
+        return record
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -110,6 +137,10 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         try container.encode(pathHints, forKey: .pathHints)
         try container.encodeIfPresent(directPorts, forKey: .directPorts)
         try container.encode(lastSeenAt, forKey: .lastSeenAt)
+        try container.encodeIfPresent(
+            endpointRecord?.base64EncodedString(),
+            forKey: .endpointRecord
+        )
     }
 
     private static func isCanonicalUUID(_ value: String) -> Bool {

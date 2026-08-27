@@ -990,6 +990,14 @@ export const irohEndpointBindings = pgTable(
     // order. Cleared by a matching detach report and by revocation.
     relayAttachedUrl: text("relay_attached_url"),
     relayAttachReportedAt: timestamp("relay_attach_reported_at", { withTimezone: true }),
+    // The endpoint's own signed pkarr record (base64), stored as an OPAQUE
+    // blob via POST /api/devices/iroh/endpoint-record. Write admission checks
+    // the binding-request proof and that the record's embedded public key
+    // equals this binding's endpoint id; readers verify the ed25519 record
+    // signature themselves (in the app's Rust layer), so this storage is
+    // untrusted by design and may be served from any cache or replica.
+    endpointRecord: text("endpoint_record"),
+    endpointRecordUpdatedAt: timestamp("endpoint_record_updated_at", { withTimezone: true }),
     deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1016,6 +1024,19 @@ export const irohEndpointBindings = pgTable(
     check(
       "iroh_endpoint_bindings_relay_attach_reported_check",
       sql`${table.relayAttachedUrl} is null or ${table.relayAttachReportedAt} is not null`,
+    ),
+    // A pkarr SignedPacket is bounded (32+64+8 header bytes plus a <=1000
+    // byte DNS packet); 1600 base64 chars covers 1200 decoded bytes. The
+    // length bound lives outside the regex because Postgres caps regex
+    // repetition counts at 255.
+    check(
+      "iroh_endpoint_bindings_endpoint_record_check",
+      sql`${table.endpointRecord} is null or (${table.endpointRecord} ~ '^[A-Za-z0-9+/]+={0,2}$' and length(${table.endpointRecord}) <= 1600)`,
+    ),
+    // A stored record always carries the timestamp that set it.
+    check(
+      "iroh_endpoint_bindings_endpoint_record_updated_check",
+      sql`${table.endpointRecord} is null or ${table.endpointRecordUpdatedAt} is not null`,
     ),
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)

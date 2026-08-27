@@ -23,7 +23,8 @@ export type IrohRouteOperation =
   | "discover"
   | "endpoint_attestation"
   | "revoke"
-  | "pair_grant";
+  | "pair_grant"
+  | "publish_record";
 
 type RouteDependencies = {
   readonly verify?: typeof verifyRequest;
@@ -220,6 +221,8 @@ function invoke(
       return broker.revoke(userId, body, undefined, clientNamespace, bindingProof);
     case "pair_grant":
       return broker.issuePairGrant(userId, body, undefined, clientNamespace, bindingProof);
+    case "publish_record":
+      return broker.publishEndpointRecord(userId, body, undefined, clientNamespace, bindingProof);
   }
 }
 
@@ -333,7 +336,9 @@ async function readBoundedJson(request: Request): Promise<
 }
 
 function successStatus(operation: IrohRouteOperation): number {
-  return operation === "discover" || operation === "revoke" ? 200 : 201;
+  return operation === "discover" || operation === "revoke" || operation === "publish_record"
+    ? 200
+    : 201;
 }
 
 function expectedErrorResponse(error: ReturnType<typeof irohExpectedError> & object): Response {

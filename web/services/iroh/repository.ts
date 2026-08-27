@@ -148,6 +148,13 @@ export type IrohRepositoryShape = {
     readonly intent?: "self" | "forget_mac" | "revoke_stale";
     readonly now: Date;
   }) => Effect.Effect<IrohRevocationCommit, RepositoryError>;
+  readonly publishEndpointRecord: (input: {
+    readonly userId: string;
+    readonly bindingId: string;
+    readonly endpointId: string;
+    readonly record: string;
+    readonly now: Date;
+  }) => Effect.Effect<{ readonly published: boolean }, RepositoryError>;
   readonly pruneExpiredState: (input: {
     readonly userId: string;
     readonly now: Date;
@@ -782,6 +789,34 @@ function makeLiveRepository(): IrohRepositoryShape {
       },
     ),
 
+    // Stores the endpoint's own signed record as an opaque blob on its
+    // active binding. No account-revision bump: peers pull records on demand
+    // through discovery, and an address change already refreshes hints
+    // through registration, so record writes must not add revision churn.
+    publishEndpointRecord: (input) => repositoryEffect(
+      "publish_endpoint_record",
+      async () => {
+        return await cloudDb().transaction(async (tx) => {
+          await assertIrohUserMutationAllowed(tx, input.userId);
+          const [updated] = await tx
+            .update(irohEndpointBindings)
+            .set({
+              endpointRecord: input.record,
+              endpointRecordUpdatedAt: input.now,
+              updatedAt: input.now,
+            })
+            .where(and(
+              eq(irohEndpointBindings.id, input.bindingId),
+              eq(irohEndpointBindings.userId, input.userId),
+              eq(irohEndpointBindings.endpointId, input.endpointId),
+              isNull(irohEndpointBindings.revokedAt),
+            ))
+            .returning({ id: irohEndpointBindings.id });
+          return { published: updated !== undefined };
+        });
+      },
+    ),
+
     revokeBinding: (input) => repositoryEffect("revoke_binding", async () => {
       return await cloudDb().transaction(async (tx) => {
         await assertIrohUserMutationAllowed(tx, input.userId);
@@ -1144,6 +1179,10 @@ async function revokeActiveBindings(
       pathHintsNextExpiry: null,
       relayAttachedUrl: null,
       relayAttachReportedAt: null,
+      // The signed record names addresses; revocation wipes it with the
+      // same retention posture as path hints and the live relay attach.
+      endpointRecord: null,
+      endpointRecordUpdatedAt: null,
       updatedAt: input.now,
     })
     .where(and(

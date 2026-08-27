@@ -45,6 +45,7 @@ import {
   assertChallengeMatchesPayload,
   decodeRegistrationPayload,
   parseBindingIdBody,
+  parsePublishEndpointRecordBody,
   parseRevokeBindingBody,
   parseChallengeRequest,
   parseIrohPathHint,
@@ -118,6 +119,13 @@ export type IrohTrustBrokerShape = {
     bindingProof?: IrohBindingRequestProof,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly revoke: (
+    userId: string,
+    raw: unknown,
+    now?: Date,
+    clientNamespace?: string,
+    bindingProof?: IrohBindingRequestProof,
+  ) => Effect.Effect<unknown, IrohExpectedError>;
+  readonly publishEndpointRecord: (
     userId: string,
     raw: unknown,
     now?: Date,
@@ -495,6 +503,46 @@ export function makeIrohTrustBroker(
       };
     }),
 
+    // Stores the caller's own signed pkarr record on its binding. Write
+    // admission only: the binding-request proof authenticates the caller,
+    // and the record's embedded public key must equal the caller's endpoint
+    // id. The ed25519 record signature is verified by every reader, so this
+    // storage stays untrusted (any cache or replica may serve it).
+    publishEndpointRecord: (
+      userId,
+      raw,
+      now = new Date(),
+      clientNamespace = "legacy",
+      bindingProof,
+    ) => Effect.gen(function* () {
+      const request = yield* parseEffect(() => parsePublishEndpointRecordBody(raw));
+      const caller = yield* authorizeBinding(userId, bindingProof, clientNamespace, now);
+      // Unlike legacy read paths, record publication always requires the
+      // binding-request proof: an account credential alone must not be able
+      // to overwrite another device's published addresses.
+      if (!caller || caller.id !== request.bindingId) {
+        return yield* Effect.fail(
+          new IrohForbiddenError({ code: "binding_request_proof_required" }),
+        );
+      }
+      if (caller.endpointId !== request.recordEndpointId) {
+        return yield* Effect.fail(
+          new IrohForbiddenError({ code: "endpoint_record_key_mismatch" }),
+        );
+      }
+      const result = yield* repository.publishEndpointRecord({
+        userId,
+        bindingId: request.bindingId,
+        endpointId: request.recordEndpointId,
+        record: request.record,
+        now,
+      });
+      if (!result.published) {
+        return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      }
+      return { published: true };
+    }),
+
     issuePairGrant: (
       userId,
       raw,
@@ -695,6 +743,12 @@ function publicBinding(
         }),
     path_hints: bindingPathHints(binding, now, savedCustomRelayURLs),
     last_seen_at: binding.lastSeenAt.toISOString(),
+    // Opaque signed pkarr record; readers verify its ed25519 signature
+    // themselves, so publication needs no server-side laundering beyond the
+    // write-admission checks in publishEndpointRecord.
+    ...(binding.endpointRecord === null
+      ? {}
+      : { endpoint_record: binding.endpointRecord }),
   };
 }
 
