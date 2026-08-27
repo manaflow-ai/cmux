@@ -4110,10 +4110,8 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
 /// Serializes a config value to a private staging file before atomically
 /// replacing the destination and durably syncing its parent directory.
 fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = config_parent_directory(path);
+    std::fs::create_dir_all(parent)?;
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
@@ -4137,13 +4135,33 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
         drop(file);
         std::fs::rename(&tmp_path, path)?;
         #[cfg(unix)]
-        std::fs::File::open(parent)?.sync_all()?;
+        sync_config_parent_directory(parent)?;
         Ok(())
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp_path);
     }
     result
+}
+
+#[cfg(unix)]
+fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<()> {
+    let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
+    #[cfg(target_os = "macos")]
+    if let Err(error) = &result {
+        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+        {
+            // macOS filesystems may not support fsync on a directory. The file
+            // itself is already durable, and the rename has completed, so this
+            // unsupported directory operation must not report a false failure.
+            return Ok(());
+        }
+    }
+    result.map_err(Into::into)
+}
+
+fn config_parent_directory(path: &Path) -> &Path {
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
 }
 
 /// `#rrggbb`, `#rgb`, or an xterm-256 index in a string.
@@ -8871,5 +8889,21 @@ mod tests {
         let entries = std::fs::read_dir(&dir.path).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(entries.len(), 1, "failed writes must remove their staging file");
         assert_eq!(entries[0].path(), path);
+    }
+
+    #[test]
+    fn config_parent_directory_normalizes_relative_path() {
+        assert_eq!(config_parent_directory(Path::new("cmux-tui.json")), Path::new("."));
+        assert_eq!(config_parent_directory(Path::new("nested/cmux-tui.json")), Path::new("nested"));
+    }
+
+    #[test]
+    fn config_write_succeeds_after_parent_directory_sync() {
+        let dir = TestDirectory::new("parent-sync");
+        let path = dir.path.join("cmux-tui.json");
+        write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}})).unwrap();
+
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(value["server"]["ws_token"], json!("secret"));
     }
 }
