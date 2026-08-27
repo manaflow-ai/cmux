@@ -11,7 +11,11 @@ public struct FileWatchPathResolver: Sendable {
 
     /// The home directory reported by the injected filesystem provider.
     public var homeDirectoryPath: String {
-        fileManager.urls(for: .userDirectory, in: .userDomainMask).first?.path ?? "/"
+        fileManager.urls(for: .libraryDirectory, in: .userDomainMask)
+            .first?
+            .deletingLastPathComponent()
+            .standardizedFileURL
+            .path ?? "/"
     }
 
     /// Returns the nearest existing directory for a path.
