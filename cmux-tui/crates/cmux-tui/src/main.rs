@@ -2918,6 +2918,35 @@ mod tests {
     }
 
     #[test]
+    fn remote_normalization_preserves_leading_globals_for_direct_commands() {
+        let mut json_connect = ["--json", "connect"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut json_connect).unwrap();
+        assert_eq!(json_connect, ["connect", "--json"]);
+
+        let mut session_stop = ["--session", "dev", "remote-stop"]
+            .map(str::to_string)
+            .to_vec();
+        normalize_remote_resource_args(&mut session_stop).unwrap();
+        assert_eq!(session_stop, ["remote-stop", "--session", "dev"]);
+    }
+
+    #[test]
+    fn remote_normalization_handles_inline_globals_and_unknown_actions() {
+        let mut inline_nested = ["--session=dev", "remote", "connect"]
+            .map(str::to_string)
+            .to_vec();
+        normalize_remote_resource_args(&mut inline_nested).unwrap();
+        assert_eq!(inline_nested, ["connect", "--session=dev"]);
+
+        let mut unknown = ["--json", "remote", "frobnicate"].map(str::to_string).to_vec();
+        let error = normalize_remote_resource_args(&mut unknown).unwrap_err();
+        assert_eq!(
+            error,
+            localization::catalog().remote_client.unknown_action("remote", "frobnicate")
+        );
+    }
+
+    #[test]
     fn server_start_routing_skips_private_process_option_values() {
         for value in ["--help", "--json", "--jsonl", "--quiet"] {
             let mut values = [
