@@ -9801,6 +9801,12 @@ impl App {
         )
     }
 
+    fn cancel_preview_on_sidebar_focus_loss(&mut self) {
+        if self.workspace_preview.is_some() && !self.sidebar_rail_focused() {
+            self.cancel_workspace_preview();
+        }
+    }
+
     fn focused_rail_kind(&self) -> Option<RailKind> {
         match self.focus {
             FocusTarget::MachineRail => Some(RailKind::Machine),
@@ -14137,7 +14143,6 @@ impl App {
         self.machine_sidebar_width = self.sidebar_layout.machine.map_or(0, |rect| rect.width);
         self.tabs_sidebar_width = self.sidebar_layout.tabs.map_or(0, |rect| rect.width);
         if self.sidebar_width == 0 && self.focus == FocusTarget::WorkspaceRail {
-            self.cancel_workspace_preview();
             self.focus = FocusTarget::Pane;
         }
         if self.machine_sidebar_width == 0 && self.focus == FocusTarget::MachineRail {
@@ -14151,6 +14156,7 @@ impl App {
         {
             self.focus = FocusTarget::Pane;
         }
+        self.cancel_preview_on_sidebar_focus_loss();
         let area = self.sidebar_layout.content;
         self.content_area = area;
         if self.surface_only.is_none() {
@@ -22905,6 +22911,7 @@ impl App {
             hidden.insert(view_id);
             if hides_focused {
                 self.focus = FocusTarget::Pane;
+                self.cancel_preview_on_sidebar_focus_loss();
             }
         }
     }
