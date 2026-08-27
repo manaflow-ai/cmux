@@ -21,7 +21,9 @@ nonisolated public struct NotificationSoundOverrides: Codable, Equatable, Sendab
             }
             .sorted { $0.key < $1.key }
             .prefix(Self.maximumAgentCount)
-        self.storage = Dictionary(uniqueKeysWithValues: validRows)
+        self.storage = validRows.reduce(into: [:]) { result, row in
+            result[row.key] = row.value
+        }
     }
 
     /// An empty matrix, equivalent to leaving every cell unset.
