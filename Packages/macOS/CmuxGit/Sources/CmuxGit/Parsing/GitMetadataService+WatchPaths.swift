@@ -107,8 +107,12 @@ extension GitMetadataService {
         )
     }
 
-    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, every reachable
-    /// `config`) for a single resolved repository.
+    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, `reftable`,
+    /// every reachable `config`) for a single resolved repository.
+    ///
+    /// A reftable repository changes none of the ref files when its checkout
+    /// moves, so its stack directories have to be watched too; they simply do
+    /// not exist on the files backend.
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository
     ) -> [String] {
@@ -116,8 +120,10 @@ extension GitMetadataService {
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),
+            joinedPath(root: repository.gitDirectory, relativePath: reftableDirectoryName),
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
+            joinedPath(root: repository.commonDirectory, relativePath: reftableDirectoryName),
         ] + gitConfigURLs(repository: repository).map(\.path)
     }
 

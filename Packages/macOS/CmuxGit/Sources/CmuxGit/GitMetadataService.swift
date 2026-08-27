@@ -30,6 +30,7 @@ import Foundation
 public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
     let dirtyStatusReader: any GitDirtyStatusReading
+    let reftableHeadReader: any GitReftableHeadReading
     let degradationRecorder: GitMetadataDegradationRecorder
     let safetyConfiguration: GitMetadataSafetyConfiguration
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
@@ -41,6 +42,9 @@ public struct GitMetadataService: Sendable {
         self.dirtyStatusReader = SystemGitDirtyStatusReader(
             boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
         )
+        self.reftableHeadReader = Self.systemReftableHeadReader(
+            safetyConfiguration: safetyConfiguration
+        )
         self.degradationRecorder = GitMetadataDegradationRecorder(
             gitStatusWallTime: safetyConfiguration.gitStatusWallTime
         )
@@ -51,6 +55,7 @@ public struct GitMetadataService: Sendable {
     init(
         fileStatusReader: any GitFileStatusReading,
         dirtyStatusReader: (any GitDirtyStatusReading)? = nil,
+        reftableHeadReader: (any GitReftableHeadReading)? = nil,
         degradationRecorder: GitMetadataDegradationRecorder? = nil,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
@@ -59,11 +64,27 @@ public struct GitMetadataService: Sendable {
         self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
             boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
         )
+        self.reftableHeadReader = reftableHeadReader ?? Self.systemReftableHeadReader(
+            safetyConfiguration: safetyConfiguration
+        )
         self.degradationRecorder = degradationRecorder ?? GitMetadataDegradationRecorder(
             gitStatusWallTime: safetyConfiguration.gitStatusWallTime
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
+    }
+
+    /// The reftable `HEAD` reader used by default: `git` behind a memo keyed by
+    /// the reftable stack, so a reftable workspace spawns a process only after
+    /// its refs change rather than on every metadata refresh.
+    private static func systemReftableHeadReader(
+        safetyConfiguration: GitMetadataSafetyConfiguration
+    ) -> any GitReftableHeadReading {
+        MemoizedGitReftableHeadReader(
+            base: SystemGitReftableHeadReader(
+                boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+            )
+        )
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -102,13 +123,14 @@ public struct GitMetadataService: Sendable {
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
+        let head = await headState(repository: repository)
         return GitWorkspaceMetadata(
             isRepository: true,
-            branch: Self.gitBranchName(repository: repository),
+            branch: head.branch,
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
-            headSignature: Self.gitHeadSignature(repository: repository)
+            headSignature: head.headSignature
         )
     }
 
@@ -204,7 +226,7 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        return Self.gitCheckedOutBranch(repository: repository)
+        return await checkedOutBranch(repository: repository)
     }
 
     /// Whether this module's `nonisolated async` methods execute off the calling
