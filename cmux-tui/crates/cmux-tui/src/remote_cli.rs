@@ -31,6 +31,7 @@ use cmux_remote::provider::{
     RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
     sanitized_route,
 };
+use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
@@ -2114,7 +2115,8 @@ fn ensure_daemon(
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
         .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
     if UnixStream::connect(&mux_socket).is_err() {
-        let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+        let log = open_private_daemon_file(&log_path, true)
+            .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
             .args(["--headless", "--session", session, "--socket"])
@@ -2133,7 +2135,8 @@ fn ensure_daemon(
         )?;
     }
 
-    let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+    let log = open_private_daemon_file(&log_path, true)
+        .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
     let mut command = Command::new(executable);
     command
         .args(["remote-sidecar", "--session", session, "--mux-socket"])
@@ -2293,11 +2296,55 @@ fn mux_monitor_disconnected(stream: &mut UnixStream, path: &Path) -> anyhow::Res
     }
 }
 
+fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let mut options = OpenOptions::new();
+    options
+        .read(!append)
+        .write(true)
+        .create(true)
+        .append(append)
+        .truncate(false)
+        .mode(0o600)
+        // Opening a hostile FIFO must return so its type can be rejected
+        // below, rather than waiting for a peer that never arrives.
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "daemon state path is not a regular file",
+        ));
+    }
+    if metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "daemon state file is not owned by the effective user",
+        ));
+    }
+    if metadata.nlink() != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "daemon state file has unexpected hard links",
+        ));
+    }
+    // Existing files may predate this check and have inherited a broad umask.
+    // Tighten the inode through the open descriptor, avoiding a pathname race.
+    if metadata.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
 fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
-    fs::create_dir_all(session_state)?;
+    ensure_secure_directory(session_state, DirectoryAccess::OwnerControlled).with_context(
+        || format!("could not prepare secure daemon state directory {}", session_state.display()),
+    )?;
     let lock_path = session_state.join("start.lock");
-    let lock =
-        OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path)?;
+    let lock = open_private_daemon_file(&lock_path, false)
+        .with_context(|| format!("could not open daemon start lock {}", lock_path.display()))?;
     let locked = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
     if locked != 0 {
         return Err(io::Error::last_os_error().into());
@@ -3010,6 +3057,114 @@ mod tests {
         close_tx.send(()).unwrap();
         server.join().unwrap();
         assert!(mux_monitor_disconnected(&mut monitor, &mux).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_files_are_private_and_existing_permissions_are_tightened() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let log_path = directory.path().join("daemon.log");
+        fs::write(&log_path, b"old log\n").unwrap();
+        fs::set_permissions(&log_path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut log = open_private_daemon_file(&log_path, true).unwrap();
+        log.write_all(b"new log\n").unwrap();
+        let metadata = fs::metadata(&log_path).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.nlink(), 1);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::read_to_string(&log_path).unwrap(), "old log\nnew log\n");
+
+        let lock_path = directory.path().join("start.lock");
+        let lock = open_private_daemon_file(&lock_path, false).unwrap();
+        assert_eq!(fs::metadata(&lock_path).unwrap().permissions().mode() & 0o777, 0o600);
+        drop(lock);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_files_refuse_symlinks_without_touching_target() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target.log");
+        let link = directory.path().join("daemon.log");
+        fs::write(&target, b"keep\n").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let error = open_private_daemon_file(&link, true).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_fifo_is_rejected_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+        use std::sync::mpsc;
+
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("daemon.log");
+        let fifo_bytes = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        let result = unsafe { libc::mkfifo(fifo_bytes.as_ptr(), 0o600) };
+        assert_eq!(result, 0, "mkfifo failed: {}", io::Error::last_os_error());
+
+        let (sender, receiver) = mpsc::channel();
+        let path = fifo.clone();
+        let worker = thread::spawn(move || {
+            sender.send(open_private_daemon_file(&path, true).map(|_| ())).unwrap();
+        });
+
+        let outcome = receiver.recv_timeout(Duration::from_secs(1));
+        if outcome.is_err() {
+            // Release a writer that used blocking open in an unfixed build so
+            // this regression test fails promptly instead of leaking a thread.
+            let reader =
+                OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo).unwrap();
+            let _ = receiver.recv_timeout(Duration::from_secs(1));
+            drop(reader);
+            worker.join().unwrap();
+            panic!("opening a daemon FIFO blocked before type validation");
+        }
+        worker.join().unwrap();
+        let error = outcome.unwrap().unwrap_err();
+        assert!(
+            error.kind() == io::ErrorKind::InvalidInput
+                || error.raw_os_error() == Some(libc::ENXIO),
+            "unexpected FIFO rejection: {error}"
+        );
+        assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_lock_rejects_insecure_parent_before_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let shared = directory.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        let state = shared.join("sessions").join("main");
+
+        let error = lock_daemon_start(&state).unwrap_err();
+        assert!(error.to_string().contains("secure daemon state directory"));
+        assert!(!state.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_lock_rejects_symlink_parent_before_creation() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let alias = directory.path().join("alias");
+        std::os::unix::fs::symlink(target.path(), &alias).unwrap();
+        let state = alias.join("sessions").join("main");
+
+        let error = lock_daemon_start(&state).unwrap_err();
+        assert!(error.to_string().contains("secure daemon state directory"));
+        assert!(!target.path().join("sessions").exists());
     }
 
     #[cfg(unix)]
