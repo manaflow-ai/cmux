@@ -50,6 +50,22 @@ const REMOTE_COMMANDS: &[&str] = &[
     "install-self",
 ];
 
+/// Maps the actions accepted after the `remote` noun to their direct command
+/// aliases. Keeping this mapping with the remote command grammar prevents
+/// startup normalization from drifting from the public CLI parser.
+pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
+    match action {
+        "connect" => Some("connect"),
+        "ssh" => Some("ssh"),
+        "forward" => Some("forward"),
+        "rpc" => Some("rpc"),
+        "enroll" => Some("enroll"),
+        "known-daemons" => Some("known-daemons"),
+        "stop" => Some("remote-stop"),
+        _ => None,
+    }
+}
+
 /// Returns whether argv selects the remote command family.
 ///
 /// Keeping this classifier next to the public CLI grammar prevents startup
