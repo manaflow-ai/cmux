@@ -662,6 +662,37 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         XCTAssertEqual(withLocal.first?.id, "machine:local")
     }
 
+    /// Regression: a signed-in account with no cloud machines rendered a blank
+    /// panel instead of the empty state, because the panel judged emptiness
+    /// from the raw catalog (whose This Mac entry counted as a row) while the
+    /// cloud-only tree drew nothing. The emptiness decision must match what
+    /// `nodes` actually renders.
+    func testEmptyDecisionMatchesWhatTheTreeRenders() {
+        let localOnly = SurfaceCatalogSnapshot(machines: [info(.local)], resources: [terminal(.local, "AAA")], projections: [])
+        XCTAssertTrue(
+            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).isEmpty,
+            "precondition: the cloud-only tree renders nothing for a local-only catalog"
+        )
+        XCTAssertTrue(
+            CloudTreeNodeBuilder.isEmpty(machines: [], snapshot: localOnly),
+            "no cloud machines anywhere must show the empty state, even with This Mac in the catalog"
+        )
+        XCTAssertFalse(
+            CloudTreeNodeBuilder.isEmpty(machines: [], snapshot: localOnly, includeLocalMachine: true),
+            "once the tree shows This Mac again, the local entry is a row"
+        )
+
+        XCTAssertFalse(
+            CloudTreeNodeBuilder.isEmpty(machines: [machine("vivid-newt")], snapshot: .empty),
+            "a fleet machine is a row before the catalog hears about it"
+        )
+        let catalogOnly = SurfaceCatalogSnapshot(machines: [info(.cloud("quiet-owl"))], resources: [], projections: [])
+        XCTAssertFalse(
+            CloudTreeNodeBuilder.isEmpty(machines: [], snapshot: catalogOnly),
+            "a catalog-known cloud machine gets a placeholder row even while the fleet list lags"
+        )
+    }
+
     func testContentChangesKeepTheStructureSignature() {
         let snapshot = SurfaceCatalogSnapshot(machines: [info(.cloud("m"))], resources: [terminal(.cloud("m"), "term_1", title: "vim")], projections: [])
         let before = CloudTreeNodeBuilder.nodes(machines: [machine("m")], snapshot: snapshot, localWorkspaces: [])

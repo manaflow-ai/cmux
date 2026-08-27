@@ -94,44 +94,47 @@ struct MachinesPanelView: View {
 
     private var controlBar: some View {
         HStack(spacing: 6) {
-            if let operation = viewModel.activeOperation {
-                HStack(spacing: 5) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text(operation)
-                        .cmuxFont(size: 11)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            Group {
+                if let operation = viewModel.activeOperation {
+                    HStack(spacing: 5) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text(operation)
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                } else if viewModel.lastErrorDescription != nil, !viewModel.machines.isEmpty {
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
+                            .cmuxFont(size: 11)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundColor(.orange.opacity(0.9))
+                    .help(viewModel.lastErrorDescription ?? "")
+                } else if let treeError = viewModel.treeErrorDescription {
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(String(localized: "machines.tree.error", defaultValue: "Cloud tree error"))
+                            .cmuxFont(size: 11)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundColor(.orange.opacity(0.9))
+                    .help(treeError)
+                } else if let plan = viewModel.plan {
+                    MachinePlanMeter(plan: plan)
                 }
-                .padding(.leading, 8)
-            } else if viewModel.lastErrorDescription != nil, !viewModel.machines.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
-                        .cmuxFont(size: 11)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundColor(.orange.opacity(0.9))
-                .padding(.leading, 8)
-                .help(viewModel.lastErrorDescription ?? "")
-            } else if let treeError = viewModel.treeErrorDescription {
-                HStack(spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(String(localized: "machines.tree.error", defaultValue: "Cloud tree error"))
-                        .cmuxFont(size: 11)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundColor(.orange.opacity(0.9))
-                .padding(.leading, 8)
-                .help(treeError)
-            } else if let plan = viewModel.plan {
-                MachinePlanMeter(plan: plan)
             }
+            // Bar leading is 8pt; +4 puts the leading text at 12pt — the same
+            // column as the mode-bar pill glyphs (4pt bar + 8pt pill inset)
+            // and the Files header icon.
+            .padding(.leading, 4)
             Spacer(minLength: 4)
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
@@ -154,9 +157,13 @@ struct MachinesPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        // This Mac is always a row once the local provider registered, so the
-        // empty state is only for "signed in, nothing at all to show yet".
-        if viewModel.machines.isEmpty, !viewModel.catalog.machines.contains(where: { $0.id.isLocal }) {
+        // Show the empty state exactly when the outline would render zero
+        // rows. The builder owns that decision (the tree is cloud-only while
+        // `includesLocalMachine` is off); deciding it here from the raw
+        // catalog previously left a blank panel for a signed-in account with
+        // no machines, because the catalog's This Mac entry counted as a row
+        // the tree never drew.
+        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, snapshot: viewModel.catalog) {
             emptyState
         } else {
             machinesList
@@ -322,11 +329,11 @@ struct MachinesPanelView: View {
                 }
                 .padding(.top, 2)
             } else if viewModel.hasLoadedOnce {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 26, weight: .light))
+                Image(systemName: "cloud")
+                    .font(.system(size: 30, weight: .light))
                     .foregroundColor(.secondary.opacity(0.55))
                 Text(String(localized: "machines.empty.title", defaultValue: "No machines yet"))
-                    .cmuxFont(size: 13)
+                    .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary.opacity(0.85))
                 Text(String(
                     localized: "machines.empty.subtitle",
@@ -335,14 +342,21 @@ struct MachinesPanelView: View {
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 28)
                 Button {
                     requestNewMachine()
                 } label: {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
                 .padding(.top, 2)
+                if let plan = viewModel.plan {
+                    Text(planIncludesLabel(plan))
+                        .cmuxFont(size: 11)
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -350,6 +364,22 @@ struct MachinesPanelView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("CloudMachinesEmptyState")
+    }
+
+    /// "Your plan includes 5 machines" under the create button, so the empty
+    /// state answers "what do I get" before the meter ever shows a count.
+    private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
+        if plan.isSingleMachinePlan {
+            return String(
+                localized: "machines.empty.planIncludes.single",
+                defaultValue: "Your plan includes 1 machine"
+            )
+        }
+        return String(
+            format: String(localized: "machines.empty.planIncludes", defaultValue: "Your plan includes %d machines"),
+            plan.maxActiveVms
+        )
     }
 }
 
@@ -370,7 +400,6 @@ private struct MachinePlanMeter: View {
                     .foregroundColor(.orange)
             }
         }
-        .padding(.leading, 8)
         .help(meterHelp)
         .accessibilityElement(children: .combine)
     }

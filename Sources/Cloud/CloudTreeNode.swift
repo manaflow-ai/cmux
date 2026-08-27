@@ -250,6 +250,20 @@ enum CloudTreeNodeBuilder {
         return nodes
     }
 
+    /// True when `nodes(machines:snapshot:localWorkspaces:)` would produce no
+    /// rows. The panel swaps the outline for its empty state on this; it must
+    /// mirror `nodes` exactly (local catalog entries only count while
+    /// `includesLocalMachine` is on), or a fresh account renders a blank
+    /// outline instead of the empty state.
+    static func isEmpty(
+        machines: [MachineSnapshot],
+        snapshot: SurfaceCatalogSnapshot,
+        includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
+    ) -> Bool {
+        guard machines.isEmpty else { return false }
+        return !snapshot.machines.contains { includeLocalMachine || !$0.id.isLocal }
+    }
+
     static func nodeID(machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
     static func nodeID(workspace: String, machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ws/\(workspace)" }
