@@ -368,6 +368,40 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
+    func testStaleFilePreviewPayloadCannotEnablePaneOrPortalHitTesting() {
+        let staleTypes: [NSPasteboard.PasteboardType] = [
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+            .fileURL,
+        ]
+
+        XCTAssertFalse(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged,
+                hasLiveFileDropPayload: true
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged,
+                hasLiveFileDropPayload: true
+            )
+        )
+    }
+
     func testLiveTabDragCapabilityResolverCachesOneLookupPerPasteboardGeneration() {
         let registry = TabDragTransferRegistry()
         let pasteboard = NSPasteboard(
@@ -387,6 +421,12 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertNil(resolver.resolve(from: pasteboard))
         XCTAssertEqual(lookupCount, 1)
 
+        // AppKit's pasteboard daemon does not advance `changeCount` for a
+        // same-generation value write on every supported macOS release. A
+        // clear is the deterministic generation boundary the resolver keys
+        // on; the subsequent write keeps the board representative of a new
+        // drag payload without relying on an implementation detail.
+        pasteboard.clearContents()
         pasteboard.setString("changed", forType: .string)
         XCTAssertNil(resolver.resolve(from: pasteboard))
         XCTAssertEqual(lookupCount, 2)
@@ -394,6 +434,41 @@ final class PortalTabDragRoutingTests: XCTestCase {
         resolver.invalidate()
         XCTAssertNil(resolver.resolve(from: pasteboard))
         XCTAssertEqual(lookupCount, 3)
+    }
+
+    func testLiveTabDragCapabilityResolverRejectsRevokedCachedTransfer() throws {
+        let registry = TabDragTransferRegistry()
+        let registration = try XCTUnwrap(
+            registry.register(
+                TabDragTransfer(
+                    tab: Tab(title: "revoked", kind: "terminal"),
+                    sourcePaneId: PaneID()
+                )
+            )
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("live-tab-resolver-revocation-(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        XCTAssertTrue(registration.write(to: pasteboard))
+        var lookupCount = 0
+        let resolver = LiveTabDragCapabilityResolver(
+            registryProvider: { registry },
+            transferResolver: { registry, pasteboard in
+                lookupCount += 1
+                return registry.resolve(from: pasteboard)
+            }
+        )
+
+        XCTAssertNotNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 1)
+
+        // Ending the source does not necessarily advance AppKit's pasteboard
+        // generation. A cached positive result must still become inert.
+        registry.end(registration)
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 1)
+        pasteboard.clearContents()
     }
 
     func testDragPasteboardCapabilityCleanerPreservesUnrelatedRepresentations() throws {
@@ -652,7 +727,8 @@ final class PortalTabDragRoutingTests: XCTestCase {
             TerminalPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType, .fileURL],
                 eventType: .leftMouseUp,
-                hasLiveTabTransfer: true
+                hasLiveTabTransfer: true,
+                hasLiveFileDropPayload: true
             )
         )
 

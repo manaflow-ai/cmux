@@ -100,6 +100,35 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         registry.current = id
         #expect(state.currentWorkspaceDragId == id)
     }
+
+    @Test func liveSessionCheckUsesTheInjectedPasteboard() {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-live-session-(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let registry = SidebarWorkspaceDragRegistry(
+            dragPasteboardProvider: { pasteboard }
+        )
+        let state = SidebarDragState(workspaceDragRegistry: registry)
+        let session = state.beginDragging(tabId: UUID())
+        let type = NSPasteboard.PasteboardType(
+            SidebarWorkspaceDragSession.pasteboardTypeIdentifier
+        )
+
+        #expect(!state.acceptsLiveSidebarSessionForCurrentPasteboard {
+            pasteboard
+        })
+        #expect(pasteboard.setString(session.pasteboardValue, forType: type))
+        #expect(state.acceptsLiveSidebarSessionForCurrentPasteboard {
+            pasteboard
+        })
+
+        registry.nativeDraggingSessionDidEnd(
+            sessionId: session.id,
+            capabilityValue: session.pasteboardValue
+        )
+        pasteboard.clearContents()
+    }
 }
 
 @MainActor

@@ -203,9 +203,10 @@ enum DragOverlayRoutingPolicy {
     @MainActor
     static func hasLiveTabTransfer(
         in pasteboard: NSPasteboard,
+        pasteboardTypes: [NSPasteboard.PasteboardType]? = nil,
         resolver: LiveTabDragCapabilityResolver?
     ) -> Bool {
-        let types = pasteboard.types
+        let types = pasteboardTypes ?? pasteboard.types
         guard hasBonsplitTabTransfer(types) || hasFilePreviewTransfer(types) else {
             return false
         }
@@ -236,39 +237,47 @@ enum DragOverlayRoutingPolicy {
     /// publish a file URL, but their private transfer type is only accepted
     /// while the process-local capability registry still resolves it.
     @MainActor
-    static func hasLiveFileDropPayload(from pasteboard: NSPasteboard) -> Bool {
-        let types = pasteboard.types
+    static func hasLiveFileDropPayload(
+        from pasteboard: NSPasteboard,
+        pasteboardTypes: [NSPasteboard.PasteboardType]? = nil,
+        resolver: LiveTabDragCapabilityResolver? = nil
+    ) -> Bool {
+        let types = pasteboardTypes ?? pasteboard.types
         guard hasFileDropPayload(types) else { return false }
-        // A real Finder file URL remains valid even if AppKit leaves a stale
-        // private preview UTI on the same pasteboard. Only preview-only
-        // payloads need a live in-process capability.
-        if hasFileURL(types) { return true }
-        if AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil {
-            return true
+        // A file-preview writer publishes a file URL for Finder-compatible
+        // consumers, but its private UTI makes the payload process-owned. The
+        // UTI alone must never keep a stale preview drag alive.
+        if hasFilePreviewTransfer(types) {
+            return FilePreviewDragPasteboardWriter.liveFilePreviewEntry(
+                from: pasteboard,
+                pasteboardTypes: types,
+                resolver: resolver
+            ) != nil
         }
-        // File-preview writers may be used without an AppDelegate-owned tab
-        // registry (for example by an isolated file-explorer surface). Their
-        // private data still carries the registry UUID, so the file-preview
-        // registry is the authoritative fallback when no Bonsplit capability
-        // was published.
-        guard let dragId = FilePreviewDragPasteboardWriter.dragID(from: pasteboard) else {
-            return false
-        }
-        return FilePreviewDragRegistry.shared.contains(id: dragId)
+        // A payload with only a file URL is an external/Finder-style drop. Its
+        // native drag session, rather than cmux's internal capability registry,
+        // owns liveness.
+        return hasFileURL(types)
     }
 
     @MainActor
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
-        guard hasLiveFileDropPayload(from: pasteboard) else { return [] }
+        let pasteboardTypes = pasteboard.types
+        guard hasLiveFileDropPayload(
+            from: pasteboard,
+            pasteboardTypes: pasteboardTypes
+        ) else { return [] }
         let fileURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {
             return fileURLs
         }
-        guard let dragId = FilePreviewDragPasteboardWriter.dragID(from: pasteboard),
-              let entry = FilePreviewDragRegistry.shared.entry(id: dragId) else {
+        guard let preview = FilePreviewDragPasteboardWriter.liveFilePreviewEntry(
+            from: pasteboard,
+            pasteboardTypes: pasteboardTypes
+        ) else {
             return []
         }
-        return [URL(fileURLWithPath: entry.filePath).standardizedFileURL]
+        return [URL(fileURLWithPath: preview.entry.filePath).standardizedFileURL]
     }
 
     static func textDropOperation(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> NSDragOperation {
@@ -381,13 +390,17 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
         hasActiveDropDrag: Bool = false,
-        hasLiveTabTransfer: Bool = false
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
+        let hasFilePreviewType = hasFilePreviewTransfer(pasteboardTypes)
         let hasTabTransfer = hasBonsplitTabTransfer(pasteboardTypes)
             && hasLiveTabTransfer
-        let hasLiveFilePreviewTransfer = hasFilePreviewTransfer(pasteboardTypes)
+            && (!hasFilePreviewType || hasLiveFileDropPayload)
+        let hasLiveFilePreviewTransfer = hasFilePreviewType
             && hasLiveTabTransfer
+            && hasLiveFileDropPayload
         switch routingContext.eventKind {
         case .pointerDrag:
             return hasTabTransfer
@@ -407,7 +420,8 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
         hasActiveDropDrag: Bool = false,
-        hasLiveTabTransfer: Bool = false
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
         guard routingContext.allowsTerminalPortalDragRouting else { return false }
@@ -417,14 +431,18 @@ enum DragOverlayRoutingPolicy {
                 pasteboardTypes: pasteboardTypes,
                 eventType: eventType,
                 hasActiveDropDrag: hasActiveDropDrag,
-                hasLiveTabTransfer: hasLiveTabTransfer
-            ) || hasFileURL(pasteboardTypes)
+                hasLiveTabTransfer: hasLiveTabTransfer,
+                hasLiveFileDropPayload: hasLiveFileDropPayload
+            ) || hasLiveFileDropPayload
+                || (hasFileURL(pasteboardTypes)
+                    && !hasFilePreviewTransfer(pasteboardTypes))
         case .pointerUp:
             return shouldPassThroughPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
                 eventType: eventType,
                 hasActiveDropDrag: hasActiveDropDrag,
-                hasLiveTabTransfer: hasLiveTabTransfer
+                hasLiveTabTransfer: hasLiveTabTransfer,
+                hasLiveFileDropPayload: hasLiveFileDropPayload
             )
         case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
             return false

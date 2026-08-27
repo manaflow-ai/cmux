@@ -27,6 +27,50 @@ struct DragPasteboardCapabilityCleaner {
         remove(type: type, matching: { pasteboard.data(forType: type) == capabilityData }, from: pasteboard)
     }
 
+    /// Removes a value-backed capability only while a second data-backed
+    /// capability still identifies the same drag generation.
+    ///
+    /// AppKit may replace a mirrored `.fileURL` while retaining the private
+    /// drag payload. Requiring both values in the same guarded cleanup keeps a
+    /// late completion from removing a newer drag of the same path.
+    func remove(
+        type: NSPasteboard.PasteboardType,
+        capabilityValue: String,
+        from pasteboard: NSPasteboard,
+        requiring markerType: NSPasteboard.PasteboardType,
+        markerData: Data
+    ) {
+        remove(
+            type: type,
+            matching: {
+                pasteboard.string(forType: type) == capabilityValue
+                    && (pasteboard.data(forType: markerType) == markerData
+                        || pasteboard.string(forType: markerType)
+                            .map { Data($0.utf8) } == markerData)
+            },
+            from: pasteboard
+        )
+    }
+
+    /// Removes a value-backed capability only while a second string-backed
+    /// capability still identifies the same drag generation.
+    func remove(
+        type: NSPasteboard.PasteboardType,
+        capabilityValue: String,
+        from pasteboard: NSPasteboard,
+        requiring markerType: NSPasteboard.PasteboardType,
+        markerValue: String
+    ) {
+        remove(
+            type: type,
+            matching: {
+                pasteboard.string(forType: type) == capabilityValue
+                    && pasteboard.string(forType: markerType) == markerValue
+            },
+            from: pasteboard
+        )
+    }
+
     private func remove(
         type: NSPasteboard.PasteboardType,
         matching stillMatches: () -> Bool,

@@ -2896,7 +2896,12 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertNil(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
         let writableTypes = writer.writableTypes(for: dragPasteboard)
         XCTAssertTrue(writableTypes.contains(.fileURL))
-        let preparedDragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        let preparedDragID = try XCTUnwrap(
+            FilePreviewDragPasteboardWriter.dragID(
+                from: dragPasteboard,
+                registry: tabDragTransferRegistry
+            )
+        )
         XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: preparedDragID))
         XCTAssertEqual(
             writer.pasteboardPropertyList(forType: .fileURL) as? String,
@@ -2929,6 +2934,42 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
         XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: dragID))
         XCTAssertNil(tabDragTransferRegistry.resolve(from: dragPasteboard))
+    }
+
+    func testFileURLCleanupRequiresTheEndedPreviewGeneration() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("file-preview-generation-(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let markerType = DragOverlayRoutingPolicy.filePreviewTransferType
+        let oldMarker = Data("old-preview".utf8)
+        let newerMarker = Data("new-preview".utf8)
+        let fileURL = URL(fileURLWithPath: "/tmp/same-preview.txt").standardizedFileURL.absoluteString
+        XCTAssertTrue(pasteboard.setData(oldMarker, forType: markerType))
+        XCTAssertTrue(pasteboard.setString(fileURL, forType: .fileURL))
+
+        // A newer preview can reuse the same path while publishing a new
+        // private generation marker. The old completion must leave its URL.
+        XCTAssertTrue(pasteboard.setData(newerMarker, forType: markerType))
+        DragPasteboardCapabilityCleaner().remove(
+            type: .fileURL,
+            capabilityValue: fileURL,
+            from: pasteboard,
+            requiring: markerType,
+            markerData: oldMarker
+        )
+        XCTAssertEqual(pasteboard.string(forType: .fileURL), fileURL)
+
+        XCTAssertTrue(pasteboard.setData(oldMarker, forType: markerType))
+        DragPasteboardCapabilityCleaner().remove(
+            type: .fileURL,
+            capabilityValue: fileURL,
+            from: pasteboard,
+            requiring: markerType,
+            markerData: oldMarker
+        )
+        XCTAssertNil(pasteboard.string(forType: .fileURL))
+        pasteboard.clearContents()
     }
 
     func testLateFilePreviewCompletionDoesNotEndNewerTabCapability() async throws {
@@ -3025,6 +3066,10 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
             DragOverlayRoutingPolicy.fileURLs(from: pasteboard).first?.path,
             "/tmp/preview-only.txt"
         )
+
+        FilePreviewDragRegistry.shared.discard(id: dragId)
+        XCTAssertFalse(DragOverlayRoutingPolicy.hasLiveFileDropPayload(from: pasteboard))
+        XCTAssertTrue(DragOverlayRoutingPolicy.fileURLs(from: pasteboard).isEmpty)
     }
 
     func testRegistrySweepsExpiredDragEntries() {

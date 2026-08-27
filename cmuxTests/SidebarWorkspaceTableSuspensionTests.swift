@@ -442,6 +442,11 @@ struct SidebarWorkspaceTableSuspensionTests {
         container.reorderDropView.concludeDragOperation(sender)
 
         controller.dismantleContainerView(container)
+        // Native source completion can arrive before the asynchronous target
+        // bridge updates the reconstructed drop view. It must not erase the
+        // pending operation or release the retained container early.
+        controller.workspaceDragSessionDidEnd()
+        #expect(pendingCommitCount == 0)
 
         let target = SidebarWorkspaceReorderDropOverlay.Target(
             workspaceId: workspaceId,
@@ -456,7 +461,6 @@ struct SidebarWorkspaceTableSuspensionTests {
             pendingCommitCount == 1,
             "A deferred reorder must survive table teardown until its target snapshot arrives."
         )
-        controller.workspaceDragSessionDidEnd()
         #expect(container.tableView.activeWorkspaceDragController == nil)
     }
 

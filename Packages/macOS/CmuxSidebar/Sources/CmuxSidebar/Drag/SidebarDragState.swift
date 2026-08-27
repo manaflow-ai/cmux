@@ -106,9 +106,13 @@ public final class SidebarDragState {
 
     /// A sidebar payload is live only when its token matches the process-wide
     /// native session. A residual or legacy value cannot create a session.
-    public func acceptsLiveSidebarSessionForCurrentPasteboard() -> Bool {
+    public func acceptsLiveSidebarSessionForCurrentPasteboard(
+        pasteboardProvider: @escaping @MainActor () -> NSPasteboard = {
+            NSPasteboard(name: .drag)
+        }
+    ) -> Bool {
         guard let currentSessionId = currentWorkspaceDragSessionId else { return false }
-        let pasteboard = NSPasteboard(name: .drag)
+        let pasteboard = pasteboardProvider()
         let type = NSPasteboard.PasteboardType(
             SidebarWorkspaceDragSession.pasteboardTypeIdentifier
         )

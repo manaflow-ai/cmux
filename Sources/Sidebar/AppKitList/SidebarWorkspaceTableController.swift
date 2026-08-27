@@ -53,11 +53,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var activeWorkspaceDragContainerView: SidebarWorkspaceTableContainerView?
     private var activeWorkspaceDragSessionId: UUID?
     private var activeWorkspaceDragCapabilityValue: String?
+    private var workspaceDragSourceCompletionReceived = false
     private var pendingWorkspaceDragSessionId: UUID?
     private var pendingWorkspaceDragWorkspaceId: UUID?
     private var hasPendingOrActiveWorkspaceDrag: Bool {
         isWorkspaceDragSourceActive
             || pendingWorkspaceDragSessionId != nil
+            || activeWorkspaceDragContainerView?.reorderDropView.hasPendingDrop == true
     }
     private weak var unreadSource: SidebarUnreadModel?
     private var unreadSnapshot = SidebarUnreadSnapshot()
@@ -188,6 +190,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let preserveNativeDragPresentation = hasPendingOrActiveWorkspaceDrag
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
             activeWorkspaceDragContainerView = container
+            installDeferredDropLifecycle(on: container)
         }
         mutationScheduler.cancelPendingApplyAndViewport()
         deferredInteractiveResizeApply = nil
@@ -200,6 +203,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // A representable can be dismantled while AppKit still owns the native
         // drag session (fullscreen/display reconstruction). Keep the action
         // graph and table delegate alive until the terminal source callback.
+        // Retire controller-painted indicators while the action graph is still
+        // available; dropping `actions` first would silently skip the
+        // authoritative clear callback during presentation teardown.
+        clearWorkspaceDragPresentation()
         if !hasPendingOrActiveWorkspaceDrag {
             // A writer can be requested before AppKit creates a native
             // session. This controller owns no completion in that interval;
@@ -209,7 +216,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             pendingWorkspaceDragWorkspaceId = nil
             actions = nil
         }
-        clearWorkspaceDragPresentation()
         unreadObservation?.cancel()
         unreadObservation = nil
         unreadSource = nil
@@ -371,6 +377,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
+        // Retire controller-painted indicators while the action graph is still
+        // available; dropping `actions` first would silently skip the
+        // authoritative clear callback during presentation teardown.
+        clearWorkspaceDragPresentation()
         if !hasPendingOrActiveWorkspaceDrag {
             // There is no table-owned native session to complete here. Leave
             // session termination to the native source instead of invoking a
@@ -379,7 +389,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             pendingWorkspaceDragWorkspaceId = nil
             actions = nil
         }
-        clearWorkspaceDragPresentation()
         workspaceIds = liveWorkspaceIds
         selectedScrollTargetWorkspaceId = nil
         hoveredRowId = nil
@@ -1037,10 +1046,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func workspaceDragSessionDidBegin() {
         guard !isWorkspaceDragSourceActive else { return }
+        if workspaceDragSourceCompletionReceived,
+           let retainedContainer = activeWorkspaceDragContainerView {
+            // A deferred drop from the previous native source cannot survive
+            // a newer source. Invalidate it before replacing the retained
+            // container, otherwise its late target update would either leak
+            // the old graph or commit against the new drag.
+            retainedContainer.reorderDropView.invalidatePendingDropForNewNativeSession()
+            releaseRetainedWorkspaceDragContainerIfPossible()
+        }
         isWorkspaceDragSourceActive = true
+        workspaceDragSourceCompletionReceived = false
         if let containerView {
             activeWorkspaceDragContainerView = containerView
             retainWorkspaceDragSource(containerView.tableView)
+            installDeferredDropLifecycle(on: containerView)
         }
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press
@@ -1064,6 +1084,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidEnd() {
+        // AppKit may deliver a duplicate terminal callback while a deferred
+        // drop is still waiting for its target bridge. The first callback owns
+        // source completion; a later callback must not fall back to the
+        // unscoped compatibility end hook (which could end a newer session).
+        if !isWorkspaceDragSourceActive,
+           activeWorkspaceDragSessionId == nil,
+           pendingWorkspaceDragSessionId == nil {
+            clearWorkspaceDragPresentation()
+            releaseRetainedWorkspaceDragContainerIfPossible()
+            return
+        }
         guard hasPendingOrActiveWorkspaceDrag else {
             clearWorkspaceDragPresentation()
             pendingWorkspaceDragSessionId = nil
@@ -1098,22 +1129,41 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         retireReorderIndicator()
 
         let tableView = activeWorkspaceDragTableView
-        let retainedContainer = activeWorkspaceDragContainerView
         activeWorkspaceDragTableView = nil
-        activeWorkspaceDragContainerView = nil
+        workspaceDragSourceCompletionReceived = true
         tableView?.activeWorkspaceDragController = nil
         if let tableView, tableView !== containerView?.tableView {
             detachController(from: tableView)
         }
-        if let retainedContainer, retainedContainer !== containerView {
-            // The retained container may still hold a deferred drop or source
-            // closures. Native completion is now authoritative, so retire the
-            // old presentation and release its action graph together.
-            clearDropViewActions(in: retainedContainer)
-        }
+        releaseRetainedWorkspaceDragContainerIfPossible()
         if !isPresentationActive || containerView == nil {
             actions = nil
         }
+    }
+
+    private func installDeferredDropLifecycle(on container: SidebarWorkspaceTableContainerView) {
+        container.reorderDropView.onPendingDropLifecycleEnded = { [weak self, weak container] in
+            guard let self, let container else { return }
+            self.releaseRetainedWorkspaceDragContainerIfPossible(container: container)
+        }
+    }
+
+    private func releaseRetainedWorkspaceDragContainerIfPossible(
+        container expectedContainer: SidebarWorkspaceTableContainerView? = nil
+    ) {
+        guard workspaceDragSourceCompletionReceived,
+              let retainedContainer = activeWorkspaceDragContainerView,
+              expectedContainer == nil || retainedContainer === expectedContainer,
+              !retainedContainer.reorderDropView.hasPendingDrop else {
+            return
+        }
+        if retainedContainer !== containerView {
+            clearDropViewActions(in: retainedContainer)
+        } else {
+            retainedContainer.reorderDropView.onPendingDropLifecycleEnded = nil
+        }
+        activeWorkspaceDragContainerView = nil
+        workspaceDragSourceCompletionReceived = false
     }
 
     private func clearWorkspaceDragPresentation() {
@@ -2002,6 +2052,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func clearDropViewActions(in container: SidebarWorkspaceTableContainerView) {
         let reorder = container.reorderDropView
+        reorder.onPendingDropLifecycleEnded = nil
         reorder.suspendPresentation()
         reorder.isValidDrag = { false }
         reorder.hasLiveWorkspaceDrag = { false }

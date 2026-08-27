@@ -53,15 +53,19 @@ final class PaneDropTargetView: NSView {
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
-        hasLiveTabTransfer: Bool = false
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
         guard routingContext.allowsPaneDropHitTesting else { return false }
 
+        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
         let hasTabTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
             && hasLiveTabTransfer
-        let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-            || (DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes) && hasLiveTabTransfer)
+            && (!hasFilePreviewTransfer || hasLiveFileDropPayload)
+        let hasFileDropPayload = hasFilePreviewTransfer
+            ? hasLiveFileDropPayload
+            : DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
         guard hasTabTransfer || hasFileDropPayload else { return false }
 
         if hasFileDropPayload, !hasTabTransfer {
@@ -86,12 +90,19 @@ final class PaneDropTargetView: NSView {
         let pasteboardTypes = dragPasteboard.types
         let hasLiveTabTransfer = DragOverlayRoutingPolicy.hasLiveTabTransfer(
             in: dragPasteboard,
+            pasteboardTypes: pasteboardTypes,
+            resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+        )
+        let hasLiveFileDropPayload = DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+            from: dragPasteboard,
+            pasteboardTypes: pasteboardTypes,
             resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
         )
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType,
-            hasLiveTabTransfer: hasLiveTabTransfer
+            hasLiveTabTransfer: hasLiveTabTransfer,
+            hasLiveFileDropPayload: hasLiveFileDropPayload
         )
 #if DEBUG
         logHitTestDecision(capture: capture, pasteboardTypes: pasteboardTypes, eventType: eventType)

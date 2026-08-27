@@ -3577,11 +3577,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static func hasLiveInternalDrag(in pasteboard: NSPasteboard) -> Bool {
         MainActor.assumeIsolated {
             let app = AppDelegate.shared
-            if pasteboard.types?.contains(tabTransferPasteboardType) == true,
+            let types = pasteboard.types
+            if types?.contains(tabTransferPasteboardType) == true,
                app?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil {
                 return true
             }
-            guard pasteboard.types?.contains(sidebarTabReorderPasteboardType) == true else {
+            guard types?.contains(sidebarTabReorderPasteboardType) == true else {
                 return false
             }
             return SidebarTabDragPayload.hasLiveSession(

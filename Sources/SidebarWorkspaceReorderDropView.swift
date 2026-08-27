@@ -19,12 +19,18 @@ final class SidebarWorkspaceReorderDropView: NSView {
     var clearDropIndicator: (() -> Void)?
     var setWorkspaceDropTargetCollectionActive: ((Bool) -> Void)?
     var hasLiveWorkspaceDrag: (() -> Bool)?
+    /// Called after a deferred payload is committed or invalidated. The table
+    /// controller uses this to release a retained reconstructed container only
+    /// after its pending operation is no longer needed.
+    var onPendingDropLifecycleEnded: (() -> Void)?
     var pointOffset: CGSize = .zero
     private var isRequestingTargets = false
     private var targetRequestId: UInt64 = 0
     private var pendingDrop: SidebarWorkspaceReorderPendingDrop?
     private var awaitsTargetsAfterDragTeardown = false
     private var activeDragIdentity: DragIdentity?
+
+    var hasPendingDrop: Bool { pendingDrop != nil }
 
     override var isFlipped: Bool { true }
 
@@ -76,6 +82,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
             awaitsTargetsAfterDragTeardown = false
             let pasteboard = sender.draggingPasteboard
             let rawPayload = SidebarTabDragPayload.pasteboardString(from: pasteboard)
+            invalidatePendingDrop()
             pendingDrop = SidebarWorkspaceReorderPendingDrop(
                 requestId: targetRequestId,
                 point: point,
@@ -122,6 +129,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
         let requestId = pendingDrop.requestId
         self.pendingDrop = nil
         awaitsTargetsAfterDragTeardown = false
+        defer { onPendingDropLifecycleEnded?() }
         let performed: Bool
         if let performPendingDropAtPoint {
             performed = performPendingDropAtPoint(pendingDrop, targets)
@@ -145,6 +153,24 @@ final class SidebarWorkspaceReorderDropView: NSView {
             return
         }
         performPendingDropIfPossible()
+    }
+
+    /// Invalidates a deferred operation when a newer native drag supersedes
+    /// the completed source. The detached view must not keep its old target
+    /// request active or commit that older generation later.
+    func invalidatePendingDropForNewNativeSession() {
+        let hadPendingDrop = pendingDrop != nil
+        pendingDrop = nil
+        awaitsTargetsAfterDragTeardown = false
+        activeDragIdentity = nil
+        targetRequestId &+= 1
+        if isRequestingTargets {
+            isRequestingTargets = false
+            setWorkspaceDropTargetCollectionActive?(false)
+        }
+        if hadPendingDrop {
+            onPendingDropLifecycleEnded?()
+        }
     }
 
     private func completeOrClearPendingDropAfterDragTeardown() {
@@ -179,9 +205,13 @@ final class SidebarWorkspaceReorderDropView: NSView {
             targetRequestId &+= 1
         }
         if !isActive {
+            let hadPendingDrop = pendingDrop != nil
             pendingDrop = nil
             awaitsTargetsAfterDragTeardown = false
             activeDragIdentity = nil
+            if hadPendingDrop {
+                onPendingDropLifecycleEnded?()
+            }
         }
         isRequestingTargets = isActive
         setWorkspaceDropTargetCollectionActive?(isActive)
@@ -225,8 +255,12 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     private func invalidatePendingDrop() {
+        let hadPendingDrop = pendingDrop != nil
         pendingDrop = nil
         awaitsTargetsAfterDragTeardown = false
+        if hadPendingDrop {
+            onPendingDropLifecycleEnded?()
+        }
     }
 
     private func isCurrentDrag(_ sender: NSDraggingInfo?) -> Bool {

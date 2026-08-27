@@ -556,26 +556,67 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         return transfer.tab.id
     }
 
-    static func dragID(from pasteboard: NSPasteboard) -> UUID? {
-        if let transfer = AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(from: pasteboard) {
-            return transfer.tab.id.uuid
+    static func dragID(
+        from pasteboard: NSPasteboard,
+        registry: TabDragTransferRegistry? = nil
+    ) -> UUID? {
+        if let registry {
+            return registry.resolve(from: pasteboard)?.tab.id.uuid
         }
-        for type in [DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType] {
-            if let data = pasteboard.data(forType: type),
-               let id = dragID(from: data) {
-                return id
+        return AppDelegate.shared?.liveTabDragCapabilityResolver
+            .resolve(from: pasteboard)?
+            .tab.id.uuid
+    }
+
+    /// Resolves a file-preview payload through the process-local preview
+    /// registry when no Bonsplit capability was published. The serialized
+    /// payload is only an opaque lookup key; an absent registry entry is never
+    /// treated as a live drag.
+    @MainActor
+    static func liveFilePreviewEntry(
+        from pasteboard: NSPasteboard,
+        pasteboardTypes: [NSPasteboard.PasteboardType]? = nil,
+        resolver: LiveTabDragCapabilityResolver? = nil
+    ) -> (id: UUID, entry: FilePreviewDragEntry)? {
+        let types = pasteboardTypes ?? pasteboard.types
+        guard types?.contains(DragOverlayRoutingPolicy.filePreviewTransferType) == true else {
+            return nil
+        }
+        let liveResolver = resolver ?? AppDelegate.shared?.liveTabDragCapabilityResolver
+        if let liveResolver {
+            if let transfer = liveResolver.resolve(from: pasteboard),
+               transfer.tab.kind == "filePreview",
+               let entry = FilePreviewDragRegistry.shared.entry(id: transfer.tab.id.uuid) {
+                return (transfer.tab.id.uuid, entry)
             }
-            if let raw = pasteboard.string(forType: type),
-               let id = dragID(from: Data(raw.utf8)) {
-                return id
+            // A writer may intentionally omit the Bonsplit capability (for
+            // example while an isolated file explorer is preparing its item).
+            // Once that capability is advertised, however, a failed live
+            // resolution must fail closed rather than falling back to stale
+            // serialized metadata.
+            guard types?.contains(Self.bonsplitTransferType) != true else {
+                return nil
             }
         }
-        return nil
+        guard let data = privatePreviewPayloadData(from: pasteboard),
+              let id = dragID(from: data),
+              let entry = FilePreviewDragRegistry.shared.entry(id: id) else {
+            return nil
+        }
+        return (id, entry)
+    }
+
+    private static func privatePreviewPayloadData(from pasteboard: NSPasteboard) -> Data? {
+        let type = DragOverlayRoutingPolicy.filePreviewTransferType
+        if let data = pasteboard.data(forType: type) {
+            return data
+        }
+        return pasteboard.string(forType: type).map { Data($0.utf8) }
     }
 
     static func discardRegisteredDrag(from pasteboard: NSPasteboard) {
         let bonsplitCapability = pasteboard.string(forType: Self.bonsplitTransferType)
-        let filePreviewData = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        let filePreviewData = privatePreviewPayloadData(from: pasteboard)
         let filePreviewDragId = filePreviewData.flatMap { dragID(from: $0) }
         let transferRegistry = AppDelegate.shared?.tabDragTransferRegistry
         let liveTransfer = transferRegistry?.resolve(from: pasteboard)
@@ -598,7 +639,22 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         // process-wide pasteboard and end a newer pane/tab registration.
         let canEndTransfer = liveFilePreviewDragId != nil
             && (filePreviewDragId == nil || filePreviewDragId == liveFilePreviewDragId)
-        let previewDragId = filePreviewDragId ?? liveFilePreviewDragId
+        let previewDragId: UUID? = {
+            if let liveFilePreviewDragId,
+               FilePreviewDragRegistry.shared.contains(id: liveFilePreviewDragId),
+               filePreviewDragId == nil || filePreviewDragId == liveFilePreviewDragId {
+                return liveFilePreviewDragId
+            }
+            // A writer without a Bonsplit registry still owns a validated
+            // FilePreviewDragRegistry entry. It may clean that entry, but it
+            // must not end an unrelated tab capability.
+            guard bonsplitCapability == nil,
+                  let filePreviewDragId,
+                  FilePreviewDragRegistry.shared.contains(id: filePreviewDragId) else {
+                return nil
+            }
+            return filePreviewDragId
+        }()
         let previewFileURL = previewDragId.flatMap { dragId in
             FilePreviewDragRegistry.shared.entry(id: dragId).map { entry in
                 URL(fileURLWithPath: entry.filePath).standardizedFileURL.absoluteString
@@ -615,7 +671,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
                 from: pasteboard
             )
         }
-        if let filePreviewData, filePreviewDragId != nil || liveFilePreviewDragId != nil {
+        if let filePreviewData, previewDragId != nil {
             DragPasteboardCapabilityCleaner().remove(
                 type: DragOverlayRoutingPolicy.filePreviewTransferType,
                 capabilityData: filePreviewData,
@@ -624,14 +680,26 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         }
         if let previewFileURL {
             // The writer mirrors `.fileURL` for Finder-compatible consumers,
-            // but it is still this internal drag's representation. Remove it
-            // only while the value remains the same, preserving a newer URL
-            // that may have replaced the session's pasteboard.
-            DragPasteboardCapabilityCleaner().remove(
-                type: .fileURL,
-                capabilityValue: previewFileURL,
-                from: pasteboard
-            )
+            // but it is still this internal drag's representation. Require the
+            // private generation marker as well as the URL before removing it;
+            // a newer preview of the same path must remain untouched.
+            if let filePreviewData {
+                DragPasteboardCapabilityCleaner().remove(
+                    type: .fileURL,
+                    capabilityValue: previewFileURL,
+                    from: pasteboard,
+                    requiring: DragOverlayRoutingPolicy.filePreviewTransferType,
+                    markerData: filePreviewData
+                )
+            } else if canEndTransfer, let bonsplitCapability {
+                DragPasteboardCapabilityCleaner().remove(
+                    type: .fileURL,
+                    capabilityValue: previewFileURL,
+                    from: pasteboard,
+                    requiring: Self.bonsplitTransferType,
+                    markerValue: bonsplitCapability
+                )
+            }
         }
         if let dragId = previewDragId {
             FilePreviewDragRegistry.shared.discard(id: dragId)

@@ -1,12 +1,13 @@
 import AppKit
 import Bonsplit
 
-/// Caches one pasteboard-generation lookup for the process-local tab-drag registry.
+/// Memoizes transfer decoding for a pasteboard generation while consulting the
+/// process-local registry for liveness on every hit.
 ///
 /// Portal and pane hit testing runs for every pointer event. The pasteboard's
-/// change count is stable throughout a drag, so decoding the opaque JSON
-/// capability once per pasteboard generation keeps those hot paths bounded while
-/// retaining the registry as the liveness authority.
+/// change count is stable throughout a drag, so the injected transfer resolver
+/// runs once per generation. Registry validation remains the authority because
+/// revocation does not always advance AppKit's change count.
 @MainActor
 final class LiveTabDragCapabilityResolver {
     typealias RegistryProvider = @MainActor () -> TabDragTransferRegistry?
@@ -38,7 +39,7 @@ final class LiveTabDragCapabilityResolver {
         self.transferResolver = transferResolver
     }
 
-    /// Resolves a live transfer, decoding at most once per registry/pasteboard generation.
+    /// Resolves a live transfer while keeping registry revocation authoritative.
     func resolve(from pasteboard: NSPasteboard) -> TabDragTransfer? {
         guard let registry = registryProvider() else {
             cache = nil
@@ -51,7 +52,33 @@ final class LiveTabDragCapabilityResolver {
            cache.registryIdentity == registryIdentity,
            cache.pasteboardName == pasteboardName,
            cache.pasteboardChangeCount == changeCount {
-            return cache.transfer
+            // Pasteboard generations are not the registry's liveness
+            // generation. AppKit can leave the same change count in place when
+            // a source ends (or when a replacement writes the same value), so
+            // validate the cached result against the authoritative registry on
+            // every cache hit. A cache miss is also re-opened when a new live
+            // registration appears without a pasteboard-generation change.
+            let liveTransfer = registry.resolve(from: pasteboard)
+            guard let liveTransfer else {
+                self.cache = Cache(
+                    registryIdentity: registryIdentity,
+                    pasteboardName: pasteboardName,
+                    pasteboardChangeCount: changeCount,
+                    transfer: nil
+                )
+                return nil
+            }
+            if cache.transfer == liveTransfer {
+                return cache.transfer
+            }
+            let transfer = transferResolver(registry, pasteboard)
+            self.cache = Cache(
+                registryIdentity: registryIdentity,
+                pasteboardName: pasteboardName,
+                pasteboardChangeCount: changeCount,
+                transfer: transfer
+            )
+            return transfer
         }
 
         let transfer = transferResolver(registry, pasteboard)

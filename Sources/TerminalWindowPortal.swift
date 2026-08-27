@@ -167,6 +167,12 @@ final class WindowTerminalHostView: NSView {
                     hasActiveDropDrag: hasActivePaneDropDrag,
                     hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
                         in: dragPasteboard,
+                        pasteboardTypes: dragPasteboardTypes,
+                        resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                    ),
+                    hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+                        from: dragPasteboard,
+                        pasteboardTypes: dragPasteboardTypes,
                         resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
                     )
                 )

@@ -12239,11 +12239,18 @@ class TerminalController {
         var shouldPassThrough = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
+            let types = pb.types
             shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-                pasteboardTypes: pb.types,
+                pasteboardTypes: types,
                 eventType: eventType,
                 hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
                     in: pb,
+                    pasteboardTypes: types,
+                    resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                ),
+                hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+                    from: pb,
+                    pasteboardTypes: types,
                     resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
                 )
             )

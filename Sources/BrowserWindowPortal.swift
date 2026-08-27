@@ -476,12 +476,19 @@ final class WindowBrowserHostView: NSView {
         // Live pane transfers stay in the portal so every source reaches the
         // same BrowserPaneDropTargetView router. Sidebar reorder and stale or
         // unknown transfer payloads still pass through to the SwiftUI layers.
+        let dragPasteboardTypes = dragPasteboard.types
         if Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: dragPasteboard.types,
+            pasteboardTypes: dragPasteboardTypes,
             eventType: eventType,
             hasActiveDropDrag: hasActivePaneDropDrag,
             hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
                 in: dragPasteboard,
+                pasteboardTypes: dragPasteboardTypes,
+                resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+            ),
+            hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+                from: dragPasteboard,
+                pasteboardTypes: dragPasteboardTypes,
                 resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
             )
         ) {
@@ -843,13 +850,15 @@ final class WindowBrowserHostView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?,
         hasActiveDropDrag: Bool = false,
-        hasLiveTabTransfer: Bool = false
+        hasLiveTabTransfer: Bool = false,
+        hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType,
             hasActiveDropDrag: hasActiveDropDrag,
-            hasLiveTabTransfer: hasLiveTabTransfer
+            hasLiveTabTransfer: hasLiveTabTransfer,
+            hasLiveFileDropPayload: hasLiveFileDropPayload
         )
     }
 
