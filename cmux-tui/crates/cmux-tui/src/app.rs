@@ -10216,9 +10216,7 @@ impl App {
         B::Error: Send + Sync + 'static,
     {
         // Initial layout + draw.
-        let size = terminal.size()?;
-        self.sync_layout((size.width, size.height));
-        self.draw_terminal(terminal)?;
+        self.draw_terminal(terminal, RenderAction::Draw)?;
         self.emit_graphics()?;
         self.commit_rendered_pointer_frame();
         self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
@@ -11583,13 +11581,11 @@ impl App {
         self.mark_pointer_route_for_rebuild(action);
         match action {
             RenderAction::Draw => {
-                let size = terminal.size()?;
-                self.sync_layout((size.width, size.height));
-                self.draw_terminal(terminal)?;
+                self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
             RenderAction::Paint => {
-                self.draw_terminal(terminal)?;
+                self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
             RenderAction::Graphics => self.emit_dirty_graphics()?,
@@ -11975,6 +11971,10 @@ impl App {
     }
 
     fn commit_rendered_pointer_frame_for(&mut self, action: RenderAction) {
+        if self.outer_size.0 == 0 || self.outer_size.1 == 0 {
+            self.rendered_pointer_frame = RenderedPointerFrame::default();
+            return;
+        }
         let pairing = self
             .pairing_dialog
             .as_ref()
@@ -12897,7 +12897,11 @@ impl App {
         anyhow::bail!("{message}")
     }
 
-    fn draw_terminal<B: Backend>(&mut self, terminal: &mut RatatuiTerminal<B>) -> anyhow::Result<()>
+    fn draw_terminal<B: Backend>(
+        &mut self,
+        terminal: &mut RatatuiTerminal<B>,
+        action: RenderAction,
+    ) -> anyhow::Result<()>
     where
         B::Error: Send + Sync + 'static,
     {
@@ -12906,7 +12910,12 @@ impl App {
         lock.recover_stream_locked()?;
         self.ensure_graphics_writer_healthy()?;
         self.painted_durable_notice_this_frame = None;
-        catch_renderer_panic(|| terminal.draw(|f| crate::ui::draw(self, f)))??;
+        catch_renderer_panic(|| {
+            terminal.draw(|frame| {
+                self.prepare_frame_layout(frame.area(), action);
+                crate::ui::draw(self, frame);
+            })
+        })??;
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -13009,6 +13018,36 @@ impl App {
             self.desired_outer_cursor = OuterCursorSpec::Reset;
         }
         self.applied_outer_cursor = None;
+    }
+
+    fn prepare_frame_layout(&mut self, area: ratatui::layout::Rect, action: RenderAction) {
+        let size = (area.width, area.height);
+        if action == RenderAction::Draw || self.outer_size != size {
+            self.sync_layout(size);
+        }
+        if area.width == 0 || area.height == 0 {
+            self.clear_empty_frame_geometry();
+        }
+    }
+
+    fn clear_empty_frame_geometry(&mut self) {
+        self.sidebar_layout = SidebarLayout::default();
+        self.sidebar_width = 0;
+        self.machine_sidebar_width = 0;
+        self.tabs_sidebar_width = 0;
+        self.content_area = Rect::default();
+        self.hits.clear();
+        self.pane_areas.clear();
+        self.viewport_projection.clear();
+        self.viewport_layout.clear();
+        self.viewport_stacked_headers.clear();
+        self.viewport_virtual_width = 0;
+        self.viewport_offset = 0;
+        self.rendered_terminal_sizes.clear();
+        self.rendered_terminal_bounds.clear();
+        self.rendered_kitty_graphics.clear();
+        self.rendered_terminal_pointer_semantics.clear();
+        self.rendered_pane_content_generations.clear();
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
@@ -31081,6 +31120,87 @@ mod tests {
         );
         mux.close_surface(first.id).unwrap();
         mux.close_surface(second.id).unwrap();
+    }
+
+    fn assert_rect_within_frame(rect: Rect, frame_size: (u16, u16)) {
+        assert!(
+            rect.x.saturating_add(rect.width) <= frame_size.0,
+            "rectangle {rect:?} exceeds frame width {}",
+            frame_size.0
+        );
+        assert!(
+            rect.y.saturating_add(rect.height) <= frame_size.1,
+            "rectangle {rect:?} exceeds frame height {}",
+            frame_size.1
+        );
+    }
+
+    fn assert_cached_geometry_within_frame(app: &App, frame_size: (u16, u16)) {
+        assert_eq!(app.outer_size, frame_size, "cached outer size must match the drawn frame");
+        assert_rect_within_frame(app.sidebar_layout.content, frame_size);
+        for rect in
+            [app.sidebar_layout.machine, app.sidebar_layout.workspace, app.sidebar_layout.tabs]
+                .into_iter()
+                .flatten()
+        {
+            assert_rect_within_frame(rect, frame_size);
+        }
+        for placement in &app.sidebar_layout.ordered {
+            assert_rect_within_frame(placement.rect, frame_size);
+        }
+        assert_rect_within_frame(app.content_area, frame_size);
+        for area in &app.pane_areas {
+            assert_rect_within_frame(area.rect, frame_size);
+            assert_rect_within_frame(area.content, frame_size);
+            for rect in [area.bar, area.omnibar, area.track].into_iter().flatten() {
+                assert_rect_within_frame(rect, frame_size);
+            }
+        }
+        for (rect, _) in &app.hits {
+            assert_rect_within_frame(*rect, frame_size);
+        }
+    }
+
+    #[test]
+    fn frame_area_owner_resyncs_paint_after_backend_shrink() {
+        let mux = Mux::new("frame-area-owner-paint-test", SurfaceOptions::default());
+        let surface =
+            mux.new_browser_tab("about:blank".to_string(), None, Some((100, 20))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert_cached_geometry_within_frame(&app, (100, 20));
+
+        terminal.backend_mut().resize(40, 10);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_cached_geometry_within_frame(&app, (40, 10));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn frame_area_owner_zero_frame_drops_rendered_routes() {
+        let mux = Mux::new("frame-area-owner-zero-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 10))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(!app.pane_areas.is_empty());
+        assert!(!app.rendered_pointer_frame.panes.is_empty());
+
+        terminal.backend_mut().resize(0, 0);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_eq!(app.outer_size, (0, 0));
+        assert!(app.pane_areas.is_empty());
+        assert!(app.hits.is_empty());
+        assert!(app.rendered_pointer_frame.panes.is_empty());
+        assert!(app.rendered_pointer_frame.hits.is_empty());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
