@@ -61,6 +61,15 @@ final class CmuxTuiSurfaceProviderRegistry {
         providers[machineID]
     }
 
+    /// The provider for a machine that may have been created a moment ago (`cmux vm new`
+    /// opens its terminal right after `POST /api/vm` returns): when the registry has not
+    /// listed it yet, re-read the fleet once instead of failing with "no provider".
+    func providerRefreshingIfMissing(machineID: String) async -> CmuxTuiSurfaceProvider? {
+        if let provider = providers[machineID] { return provider }
+        await refresh(force: true)
+        return providers[machineID]
+    }
+
     func machineWasDeleted(_ id: String) {
         providers[id]?.stop()
         providers[id] = nil

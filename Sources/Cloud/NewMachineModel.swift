@@ -54,6 +54,27 @@ final class NewMachineModel {
     /// The CLI's output when the last create failed; nil once a retry starts.
     private(set) var errorText: String?
     private(set) var outcome: Outcome?
+    /// The machine `cmux vm new` reported as created even though the command
+    /// then failed (opening its terminal, the desktop split). Once set, the
+    /// sheet never runs the create again: Retry would mint a second machine.
+    private(set) var createdMachineID: String?
+
+    /// Recognizes the CLI's "Created Cloud VM <id>" line in `output`. The
+    /// format is the CLI's own localized string, so the match follows the
+    /// user's language instead of a hard-coded English prefix.
+    static func createdMachineID(fromOutput output: String) -> String? {
+        let format = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
+        let parts = format.components(separatedBy: "%@")
+        guard parts.count == 2 else { return nil }
+        let prefix = parts[0], suffix = parts[1]
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix(prefix), line.hasSuffix(suffix), line.count > prefix.count + suffix.count else { continue }
+            let id = String(line.dropFirst(prefix.count).dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
+        }
+        return nil
+    }
 
     /// Set by the presenter: called once when the sheet should close.
     var onFinished: (@MainActor (Outcome) -> Void)?
@@ -150,6 +171,11 @@ final class NewMachineModel {
 
     func create() {
         guard !isCreating, outcome == nil else { return }
+        if createdMachineID != nil {
+            // The machine already exists; the primary button reads "Done".
+            finish(.created)
+            return
+        }
         isCreating = true
         errorText = nil
         let started = launch(cliArguments) { [weak self] completion in
@@ -159,6 +185,18 @@ final class NewMachineModel {
                 self.finish(.created)
             } else {
                 let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                if case .newMachine = self.mode, let id = Self.createdMachineID(fromOutput: output) {
+                    self.createdMachineID = id
+                    self.errorText = String(
+                        format: String(
+                            localized: "machines.new.error.createdOpenFailed",
+                            defaultValue: "Machine %1$@ was created, but opening it failed. Open it from the Machines list.\n\n%2$@"
+                        ),
+                        id,
+                        output
+                    )
+                    return
+                }
                 self.errorText = output.isEmpty
                     ? String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
                     : output

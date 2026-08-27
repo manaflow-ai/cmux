@@ -190,6 +190,52 @@ final class NewMachineModelTests: XCTestCase {
         XCTAssertEqual(recorder.value.arguments.count, 2)
     }
 
+    func testCreatedMachineIDIsParsedFromTheCLIsCreatedLine() {
+        XCTAssertEqual(
+            NewMachineModel.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)"),
+            "calm-petrel"
+        )
+        XCTAssertEqual(NewMachineModel.createdMachineID(fromOutput: "  Created Cloud VM noble_wren2  "), "noble_wren2")
+        XCTAssertNil(NewMachineModel.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)"))
+        XCTAssertNil(NewMachineModel.createdMachineID(fromOutput: "Created Cloud VM"))
+        XCTAssertNil(NewMachineModel.createdMachineID(fromOutput: ""))
+    }
+
+    func testCreatedButOpenFailedNeverRetriesTheCreate() {
+        let (model, recorder) = makeModel()
+        model.create()
+        XCTAssertEqual(recorder.value.arguments.count, 1)
+        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
+            terminationStatus: 1,
+            output: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel.",
+            workspaceId: nil
+        ))
+        XCTAssertEqual(model.createdMachineID, "calm-petrel")
+        XCTAssertNil(model.outcome, "the sheet stays up so the person sees why the open failed")
+        XCTAssertFalse(model.isCreating)
+        XCTAssertTrue(model.errorText?.contains("calm-petrel") == true)
+        XCTAssertTrue(model.errorText?.contains("No provider") == true, "the CLI output is kept for diagnosis")
+
+        // The primary button is now "Done": it closes the sheet without launching again.
+        model.create()
+        XCTAssertEqual(recorder.value.arguments.count, 1, "a second create would mint a second machine")
+        XCTAssertEqual(model.outcome, .created)
+    }
+
+    func testBaseSetupFailureIsNotMistakenForACreatedMachine() {
+        let (model, recorder) = makeModel(mode: .base(workspaceID: UUID()))
+        model.create()
+        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
+            terminationStatus: 1,
+            output: "Created Cloud VM base-1\nError: attach failed",
+            workspaceId: nil
+        ))
+        XCTAssertNil(model.createdMachineID)
+        XCTAssertNil(model.outcome)
+        model.create()
+        XCTAssertEqual(recorder.value.arguments.count, 2, "Base setup retries through the idempotent base open")
+    }
+
     func testEmptyFailureOutputGetsAGenericMessage() {
         let (model, recorder) = makeModel()
         model.create()

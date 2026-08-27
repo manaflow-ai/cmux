@@ -231,6 +231,15 @@ extension TerminalController {
 
     // MARK: - Shared pieces
 
+    /// The catalog's provider for `machine`; a cloud machine the catalog has not seen yet
+    /// (just created) gets one fleet re-read before the caller reports "no provider".
+    nonisolated static func surfaceProvider(for machine: SurfaceMachineID, catalog: SurfaceCatalog) async throws -> (any SurfaceProvider)? {
+        if let provider = await catalog.provider(for: machine) { return provider }
+        guard case .cloud(let machineID) = machine else { return nil }
+        _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
+        return await catalog.provider(for: machine)
+    }
+
     /// Creates a terminal on `machine` through its provider and, when a destination is given,
     /// projects it there. Payload: `resource`, `terminal_id` (the provider key), `machine`,
     /// `remote_workspace_id`, and — when opened — `workspace_id` (local) + `surface_id`.
@@ -244,7 +253,7 @@ extension TerminalController {
         focus: Bool
     ) async throws -> [String: Any] {
         let catalog = await SurfaceCatalog.shared
-        guard let provider = await catalog.provider(for: machine) else {
+        guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
             throw SurfaceCatalogError.noProvider(machine)
         }
         let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)

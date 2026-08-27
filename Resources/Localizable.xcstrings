@@ -268887,6 +268887,40 @@
         }
       }
     },
+    "machines.new.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "machines.new.error.createdOpenFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine %1$@ was created, but opening it failed. Open it from the Machines list.\n\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$@ は作成されましたが、開けませんでした。マシン一覧から開いてください。\n\n%2$@"
+          }
+        }
+      }
+    },
     "machines.new.error.generic": {
       "extractionState": "manual",
       "localizations": {

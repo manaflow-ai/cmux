@@ -179,6 +179,9 @@ struct NewMachineSheet: View {
     }
 
     private var createTitle: String {
+        if model.createdMachineID != nil {
+            return String(localized: "machines.new.done", defaultValue: "Done")
+        }
         if model.errorText != nil {
             return String(localized: "machines.new.retry", defaultValue: "Retry")
         }
