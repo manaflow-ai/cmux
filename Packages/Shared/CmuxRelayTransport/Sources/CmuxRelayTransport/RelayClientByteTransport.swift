@@ -19,7 +19,10 @@ public actor RelayClientByteTransport: CmxByteTransport {
     /// Refresh the session this long before its deadline.
     private static let refreshLead: TimeInterval = 60 * 60
 
-    private let relayURL: URL
+    /// Debug-only dial override; nil dials the URL the ticket mint returns,
+    /// so the server (per environment) controls the relay endpoint and a
+    /// shipped client needs no baked-in host.
+    private let relayURLOverride: URL?
     private let hostDeviceID: String
     private let deviceID: @Sendable () async throws -> String
     private let ticketProvider: any RelayTicketProviding
@@ -31,13 +34,13 @@ public actor RelayClientByteTransport: CmxByteTransport {
     private var inbound: RelayByteQueue?
 
     public init(
-        relayURL: URL,
+        relayURLOverride: URL? = nil,
         hostDeviceID: String,
         deviceID: @escaping @Sendable () async throws -> String,
         ticketProvider: any RelayTicketProviding,
         makeConnection: @escaping RelayConnectionFactory = RelayConnection.factory()
     ) {
-        self.relayURL = relayURL
+        self.relayURLOverride = relayURLOverride
         self.hostDeviceID = hostDeviceID
         self.deviceID = deviceID
         self.ticketProvider = ticketProvider
@@ -51,7 +54,7 @@ public actor RelayClientByteTransport: CmxByteTransport {
             deviceID: ownDeviceID,
             role: .client
         )
-        let connection = makeConnection(relayURL, grant.ticket)
+        let connection = makeConnection(relayURLOverride ?? grant.relayURL, grant.ticket)
         let welcome = try await connection.connect()
         guard welcome.hostPresent else {
             await connection.close()

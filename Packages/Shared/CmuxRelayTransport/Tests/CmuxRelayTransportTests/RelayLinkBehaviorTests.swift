@@ -62,7 +62,6 @@ private func farDeadline() -> Double {
     ) -> (RelayClientByteTransport, FakeRelayConnection) {
         let fake = FakeRelayConnection(welcome: welcome)
         let transport = RelayClientByteTransport(
-            relayURL: URL(string: "wss://example.invalid/v1/connect")!,
             hostDeviceID: "host-1",
             deviceID: { "phone-1" },
             ticketProvider: StaticTicketProvider(),
