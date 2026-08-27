@@ -189,9 +189,17 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
  * or when Stack auth is not configured (fail closed, like
  * `isStackConfigured()` on the web side). */
 export async function verifyRequest(request: Request, env: AuthEnv): Promise<AuthedUser | null> {
-  if (!env.STACK_PROJECT_ID || !env.STACK_PUBLISHABLE_CLIENT_KEY) return null;
   const token = bearerToken(request);
   if (!token) return null;
+  return verifyAccessToken(token, env);
+}
+
+/** Verify a bare access token (same cache and Stack round trip as
+ * `verifyRequest`). Exported for the relay DO's in-band `auth.refresh`, which
+ * re-verifies tokens mid-connection instead of tearing the stream down at
+ * token expiry. */
+export async function verifyAccessToken(token: string, env: AuthEnv): Promise<AuthedUser | null> {
+  if (!env.STACK_PROJECT_ID || !env.STACK_PUBLISHABLE_CLIENT_KEY) return null;
 
   const now = Date.now();
   const expMs = tokenExpiryMs(token);
