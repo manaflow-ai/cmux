@@ -94,6 +94,7 @@ struct SurfaceCatalogTests {
         var ended: [SurfaceProjection] = []
         var discarded: [SurfaceProjection] = []
         var onDiscard: ((SurfaceProjection) -> Void)?
+        var onMaterialize: (() -> Void)?
         var nextPanel = UUID()
         var materializeGate: MaterializeGate?
 
@@ -109,6 +110,7 @@ struct SurfaceCatalogTests {
             await materializeGate?.block()
             let panelID = nextPanel
             nextPanel = UUID()
+            onMaterialize?()
             return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: panelID)
         }
 
@@ -263,6 +265,28 @@ struct SurfaceCatalogTests {
         _ = try await awaitFirst(discarded)
         #expect(catalog.projections.isEmpty)
         #expect(provider.discarded.count == 1, "a late provider result must close the pane after the last caller cancels")
+    }
+
+    @Test func `Cancellation at provider completion discards an unclaimed projection`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+
+        var project: Task<SurfaceProjectionMaterialization.Result, any Error>?
+        provider.onMaterialize = { project?.cancel() }
+        let task = Task { @MainActor in
+            try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
+        }
+        project = task
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        provider.onMaterialize = nil
+        #expect(catalog.projections.isEmpty)
+        #expect(provider.discarded.count == 1)
     }
 
     @Test func `An abandoned materialization deadline allows a replacement operation`() async throws {
