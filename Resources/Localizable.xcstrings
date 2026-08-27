@@ -57975,6 +57975,23 @@
         }
       }
     },
+    "cli.vm.tree.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(detached — no tab on the machine shows these)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（デタッチ済み — マシン上のどのタブにも表示されていません）"
+          }
+        }
+      }
+    },
     "cli.vm.tree.disk": {
       "extractionState": "manual",
       "localizations": {
@@ -59307,6 +59324,23 @@
         }
       }
     },
+    "cloudTree.group.displays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Displays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイ"
+          }
+        }
+      }
+    },
     "cloudTree.group.ports": {
       "extractionState": "manual",
       "localizations": {
@@ -59320,6 +59354,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート"
+          }
+        }
+      }
+    },
+    "cloudTree.group.terminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
           }
         }
       }
@@ -59540,7 +59591,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいワークスペース"
+            "value": "新規ワークスペース"
           }
         }
       }
@@ -59721,13 +59772,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "noVNC screen"
+            "value": "noVNC"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "noVNC 画面"
+            "value": "noVNC"
           }
         }
       }
@@ -60034,6 +60085,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.badge.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "detached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブなし"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.badge.views": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "×%d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "×%d"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.views.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 tab on the machine shows this terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上の 1 個のタブがこのターミナルを表示しています"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.views.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d tabs on the machine show this terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上の %d 個のタブがこのターミナルを表示しています"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.views.zero": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tabs on the machine show this terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルを表示しているタブはマシン上にありません"
           }
         }
       }
@@ -125114,13 +125250,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upgrade to use machines"
+            "value": "Upgrade to cmux Pro to use machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アップグレードしてマシンを利用できます"
+            "value": "cmux Pro にアップグレードしてマシンを利用できます"
           }
         }
       }

@@ -18,7 +18,8 @@ struct CloudTreeNodeActions {
     /// pane (what clicking a remote workspace row does). An empty group starts a fresh
     /// terminal in `remoteWorkspaceID` on the machine instead.
     let openGroupAsWorkspace: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ remoteWorkspaceID: String?) -> Void
-    /// Create a workspace on the machine (its ⌘N) and open it as a new local workspace.
+    /// Create a workspace on the machine (its ⌘N: `workspace create`, then a starter
+    /// terminal) and open it as a new local workspace.
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// End a terminal on its machine (the process and its remote tab).
     let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
@@ -115,11 +116,7 @@ struct CloudTreeNodeActions {
             newWorkspace: { machine in
                 run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    let created = try await provider.createRemoteWorkspace(name: nil)
-                    let group = SurfaceResourceGroup(title: created.workspace.name, resources: [created.terminal.id])
-                    _ = try await catalog.projectGroupAsNewLocalWorkspace(
-                        group.resources, title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
-                    )
+                    _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true)
                 }
             },
             closeTerminal: { resource in
@@ -149,5 +146,32 @@ struct CloudTreeNodeActions {
         let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let host = machine.isLocal ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac") : machine.rawValue
         return name.isEmpty ? host : "\(host): \(name)"
+    }
+
+    /// The machine's ⌘N, shared by the sidebar's ＋ and the socket's `vm.workspace_new`:
+    /// create the cmux-tui workspace (empty, per the pointer-list model), give it a starter
+    /// terminal, and open it as a new local workspace.
+    @MainActor
+    static func createWorkspaceAndOpenLocally(
+        machine: SurfaceMachineID,
+        provider: any SurfaceProvider,
+        catalog: SurfaceCatalog,
+        name: String?,
+        focus: Bool
+    ) async throws -> (
+        workspace: SurfaceRemoteWorkspace,
+        terminal: SurfaceResource,
+        opened: (workspaceID: UUID, projections: [SurfaceProjection])
+    ) {
+        let workspace = try await provider.createRemoteWorkspace(name: name)
+        let terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+        let group = SurfaceResourceGroup(title: workspace.name, resources: [terminal.id])
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group.resources,
+            title: localWorkspaceTitle(machine: machine, group: group),
+            focus: focus,
+            host: .app
+        )
+        return (workspace, terminal, opened)
     }
 }

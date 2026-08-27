@@ -749,4 +749,25 @@ struct SurfaceCatalogTests {
         #expect(catalog.snapshot.projections.isEmpty)
         #expect(catalog.provider(for: .cloud("m")) == nil)
     }
+
+    @Test func `Unregistering a machine closes its display and browser panes but not terminals`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("m"))
+        catalog.register(provider)
+        let term = terminal(.cloud("m"), "term_1")
+        let display = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .display, key: "display:1"), title: "Desktop", detail: "noVNC", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 6901, url: nil)
+        let browser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .browser, key: "port:3000"), title: ":3000", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: nil)
+        catalog.replaceResources([term, display, browser], on: .cloud("m"))
+        let termProjection = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)).projection
+        let displayProjection = try await catalog.project(display.id, into: .workspace(id: UUID(), placement: .split)).projection
+        let browserProjection = try await catalog.project(browser.id, into: .workspace(id: UUID(), placement: .split)).projection
+
+        catalog.unregister(machine: .cloud("m"))
+
+        // The tokened gateway panes close with the machine (their URL decays into
+        // the hosting provider's raw error page); the terminal pane stays.
+        #expect(Set(provider.discardInvocations.map(\.panelID)) == [displayProjection.panelID, browserProjection.panelID])
+        #expect(!provider.discardInvocations.map(\.panelID).contains(termProjection.panelID))
+        #expect(catalog.snapshot.projections.isEmpty)
+    }
 }

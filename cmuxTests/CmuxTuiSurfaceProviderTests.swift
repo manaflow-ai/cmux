@@ -28,28 +28,33 @@ import Testing
             ["id": "tab_1", "pane_id": "pane_1", "content_kind": "terminal", "content_id": "term_build"],
             ["id": "tab_2", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_shell"],
             ["id": "tab_3", "pane_id": "pane_1", "content_kind": "browser", "content_id": "browser_1"],
+            ["id": "tab_4", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_build"],
         ],
         "terminals": [
-            ["id": "term_build", "tab_id": "tab_1", "tab_ids": ["tab_1"], "title": "cargo test", "cwd": "/root/work/app", "lifecycle": "running", "running": true],
+            ["id": "term_build", "tab_id": "tab_1", "tab_ids": ["tab_1", "tab_4"], "title": "cargo test", "cwd": "/root/work/app", "lifecycle": "running", "running": true],
             ["id": "term_shell", "tab_id": "tab_2", "tab_ids": ["tab_2"], "title": "", "lifecycle": "exited", "running": false],
-            ["id": "term_orphan", "tab_id": "tab_missing", "tab_ids": [], "title": "orphan", "running": true],
+            ["id": "term_detached", "tab_id": "tab_missing", "tab_ids": [], "title": "detached", "running": true],
         ],
         "agents": [
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
 
-    @Test func snapshotBecomesTerminalResourcesAttributedToWorkspaces() throws {
+    @Test func snapshotBecomesTerminalResourcesWithEveryView() throws {
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
-        #expect(resources.map { $0.id.key } == ["term_build", "term_orphan", "term_shell"])
+        #expect(resources.map { $0.id.key } == ["term_build", "term_shell", "term_detached"], "workspace order, zero-view terminals trail")
         #expect(resources.allSatisfy { $0.kind == .terminal && $0.machine == Self.machine })
 
+        // A terminal with two tabs carries both views; `remoteWorkspace` stays the first.
         let build = try #require(resources.first { $0.id.key == "term_build" })
         #expect(build.title == "cargo test")
         #expect(build.detail == "/root/work/app")
         #expect(build.lifecycle == .running)
         #expect(build.agent == SurfaceAgentBadge(state: "working", source: "claude"))
         #expect(build.remoteWorkspace == SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true))
+        #expect(build.remoteViews?.map(\.tabID) == ["tab_1", "tab_4"])
+        #expect(build.remoteWorkspaces.map(\.id) == ["ws_main", "ws_api"])
+        #expect(build.remoteViewCount == 2)
 
         // An untitled terminal stays untitled (the row shows a localized fallback, never the raw id).
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
@@ -57,11 +62,38 @@ import Testing
         #expect(shell.lifecycle == .exited)
         #expect(shell.agent == nil)
         #expect(shell.remoteWorkspace?.id == "ws_api")
+        #expect(shell.remoteViews?.count == 1)
 
-        // A terminal whose tab chain does not resolve lands in the first workspace; no lifecycle key → `running` decides.
-        let orphan = try #require(resources.first { $0.id.key == "term_orphan" })
-        #expect(orphan.remoteWorkspace?.id == "ws_main")
-        #expect(orphan.lifecycle == .running)
+        // A terminal whose tab chain does not resolve keeps zero views: it is alive in the
+        // machine's pool, in no workspace. No lifecycle key → `running` decides.
+        let detached = try #require(resources.first { $0.id.key == "term_detached" })
+        #expect(detached.remoteWorkspace == nil)
+        #expect(detached.remoteViews == [])
+        #expect(detached.remoteWorkspaces.isEmpty)
+        #expect(detached.lifecycle == .running)
+    }
+
+    @Test func snapshotListsEveryWorkspaceIncludingEmptyOnes() {
+        let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: Self.sessionSnapshot)
+        #expect(workspaces == [
+            SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true),
+            SurfaceRemoteWorkspace(id: "ws_api", name: "api", index: 1, focused: false),
+        ])
+        #expect(CmuxTuiSnapshotParser.workspaces(fromSnapshot: [:]).isEmpty)
+    }
+
+    @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {
+        #expect(SurfaceResourceKind(wire: "display") == .display)
+        #expect(SurfaceResourceKind(wire: "screen") == .display, "pre-rename apps and persisted sessions say screen")
+        #expect(SurfaceResourceKind(wire: "terminal") == .terminal)
+        #expect(SurfaceResourceKind(wire: "bogus") == nil)
+        #expect(SurfaceResourceKind.display.rawValue == "display", "the emitted wire form is display")
+
+        let old = try #require(SurfaceResourceID(rawValue: "vivid-newt/screen/display:1"))
+        #expect(old.kind == .display)
+        #expect(old.rawValue == "vivid-newt/display/display:1", "old ids re-emit as display")
+        let decoded = try JSONDecoder().decode(SurfaceResourceKind.self, from: Data(#""screen""#.utf8))
+        #expect(decoded == .display)
     }
 
     @Test func exitedTerminalWithoutATabIsNotASurface() {
@@ -138,9 +170,10 @@ import Testing
         #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/xfce-vnc:latest"))
         #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/base-image:latest"))
 
-        let screen = CmuxTuiSnapshotParser.screen(machine: Self.machine)
-        #expect(screen.id == SurfaceResourceID(machine: Self.machine, kind: .screen, key: "display:1"))
-        #expect(screen.port == 6901)
+        let display = CmuxTuiSnapshotParser.display(machine: Self.machine)
+        #expect(display.id == SurfaceResourceID(machine: Self.machine, kind: .display, key: "display:1"))
+        #expect(display.id.rawValue == "vivid-newt/display/display:1")
+        #expect(display.port == 6901)
         let port = CmuxTuiSnapshotParser.portBrowser(machine: Self.machine, port: 3000)
         #expect(port.id.rawValue == "vivid-newt/browser/port:3000")
         #expect(port.title == ":3000")

@@ -177,7 +177,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     func update(summary: VMSummary) {
         self.summary = summary
-        info = Self.info(from: summary, linkState: info.linkState, linkError: info.linkError, stats: nil)
+        info = Self.info(from: summary, linkState: info.linkState, linkError: info.linkError, stats: nil, remoteWorkspaces: info.remoteWorkspaces)
         catalog.updateMachine(info)
     }
 
@@ -200,7 +200,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let machine = self.machine
         var resources: [SurfaceResource] = []
         if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
-            resources.append(CmuxTuiSnapshotParser.screen(machine: machine))
+            resources.append(CmuxTuiSnapshotParser.display(machine: machine))
         }
         guard isAwake, let client = VMClient.shared else {
             info = Self.info(from: summary, linkState: .asleep, linkError: nil, stats: nil)
@@ -210,6 +210,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         async let stats = try? client.stats(id: machineID)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
+        var remoteWorkspaces: [SurfaceRemoteWorkspace]?
         do {
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
@@ -218,6 +219,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 resources += CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
+                remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             }
             for port in await ports(client: client, force: force) {
                 resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
@@ -230,7 +232,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
         }
-        info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats)
+        info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
         catalog.replaceResources(resources, on: machine, info: info)
         reprojectRestoredPanes()
     }
@@ -251,47 +253,20 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         scheduleRefresh()
     }
 
-    /// `workspace create --name <name>`: the machine's ⌘N. The workspace comes with its
-    /// first terminal, which is returned so the caller can show it right away.
-    func createRemoteWorkspace(name: String?) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource) {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let existingCount = Set(catalog.snapshot.resources(on: machine).compactMap { $0.remoteWorkspace?.id }).count
-        let workspaceName = (name?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? String(existingCount)
-        let data = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName))
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let created = CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: object) else {
-            throw ProviderError.noWorkspaceOnMachine(machineID)
-        }
-        let workspace = SurfaceRemoteWorkspace(id: created.workspaceID, name: workspaceName, index: existingCount, focused: true)
-        guard let terminalID = created.terminalID else {
-            // A workspace without a starter terminal: give it one through the normal path.
-            let terminal = try await createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
-            return (workspace, terminal)
-        }
-        let terminal = SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
-            title: "",
-            detail: nil,
-            lifecycle: .launching,
-            agent: nil,
-            remoteWorkspace: workspace,
-            port: nil,
-            url: nil
-        )
-        catalog.upsert(terminal)
-        scheduleRefresh()
-        return (workspace, terminal)
-    }
-
-    /// `workspace <id> close`: every terminal in it goes with it.
+    /// `workspace <id> close`: its tabs go with it. A terminal also viewed from another
+    /// workspace survives (pointer-list model); one viewed only here is removed
+    /// optimistically, and the next snapshot is authoritative.
     func closeRemoteWorkspace(id: String) async throws {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         _ = try await link.run(arguments: CloudTuiCommandLine.closeWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id))
-        for resource in catalog.snapshot.resources(on: machine) where resource.remoteWorkspace?.id == id {
+        for resource in catalog.snapshot.resources(on: machine) {
+            let views = resource.remoteWorkspaces
+            guard !views.isEmpty, views.allSatisfy({ $0.id == id }) else { continue }
             catalog.remove(resource.id)
         }
+        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
+        catalog.updateMachine(info)
         scheduleRefresh()
     }
 
@@ -308,7 +283,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case .terminal:
             let command = try await attachCommand(terminalID: resource.id.key)
             created = try SurfacePaneFactory.makeTerminalPane(initialCommand: command, workingDirectory: nil, at: destination, focus: focus)
-        case .screen:
+        case .display:
             let url = try await browserURL(port: resource.port ?? CmuxTuiSnapshotParser.desktopPort, desktop: true)
             created = try SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
         case .browser:
@@ -361,6 +336,29 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return resource
     }
 
+    /// A new empty workspace in the machine's cmux-tui session (`workspace create`),
+    /// called directly — not as a side effect of creating a terminal.
+    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let existingCount = info.remoteWorkspaces?.count
+            ?? Set(catalog.snapshot.resources(on: machine).flatMap { $0.remoteWorkspaces.map(\.id) }).count
+        let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? name!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : (existingCount == 0 ? "main" : "workspace-\(existingCount + 1)")
+        let created = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName))
+        guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
+              let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
+            throw ProviderError.noWorkspaceOnMachine(machineID)
+        }
+        let workspace = SurfaceRemoteWorkspace(id: id, name: workspaceName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
+        // Optimistic: show the new (empty) workspace now; the next snapshot re-sync is authoritative.
+        info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [workspace]
+        catalog.updateMachine(info)
+        scheduleRefresh()
+        return workspace
+    }
+
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         materializedPanels.remove(projection.panelID)
@@ -375,7 +373,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     // MARK: - internals
 
-    private static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?) -> SurfaceMachineInfo {
+    private static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: .cloud(summary.id),
             name: summary.preferredName,
@@ -388,7 +386,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkError: linkError,
             cpuPercent: stats?.cpuPercent,
             memoryUsedMb: stats?.memoryUsedMb,
-            diskUsedMb: stats?.diskUsedMb
+            diskUsedMb: stats?.diskUsedMb,
+            remoteWorkspaces: remoteWorkspaces
         )
     }
 

@@ -22,15 +22,16 @@ protocol SurfaceProvider: AnyObject {
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
     func closeTerminal(_ id: SurfaceResourceID) async throws
-    /// Create a new workspace on this machine with its first terminal, the way ⌘N does
-    /// locally. Returns the workspace and that terminal's resource.
-    func createRemoteWorkspace(name: String?) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource)
+    /// Create a new, empty workspace on this machine, directly (not as a side effect of
+    /// creating a terminal). Providers without remote workspaces refuse.
+    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
     /// Close a workspace on this machine and every terminal in it.
     func closeRemoteWorkspace(id: String) async throws
-    /// Close a pane that was created for a materialization but lost a race with an existing
-    /// projection. The default implementation handles providers that use the shared pane
-    /// factory; providers may also clear provider-specific bookkeeping. Return true when the
-    /// provider preserved the projection, as the local provider does for a moved pane.
+    /// Close a projection's pane: a materialization that lost a race with an existing
+    /// projection, or a URL-backed pane whose machine was unregistered. The default
+    /// implementation handles providers that use the shared pane factory; providers may
+    /// also clear provider-specific bookkeeping. Return true when the provider preserved
+    /// the projection, as the local provider does for a moved pane.
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool
 }
@@ -39,8 +40,8 @@ extension SurfaceProvider {
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
     }
-    func createRemoteWorkspace(name: String?) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource) {
-        throw SurfaceCatalogError.unsupported("creating workspaces on \(machine)")
+    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
     func closeRemoteWorkspace(id: String) async throws {
         throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
@@ -141,6 +142,19 @@ final class SurfaceCatalog {
         let inFlightIDs = inFlightProjects.keys.filter { $0.machine == machine }
         for id in inFlightIDs {
             cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
+        }
+        // A machine that is gone (deleted, or access ended) takes its URL-backed
+        // panes with it: a display or browser pane holds a tokened gateway URL
+        // that decays into the hosting provider's raw error page once the
+        // workload is dead. Terminal panes stay — their attach process exits and
+        // the scrollback is still the user's to read.
+        let urlBacked = projections.filter {
+            $0.resource.machine == machine
+                && ($0.resource.kind == .display || $0.resource.kind == .browser)
+        }
+        let provider = providers[machine]
+        for projection in urlBacked {
+            provider?.discardMaterialization(projection)
         }
         providers[machine] = nil
         machines[machine] = nil

@@ -154,7 +154,7 @@ extension TerminalController {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open requires `id`. Run `cmux vm ls` to find one.")
         }
-        let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .screen, key: SurfaceResourceID.desktopScreenKey)
+        let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .display, key: SurfaceResourceID.desktopDisplayKey)
         let focus = Self.surfaceBool(params["focus"]) ?? false
         guard let workspaceID = surfaceTargetWorkspaceID(params) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open: no target workspace (pass `workspace_id`, or select one).")
@@ -229,8 +229,10 @@ extension TerminalController {
         }
     }
 
-    /// `vm.workspace_new {id, name?}` → creates a cmux-tui workspace on the machine (its ⌘N)
-    /// and opens it as a new local workspace: `{remote_workspace_id, terminal_id, workspace_id, surface_id}`.
+    /// `vm.workspace_new {id, name?, focus?}` → creates a cmux-tui workspace on the machine
+    /// (its ⌘N: `workspace create`, then a starter terminal) and opens it as a new local
+    /// workspace: `{remote_workspace_id, terminal_id, workspace_id, surface_id}`. The
+    /// sidebar's "New Workspace" runs the same shared path.
     nonisolated func socketWorkerVMWorkspaceNewResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_new requires `id`. Run `cmux vm ls` to find one.")
@@ -242,21 +244,20 @@ extension TerminalController {
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
             }
-            let created = try await provider.createRemoteWorkspace(name: name)
-            let group = SurfaceResourceGroup(title: created.workspace.name, resources: [created.terminal.id])
-            let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-                group.resources,
-                title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
-                focus: Self.surfaceBool(params["focus"]) ?? true,
-                host: .app
+            let created = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                machine: machine,
+                provider: provider,
+                catalog: catalog,
+                name: name,
+                focus: Self.surfaceBool(params["focus"]) ?? true
             )
             return [
                 "machine": machine.rawValue,
                 "remote_workspace_id": created.workspace.id,
                 "remote_workspace_name": created.workspace.name,
                 "terminal_id": created.terminal.id.key,
-                "workspace_id": opened.workspaceID.uuidString,
-                "surface_id": opened.projections.first?.panelID.uuidString ?? NSNull(),
+                "workspace_id": created.opened.workspaceID.uuidString,
+                "surface_id": created.opened.projections.first?.panelID.uuidString ?? NSNull(),
             ]
         }
     }
@@ -474,6 +475,7 @@ extension TerminalController {
             "cpu_percent": info.cpuPercent ?? NSNull(),
             "memory_used_mb": info.memoryUsedMb ?? NSNull(),
             "disk_used_mb": info.diskUsedMb ?? NSNull(),
+            "remote_workspaces": info.remoteWorkspaces.map { $0.map(surfaceRemoteWorkspacePayload) } ?? NSNull(),
         ]
     }
 
@@ -498,16 +500,31 @@ extension TerminalController {
             payload["agent"] = NSNull()
         }
         if let workspace = resource.remoteWorkspace {
-            payload["remote_workspace"] = [
-                "id": workspace.id,
-                "name": workspace.name,
-                "index": workspace.index,
-                "focused": workspace.focused,
-            ]
+            payload["remote_workspace"] = surfaceRemoteWorkspacePayload(workspace)
         } else {
             payload["remote_workspace"] = NSNull()
         }
+        // All views of the resource (one per daemon tab). null = the provider does not
+        // model views; [] = alive with zero views (the machine's pool).
+        if let views = resource.remoteViews {
+            payload["view_count"] = views.count
+            payload["remote_views"] = views.map { view in
+                ["tab_id": view.tabID, "workspace": surfaceRemoteWorkspacePayload(view.workspace)] as [String: Any]
+            }
+        } else {
+            payload["view_count"] = NSNull()
+            payload["remote_views"] = NSNull()
+        }
         return payload
+    }
+
+    nonisolated static func surfaceRemoteWorkspacePayload(_ workspace: SurfaceRemoteWorkspace) -> [String: Any] {
+        [
+            "id": workspace.id,
+            "name": workspace.name,
+            "index": workspace.index,
+            "focused": workspace.focused,
+        ]
     }
 
     nonisolated static func surfaceProjectionPayload(_ projection: SurfaceProjection) -> [String: Any] {
@@ -564,8 +581,8 @@ extension TerminalController {
 }
 
 extension SurfaceResourceID {
-    /// The key every provider uses for a machine's one VNC screen.
-    static let desktopScreenKey = "display:1"
+    /// The key every provider uses for a machine's one VNC display (T10 makes this a list).
+    static let desktopDisplayKey = "display:1"
 
     /// The key for the browser that shows a forwarded HTTP port.
     static func portKey(_ port: Int) -> String { "port:\(port)" }

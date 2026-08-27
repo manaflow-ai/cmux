@@ -11,6 +11,8 @@ final class CloudTreeCellView: NSTableCellView {
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsTopConstraint: NSLayoutConstraint?
+    private var buttonsCenterConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
@@ -40,30 +42,35 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(node: CloudTreeNode, machineActions: MachineRowActions, nodeActions: CloudTreeNodeActions? = nil) {
+    func configure(
+        node: CloudTreeNode,
+        machineActions: MachineRowActions,
+        nodeActions: CloudTreeNodeActions,
+        style: CloudTreeStyle = CloudTreeStyleStore.current
+    ) {
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind)
+            CloudTreeRowContentView(kind: node.kind, style: style)
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
-        if case .machine(let machine, _) = node.kind {
+        if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(CloudTreeMachineRowButtons(machine: machine, actions: machineActions))
+            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
-            toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
-        } else if case .localMachine(let row) = node.kind {
-            buttonsHost?.isHidden = true
-            toolTip = row.name
-        } else if let nodeActions, let rowButtons = CloudTreeRowButtons(kind: node.kind, actions: nodeActions) {
-            // ＋ on the Workspaces group, × on a workspace or terminal: the same verbs the
-            // context menu offers, one hover away.
-            let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(rowButtons)
-            buttons.isHidden = false
-            buttons.alphaValue = hovered ? 1 : 0
-            toolTip = nil
+            // Two-line machine cards pin the buttons to the name line; every
+            // other row centers them vertically.
+            let pinToNameLine = node.isMachineRow && style.machineRowLayout == .twoLine
+            buttonsTopConstraint?.constant = style.machineVerticalPadding
+            buttonsTopConstraint?.isActive = pinToNameLine
+            buttonsCenterConstraint?.isActive = !pinToNameLine
         } else {
             buttonsHost?.isHidden = true
+        }
+        if case .machine(let machine, _) = node.kind {
+            toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
+        } else if case .localMachine(let row) = node.kind {
+            toolTip = row.name
+        } else {
             toolTip = nil
         }
         setAccessibilityLabel(node.searchableTitle)
@@ -73,12 +80,17 @@ final class CloudTreeCellView: NSTableCellView {
         let host = NSHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
+        // Buttons sit on the name line (two-line machine cards), like the chevron
+        // and the status dot; every other row activates the center constraint.
+        let top = host.topAnchor.constraint(equalTo: topAnchor, constant: CloudTreeStyleStore.current.machineVerticalPadding)
+        let center = host.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
             host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
-            // Buttons sit on the name line, like the chevron and the status dot.
-            host.topAnchor.constraint(equalTo: topAnchor, constant: CloudTreeRowGrid.machineVerticalPadding),
+            top,
             displayHost.trailingAnchor.constraint(lessThanOrEqualTo: host.leadingAnchor, constant: -CloudTreeRowGrid.trailingGap),
         ])
+        buttonsTopConstraint = top
+        buttonsCenterConstraint = center
         buttonsHost = host
         return host
     }
