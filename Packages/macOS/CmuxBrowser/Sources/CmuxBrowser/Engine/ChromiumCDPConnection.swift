@@ -31,6 +31,10 @@ actor ChromiumCDPConnection {
     /// Maximum number of decoded events retained while the single consumer is
     /// awaiting a CDP command response.
     private static let eventBufferCapacity = 512
+    /// A paused request is failed explicitly once this dedicated queue is
+    /// full. This keeps flow-control memory bounded without silently dropping
+    /// a request that Chromium is waiting on.
+    private static let pausedRequestQueueCapacity = 512
     private static let resyncEventMethod = "cmux.cdp.resyncRequired"
     private static let priorityEventMethods: Set<String> = [
         "Page.frameStartedLoading",
@@ -69,6 +73,7 @@ actor ChromiumCDPConnection {
     private var frameContinuations: [UUID: FrameContinuation] = [:]
     private var activeTargetSessionID: String?
     private var isClosed = false
+    private var transportCloseRequested = false
     private let commandTimeout: Duration
 
     init(endpoint: URL, session: URLSession, commandTimeout: Duration = .seconds(15)) throws {
@@ -84,6 +89,7 @@ actor ChromiumCDPConnection {
     func connect() async throws {
         guard receiverTask == nil else { return }
         isClosed = false
+        transportCloseRequested = false
         let messages = transport.messages()
         receiverTask = Task { [weak self] in
             for await result in messages {
@@ -98,7 +104,7 @@ actor ChromiumCDPConnection {
             receiverTask?.cancel()
             receiverTask = nil
             isClosed = true
-            await transport.close()
+            await closeTransportIfNeeded()
             throw error
         }
     }
@@ -272,7 +278,7 @@ actor ChromiumCDPConnection {
         // A peer-ended message stream marks the connection closed before the
         // owner calls shutdown. Always forward the idempotent close so the
         // underlying socket or pipe releases its descriptors in that path.
-        await transport.close()
+        await closeTransportIfNeeded()
     }
 
     private func nextEvent() async -> CDPEvent? {
@@ -292,7 +298,7 @@ actor ChromiumCDPConnection {
         }
     }
 
-    private func enqueueEvent(_ event: CDPEvent) {
+    private func enqueueEvent(_ event: CDPEvent) async throws {
         if let waiter = eventWaiter {
             eventWaiter = nil
             waiter.resume(returning: event)
@@ -300,10 +306,18 @@ actor ChromiumCDPConnection {
         }
 
         if event.method == "Fetch.requestPaused" {
-            // Never apply the bounded notification eviction policy to a
-            // paused request. The interceptor will eventually resume/fail this
-            // exact event, after which the next request can be delivered.
-            pausedRequestQueue.append(event)
+            if pausedRequestQueue.count < Self.pausedRequestQueueCapacity {
+                // Never apply the bounded notification eviction policy to a
+                // paused request. The interceptor will eventually resume/fail
+                // this exact event, after which the next request can be
+                // delivered.
+                pausedRequestQueue.append(event)
+            } else {
+                // Preserve the request's flow-control contract at the bound:
+                // send Fetch.failRequest directly and do not retain another
+                // event or spawn an unbounded overflow task.
+                try await failPausedRequest(event)
+            }
             return
         }
 
@@ -448,20 +462,20 @@ actor ChromiumCDPConnection {
         }
     }
 
-    private func receive(_ result: Result<Data, CDPError>) {
+    private func receive(_ result: Result<Data, CDPError>) async {
         switch result {
         case .success(let data):
             do {
-                try handleMessage(data)
+                try await handleMessage(data)
             } catch {
-                transportDidEnd(error: error)
+                await transportDidEnd(error: error)
             }
         case .failure(let error):
-            transportDidEnd(error: error)
+            await transportDidEnd(error: error)
         }
     }
 
-    private func transportDidEnd(error: (any Error)?) {
+    private func transportDidEnd(error: (any Error)?) async {
         guard !isClosed else { return }
         receiverTask?.cancel()
         receiverTask = nil
@@ -480,9 +494,16 @@ actor ChromiumCDPConnection {
             continuation.finish()
         }
         frameContinuations.removeAll()
+        await closeTransportIfNeeded()
     }
 
-    private func handleMessage(_ data: Data) throws {
+    private func closeTransportIfNeeded() async {
+        guard !transportCloseRequested else { return }
+        transportCloseRequested = true
+        await transport.close()
+    }
+
+    private func handleMessage(_ data: Data) async throws {
         // Screencast frames carry hundreds of kilobytes of base64 per message
         // at up to display refresh rate. Decoding them through the recursive
         // `CDPValue` Codable path is the difference between a fluid pane and a
@@ -524,7 +545,34 @@ actor ChromiumCDPConnection {
             }
         }
         let event = CDPEvent(method: method, params: object["params"])
-        enqueueEvent(event)
+        try await enqueueEvent(event)
+    }
+
+    /// Fails one overflowed Fetch pause without waiting for its response.
+    /// Waiting through `send` here would deadlock because this method runs on
+    /// the receiver task that must consume the response; the fire-and-forget
+    /// command has a unique id and its eventual response is safely ignored.
+    private func failPausedRequest(_ event: CDPEvent) async throws {
+        guard case .object(let params) = event.params,
+              let requestID = params["requestId"]?.stringValue,
+              !requestID.isEmpty else {
+            throw CDPError.malformedMessage
+        }
+        let id = nextCommandID
+        nextCommandID += 1
+        var object: [String: CDPValue] = [
+            "id": .number(Double(id)),
+            "method": .string("Fetch.failRequest"),
+            "params": .object([
+                "requestId": .string(requestID),
+                "errorReason": .string("Aborted"),
+            ]),
+        ]
+        if let activeTargetSessionID {
+            object["sessionId"] = .string(activeTargetSessionID)
+        }
+        let data = try JSONEncoder().encode(CDPValue.object(object))
+        try await transport.send(data)
     }
 
     private static func pageTargetID(_ value: CDPValue) -> String? {

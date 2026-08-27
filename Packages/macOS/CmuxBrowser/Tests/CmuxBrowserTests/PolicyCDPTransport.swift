@@ -6,6 +6,7 @@ actor PolicyCDPTransport: ChromiumCDPTransport {
     private let stream: AsyncStream<Result<Data, CDPError>>
     private let continuation: AsyncStream<Result<Data, CDPError>>.Continuation
     private var sent: [CDPValue] = []
+    private var commandCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     init() {
         let pair = AsyncStream<Result<Data, CDPError>>.makeStream()
@@ -20,6 +21,9 @@ actor PolicyCDPTransport: ChromiumCDPTransport {
     func send(_ data: Data) async throws {
         let value = try JSONDecoder().decode(CDPValue.self, from: data)
         sent.append(value)
+        let readyWaiters = commandCountWaiters.filter { sent.count >= $0.0 }
+        commandCountWaiters.removeAll { sent.count >= $0.0 }
+        for (_, waiter) in readyWaiters { waiter.resume() }
         guard case .object(let object) = value,
               let id = object["id"]?.doubleValue else { return }
         let result: CDPValue = object["method"]?.stringValue == "Page.getFrameTree"
@@ -40,6 +44,13 @@ actor PolicyCDPTransport: ChromiumCDPTransport {
 
     func emit(_ data: Data) {
         continuation.yield(.success(data))
+    }
+
+    func waitForCommandCount(_ count: Int) async {
+        guard sent.count < count else { return }
+        await withCheckedContinuation { continuation in
+            commandCountWaiters.append((count, continuation))
+        }
     }
 
     func commands() -> [CDPValue] { sent }

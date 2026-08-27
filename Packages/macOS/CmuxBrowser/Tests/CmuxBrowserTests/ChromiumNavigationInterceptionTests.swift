@@ -42,15 +42,16 @@ struct ChromiumNavigationInterceptionTests {
         await connection.shutdown()
     }
 
-    @Test("Paused document requests survive a burst beyond the normal event bound")
+    @Test("Paused document requests stay lossless and fail explicitly at the bound")
     func pausedRequestsAreNeverEvicted() async throws {
         let transport = PolicyCDPTransport()
         let connection = ChromiumCDPConnection(transport: transport)
         try await connection.connect()
         let events = await connection.events()
-        let pausedCount = 520
+        let pausedCount = 512
+        let overflowCount = 8
 
-        for index in 0..<pausedCount {
+        for index in 0..<(pausedCount + overflowCount) {
             let payload: [String: Any] = [
                 "method": "Fetch.requestPaused",
                 "params": [
@@ -67,33 +68,33 @@ struct ChromiumNavigationInterceptionTests {
             await transport.emit(Data(#"{"method":"Page.lifecycleEvent","params":{}}"#.utf8))
         }
 
-        let received = await withTaskGroup(of: [String]?.self) { group in
-            group.addTask {
-                var requestIDs: [String] = []
-                var iterator = events.makeAsyncIterator()
-                for _ in 0..<pausedCount {
-                    guard let event = await iterator.next(),
-                          event.method == "Fetch.requestPaused",
-                          case .object(let params) = event.params,
-                          let requestID = params["requestId"]?.stringValue else {
-                        return nil
-                    }
-                    requestIDs.append(requestID)
-                }
-                return requestIDs
+        var received: [String] = []
+        var iterator = events.makeAsyncIterator()
+        for _ in 0..<pausedCount {
+            guard let event = await iterator.next(),
+                  event.method == "Fetch.requestPaused",
+                  case .object(let params) = event.params,
+                  let requestID = params["requestId"]?.stringValue else {
+                Issue.record("A queued paused request was not delivered")
+                break
             }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(2))
-                return nil
-            }
-            let result = await group.next() ?? nil
-            group.cancelAll()
-            return result
+            received.append(requestID)
         }
 
-        let requestIDs = try #require(received)
+        let requestIDs = received
         #expect(requestIDs.count == pausedCount)
         #expect(requestIDs == (0..<pausedCount).map { "paused-\($0)" })
+        await transport.waitForCommandCount(overflowCount)
+        let overflowRequestIDs = await transport.commands().compactMap { value -> String? in
+            guard case .object(let object) = value,
+                  object["method"]?.stringValue == "Fetch.failRequest" else {
+                return nil
+            }
+            return object["params"]?["requestId"]?.stringValue
+        }
+        #expect(overflowRequestIDs == (pausedCount..<(pausedCount + overflowCount)).map {
+            "paused-\($0)"
+        })
         await connection.shutdown()
     }
 }
