@@ -190,16 +190,9 @@ pub(crate) fn wait_for_shutdown_signal() {
             continue;
         }
         if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
-            let mut pollfd = libc::pollfd {
-                fd: reader,
-                events: libc::POLLIN,
-                revents: 0,
-            };
+            let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
             let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
-            if polled > 0
-                || (polled < 0
-                    && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted)
-            {
+            if polled > 0 || (polled < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted) {
                 continue;
             }
         }
