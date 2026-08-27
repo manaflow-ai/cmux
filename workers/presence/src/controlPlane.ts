@@ -574,15 +574,48 @@ export interface CtlConnectInput {
   sessionId: string;
   expiresAt: number;
   bearer: string;
+  /** Stack refresh token: the web API's native auth (parseNativeStackTokens)
+   * requires BOTH the bearer and x-stack-refresh-token; a bearer alone 401s. */
+  refresh?: string;
   namespace?: string;
+}
+
+/** Stored per-socket credentials under BEARER_PREFIX. Serialized as JSON;
+ * a bare-string value (pre-refresh deploys) is read as bearer-only. */
+interface StoredCtlCredentials {
+  bearer: string;
+  refresh?: string;
+}
+
+function encodeStoredCredentials(input: StoredCtlCredentials): string {
+  return JSON.stringify(input);
+}
+
+function decodeStoredCredentials(raw: string | undefined): StoredCtlCredentials | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null
+      && typeof (parsed as { bearer?: unknown }).bearer === "string") {
+      const refresh = (parsed as { refresh?: unknown }).refresh;
+      return {
+        bearer: (parsed as { bearer: string }).bearer,
+        ...(typeof refresh === "string" ? { refresh } : {}),
+      };
+    }
+  } catch {
+    // fall through: legacy bare-bearer value
+  }
+  return { bearer: raw };
 }
 
 const DISCOVERY_PATH = "/api/devices/iroh";
 const MINT_PATH = "/api/relay/token";
 
-function upstreamHeaders(bearer: string, namespace: string | undefined, json: boolean): Record<string, string> {
+function upstreamHeaders(credentials: StoredCtlCredentials, namespace: string | undefined, json: boolean): Record<string, string> {
   return {
-    authorization: `Bearer ${bearer}`,
+    authorization: `Bearer ${credentials.bearer}`,
+    ...(credentials.refresh ? { "x-stack-refresh-token": credentials.refresh } : {}),
     accept: "application/json",
     ...(json ? { "content-type": "application/json" } : {}),
     ...(namespace ? { "x-cmux-app-namespace": namespace } : {}),
@@ -600,7 +633,13 @@ export class ControlPlaneCore {
       expiresAt: input.expiresAt,
       ...(input.namespace ? { namespace: input.namespace } : {}),
     });
-    await this.deps.storage.put(BEARER_PREFIX + input.sessionId, input.bearer);
+    await this.deps.storage.put(
+      BEARER_PREFIX + input.sessionId,
+      encodeStoredCredentials({
+        bearer: input.bearer,
+        ...(input.refresh ? { refresh: input.refresh } : {}),
+      }),
+    );
     const now = this.deps.now();
     await this.deps.scheduleAlarmAt(
       Math.min(now + CONTROL_REFRESH_INTERVAL_MS, input.expiresAt),
@@ -754,8 +793,10 @@ export class ControlPlaneCore {
     endpointId: string,
     rev: number,
   ): Promise<void> {
-    const bearer = await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId);
-    if (bearer === undefined) {
+    const credentials = decodeStoredCredentials(
+      await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId),
+    );
+    if (credentials === undefined) {
       this.sendFrame(socket, attachment, errorFrame(
         "mint_unauthorized",
         "no bearer token for this connection; reconnect",
@@ -765,7 +806,7 @@ export class ControlPlaneCore {
     }
     const result = await this.upstreamOnceRetry(MINT_PATH, {
       method: "POST",
-      headers: upstreamHeaders(bearer, attachment.namespace, true),
+      headers: upstreamHeaders(credentials, attachment.namespace, true),
       body: JSON.stringify({ endpointId }),
     });
     if (result === null) {
@@ -911,11 +952,13 @@ export class ControlPlaneCore {
   private async fetchDirectory(
     attachment: CtlAttachment,
   ): Promise<{ revision: number | null; payload: CTLDirectoryPayload } | null> {
-    const bearer = await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId);
-    if (bearer === undefined) return null;
+    const credentials = decodeStoredCredentials(
+      await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId),
+    );
+    if (credentials === undefined) return null;
     const result = await this.upstreamOnceRetry(DISCOVERY_PATH, {
       method: "GET",
-      headers: upstreamHeaders(bearer, attachment.namespace, false),
+      headers: upstreamHeaders(credentials, attachment.namespace, false),
     });
     if (result === null || result.status < 200 || result.status >= 300) return null;
     return directoryPayloadFromDiscovery(result.json);

@@ -249,8 +249,10 @@ final class MobileHostIrxRuntime {
                         wantPasses: false,
                         cacheDirectory: stateDir
                     ),
-                    accessToken: { [weak auth] in
-                        try await auth?.authenticatedSessionSnapshot().accessToken
+                    tokenPair: { [weak auth] in
+                        guard let auth else { return nil }
+                        let session = try await auth.authenticatedSessionSnapshot()
+                        return (session.accessToken, session.refreshToken)
                     },
                     handlers: .init(
                         onRelayPasses: { [weak self, weak broker, weak supervisor, weak pilot] pushed in

@@ -56,7 +56,10 @@ public actor IrxControlPlaneClient {
     }
 
     private let configuration: Configuration
-    private let accessToken: @Sendable () async throws -> String?
+    /// Stack token pair: the worker's upstream proxy needs BOTH the access
+    /// token (Authorization) and the refresh token (x-stack-refresh-token);
+    /// the web API's native auth rejects a bearer alone.
+    private let tokenPair: @Sendable () async throws -> (access: String, refresh: String)?
     private let journal: IrxJournal
     private let handlers: Handlers
     private let cursorCache: IrxDiskCache<IrxControlPlaneCursor>
@@ -93,12 +96,12 @@ public actor IrxControlPlaneClient {
 
     public init(
         configuration: Configuration,
-        accessToken: @escaping @Sendable () async throws -> String?,
+        tokenPair: @escaping @Sendable () async throws -> (access: String, refresh: String)?,
         handlers: Handlers,
         journal: IrxJournal
     ) {
         self.configuration = configuration
-        self.accessToken = accessToken
+        self.tokenPair = tokenPair
         self.handlers = handlers
         self.journal = journal
         cursorCache = IrxDiskCache(
@@ -161,11 +164,12 @@ public actor IrxControlPlaneClient {
     }
 
     private func connectAndServe() async throws {
-        guard let token = try await accessToken() else {
+        guard let tokens = try await tokenPair() else {
             throw IrxConnectionError.closed(nil)
         }
         var request = URLRequest(url: configuration.socketURL)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
+        request.setValue(tokens.refresh, forHTTPHeaderField: "x-stack-refresh-token")
         let task = URLSession.shared.webSocketTask(with: request)
         socket = task
         task.resume()

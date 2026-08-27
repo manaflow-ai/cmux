@@ -86,10 +86,16 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       });
       // A connection-level failure throws out of fetch (the core's retry-once
       // trigger); any HTTP response resolves and is never retried.
-      return {
-        status: response.status,
-        json: await response.json().catch(() => null),
-      };
+      const json = await response.json().catch(() => null);
+      if (response.status >= 400) {
+        // Upstream refusals must be attributable from the worker tail alone;
+        // clients only ever see the mapped retryable/non-retryable error code.
+        console.error(
+          `control-plane upstream ${init.method} ${path} -> ${response.status}`,
+          JSON.stringify(json)?.slice(0, 300) ?? "<no body>",
+        );
+      }
+      return { status: response.status, json };
     },
     scheduleAlarmAt: (atMs) => this.ensureAlarmAt(atMs),
     sockets: () => this.ctx.getWebSockets().map(wrapSocket),
@@ -112,6 +118,9 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
     // The DO keeps the connection's own bearer for its upstream proxy calls.
     const bearer = bearerToken(request);
     if (!bearer) return json({ error: "unauthorized" }, 401);
+    // The web API's native auth requires the refresh token BESIDE the bearer
+    // (parseNativeStackTokens); without it every upstream proxy call 401s.
+    const refresh = request.headers.get("x-stack-refresh-token")?.trim() || undefined;
     const namespace = request.headers.get("x-cmux-app-namespace")?.trim() || undefined;
 
     const connected = this.ctx.getWebSockets().filter((ws) => {
@@ -131,6 +140,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       sessionId: crypto.randomUUID(),
       expiresAt,
       bearer,
+      ...(refresh ? { refresh } : {}),
       ...(namespace ? { namespace } : {}),
     });
     return new Response(null, { status: 101, webSocket: client });

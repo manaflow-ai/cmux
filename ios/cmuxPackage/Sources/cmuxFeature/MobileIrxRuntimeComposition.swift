@@ -207,8 +207,10 @@ public actor MobileIrxRuntimeComposition {
                 wantPasses: false,
                 cacheDirectory: stateDirectory
             ),
-            accessToken: { [weak auth] in
-                try await auth?.authenticatedSessionSnapshot().accessToken
+            tokenPair: { [weak auth] in
+                guard let auth else { return nil }
+                let session = try await auth.authenticatedSessionSnapshot()
+                return (session.accessToken, session.refreshToken)
             },
             handlers: .init(
                 onRelayPasses: { [weak self] credentials in
