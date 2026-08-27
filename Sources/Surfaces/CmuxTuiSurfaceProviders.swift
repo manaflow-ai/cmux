@@ -283,6 +283,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         materializedPanels.remove(projection.panelID)
     }
 
+    func discardMaterialization(_ projection: SurfaceProjection) {
+        materializedPanels.remove(projection.panelID)
+        SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+    }
+
     // MARK: - internals
 
     private static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?) -> SurfaceMachineInfo {

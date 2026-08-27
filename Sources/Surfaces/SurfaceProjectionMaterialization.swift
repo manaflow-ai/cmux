@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 struct SurfaceProjectionMaterialization {
     let token: UUID
+    let provider: any SurfaceProvider
     let task: Task<Void, Never>
     var waiters: [UUID: (reused: Bool, continuation: CheckedContinuation<Result, Error>)]
 

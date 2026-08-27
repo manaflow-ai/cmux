@@ -19,6 +19,16 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// Close a pane that was created for a materialization but lost a race with an existing
+    /// projection. The default implementation handles providers that use the shared pane
+    /// factory; providers may also clear provider-specific bookkeeping.
+    func discardMaterialization(_ projection: SurfaceProjection)
+}
+
+extension SurfaceProvider {
+    func discardMaterialization(_ projection: SurfaceProjection) {
+        SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+    }
 }
 
 /// The single owner of surface identities and projections on this Mac.
@@ -193,6 +203,7 @@ final class SurfaceCatalog {
             }
             inFlightProjects[id] = SurfaceProjectionMaterialization(
                 token: token,
+                provider: provider,
                 task: task,
                 waiters: [waiterID: (reused: false, continuation: continuation)]
             )
@@ -210,7 +221,17 @@ final class SurfaceCatalog {
         switch result {
         case .success(let projection):
             guard resources[id] != nil else {
+                inFlight.provider.discardMaterialization(projection)
                 resume(inFlight.waiters, throwing: SurfaceCatalogError.unknownResource(id))
+                return
+            }
+            if let existing = projections(of: id).first {
+                if existing.panelID != projection.panelID {
+                    inFlight.provider.discardMaterialization(projection)
+                }
+                for waiter in inFlight.waiters.values {
+                    waiter.continuation.resume(returning: (projection: existing, reused: true))
+                }
                 return
             }
             record(projection)
