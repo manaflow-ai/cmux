@@ -1640,6 +1640,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         // browser pane immediately left of the Dock must hand ownership to the
         // host and let it forward the synchronous divider drag to the native
         // tracker below, even when a hosting wrapper claims the underlying hit.
+        // The second drag below also models the short SwiftUI reparent gap that
+        // can occur between AppKit's hit-test and mouseDown callbacks.
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -1740,6 +1742,63 @@ final class WindowBrowserHostViewTests: XCTestCase {
             32,
             accuracy: 0.5,
             "The forwarded drag must reach the native sidebar tracker"
+        )
+
+        // AppKit may ask for another hit-test while SwiftUI is moving the
+        // divider tracker between hosting wrappers. Preserve the original
+        // handoff even if the concrete tracker is detached for that turn.
+        eventNames.removeAll()
+        changedTranslation = nil
+        let reparentDown = self.makeMouseEvent(
+            type: .leftMouseDown,
+            location: dividerPointInWindow,
+            window: window
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("cmux.test.issue-10892.reparent.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        XCTAssertTrue(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: reparentDown,
+                dragPasteboard: pasteboard
+            ) === host,
+            "The portal must record the Dock divider handoff before a tracker reparent"
+        )
+
+        liveDivider.removeFromSuperview()
+        XCTAssertNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: reparentDown,
+                dragPasteboard: pasteboard
+            ),
+            "A transiently detached tracker should still leave the browser/Dock divider pass-through path"
+        )
+        XCTAssertTrue(
+            host.acceptsFirstMouse(for: reparentDown),
+            "The portal must not consume the retained Dock handoff while AppKit checks first-mouse activation"
+        )
+
+        let reparentDrag = self.makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 28, y: dividerPointInWindow.y),
+            window: window
+        )
+        window.postEvent(reparentDrag, atStart: true)
+        host.mouseDown(with: reparentDown)
+
+        XCTAssertEqual(
+            eventNames,
+            ["began", "changed", "ended"],
+            "A Dock divider handoff must survive a transient tracker reparent"
+        )
+        XCTAssertEqual(
+            changedTranslation,
+            28,
+            accuracy: 0.5,
+            "A reparented Dock divider must continue receiving native drag translation"
         )
     }
 
@@ -1917,8 +1976,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 at: dividerPointInHost,
                 currentEvent: event,
                 dragPasteboard: pasteboard
-            ) === liveDivider,
-            "The browser portal must route the stale-frame Dock divider directly to the live tracker"
+            ) === host,
+            "The browser portal must own the stale-frame Dock divider before forwarding it to the live tracker"
         )
 
         let mainContentPoint = NSPoint(x: 100, y: host.bounds.midY)
@@ -1935,8 +1994,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
     func testHostViewReturnsLiveSidebarDividerThroughHostingWrapper() throws {
         // SwiftUI can place the native divider tracker below an AppKit hosting
         // wrapper whose hitTest returns the wrapper itself. The browser portal
-        // must still hand the event to the live tracker, rather than merely
-        // hoping that a second root hit-test discovers it.
+        // must own the event itself and forward it to the live tracker, rather
+        // than returning a sibling that AppKit may dispatch inconsistently.
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -2006,8 +2065,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 at: dividerPointInHost,
                 currentEvent: event,
                 dragPasteboard: pasteboard
-            ) === liveDivider,
-            "The portal must route a Dock divider hit directly to the live tracker even when its hosting wrapper claims hit testing"
+            ) === host,
+            "The portal must own a Dock divider hit even when its hosting wrapper claims hit testing"
         )
 
         let mainContentPoint = NSPoint(x: 100, y: host.bounds.midY)
@@ -2110,14 +2169,14 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 at: dividerPointInHost,
                 currentEvent: event,
                 dragPasteboard: pasteboard
-            ) === liveDivider,
-            "The browser portal must route the shared browser/Dock divider to the live tracker when a wrapper claims a content leaf"
+            ) === host,
+            "The browser portal must own the shared browser/Dock divider when a wrapper claims a content leaf"
         )
 
         let rootPointInContainer = container.convert(dividerPointInWindow, from: nil)
         XCTAssertTrue(
-            container.hitTest(rootPointInContainer) === liveDivider,
-            "The window's normal AppKit hit-test path must preserve live Dock divider ownership"
+            container.hitTest(rootPointInContainer) === host,
+            "The window's normal AppKit hit-test path must preserve portal ownership for the live Dock divider"
         )
 
         let browserPoint = NSPoint(x: paneWidth - 32, y: host.bounds.midY)
@@ -2228,8 +2287,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 at: dividerPointInHost,
                 currentEvent: event,
                 dragPasteboard: pasteboard
-            ) === liveDivider,
-            "A live Dock tracker must win over a stale hosted vertical divider at the same point"
+            ) === host,
+            "A live Dock tracker must make the portal host win over a stale hosted vertical divider at the same point"
         )
     }
 
