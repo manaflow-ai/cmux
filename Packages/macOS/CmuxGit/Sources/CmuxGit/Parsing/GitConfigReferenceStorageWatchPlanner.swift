@@ -28,7 +28,8 @@ nonisolated struct GitConfigReferenceStorageWatchPlanner: Sendable {
         if storageName == "reftable" {
             return watchPath(
                 root.appendingPathComponent("tables.list"),
-                allowParentSentinel: isRepositoryLocal(path)
+                allowParentSentinel: isRepositoryLocal(path),
+                ancestorBoundary: root.path
             )
         }
         return filesWatchPaths(root: root)
@@ -44,7 +45,11 @@ nonisolated struct GitConfigReferenceStorageWatchPlanner: Sendable {
                 .standardizedFileURL
             let refsPath = refsRoot.standardizedFileURL.path
             if branchRef.path.hasPrefix(refsPath + "/") {
-                paths.append(contentsOf: watchPath(branchRef, allowParentSentinel: true))
+                paths.append(contentsOf: watchPath(
+                    branchRef,
+                    allowParentSentinel: true,
+                    ancestorBoundary: root.path
+                ))
             }
         }
         paths.append(contentsOf: watchPath(
@@ -84,14 +89,37 @@ nonisolated struct GitConfigReferenceStorageWatchPlanner: Sendable {
             }
     }
 
-    private func watchPath(_ targetURL: URL, allowParentSentinel: Bool) -> [String] {
+    private func watchPath(
+        _ targetURL: URL,
+        allowParentSentinel: Bool,
+        ancestorBoundary: String? = nil
+    ) -> [String] {
         let target = targetURL.standardizedFileURL
+        if let ancestorBoundary,
+           !isSameOrInside(target.path, root: ancestorBoundary) {
+            return []
+        }
         if configReader.isLocalRegularFile(at: target, deadline: deadline) {
             return [target.path]
         }
         guard allowParentSentinel else { return [] }
-        let parent = target.deletingLastPathComponent()
-        guard configReader.isLocalDirectory(at: parent, deadline: deadline) else { return [] }
-        return [parent.path]
+        var parent = target.deletingLastPathComponent()
+        for _ in 0..<16 {
+            if let ancestorBoundary,
+               !isSameOrInside(parent.path, root: ancestorBoundary) {
+                return []
+            }
+            if configReader.isLocalDirectory(at: parent, deadline: deadline) {
+                return [parent.path]
+            }
+            let next = parent.deletingLastPathComponent()
+            guard next.path != parent.path else { return [] }
+            parent = next
+        }
+        return []
+    }
+
+    private func isSameOrInside(_ path: String, root: String) -> Bool {
+        path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 }

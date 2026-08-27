@@ -362,81 +362,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         )
     }
 
-    /// Resolves bounded Git path hints for custom reference storage.
-    private func storageWatchPaths(
-        repository: ResolvedGitRepository,
-        runner: any WorkspaceChangesGitRunning,
-        symbolicReference: String?,
-        deadline: DispatchTime
-    ) -> [String] {
-        var paths: [String] = []
-        var names = ["reftable", "packed-refs"]
-        if let symbolicReference,
-           symbolicReference.hasPrefix("refs/"),
-           !symbolicReference.contains("..") {
-            names.insert(symbolicReference, at: 0)
-        }
-        for name in names {
-            guard paths.count < 8 else { break }
-            guard let value = output(
-                arguments: ["rev-parse", "--git-path", name],
-                repository: repository,
-                maximumByteCount: Self.maximumSymbolicReferenceByteCount,
-                runner: runner,
-                deadline: deadline
-            ) else { continue }
-            let path = value.hasPrefix("/")
-                ? URL(fileURLWithPath: value).standardizedFileURL.path
-                : URL(fileURLWithPath: repository.workTreeRoot)
-                    .appendingPathComponent(value)
-                    .standardizedFileURL.path
-            let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
-                .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-            let isInRepository = roots.contains { root in
-                path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
-            }
-            if isInRepository {
-                paths.append(name == "reftable"
-                    ? URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
-                    : path)
-            } else if name == "reftable" {
-                appendExternalStorageWatchPath(
-                    URL(fileURLWithPath: path).appendingPathComponent("tables.list"),
-                    to: &paths,
-                    deadline: deadline,
-                    allowParentSentinel: false
-                )
-            } else if name == "packed-refs" || name.hasPrefix("refs/") {
-                appendExternalStorageWatchPath(
-                    URL(fileURLWithPath: path),
-                    to: &paths,
-                    deadline: deadline,
-                    allowParentSentinel: name.hasPrefix("refs/")
-                )
-            }
-        }
-        return paths
-    }
-
-    /// Watches an existing external ref file, or a local parent sentinel when
-    /// Git will create that file later. Unavailable mounts are never traversed.
-    private func appendExternalStorageWatchPath(
-        _ targetURL: URL,
-        to paths: inout [String],
-        deadline: DispatchTime,
-        allowParentSentinel: Bool
-    ) {
-        let target = targetURL.standardizedFileURL
-        if configReader.isLocalRegularFile(at: target, deadline: deadline) {
-            paths.append(target.path)
-            return
-        }
-        guard allowParentSentinel else { return }
-        let parent = target.deletingLastPathComponent()
-        guard configReader.isLocalDirectory(at: parent, deadline: deadline) else { return }
-        paths.append(parent.path)
-    }
-
     /// Resolves a branch ref and verifies that HEAD still names it afterward.
     private func stableBranchReference(
         initialSymbolicReference: String,
@@ -510,55 +435,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         )
         guard case .value(let value) = result else { return result }
         guard let normalized = normalizedObjectID(value) else { return .failed }
-        return .value(normalized)
-    }
-
-    /// Runs one bounded plumbing command and returns trimmed UTF-8 output.
-    private func output(
-        arguments: [String],
-        repository: ResolvedGitRepository,
-        maximumByteCount: Int,
-        runner: any WorkspaceChangesGitRunning,
-        deadline: DispatchTime
-    ) -> String? {
-        guard case .value(let value) = commandOutput(
-            arguments: arguments,
-            repository: repository,
-            maximumByteCount: maximumByteCount,
-            runner: runner,
-            deadline: deadline
-        ) else { return nil }
-        return value
-    }
-
-    /// Runs one bounded command and preserves missing-vs-failed outcomes.
-    private func commandOutput(
-        arguments: [String],
-        repository: ResolvedGitRepository,
-        maximumByteCount: Int,
-        runner: any WorkspaceChangesGitRunning,
-        deadline: DispatchTime
-    ) -> GitReferenceCommandResult {
-        let now = DispatchTime.now()
-        guard deadline > now else { return .failed }
-        let remainingNanoseconds = deadline.uptimeNanoseconds - now.uptimeNanoseconds
-        let remainingSeconds = Double(remainingNanoseconds) / 1_000_000_000
-        guard let result = try? runner.run(
-            arguments: arguments,
-            in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
-            maximumOutputByteCount: maximumByteCount,
-            wallTimeLimit: remainingSeconds
-        ),
-        !result.standardOutputWasTruncated,
-        let output = String(data: result.output, encoding: .utf8) else {
-            return .failed
-        }
-        guard result.exitCode == 0 else {
-            return result.exitCode == 1 ? .missing : .failed
-        }
-        guard let normalized = GitMetadataService.normalizedBranchName(output) else {
-            return .failed
-        }
         return .value(normalized)
     }
 

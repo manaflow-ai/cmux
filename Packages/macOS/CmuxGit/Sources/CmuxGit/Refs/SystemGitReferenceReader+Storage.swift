@@ -254,4 +254,169 @@ extension SystemGitReferenceReader {
         ).referenceStorageName()
     }
 
+    /// Resolves bounded Git path hints for custom reference storage.
+    func storageWatchPaths(
+        repository: ResolvedGitRepository,
+        runner: any WorkspaceChangesGitRunning,
+        symbolicReference: String?,
+        deadline: DispatchTime
+    ) -> [String] {
+        var paths: [String] = []
+        var names = ["reftable", "packed-refs"]
+        if let symbolicReference,
+           symbolicReference.hasPrefix("refs/"),
+           !symbolicReference.contains("..") {
+            names.insert(symbolicReference, at: 0)
+        }
+        for name in names {
+            guard paths.count < 8 else { break }
+            guard let value = output(
+                arguments: ["rev-parse", "--git-path", name],
+                repository: repository,
+                maximumByteCount: Self.maximumSymbolicReferenceByteCount,
+                runner: runner,
+                deadline: deadline
+            ) else { continue }
+            let path = value.hasPrefix("/")
+                ? URL(fileURLWithPath: value).standardizedFileURL.path
+                : URL(fileURLWithPath: repository.workTreeRoot)
+                    .appendingPathComponent(value)
+                    .standardizedFileURL.path
+            let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
+                .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            let isInRepository = roots.contains { root in
+                path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+            }
+            if isInRepository {
+                paths.append(name == "reftable"
+                    ? URL(fileURLWithPath: path).appendingPathComponent("tables.list").path
+                    : path)
+            } else if name == "reftable" {
+                appendExternalStorageWatchPath(
+                    URL(fileURLWithPath: path).appendingPathComponent("tables.list"),
+                    to: &paths,
+                    deadline: deadline,
+                    allowParentSentinel: false,
+                    ancestorBoundary: nil
+                )
+            } else if name == "packed-refs" || name.hasPrefix("refs/") {
+                let ancestorBoundary = externalReferenceStorageBoundary(
+                    path: path,
+                    referenceName: name
+                )
+                appendExternalStorageWatchPath(
+                    URL(fileURLWithPath: path),
+                    to: &paths,
+                    deadline: deadline,
+                    allowParentSentinel: name.hasPrefix("refs/") && ancestorBoundary != nil,
+                    ancestorBoundary: ancestorBoundary
+                )
+            }
+        }
+        return paths
+    }
+
+    /// Runs one bounded plumbing command and returns trimmed UTF-8 output.
+    func output(
+        arguments: [String],
+        repository: ResolvedGitRepository,
+        maximumByteCount: Int,
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
+    ) -> String? {
+        guard case .value(let value) = commandOutput(
+            arguments: arguments,
+            repository: repository,
+            maximumByteCount: maximumByteCount,
+            runner: runner,
+            deadline: deadline
+        ) else { return nil }
+        return value
+    }
+
+    /// Runs one bounded command and preserves missing-vs-failed outcomes.
+    func commandOutput(
+        arguments: [String],
+        repository: ResolvedGitRepository,
+        maximumByteCount: Int,
+        runner: any WorkspaceChangesGitRunning,
+        deadline: DispatchTime
+    ) -> GitReferenceCommandResult {
+        let now = DispatchTime.now()
+        guard deadline > now else { return .failed }
+        let remainingNanoseconds = deadline.uptimeNanoseconds - now.uptimeNanoseconds
+        let remainingSeconds = Double(remainingNanoseconds) / 1_000_000_000
+        guard let result = try? runner.run(
+            arguments: arguments,
+            in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
+            maximumOutputByteCount: maximumByteCount,
+            wallTimeLimit: remainingSeconds
+        ),
+        !result.standardOutputWasTruncated,
+        let output = String(data: result.output, encoding: .utf8) else {
+            return .failed
+        }
+        guard result.exitCode == 0 else {
+            return result.exitCode == 1 ? .missing : .failed
+        }
+        guard let normalized = GitMetadataService.normalizedBranchName(output) else {
+            return .failed
+        }
+        return .value(normalized)
+    }
+
+    /// Watches an existing external ref file, or its nearest existing local
+    /// ancestor within the configured store boundary.
+    private func appendExternalStorageWatchPath(
+        _ targetURL: URL,
+        to paths: inout [String],
+        deadline: DispatchTime,
+        allowParentSentinel: Bool,
+        ancestorBoundary: String?
+    ) {
+        let target = targetURL.standardizedFileURL
+        if let ancestorBoundary,
+           !isSameOrInside(target.path, root: ancestorBoundary) {
+            return
+        }
+        if configReader.isLocalRegularFile(at: target, deadline: deadline) {
+            paths.append(target.path)
+            return
+        }
+        guard allowParentSentinel else { return }
+        var parent = target.deletingLastPathComponent()
+        for _ in 0..<16 {
+            if let ancestorBoundary,
+               !isSameOrInside(parent.path, root: ancestorBoundary) {
+                return
+            }
+            if configReader.isLocalDirectory(at: parent, deadline: deadline) {
+                paths.append(parent.path)
+                return
+            }
+            let next = parent.deletingLastPathComponent()
+            guard next.path != parent.path else { return }
+            parent = next
+        }
+    }
+
+    private func externalReferenceStorageBoundary(
+        path: String,
+        referenceName: String
+    ) -> String? {
+        guard referenceName.hasPrefix("refs/"),
+              path.hasSuffix(referenceName) else {
+            return nil
+        }
+        let referenceStart = path.index(path.endIndex, offsetBy: -referenceName.count)
+        let prefix = path[..<referenceStart]
+        guard prefix.hasSuffix("/") else { return nil }
+        let boundary = String(prefix.dropLast())
+        return boundary == "/" || boundary.isEmpty ? nil : boundary
+    }
+
+    private func isSameOrInside(_ path: String, root: String) -> Bool {
+        path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+
 }
