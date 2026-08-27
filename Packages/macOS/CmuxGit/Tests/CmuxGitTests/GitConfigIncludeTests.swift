@@ -296,6 +296,26 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(paths.contains(fixture.gitDirectory.standardizedFileURL.path))
     }
 
+    @Test func missingWorktreeConfigUsesExactCreationSentinel() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [extensions]
+            worktreeConfig = true
+        """)
+        let configWorktreeURL = fixture.gitDirectory.appendingPathComponent("config.worktree")
+        let descriptor = try #require(
+            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+        )
+
+        #expect(descriptor.metadataSentinelPaths.contains(configWorktreeURL.path))
+        #expect(descriptor.watchedPaths.contains(fixture.gitDirectory.path))
+        #expect(descriptor.containsGitMetadataChange(paths: [configWorktreeURL.path]))
+        #expect(!descriptor.containsGitMetadataChange(paths: [
+            fixture.gitDirectory.appendingPathComponent("info/other").path,
+        ]))
+    }
+
     @Test func watchesCaseSensitiveExternalFilesReferenceStore() throws {
         let fixture = try GitRepositoryFixture()
         let externalRoot = fixture.root.deletingLastPathComponent()
