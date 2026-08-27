@@ -1476,11 +1476,20 @@ struct ExitedSurfaceState {
     handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
 }
 
+#[derive(Default)]
+enum DisconnectState {
+    #[default]
+    Active,
+    LocalShutdown,
+    Remote(String),
+}
+
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
-    /// The first reason the reader stopped. A clean EOF and a read failure
-    /// are distinct so callers can report transport diagnostics accurately.
-    disconnect_reason: Mutex<Option<String>>,
+    /// The first terminal state wins. Local shutdown is kept separate from a
+    /// reader failure so closing our own transport does not report a fake
+    /// remote diagnostic.
+    disconnect_state: Mutex<DisconnectState>,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
     attach_progress: AtomicU64,
@@ -1827,7 +1836,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
-            disconnect_reason: Mutex::new(None),
+            disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -2867,16 +2876,24 @@ impl RemoteSession {
     }
 
     fn disconnect_transport_with_reason(&self, reason: Option<String>) {
-        if let Some(reason) = reason {
-            self.disconnect_reason.lock().unwrap().get_or_insert(reason);
+        let mut state = self.disconnect_state.lock().unwrap();
+        if matches!(&*state, DisconnectState::Active) {
+            *state = match reason {
+                Some(reason) => DisconnectState::Remote(reason),
+                None => DisconnectState::LocalShutdown,
+            };
         }
+        drop(state);
         self.begin_shutdown();
         self.interactive_writer.close();
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
     pub fn transport_disconnect_reason(&self) -> Option<String> {
-        self.disconnect_reason.lock().unwrap().clone()
+        match &*self.disconnect_state.lock().unwrap() {
+            DisconnectState::Remote(reason) => Some(reason.clone()),
+            DisconnectState::Active | DisconnectState::LocalShutdown => None,
+        }
     }
 
     pub fn set_cell_pixel_size(
@@ -3820,7 +3837,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
-        disconnect_reason: Mutex::new(None),
+        disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
         attach_progress: AtomicU64::new(0),
@@ -5061,7 +5078,7 @@ mod tests {
     ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
-            disconnect_reason: Mutex::new(None),
+            disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -6245,6 +6262,18 @@ mod tests {
             session.transport_disconnect_reason().as_deref(),
             Some("the daemon closed the connection")
         );
+    }
+
+    #[test]
+    fn local_shutdown_does_not_preserve_reader_error() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+
+        session.disconnect_transport();
+        session.disconnect_transport_with_reason(Some("peer reset".into()));
+
+        assert_eq!(session.transport_disconnect_reason(), None);
     }
 
     #[test]
