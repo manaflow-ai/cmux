@@ -42,7 +42,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
             SystemGitExecutableResolver(environment: environment).executableURLs()
         }
         self.executableURL = candidates.first ?? URL(fileURLWithPath: "/usr/bin/git")
-        self.fallbackExecutableURLs = Array(candidates.dropFirst().prefix(3))
+        self.fallbackExecutableURLs = Array(candidates.dropFirst().prefix(31))
         var scopedEnvironment = environment
         // Never allow ambient repository-selection or command-injected config
         // variables to redirect a command away from its explicit directory.

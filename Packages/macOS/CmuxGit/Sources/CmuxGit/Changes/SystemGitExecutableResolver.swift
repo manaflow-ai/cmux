@@ -7,7 +7,8 @@ import Foundation
 /// candidates in order and keep the first command that succeeds.
 nonisolated struct SystemGitExecutableResolver: Sendable {
     private static let maximumCandidateCount = 8
-    private static let maximumReferenceCandidateCount = 4
+    /// Keeps PATH discovery bounded while leaving room for both system fallbacks.
+    private static let maximumReferenceCandidateCount = 32
     private static let preferredGitPaths = [
         "/opt/homebrew/bin/git",
         "/usr/local/bin/git",
@@ -76,18 +77,20 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
     func referenceExecutableURLs() -> [URL] {
         var result: [URL] = []
         var seen: Set<String> = []
-        let maximumUserCandidateCount = max(
-            0,
-            Self.maximumReferenceCandidateCount - Self.systemGitPaths.count
-        )
-        // Leave one slot for an absolute PATH candidate whenever one exists;
+        let maximumUserCandidateCount = max(0, Self.maximumReferenceCandidateCount - Self.systemGitPaths.count)
+        // Leave one slot for absolute PATH candidates whenever they exist;
         // package-manager installs and version-manager shims are both common.
         let preferredCandidateLimit = max(0, maximumUserCandidateCount - 1)
         for path in Self.preferredGitPaths where result.count < preferredCandidateLimit {
             guard appendExecutable(atPath: path, to: &result, seen: &seen) else { continue }
         }
         if let searchPath = environment["PATH"] {
-            for entry in searchPath.split(separator: ":") {
+            let entries = searchPath.split(separator: ":")
+            let pathCandidateLimit = maximumUserCandidateCount - result.count
+            let headCount = pathCandidateLimit / 2
+            let selectedEntries = Array(entries.prefix(headCount))
+                + Array(entries.suffix(pathCandidateLimit - headCount))
+            for entry in selectedEntries {
                 guard entry.first == "/" else { continue }
                 let path = URL(fileURLWithPath: String(entry), isDirectory: true)
                     .appendingPathComponent("git", isDirectory: false)

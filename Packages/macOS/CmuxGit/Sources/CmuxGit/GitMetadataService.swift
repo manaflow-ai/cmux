@@ -37,6 +37,7 @@ public struct GitMetadataService: Sendable {
     let safetyConfiguration: GitMetadataSafetyConfiguration
     let referenceSnapshotLimiter: GitReferenceSnapshotLimiter
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
+    private let watchPlanCache: GitMetadataWatchPlanCache
 
     /// Creates a git-metadata service.
     public init() {
@@ -53,6 +54,7 @@ public struct GitMetadataService: Sendable {
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        self.watchPlanCache = GitMetadataWatchPlanCache()
         self.referenceSnapshotLimiter = GitReferenceSnapshotLimiter()
     }
 
@@ -63,7 +65,8 @@ public struct GitMetadataService: Sendable {
         degradationRecorder: GitMetadataDegradationRecorder? = nil,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache(),
-        referenceSnapshotLimiter: GitReferenceSnapshotLimiter = GitReferenceSnapshotLimiter()
+        referenceSnapshotLimiter: GitReferenceSnapshotLimiter = GitReferenceSnapshotLimiter(),
+        watchPlanCache: GitMetadataWatchPlanCache = GitMetadataWatchPlanCache()
     ) {
         self.fileStatusReader = fileStatusReader
         self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
@@ -78,6 +81,7 @@ public struct GitMetadataService: Sendable {
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
         self.referenceSnapshotLimiter = referenceSnapshotLimiter
+        self.watchPlanCache = watchPlanCache
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -198,21 +202,23 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return nil
         }
-        let watchInputs = await branchAwareConfigPathsByRepository(
-            repository: repository,
-            safetyConfiguration: safetyConfiguration
-        )
-        guard let descriptor = await watchDescriptorBlocking(
-            for: directory,
-            safetyConfiguration: safetyConfiguration,
-            watchInputs: watchInputs
-        ) else {
-            return nil
+        return await watchPlanCache.plan(for: repository) { [self] in
+            let watchInputs = await branchAwareConfigPathsByRepository(
+                repository: repository,
+                safetyConfiguration: safetyConfiguration
+            )
+            guard let descriptor = await watchDescriptorBlocking(
+                for: directory,
+                safetyConfiguration: safetyConfiguration,
+                watchInputs: watchInputs
+            ) else {
+                return nil
+            }
+            return applyingForcedWorkTreeRoots(
+                descriptor,
+                repositories: watchInputs.forceWorkTreeRootRepositories
+            )
         }
-        return applyingForcedWorkTreeRoots(
-            descriptor,
-            repositories: watchInputs.forceWorkTreeRootRepositories
-        )
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the

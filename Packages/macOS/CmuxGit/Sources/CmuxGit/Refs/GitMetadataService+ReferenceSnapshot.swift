@@ -24,7 +24,7 @@ extension GitMetadataService {
                     let output = cancellationSignal.withCurrentBinding {
                         let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
                         let deadline = effectiveDeadline
-                        for runner in selector.candidateRunners.prefix(4) {
+                        for runner in selector.candidateRunners {
                             let now = DispatchTime.now()
                             guard deadline > now else { break }
                             let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)

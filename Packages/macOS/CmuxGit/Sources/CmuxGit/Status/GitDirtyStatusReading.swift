@@ -30,7 +30,7 @@ struct SystemGitDirtyStatusReader: GitDirtyStatusReading {
     func isDirty(workTreeRoot: String) -> Bool? {
         let candidates = runnerSelector.candidateRunners
         let deadline = DispatchTime.now() + runnerSelector.candidateWallTimeLimit
-        for runner in candidates.prefix(4) {
+        for runner in candidates {
             let now = DispatchTime.now()
             guard deadline > now else { break }
             let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
