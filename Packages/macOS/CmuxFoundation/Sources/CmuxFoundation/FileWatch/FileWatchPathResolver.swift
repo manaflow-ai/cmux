@@ -1,14 +1,21 @@
 import Foundation
 
 /// Resolves the nearest safe existing directory for a watched path.
-struct FileWatchPathResolver: Sendable {
+public struct FileWatchPathResolver: Sendable {
     private let fileManager: FileManager
 
-    init(fileManager: FileManager = .default) {
+    /// Creates a resolver with an injectable filesystem provider.
+    public init(fileManager: FileManager) {
         self.fileManager = fileManager
     }
 
-    func nearestExistingDirectory(
+    /// The home directory reported by the injected filesystem provider.
+    public var homeDirectoryPath: String {
+        fileManager.urls(for: .userDirectory, in: .userDomainMask).first?.path ?? "/"
+    }
+
+    /// Returns the nearest existing directory for a path.
+    public func nearestExistingDirectory(
         forPath path: String,
         allowsFilesystemRootAncestor: Bool
     ) -> String? {

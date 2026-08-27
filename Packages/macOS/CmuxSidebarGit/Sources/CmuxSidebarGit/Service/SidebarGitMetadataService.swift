@@ -49,6 +49,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     let clock: any GitPollClock
     // Reads creation-watch targets off-main; injected for deterministic tests.
     nonisolated let creationWatchFileManager: FileManager
+    // Home boundary for safe external creation watches; injected with the
+    // process home by the composition root.
+    nonisolated let creationWatchHomeDirectory: String
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
@@ -103,6 +106,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     ///   - probeLimiter: Process-wide concurrent probe cap.
     ///   - clock: Initial-probe retry clock; tests inject virtual time.
     ///   - creationWatchFileManager: Filesystem reader for missing config paths.
+    ///   - creationWatchHomeDirectory: Home-directory boundary for safe watches.
     ///   - mobileHostDeferral: Mobile-host deferral intervals.
     ///   - debugLog: Diagnostics sink; defaults to a no-op.
     public init(
@@ -112,6 +116,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         probeLimiter: WorkspaceGitMetadataProbeLimiter,
         clock: any GitPollClock = SystemGitPollClock(),
         creationWatchFileManager: FileManager = .default,
+        creationWatchHomeDirectory: String? = nil,
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
@@ -121,6 +126,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         self.probeLimiter = probeLimiter
         self.clock = clock
         self.creationWatchFileManager = creationWatchFileManager
+        self.creationWatchHomeDirectory =
+            creationWatchHomeDirectory
+                ?? FileWatchPathResolver(fileManager: creationWatchFileManager).homeDirectoryPath
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
     }

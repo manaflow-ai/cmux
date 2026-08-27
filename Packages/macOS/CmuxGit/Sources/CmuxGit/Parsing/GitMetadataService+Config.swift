@@ -64,6 +64,9 @@ extension GitMetadataService {
         mutating func read(_ url: URL) -> String? {
             guard !exceeded else { return nil }
             let readURL = url.resolvingSymlinksInPath()
+            guard readURL.standardizedFileURL.path != "/dev/null" else {
+                return ""
+            }
             let dependencyPaths = Set([
                 url.standardizedFileURL.path,
                 readURL.path
@@ -714,6 +717,7 @@ extension GitMetadataService {
             return
         }
         let configURL = configURL.standardizedFileURL
+        guard configURL.path != "/dev/null" else { return }
         guard seenConfigPaths.insert(configURL.path).inserted else {
             return
         }
