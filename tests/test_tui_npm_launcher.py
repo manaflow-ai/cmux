@@ -43,6 +43,23 @@ def make_tarball(
     return gzip.compress(tar_buffer.getvalue(), mtime=0)
 
 
+def make_duplicate_tarball(
+    first: bytes,
+    second: bytes,
+    *,
+    binary_name: str = "cmux-tui",
+) -> bytes:
+    """Build a tarball with two files that have the same package/bin path."""
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
+        for payload in (first, second):
+            info = tarfile.TarInfo(f"package/bin/{binary_name}")
+            info.mode = 0o755
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+    return gzip.compress(tar_buffer.getvalue(), mtime=0)
+
+
 def make_negative_size_tarball() -> bytes:
     tar = bytearray(gzip.decompress(make_tarball()))
     # -1000 is -512 in octal. The launcher must reject it before the tar
@@ -381,6 +398,20 @@ def write_runtime_capability_stub(tmp_path: Path) -> Path:
     return stub
 
 
+def write_root_access_stub(tmp_path: Path) -> Path:
+    """Make fs.accessSync(W_OK) look root-like without changing file modes."""
+    stub = tmp_path / "root-access.cjs"
+    stub.write_text(
+        "const fs = require('fs');\n"
+        "const accessSync = fs.accessSync.bind(fs);\n"
+        "fs.accessSync = (target, mode, ...args) => {\n"
+        "  if (mode === fs.constants.W_OK) return;\n"
+        "  return accessSync(target, mode, ...args);\n"
+        "};\n"
+    )
+    return stub
+
+
 def write_fake_npm(tmp_path: Path) -> Path:
     """Return a Node script that exercises the launcher npm transport path."""
     fake = tmp_path / "fake-npm.cjs"
@@ -604,6 +635,32 @@ def test_launcher_runs_verified_binary_from_read_only_cache(tmp_path: Path) -> N
     assert not (platform_root / "v/1.2.3/.active").exists()
 
 
+def test_launcher_runs_read_only_cache_when_access_reports_root(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    binary = write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'root-style read-only binary'\n",
+        managed=True,
+    )
+    make_cache_read_only(cache)
+    access_stub = write_root_access_stub(tmp_path)
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        "--version",
+        env_extra={"NODE_OPTIONS": f"--require={access_stub}"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "root-style read-only binary\n"
+    assert binary.is_file()
+    assert not (cache / host_platform_key() / ".update.lock").exists()
+
+
 def test_launcher_requires_network_runtime_capabilities(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -656,6 +713,28 @@ def test_launcher_rejects_negative_tar_size_without_hanging(tmp_path: Path) -> N
         RegistryHandler.tarball = original_tarball
     assert result.returncode != 0
     assert "could not obtain the native binary" in result.stderr
+
+
+def test_launcher_rejects_duplicate_native_binary_entries(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    original_tarball = RegistryHandler.tarball
+    RegistryHandler.tarball = make_duplicate_tarball(
+        b"#!/bin/sh\nexit 0\n",
+        b"#!/bin/sh\nprintf '%s\\n' 'unvalidated duplicate'\n",
+    )
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
+        RegistryHandler.tarball = original_tarball
+    assert result.returncode != 0
+    assert "could not obtain the native binary" in result.stderr
+    assert not (cache / host_platform_key() / "v/1.2.3").exists()
 
 
 def test_launcher_refetches_a_tampered_cached_binary(tmp_path: Path) -> None:
@@ -986,6 +1065,12 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
             "FAKE_NPM_BINARY_INTEGRITY": fixture_binary_integrity,
             "FAKE_NPM_LOG": str(npm_log),
             "FAKE_NPM_HOST_PLATFORM": sys.platform,
+            # The platform stub makes Node report win32 on Unix. Set all
+            # supported temporary-directory variables so os.tmpdir() still
+            # points at this fixture tree when npm pack stages its tarball.
+            "TMPDIR": str(tmp_path),
+            "TMP": str(tmp_path),
+            "TEMP": str(tmp_path),
         }
     )
     launcher = write_launcher(tmp_path / "launcher", "1.0.0")
@@ -1977,8 +2062,12 @@ def main() -> None:
         test_launcher_uses_authenticated_metadata_for_writable_cache_hit(
             root / "metadata-cache"
         )
+        test_launcher_runs_read_only_cache_when_access_reports_root(
+            root / "root-read-only"
+        )
         test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
+        test_launcher_rejects_duplicate_native_binary_entries(root / "duplicate-bin")
         test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
         test_launcher_refetches_tampered_manifest_and_binary(
             root / "tampered-manifest-cache"
