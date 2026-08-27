@@ -41887,6 +41887,309 @@ mod tests {
     }
 
     #[test]
+    fn child_sidebar_directional_and_escape_exits_restore_workspace_preview_origin() {
+        let mux = Mux::new("workspace-preview-child-exit-keys-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+
+        for (focus, key) in [
+            (FocusTarget::TabsRail, KeyCode::Right),
+            (FocusTarget::TabsRail, KeyCode::Char('l')),
+            (FocusTarget::TabsRail, KeyCode::Esc),
+            (FocusTarget::ProjectionRail(0), KeyCode::Right),
+            (FocusTarget::ProjectionRail(0), KeyCode::Char('l')),
+            (FocusTarget::ProjectionRail(0), KeyCode::Esc),
+        ] {
+            app.tree.active_workspace = 1;
+            app.sidebar_workspace_selection = 1;
+            app.workspace_rail_scroll = 9;
+            app.workspace_preview = Some(WorkspacePreview {
+                origin,
+                target,
+                origin_scroll: 3,
+            });
+            app.focus = focus;
+
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE)).unwrap();
+
+            assert_eq!(app.focus, FocusTarget::Pane, "child exit key {key:?}");
+            assert_eq!(app.workspace_preview, None, "child exit key {key:?}");
+            assert_eq!(app.tree.active_workspace, 0, "child exit key {key:?}");
+            assert_eq!(app.sidebar_workspace_selection, 0, "child exit key {key:?}");
+            assert_eq!(app.workspace_rail_scroll, 3, "child exit key {key:?}");
+        }
+    }
+
+    #[test]
+    fn disappearing_tabs_rail_during_sync_layout_cancels_workspace_preview() {
+        let mux = Mux::new("workspace-preview-tabs-layout-cancel-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns_explicit = true;
+        app.config.sidebar.columns = vec![
+            crate::config::SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: 24,
+                max_width: 0,
+            },
+            crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
+        ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        let tabs_id = app.config.sidebar.views[1].id.clone();
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_scroll = 8;
+        app.workspace_preview = Some(WorkspacePreview {
+            origin,
+            target,
+            origin_scroll: 2,
+        });
+        app.focus = FocusTarget::TabsRail;
+        app.hidden_sidebar_views
+            .entry(app.config.sidebar.active_profile.clone())
+            .or_default()
+            .insert(tabs_id);
+
+        app.sync_layout((100, 20));
+
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_scroll, 2);
+    }
+
+    #[test]
+    fn hiding_focused_tabs_rail_cancels_workspace_preview() {
+        let mux = Mux::new("workspace-preview-tabs-visible-cancel-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns_explicit = true;
+        app.config.sidebar.columns = vec![
+            crate::config::SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: 24,
+                max_width: 0,
+            },
+            crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
+        ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_scroll = 7;
+        app.workspace_preview = Some(WorkspacePreview {
+            origin,
+            target,
+            origin_scroll: 1,
+        });
+        app.focus = FocusTarget::TabsRail;
+
+        app.set_sidebar_view_visible(1, false);
+
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_scroll, 1);
+    }
+
+    #[test]
+    fn rendered_tab_click_commits_preview_target_after_rail_focus_cancellation() {
+        let mux = Mux::new("workspace-preview-rendered-tab-click-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns_explicit = true;
+        app.config.sidebar.columns = vec![
+            crate::config::SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: 24,
+                max_width: 0,
+            },
+            crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
+        ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.workspace_preview = Some(WorkspacePreview {
+            origin,
+            target,
+            origin_scroll: 0,
+        });
+        app.focus = FocusTarget::TabsRail;
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarTab { surface, .. } if *surface == second.id)
+                    .then_some(*rect)
+            })
+            .expect("previewed workspace tab hit");
+
+        app.handle_left_down(tab.x, tab.y, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.active_surface(), Some(second.id));
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_ne!(first.id, second.id);
+    }
+
+    #[test]
+    fn switching_to_profile_without_focused_child_rail_cancels_workspace_preview() {
+        let mux = Mux::new("workspace-preview-profile-cancel-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        let full = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 24, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
+        ];
+        let workspace_only = vec![SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 24, 0)];
+        app.config.sidebar.profiles = vec![
+            SidebarProfileSpec { id: "full".into(), name: "Full".into(), views: full.clone() },
+            SidebarProfileSpec {
+                id: "workspace-only".into(),
+                name: "Workspace only".into(),
+                views: workspace_only,
+            },
+        ];
+        app.config.sidebar.active_profile = "full".into();
+        app.config.sidebar.views = full;
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_scroll = 6;
+        app.workspace_preview = Some(WorkspacePreview {
+            origin,
+            target,
+            origin_scroll: 0,
+        });
+        app.focus = FocusTarget::TabsRail;
+
+        app.activate_sidebar_profile(1);
+
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_scroll, 0);
+    }
+
+    #[test]
+    fn reloading_config_without_focused_projection_cancels_workspace_preview() {
+        let mux = Mux::new("workspace-preview-config-reload-cancel-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_scroll = 5;
+        app.workspace_preview = Some(WorkspacePreview {
+            origin,
+            target,
+            origin_scroll: 0,
+        });
+        app.focus = FocusTarget::ProjectionRail(0);
+
+        let path = std::env::temp_dir().join(format!(
+            "cmux-tui-preview-reload-{}-{}.json",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::write(&path, r#"{"sidebar":{"views":[{"id":"workspaces","levels":["workspaces"]}]}}"#)
+            .unwrap();
+        let old_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        // SAFETY: this test restores both config environment variables before returning.
+        unsafe {
+            std::env::set_var("CMUX_TUI_CONFIG", &path);
+            std::env::remove_var("CMUX_MUX_CONFIG");
+        }
+
+        app.reload_config();
+
+        // SAFETY: restore the process environment captured above.
+        unsafe {
+            match old_config {
+                Some(value) => std::env::set_var("CMUX_TUI_CONFIG", value),
+                None => std::env::remove_var("CMUX_TUI_CONFIG"),
+            }
+            match old_mux_config {
+                Some(value) => std::env::set_var("CMUX_MUX_CONFIG", value),
+                None => std::env::remove_var("CMUX_MUX_CONFIG"),
+            }
+        }
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_scroll, 0);
+    }
+
+    #[test]
     fn workspace_sidebar_previews_selection_until_enter_or_escape() {
         let mux = Mux::new("workspace-sidebar-preview-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
