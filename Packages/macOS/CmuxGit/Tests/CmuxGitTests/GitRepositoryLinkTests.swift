@@ -604,7 +604,7 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         try #"""
         [remote "origin"]
             url = https://github.com/continued/\
-            repo.git
+        repo.git
         """#.write(
             to: fixture.gitDirectory.appendingPathComponent("config"),
             atomically: true,
