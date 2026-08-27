@@ -13973,12 +13973,15 @@ struct VerticalTabsSidebar: View, Equatable {
         pendingSessionId: UUID? = nil,
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
+        var ownsPresentationCleanup = false
         defer {
-            // This destination has accepted or rejected the drop, but the
-            // native source is still alive until AppKit sends its terminal
-            // completion callback. Do not let a drop path end that session.
-            dragState.dismissPresentation()
-            dragAutoScrollController.stop()
+            // Only a drop that passed its session/plan validation owns this
+            // presentation cleanup. A stale deferred callback must not dismiss
+            // or stop autoscroll for a newer drag.
+            if ownsPresentationCleanup {
+                dragState.dismissPresentation()
+                dragAutoScrollController.stop()
+            }
         }
         let plan: SidebarWorkspaceReorderDropPlan?
         if let pendingSessionId {
@@ -13989,6 +13992,7 @@ struct VerticalTabsSidebar: View, Equatable {
                   ) else {
                 return false
             }
+            ownsPresentationCleanup = true
             plan = workspaceReorderPlan(
                 point: point,
                 targets: targets,
@@ -13999,6 +14003,7 @@ struct VerticalTabsSidebar: View, Equatable {
             guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId) else {
                 return false
             }
+            ownsPresentationCleanup = true
             plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext)
         }
         guard let plan else { return false }

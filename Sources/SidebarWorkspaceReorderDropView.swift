@@ -2,6 +2,12 @@ import AppKit
 
 @MainActor
 final class SidebarWorkspaceReorderDropView: NSView {
+    private struct DragIdentity: Equatable {
+        let workspaceId: UUID?
+        let sessionId: UUID?
+        let sequenceNumber: Int
+    }
+
     var targets: [SidebarWorkspaceReorderDropOverlay.Target] = []
     var isValidDrag: (() -> Bool)?
     var updateDrag: ((CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
@@ -18,6 +24,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     private var targetRequestId: UInt64 = 0
     private var pendingDrop: SidebarWorkspaceReorderPendingDrop?
     private var awaitsTargetsAfterDragTeardown = false
+    private var activeDragIdentity: DragIdentity?
 
     override var isFlipped: Bool { true }
 
@@ -36,18 +43,21 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        prepareForDrag(sender)
         let operation = update(sender)
         setTargetCollectionActive(operation != [])
         return operation
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        prepareForDrag(sender)
         let operation = update(sender)
         setTargetCollectionActive(operation != [])
         return operation
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
+        guard isCurrentDrag(sender) else { return }
         guard pendingDrop == nil else {
             completeOrClearPendingDropAfterDragTeardown()
             clearDropIndicator?()
@@ -58,6 +68,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        prepareForDrag(sender)
         guard accepts(sender), let performDropAtPoint else { return false }
         let point = dropPoint(from: sender)
         guard !targets.isEmpty else {
@@ -83,6 +94,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        guard isCurrentDrag(sender) else { return }
         guard pendingDrop == nil else {
             completeOrClearPendingDropAfterDragTeardown()
             clearDropIndicator?()
@@ -97,13 +109,17 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     func performPendingDropIfPossible() {
-        guard let pendingDrop,
-              pendingDrop.requestId == targetRequestId,
-              isRequestingTargets,
+        guard let pendingDrop else { return }
+        guard pendingDrop.requestId == targetRequestId else {
+            invalidatePendingDrop()
+            return
+        }
+        guard isRequestingTargets,
               !targets.isEmpty,
               let performDropAtPoint else {
             return
         }
+        let requestId = pendingDrop.requestId
         self.pendingDrop = nil
         awaitsTargetsAfterDragTeardown = false
         let performed: Bool
@@ -112,6 +128,10 @@ final class SidebarWorkspaceReorderDropView: NSView {
         } else {
             performed = performDropAtPoint(pendingDrop.point, targets)
         }
+        // A callback can synchronously cause another drag to enter. Do not
+        // turn off that newer request's target collection when retiring this
+        // completed generation.
+        guard targetRequestId == requestId else { return }
         setTargetCollectionActive(false)
         if !performed {
             clearDropIndicator?()
@@ -161,6 +181,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
         if !isActive {
             pendingDrop = nil
             awaitsTargetsAfterDragTeardown = false
+            activeDragIdentity = nil
         }
         isRequestingTargets = isActive
         setWorkspaceDropTargetCollectionActive?(isActive)
@@ -183,5 +204,43 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     private func shouldCaptureHitTest() -> Bool {
         acceptsCurrentDragPasteboard()
+    }
+
+    private func prepareForDrag(_ sender: NSDraggingInfo) {
+        let nextIdentity = dragIdentity(for: sender)
+        guard activeDragIdentity != nextIdentity else { return }
+
+        if activeDragIdentity != nil {
+            // A new native drag supersedes any deferred operation from the
+            // previous sequence. Invalidate its request without toggling the
+            // shared target collection off, so the new drag remains active.
+            invalidatePendingDrop()
+            targetRequestId &+= 1
+            if !isRequestingTargets {
+                isRequestingTargets = true
+                setWorkspaceDropTargetCollectionActive?(true)
+            }
+        }
+        activeDragIdentity = nextIdentity
+    }
+
+    private func invalidatePendingDrop() {
+        pendingDrop = nil
+        awaitsTargetsAfterDragTeardown = false
+    }
+
+    private func isCurrentDrag(_ sender: NSDraggingInfo?) -> Bool {
+        guard let sender, let activeDragIdentity else { return true }
+        return activeDragIdentity == dragIdentity(for: sender)
+    }
+
+    private func dragIdentity(for sender: NSDraggingInfo) -> DragIdentity {
+        DragIdentity(
+            workspaceId: SidebarTabDragPayload.workspaceId(
+                fromPasteboardString: SidebarTabDragPayload.pasteboardString(from: sender.draggingPasteboard)
+            ),
+            sessionId: SidebarTabDragPayload.sessionId(from: sender.draggingPasteboard),
+            sequenceNumber: sender.draggingSequenceNumber
+        )
     }
 }

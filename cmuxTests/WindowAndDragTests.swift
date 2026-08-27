@@ -2965,6 +2965,10 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
                 oldCapability,
                 forType: FilePreviewDragPasteboardWriter.bonsplitTransferType
             )
+            oldPasteboard.setString(
+                URL(fileURLWithPath: "/tmp/old-preview.txt").standardizedFileURL.absoluteString,
+                forType: .fileURL
+            )
             let oldDragId = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: oldData))
 
             let newerRegistration = try XCTUnwrap(
@@ -2987,6 +2991,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
             XCTAssertNil(appDelegate.tabDragTransferRegistry.resolve(from: oldPasteboard))
             XCTAssertNotNil(appDelegate.tabDragTransferRegistry.resolve(from: ambientPasteboard))
             XCTAssertFalse(FilePreviewDragRegistry.shared.contains(id: oldDragId))
+            XCTAssertNil(oldPasteboard.string(forType: .fileURL))
             appDelegate.tabDragTransferRegistry.end(newerRegistration)
         }
     }

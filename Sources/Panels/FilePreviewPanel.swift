@@ -598,6 +598,12 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         // process-wide pasteboard and end a newer pane/tab registration.
         let canEndTransfer = liveFilePreviewDragId != nil
             && (filePreviewDragId == nil || filePreviewDragId == liveFilePreviewDragId)
+        let previewDragId = filePreviewDragId ?? liveFilePreviewDragId
+        let previewFileURL = previewDragId.flatMap { dragId in
+            FilePreviewDragRegistry.shared.entry(id: dragId).map { entry in
+                URL(fileURLWithPath: entry.filePath).standardizedFileURL.absoluteString
+            }
+        }
         if canEndTransfer {
             transferRegistry?.end(from: pasteboard)
             AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
@@ -616,7 +622,18 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
                 from: pasteboard
             )
         }
-        if let dragId = filePreviewDragId ?? liveFilePreviewDragId {
+        if let previewFileURL {
+            // The writer mirrors `.fileURL` for Finder-compatible consumers,
+            // but it is still this internal drag's representation. Remove it
+            // only while the value remains the same, preserving a newer URL
+            // that may have replaced the session's pasteboard.
+            DragPasteboardCapabilityCleaner().remove(
+                type: .fileURL,
+                capabilityValue: previewFileURL,
+                from: pasteboard
+            )
+        }
+        if let dragId = previewDragId {
             FilePreviewDragRegistry.shared.discard(id: dragId)
         }
         FilePreviewDragRegistry.shared.discardExpired()
