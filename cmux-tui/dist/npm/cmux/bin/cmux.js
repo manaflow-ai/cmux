@@ -1012,6 +1012,7 @@ function normalizeRegistryValue(value) {
 }
 
 function npmrcRegistry(contents) {
+  let registry = null;
   for (const rawLine of contents.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#") || line.startsWith(";")) continue;
@@ -1020,10 +1021,10 @@ function npmrcRegistry(contents) {
     // Keep URL fragments intact, but accept the inline comment form used by
     // npm's ini parser when a comment is separated by whitespace.
     const value = match[1].replace(/\s+[;#].*$/, "").trim();
-    const registry = normalizeRegistryValue(value);
-    if (registry) return registry;
+    // npm's ini parser applies the last occurrence in a file.
+    registry = normalizeRegistryValue(value);
   }
-  return null;
+  return registry;
 }
 
 function readNpmrcRegistry(configPath) {
@@ -1062,9 +1063,11 @@ function npmRegistryFromConfigFiles() {
 
   const nodePrefix = path.dirname(path.dirname(process.execPath));
   const globalConfig = npmConfigEnvironmentValue("globalconfig");
+  const configuredPrefix = npmConfigEnvironmentValue("prefix");
+  const globalPrefix = configuredPrefix || process.env.PREFIX || nodePrefix;
   const globalPaths = globalConfig
     ? [globalConfig]
-    : [path.join(nodePrefix, "etc", "npmrc")];
+    : [path.join(globalPrefix, "etc", "npmrc")];
   if (process.platform !== "win32") globalPaths.push("/etc/npmrc");
   for (const configPath of globalPaths) {
     const registry = readNpmrcRegistry(configPath);
@@ -1390,19 +1393,20 @@ function registryHeaders(url, accept) {
     const parsed = new URL(url);
     const registry = new URL(registryBase());
     if (parsed.origin !== registry.origin) return headers;
-    const tokenKey = `npm_config_//${parsed.host}/:_authToken`;
-    const token = process.env[tokenKey] || npmrcAuthToken(parsed);
+    const tokenKeys = [
+      `npm_config_//${parsed.host}/:_authToken`,
+      `NPM_CONFIG_//${parsed.host}/:_authToken`,
+    ];
+    const token =
+      tokenKeys.map((key) => process.env[key]).find(configValueIsPresent) ||
+      npmrcAuthToken(parsed);
     if (token) headers.authorization = `Bearer ${token}`;
   } catch {}
   return headers;
 }
 
 function npmrcAuthToken(url) {
-  const configPaths = new Set([
-    process.env.npm_config_userconfig,
-    process.env.npm_config_globalconfig,
-    path.join(os.homedir(), ".npmrc"),
-  ]);
+  const configPaths = npmConfigFilePaths();
   const host = url.host.toLowerCase();
   for (const configPath of configPaths) {
     if (!configPath) continue;
