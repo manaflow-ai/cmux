@@ -1086,6 +1086,24 @@ impl AgentSource {
     }
 }
 
+/// The agent-record state a committed hook journal event implies, or `None`
+/// for events that carry no lifecycle transition (child agents, unclassified
+/// state changes) so they never churn the record.
+fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
+    Some(match kind {
+        // A freshly started session sits at its prompt; a completed turn
+        // returns to it.
+        "agent.session.started" | "agent.turn.completed" => AgentState::Idle,
+        "agent.turn.started" => AgentState::Working,
+        "agent.approval.requested"
+        | "agent.question.requested"
+        | "agent.plan_review.requested"
+        | "agent.error.reported" => AgentState::Blocked,
+        "agent.session.ended" => AgentState::Done,
+        _ => return None,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentRecord {
     pub surface: SurfaceId,
@@ -5148,24 +5166,59 @@ impl Mux {
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
         let validated = self.journal_kernel.validate_ingress(ingress)?;
-        if self.journal_ingress.enabled() {
-            return self.journal_ingress.send_producer(
+        let commit = if self.journal_ingress.enabled() {
+            self.journal_ingress.send_producer(
                 ingress.clone(),
                 validated,
                 origin.into(),
                 idempotency_key.into(),
-            );
-        }
-        let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
-            ingress,
-            &validated,
-            origin,
-            idempotency_key,
-        )?;
+            )?
+        } else {
+            let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
+                ingress,
+                &validated,
+                origin,
+                idempotency_key,
+            )?;
+            if !commit.replayed {
+                self.publish_journal_event();
+            }
+            commit
+        };
         if !commit.replayed {
-            self.publish_journal_event();
+            self.apply_agent_hook_record(ingress);
         }
         Ok(commit)
+    }
+
+    /// Committed agent hook events double as the live agent-status feed:
+    /// a fresh `agent.*` journal event updates its terminal's agent record,
+    /// so agents views show working/blocked/idle/done without a separate
+    /// reporting channel. Best effort by design: a hook may outlive its
+    /// terminal (exit races, replays into closed tabs), and the journal
+    /// append must never start failing because the record cannot update.
+    fn apply_agent_hook_record(&self, ingress: &crate::JournalIngress) {
+        if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+            return;
+        }
+        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return };
+        let Some(terminal_id) = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
+        else {
+            return;
+        };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        // The record's session field is a human-facing label; native agent
+        // session ids are opaque, so views fall back to their own context.
+        if let Err(error) = self.report_agent(surface, state, AgentSource::Hook, None) {
+            eprintln!(
+                "cmux-tui: agent record update for {} ({}) failed: {error}",
+                terminal_id, ingress.kind
+            );
+        }
     }
 
     pub(crate) fn journal_hook_states(
