@@ -13440,6 +13440,14 @@ struct CMUXCLI {
     }
 
     private static func isRetryableCloudVMServiceError(_ error: Error) -> Bool {
+        if let cliError = error as? CLIError {
+            let structuredCodes = [cliError.v2Code, cliError.vmBackendCode]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            if structuredCodes.contains("vm_cloud_service_unavailable") ||
+                structuredCodes.contains("vm_cloud_state_unavailable") {
+                return true
+            }
+        }
         let message = String(describing: error).lowercased()
         return message.contains("http 502") ||
             message.contains("http 503") ||
