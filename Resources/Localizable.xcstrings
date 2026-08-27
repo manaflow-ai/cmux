@@ -59511,6 +59511,23 @@
         }
       }
     },
+    "cloudTree.menu.newDisplay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Display"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ディスプレイ"
+          }
+        }
+      }
+    },
     "cloudTree.menu.newTerminal": {
       "extractionState": "manual",
       "localizations": {

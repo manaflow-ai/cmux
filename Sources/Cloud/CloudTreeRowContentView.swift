@@ -713,10 +713,10 @@ struct CloudTreeRowHoverButtons: View {
                 nodeActions.newTerminal(machine, nil)
             }
         case .displaysPool(let machine, _):
-            // The daemon cannot create displays yet (T10); until then "+" shows
-            // the machine's one desktop, reusing a pane that already does.
-            plus(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
+            // The daemon cannot create displays yet (T10); until then "New
+            // Display" opens another pane on the machine's one desktop.
+            plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
+                nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, false)
             }
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
