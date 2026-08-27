@@ -316,6 +316,65 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(doneFile, containing: "done", timeout: 6))
     }
 
+    @Test func codexInstalledHookDispatchesWithoutAmbientSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-no-surface-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let capturedStdin = root.appendingPathComponent("hook-stdin.json", isDirectory: false)
+        let capturedArgs = root.appendingPathComponent("hook-args.txt", isDirectory: false)
+        let capturedPID = root.appendingPathComponent("hook-pid.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
+            "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
+            "cat > \"$CMUX_TEST_STDIN\"",
+        ])
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+        let payload = #"{"session_id":"codex-session","prompt":"show the workspace spinner"}"#
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": root.path,
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_STDIN": capturedStdin.path,
+                "CMUX_TEST_ARGS": capturedArgs.path,
+                "CMUX_TEST_PID": capturedPID.path,
+            ],
+            standardInput: payload,
+            timeout: 2
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 1))
+        #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
+    }
+
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
