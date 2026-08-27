@@ -228,10 +228,21 @@ struct VerifiedTerminalReplayStateMachineTests {
             machine.admitCompatibilityFallbackFrame(delta),
             "a persistent capture failure needs an explicit legacy escape"
         )
-
-        let freshFull = try frame(
+        let oversizedDelta = try frame(
             renderRevision: 3,
             stateSeq: 3,
+            columns: Int.max,
+            text: "oversized compatibility delta",
+            full: false
+        )
+        #expect(
+            !machine.admitCompatibilityFallbackFrame(oversizedDelta),
+            "compatibility deltas must retain bounded viewport dimensions"
+        )
+
+        let freshFull = try frame(
+            renderRevision: 4,
+            stateSeq: 4,
             columns: 80,
             text: "fresh verified recovery"
         )
