@@ -3716,6 +3716,31 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "The initial Dock browser binding must pass its shared divider through"
         )
 
+        // The physical slot can be reset while the portal entry still carries
+        // the same authoritative context. A repeated update must reassert the
+        // live slot classification instead of being discarded as an entry no-op.
+        dockSlot.clearPaneDropContext()
+        XCTAssertNotNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ),
+            "Resetting the physical slot should temporarily expose the ownership gap"
+        )
+        portal.updatePaneDropContext(
+            forWebViewId: ObjectIdentifier(dockWebView),
+            context: dockContext
+        )
+        XCTAssertNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ),
+            "An unchanged portal context must still restore Dock divider ownership on the physical slot"
+        )
+
         // These two updates model the portal's transient recovery ordering:
         // the routing context is unavailable and visibility is stale, but the
         // visible slot/frame remains mounted until the replacement bind settles.
