@@ -4837,6 +4837,56 @@
       "testflightLink": "TestFlight に登録する：{url}",
       "testflightLinkLabel": "TestFlight に登録する",
       "signoff": "ご参加いただき、ありがとうございます！\ncmux チーム"
+    },
+    "newsletter": {
+      "footer": {
+        "receiptNotice": "cmux に登録したか、cmux Founder's Edition を購入したため、このメールを受け取っています。",
+        "unsubscribe": "配信停止"
+      },
+      "productUpdate": {
+        "previewText": "より速いターミナル、iOS ベータ、さらに便利になったサイドバー。",
+        "headline": "cmux アップデート：2026年8月",
+        "greeting": "{name} さん、cmux の Austin です。",
+        "intro": "今週は、整理しやすさ、UI の仕上げ、そしてバグ修正に取り組みました。今回の変更をご紹介します。",
+        "sections": [
+          {
+            "title": "iOS ベータ",
+            "body": "スマートフォンから Mac の cmux ワークスペースを操作できます。実行中のエージェントにプロンプトを送り、動作を見守り、入力が必要になった瞬間に通知を受け取れます。Mac の cmux と同じ状態が表示されるため、デバイスを切り替えても作業を見失いません。",
+            "bullets": [
+              "Mac とリアルタイムに同期するエージェントセッション履歴",
+              "エージェントが入力を求めたときや完了したときのプッシュ通知",
+              "スマートフォンから直接フォローアップのプロンプトを送信"
+            ],
+            "linkText": "お知らせを読む",
+            "linkUrl": "https://cmux.com/blog"
+          },
+          {
+            "title": "負荷が高いときも高速な入力",
+            "body": "キーストロークからターミナル描画までのホットパスを書き直しました。多数の分割ペインと複数のエージェントが同時に出力していても、入力の遅延は増えません。"
+          },
+          {
+            "title": "セッションの復元",
+            "body": "cmux restore は、再起動やクラッシュの後に、各ペインの作業ディレクトリや実行中のコマンドを含むワークスペース全体を復元します。シェルスクリプトは必要ありません。"
+          }
+        ],
+        "signoff": "よろしくお願いします。\nAustin と Lawrence"
+      },
+      "foundersFeedbackCall": {
+        "previewText": "Austin と cmux の次の一歩について話しませんか。",
+        "headline": "cmux {releaseVersion} を一緒につくる",
+        "greeting": "{name} さん、Austin です。",
+        "releaseVersion": "0.65.0",
+        "paragraphs": [
+          "cmux の次のメジャーリリース（{releaseVersion}）に向けて、さまざまな準備を進めています。",
+          "皆さんの声を聞かせてください。良かった点、困った点、改善してほしい点など、何でも歓迎です。",
+          "cmux Founder's Edition の購読者には、機能リクエストやバグ報告を優先して確認しています。気になっていることを私に直接届ける一番早い方法です。",
+          "cmux について話す時間を予約できるカレンダーを用意しました：{bookingUrl}",
+          "普段のワークフロー、欲しい機能、困っているバグ、気に入っている点など、どんな話題でもお持ちください。特に議題がなくても大丈夫です。"
+        ],
+        "bookingUrl": "https://calendar.app.google/usRQUbktHPuVTzNbA",
+        "ctaText": "Austin と話す時間を予約",
+        "signoff": "よろしくお願いします。\nAustin Wang"
+      }
     }
   },
   "tui": {

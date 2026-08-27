@@ -3680,7 +3680,8 @@
       "testflightLink": "Registrer deg for TestFlight: {url}",
       "testflightLinkLabel": "Registrer deg for TestFlight",
       "signoff": "Hyggelig å ha deg med!\ncmux-teamet"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",

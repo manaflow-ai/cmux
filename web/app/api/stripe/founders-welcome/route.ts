@@ -1,12 +1,18 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { Resend } from "resend";
 
 import { env } from "@/app/env";
 import {
+  upsertFounderIntoSegments,
+  withDeadline,
+} from "@/services/newsletter/founder-hook";
+import { ResendClient } from "@/services/newsletter/resend-client";
+import {
   recordSpanError,
   setSpanAttributes,
+  withSpan,
   withApiRouteSpan,
 } from "@/services/telemetry";
 
@@ -19,10 +25,18 @@ import { welcomeTriggerForMetadata } from "./welcome-trigger";
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
+// Upper bound on the best-effort newsletter segment upsert after a founder
+// purchase. Kept well under Stripe's webhook timeout (with headroom for the
+// welcome send that precedes it) so a Resend stall cannot push the
+// acknowledgement into Stripe's retry window; anything missed is picked up
+// by the manual reconciliation sync.
+const NEWSLETTER_UPSERT_DEADLINE_MS = 5_000;
+
 type FoundersConfig = {
   resendApiKey: string;
   webhookSecret: string;
   fromEmail: string;
+  newsletterPrivacyDisclosureConfirmed: boolean;
 };
 
 function resolveConfig(): FoundersConfig | null {
@@ -35,6 +49,8 @@ function resolveConfig(): FoundersConfig | null {
     resendApiKey,
     webhookSecret,
     fromEmail: env.CMUX_FOUNDERS_FROM_EMAIL ?? DEFAULT_FROM_EMAIL,
+    newsletterPrivacyDisclosureConfirmed:
+      env.CMUX_NEWSLETTER_PRIVACY_DISCLOSURE_CONFIRMED === "true",
   };
 }
 
@@ -121,6 +137,43 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
+      // Delayed payment methods complete their checkout session with
+      // payment_status "unpaid" and report the real outcome later via
+      // checkout.session.async_payment_succeeded. The welcome email already
+      // went out at completion; this later event only needs the newsletter
+      // segment upsert that the completion handler skipped while the
+      // payment was unsettled. (The Stripe endpoint must be subscribed to
+      // this event type for it to arrive here.)
+      if (event.type === "checkout.session.async_payment_succeeded") {
+        const asyncSession = event.data?.object;
+        const asyncEmail = asyncSession?.customer_details?.email ?? null;
+        const settled = isPaymentSettled(asyncSession);
+        if (
+          welcomeTriggerForMetadata(asyncSession?.metadata) !==
+            "founders_edition" ||
+          !asyncEmail ||
+          !settled
+        ) {
+          return NextResponse.json({ ok: true, skipped: "async_payment" });
+        }
+        if (!config.newsletterPrivacyDisclosureConfirmed) {
+          return NextResponse.json({
+            ok: true,
+            skipped: "privacy_disclosure",
+          });
+        }
+        const upsert = await scheduleNewsletterUpsert((upsertSpan) =>
+          upsertFounderBestEffort(upsertSpan, config, {
+            email: asyncEmail,
+            customerName: asyncSession?.customer_details?.name,
+          }),
+        );
+        return NextResponse.json(
+          { ok: true, upsert },
+          { headers: { "Cache-Control": "no-store" } },
+        );
+      }
+
       // Pro purchases have their own transactional welcome and TestFlight
       // fulfillment in /api/stripe/webhook. Acknowledge them here without
       // sending the personal Founder's Edition email as well. Explicit
@@ -175,10 +228,37 @@ export async function POST(request: Request) {
       );
 
       if (error) {
-        recordSpanError(span, error);
-        console.error("stripe.founders_welcome.resend_failed", error);
+        const category = errorCategory(error);
+        recordSpanError(span, new Error(category));
+        console.error("stripe.founders_welcome.resend_failed", { category });
         // Non-2xx so Stripe retries and the email is not silently lost.
         return jsonError("Failed to send welcome email", 502);
+      }
+
+      // Purchase-time newsletter segment upsert (see
+      // services/newsletter/founder-hook.ts). Best-effort by design: the
+      // welcome email already went out, so a Resend hiccup (for example a
+      // sending-only restricted key) must not fail the webhook and trigger a
+      // Stripe retry storm. The whole upsert is bounded by a deadline so a
+      // Resend stall cannot hold the webhook open, and the manual sync
+      // script reconciles any contact missed here.
+      //
+      // Only sessions whose payment actually succeeded are added: Stripe
+      // emits checkout.session.completed with payment_status "unpaid" for
+      // delayed payment methods that may still fail, and the additive sync
+      // would never remove a buyer whose payment later fell through.
+      const paymentSettled = isPaymentSettled(session);
+      if (
+        trigger === "founders_edition" &&
+        paymentSettled &&
+        config.newsletterPrivacyDisclosureConfirmed
+      ) {
+        await scheduleNewsletterUpsert((upsertSpan) =>
+          upsertFounderBestEffort(upsertSpan, config, {
+            email: customerEmail,
+            customerName: session?.customer_details?.name,
+          }),
+        );
       }
 
       return NextResponse.json(
@@ -187,6 +267,106 @@ export async function POST(request: Request) {
       );
     },
   );
+}
+
+// Best-effort, deadline-bounded newsletter segment upsert. Never throws: a
+// Resend failure is logged and recorded on the span, but must not turn an
+// already-acknowledged purchase event into a webhook error and a Stripe
+// retry storm. The deadline aborts the underlying Resend work (requests,
+// pacing, backoff) so nothing keeps running after the webhook answers, and
+// the manual reconciliation sync is the catch-up. Returns "completed" or
+// "failed" so callers never report a failed upsert as successful.
+async function upsertFounderBestEffort(
+  span: Parameters<typeof setSpanAttributes>[0],
+  config: FoundersConfig,
+  buyer: { email: string; customerName?: string | null },
+): Promise<"completed" | "failed"> {
+  try {
+    const abort = new AbortController();
+    const results = await withDeadline(
+      upsertFounderIntoSegments({
+        client: new ResendClient({
+          apiKey: config.resendApiKey,
+          cancelSignal: abort.signal,
+        }),
+        email: buyer.email,
+        customerName: buyer.customerName,
+      }),
+      NEWSLETTER_UPSERT_DEADLINE_MS,
+      abort,
+    );
+    setSpanAttributes(span, {
+      "cmux.newsletter.segment_outcomes": results
+        .map((result) => `${result.segmentName}:${result.outcome}`)
+        .join(","),
+    });
+    return results.some(
+      (result) =>
+        result.outcome === "failed" ||
+        result.outcome === "skipped_missing_segment" ||
+        result.outcome === "skipped_missing_contact",
+    )
+      ? "failed"
+      : "completed";
+  } catch (segmentError) {
+    const category = newsletterErrorCategory(segmentError);
+    recordSpanError(span, new Error(category));
+    console.error(
+      "stripe.founders_welcome.segment_upsert_failed",
+      { category },
+    );
+    return "failed";
+  }
+}
+
+// Next's after() keeps best-effort work alive after the 2xx response on the
+// deployed runtime. Outside a request scope (unit tests and local scripts),
+// fall back to awaiting the work so failures remain observable and tests stay
+// deterministic.
+async function scheduleNewsletterUpsert(
+  work: (
+    span: Parameters<typeof setSpanAttributes>[0],
+  ) => Promise<"completed" | "failed">,
+): Promise<"scheduled" | "completed" | "failed"> {
+  const run = () =>
+    withSpan(
+      "cmux-api",
+      "cmux.newsletter.founder_upsert",
+      { "cmux.newsletter.best_effort": true },
+      (span) => work(span),
+    );
+  try {
+    after(run);
+    return "scheduled";
+  } catch {
+    return run();
+  }
+}
+
+function isPaymentSettled(session: {
+  payment_status?: string | null;
+  amount_total?: number | null;
+} | null | undefined): boolean {
+  if (session?.payment_status === "paid") return true;
+  return session?.payment_status === "no_payment_required" && session.amount_total === 0;
+}
+
+function newsletterErrorCategory(error: unknown): string {
+  if (error instanceof Error && /deadline/i.test(error.message)) {
+    return "deadline_exceeded";
+  }
+  if (error instanceof Error && error.name === "ResendApiError") {
+    return "provider_api_error";
+  }
+  return "unknown";
+}
+
+function errorCategory(error: unknown): string {
+  if (error && typeof error === "object" && "name" in error) {
+    const name = String((error as { name?: unknown }).name ?? "");
+    if (name) return "provider_" + name.replace(/[^a-z0-9_]/gi, "_");
+  }
+  return "provider_error";
 }
 
 function jsonError(message: string, status: number): Response {
@@ -203,6 +383,8 @@ type StripeEvent = {
     object?: {
       id?: string;
       metadata?: Record<string, string> | null;
+      payment_status?: string | null;
+      amount_total?: number | null;
       customer_details?: {
         email?: string | null;
         name?: string | null;

@@ -3757,7 +3757,8 @@
       "testflightLink": "Зареєструватися в TestFlight: {url}",
       "testflightLinkLabel": "Зареєструватися в TestFlight",
       "signoff": "Раді, що ви з нами!\nКоманда cmux"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro активовано",

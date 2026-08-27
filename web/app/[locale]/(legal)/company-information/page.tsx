@@ -4,10 +4,10 @@ import { legalMetadata } from "../legal-metadata";
 
 const legalName = "Manaflow, Inc.";
 const contactEmail = "founders@manaflow.com";
-const streetAddress = "18428 Vantage Pointe Dr";
-const locality = "Rowland Heights";
+const streetAddress = "501 2nd Street, Suite 350";
+const locality = "San Francisco";
 const region = "CA";
-const postalCode = "91748-5142";
+const postalCode = "94107";
 
 export const metadata: Metadata = {
   ...legalMetadata(

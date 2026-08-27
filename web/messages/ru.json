@@ -3683,7 +3683,8 @@
       "testflightLink": "Зарегистрироваться в TestFlight: {url}",
       "testflightLinkLabel": "Зарегистрироваться в TestFlight",
       "signoff": "Рады, что вы с нами!\nКоманда cmux"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro активирован",

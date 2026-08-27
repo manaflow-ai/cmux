@@ -190,6 +190,17 @@ export const env = createEnv({
     STRIPE_FOUNDERS_WEBHOOK_SECRET: z.string().min(1).optional(),
     CMUX_FOUNDERS_FROM_EMAIL: z.string().email().optional(),
     CMUX_PRO_FROM_EMAIL: z.string().email().optional(),
+    // Sender for newsletter broadcasts and test previews created by the
+    // scripts/newsletter tooling. Optional: defaults to Austin's verified
+    // address. Accepts a display-name form ("Name <email@domain>"), so it is
+    // validated as a non-empty string rather than a bare email.
+    CMUX_NEWSLETTER_FROM_EMAIL: z.string().min(1).optional(),
+    // Newsletter audience writes stay disabled until the published privacy
+    // disclosure explicitly covers marketing email. Set to the literal
+    // "true" only after that review is complete.
+    CMUX_NEWSLETTER_PRIVACY_DISCLOSURE_CONFIRMED: z
+      .enum(["true"])
+      .optional(),
     // Direct Stripe billing for cmux Pro. Optional: when unset, checkout is
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
@@ -354,6 +365,10 @@ export const env = createEnv({
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
+    CMUX_NEWSLETTER_FROM_EMAIL: trimEnv(process.env.CMUX_NEWSLETTER_FROM_EMAIL),
+    CMUX_NEWSLETTER_PRIVACY_DISCLOSURE_CONFIRMED: trimEnv(
+      process.env.CMUX_NEWSLETTER_PRIVACY_DISCLOSURE_CONFIRMED,
+    ),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),

@@ -9,6 +9,7 @@
 // at their own top level.
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.RESEND_API_KEY ??= "re_test";
+process.env.CMUX_NEWSLETTER_PRIVACY_DISCLOSURE_CONFIRMED ??= "true";
 process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ??= "whsec_founders_test";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "founders@manaflow.com";
 process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "feedback-test";

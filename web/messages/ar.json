@@ -3680,7 +3680,8 @@
       "testflightLink": "التسجيل في TestFlight: {url}",
       "testflightLinkLabel": "التسجيل في TestFlight",
       "signoff": "سعداء بانضمامك إلينا!\nفريق cmux"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro مفعّل",

@@ -3682,7 +3682,8 @@
       "testflightLink": "註冊 TestFlight：{url}",
       "testflightLinkLabel": "註冊 TestFlight",
       "signoff": "很高興有你加入！\ncmux 團隊"
-    }
+    },
+    "newsletter": {}
   },
   "appProWelcome": {
     "eyebrow": "cmux Pro 已啟用",

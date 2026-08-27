@@ -4927,6 +4927,56 @@
       "testflightLink": "Sign up for TestFlight: {url}",
       "testflightLinkLabel": "Sign up for TestFlight",
       "signoff": "Glad to have you here!\nThe cmux team"
+    },
+    "newsletter": {
+      "footer": {
+        "receiptNotice": "You are receiving this because you signed up for cmux or bought cmux Founder's Edition.",
+        "unsubscribe": "Unsubscribe"
+      },
+      "productUpdate": {
+        "previewText": "Faster terminals, iOS beta, and a smarter sidebar.",
+        "headline": "cmux update: August 2026",
+        "greeting": "Hey, {name}. Austin from cmux here.",
+        "intro": "This week, we focused on helping you stay organized, polishing the UI, and fixing bugs. Here's what we shipped:",
+        "sections": [
+          {
+            "title": "iOS beta",
+            "body": "Drive your Mac's cmux workspaces from your phone: send prompts to a running agent, watch it work, and get pushed a notification the moment it needs you. It mirrors whatever cmux is doing on your Mac, so you never lose your place switching devices.",
+            "bullets": [
+              "Full agent session history, synced live from your Mac",
+              "Push notifications when an agent needs input or finishes",
+              "Send follow-up prompts straight from your phone"
+            ],
+            "linkText": "Read the announcement",
+            "linkUrl": "https://cmux.com/blog"
+          },
+          {
+            "title": "Faster typing under load",
+            "body": "We rewrote the hot path between keystrokes and the terminal renderer. Latency now stays flat even with dozens of live terminal splits open and multiple agents streaming output at once, instead of climbing the more panes you have on screen."
+          },
+          {
+            "title": "Session restore",
+            "body": "cmux restore brings back your whole workspace, including every pane's working directory and running command, after a reboot or crash, no shell scripting required. It's on by default and takes effect the next time you launch cmux."
+          }
+        ],
+        "signoff": "Best,\nAustin and Lawrence"
+      },
+      "foundersFeedbackCall": {
+        "previewText": "Book time with Austin to shape what's next in cmux.",
+        "headline": "Help shape cmux {releaseVersion}",
+        "greeting": "Hey, {name}. Austin here.",
+        "releaseVersion": "0.65.0",
+        "paragraphs": [
+          "We're currently compiling a bunch of stuff for our next major release of cmux ({releaseVersion}).",
+          "And we want to hear from all of you! The bad, the good, the ugly, and more.",
+          "Since you're a cmux Founder's Edition subscriber, you get priority on feature requests and bug reports, so this is the fastest way to get something you care about in front of me directly.",
+          "I've set up a calendar so you can book time with me to chat about cmux: {bookingUrl}",
+          "Please feel free to bring whatever's on your mind, whether it's your workflow, a feature you wish existed, a bug you've been living with, or something that's working great for you, or no agenda at all!"
+        ],
+        "bookingUrl": "https://calendar.app.google/usRQUbktHPuVTzNbA",
+        "ctaText": "Book with Austin",
+        "signoff": "Best,\nAustin Wang"
+      }
     }
   },
   "tui": {
