@@ -44,10 +44,17 @@ struct MobileLeadingToolbarTitleWidth {
     let hadTrailingCollapse: Bool
 
     static let backButtonReserve: CGFloat = 44
-    /// Chevron-to-badge spacing plus the badge circle (18pt minimum, wider
-    /// for "99+"), matching WorkspaceBackButton's layout with slack.
+    /// Chevron-to-badge spacing (5pt) plus the badge capsule, matching
+    /// WorkspaceBackButton's layout with slack. The capsule is text width
+    /// + 10pt horizontal padding, floored at an 18pt circle: one digit stays
+    /// at the 18pt floor (23pt with spacing), two digits measure ~24.6pt
+    /// (~29.6), and the "99+" cap measures ~31.8pt (~36.8) in 11pt semibold
+    /// monospaced-digit SF. Each tier rounds up because an over-reserve only
+    /// truncates the title a few points earlier, while an under-reserve
+    /// re-creates the sticky first-pass More collapse.
     static let backButtonBadgeReserve: CGFloat = 24
-    static let backButtonWideBadgeReserve: CGFloat = 32
+    static let backButtonTwoDigitBadgeReserve: CGFloat = 32
+    static let backButtonWideBadgeReserve: CGFloat = 40
     static let trailingReserveBase: CGFloat = 64
     /// Dogfood on a 402pt iPhone 17 measured ~22pt of dead gap between the
     /// title pill and the trailing capsule under the original 84pt margin +
@@ -98,10 +105,13 @@ struct MobileLeadingToolbarTitleWidth {
     private var leadingReserve: CGFloat {
         guard hasBackButton else { return 0 }
         guard backButtonUnreadCount > 0 else { return Self.backButtonReserve }
-        // WorkspaceBackButton caps the visible badge text at "99+".
-        let badge = backButtonUnreadCount > 99
-            ? Self.backButtonWideBadgeReserve
-            : Self.backButtonBadgeReserve
+        // WorkspaceBackButton caps the visible badge text at "99+", so the
+        // capsule has exactly three widths: one digit, two digits, "99+".
+        let badge: CGFloat = switch backButtonUnreadCount {
+        case ..<10: Self.backButtonBadgeReserve
+        case ..<100: Self.backButtonTwoDigitBadgeReserve
+        default: Self.backButtonWideBadgeReserve
+        }
         return Self.backButtonReserve + badge
     }
 

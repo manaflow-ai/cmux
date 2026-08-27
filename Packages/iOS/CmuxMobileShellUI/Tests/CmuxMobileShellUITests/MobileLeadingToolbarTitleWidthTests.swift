@@ -201,6 +201,15 @@ extension MobileLeadingToolbarTitleWidthTests {
             measuredTrailingItemCount: 2,
             trailingItemCount: 2
         )
+        let twoDigitBadge = MobileLeadingToolbarTitleWidth(
+            contentWidth: 402,
+            hasBackButton: true,
+            backButtonUnreadCount: 42,
+            hasTrailingCluster: true,
+            measuredTrailingItemsWidth: 126,
+            measuredTrailingItemCount: 2,
+            trailingItemCount: 2
+        )
         let wideBadge = MobileLeadingToolbarTitleWidth(
             contentWidth: 402,
             hasBackButton: true,
@@ -213,8 +222,14 @@ extension MobileLeadingToolbarTitleWidthTests {
 
         #expect(bare.cap - badged.cap
             == MobileLeadingToolbarTitleWidth.backButtonBadgeReserve)
+        #expect(bare.cap - twoDigitBadge.cap
+            == MobileLeadingToolbarTitleWidth.backButtonTwoDigitBadgeReserve)
         #expect(bare.cap - wideBadge.cap
             == MobileLeadingToolbarTitleWidth.backButtonWideBadgeReserve)
+        // The capsule widens with the glyph count; the reserve must never
+        // shrink as the count grows.
+        #expect(badged.cap > twoDigitBadge.cap)
+        #expect(twoDigitBadge.cap > wideBadge.cap)
     }
 
     @Test func badgeWithoutBackButtonReservesNothing() {
