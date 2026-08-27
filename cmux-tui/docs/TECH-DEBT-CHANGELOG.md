@@ -1,9 +1,9 @@
 # cmux-tui aggregate change log
 
 Current snapshot: 2026-08-27T12:20:00Z. The audited source is pinned to
-`origin/main` at [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0),
-committed 2026-08-27T05:04:41-07:00 with subject
-`refactor(tui): share startup option scanning (#10951)`. This documentation-only
+`origin/main` at [`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50),
+committed 2026-08-27T05:25:26-07:00 with subject
+`refactor(tui): share draw and paint render path (#10970)`. This documentation-only
 refresh keeps the prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and
 `99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots below as historical
 records. The session receipt and lower-bound ledger are retained from the prior
@@ -37,6 +37,7 @@ claim is made.
 | [#10958](https://github.com/manaflow-ai/cmux/pull/10958) | Lawrence Chen | [`9cf920bb6b7a87bae3af721a0f98c989c45b9c4b`](https://github.com/manaflow-ai/cmux/commit/9cf920bb6b7a87bae3af721a0f98c989c45b9c4b) | Own TUI layout from the rendered frame area. | `git revert 9cf920bb6b7a87bae3af721a0f98c989c45b9c4b` |
 | [#10962](https://github.com/manaflow-ai/cmux/pull/10962) | Lawrence Chen | [`ef5e7434927d89996e2cd29b429823b8a716a08e`](https://github.com/manaflow-ai/cmux/commit/ef5e7434927d89996e2cd29b429823b8a716a08e) | Apply immediate redraws after visible input changes. | `git revert ef5e7434927d89996e2cd29b429823b8a716a08e` |
 | [#10951](https://github.com/manaflow-ai/cmux/pull/10951) | Lawrence Chen | [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0) | Share startup option scanning across TUI entry points. | `git revert de3902db48d2924c227b5acb26cbe1d89fe03cc0` |
+| [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | [`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50) | Share the draw and paint render path. | `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
 
 The prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` snapshot was captured at
 2026-08-27T09:54:48Z after [#10950](https://github.com/manaflow-ai/cmux/pull/10950).
