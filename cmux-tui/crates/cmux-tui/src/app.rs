@@ -17394,7 +17394,10 @@ impl App {
         self.workspace_preview = None;
     }
 
-    fn commit_workspace_preview_for_pane_click(&mut self) {
+    fn commit_workspace_preview_for_pane_input(&mut self, x: u16, y: u16) {
+        if self.pane_area_at(x, y).is_none() {
+            return;
+        }
         if self.workspace_preview.is_none() {
             return;
         }
@@ -17403,16 +17406,6 @@ impl App {
         self.focus = FocusTarget::Pane;
         self.sidebar_focus_pending = false;
         self.select_workspace_for_client(Some(workspace), None);
-    }
-
-    /// Commit a workspace preview before any non-motion pointer event reaches
-    /// a pane. The preview changes the local render tree but must not leave
-    /// keyboard focus on the rail after a context-menu, middle-button, or
-    /// wheel interaction selects the previewed pane.
-    fn commit_workspace_preview_for_pane_pointer(&mut self, x: u16, y: u16) {
-        if self.pane_area_at(x, y).is_some() {
-            self.commit_workspace_preview_for_pane_click();
-        }
     }
 
     fn align_workspace_sidebar_to_active(&mut self) {
@@ -20318,7 +20311,7 @@ impl App {
             _ => {}
         }
         if !matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Down(MouseButton::Left)) {
-            self.commit_workspace_preview_for_pane_pointer(mouse.column, mouse.row);
+            self.commit_workspace_preview_for_pane_input(mouse.column, mouse.row);
         }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => self.handle_left_down_with_admission(
@@ -21647,9 +21640,7 @@ impl App {
         // A pane press is an explicit choice after a hover preview. Commit it
         // before PTY or browser handling can consume the press and clear the
         // preview through the ordinary sidebar-focus exit path.
-        if self.pane_area_at(x, y).is_some() {
-            self.commit_workspace_preview_for_pane_click();
-        }
+        self.commit_workspace_preview_for_pane_input(x, y);
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
             self.focus_pane_after_input(pane);
