@@ -166,6 +166,42 @@ describe("reconcileProPlanMetadata", () => {
 });
 
 describe("resolveProPlanStatus", () => {
+  test("normalizes a verified Founder entitlement to Pro without Stripe management", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders" }, "user-founder");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+      hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
+    expect(user.updates).toEqual([]);
+  });
+
+  test("keeps Stripe management when a Founder also has a Stripe subscription", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders" }, "user-founder-pro");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "stripe",
+      hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
+    expect(user.updates).toEqual([]);
+  });
+
   test("reloads metadata inside the account mutation lease before reconciling Pro", async () => {
     const staleUser = metadataUser({}, "user-racing-testflight");
     const freshUser = metadataUser({

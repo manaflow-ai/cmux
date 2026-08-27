@@ -72,6 +72,34 @@ describe("billing plan route", () => {
     expect(response.billingManagement).toBe("stripe");
   });
 
+  test("reports a Founder entitlement as Pro without Stripe management", async () => {
+    currentUser = planUser({
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+    });
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("none");
+  });
+
+  test("keeps a Founder personal plan alongside a Team Stripe plan", async () => {
+    currentUser = planUser({
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+      selectedTeam: { id: "team-founder", clientReadOnlyMetadata: {} },
+    });
+    stripeSubscriptionResults = [[], [{ id: "sub_team" }]];
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("none");
+    expect(response.teamPlanId).toBe("team");
+    expect(response.teamBillingManagement).toBe("stripe");
+  });
+
   test("reports Free for Stack Pro products without Stripe subscription rows", async () => {
     currentUser = planUser({
       stackProductGrant: true,
@@ -162,13 +190,14 @@ function planUser(options: {
   selectedTeam?: unknown;
   listTeams?: () => Promise<readonly unknown[]>;
   stackProductGrant?: boolean;
+  clientReadOnlyMetadata?: unknown;
 } = {}) {
   return {
     id: "user-plan",
     isAnonymous: false,
     displayName: "Plan User",
     primaryEmail: "plan@example.com",
-    clientReadOnlyMetadata: {},
+    clientReadOnlyMetadata: options.clientReadOnlyMetadata ?? {},
     selectedTeam: options.selectedTeam ?? null,
     listTeams: options.listTeams ?? mock(async () => []),
     stackProductGrant: options.stackProductGrant ?? false,

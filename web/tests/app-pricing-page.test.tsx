@@ -262,6 +262,26 @@ describe("app pricing page", () => {
     expect(html).toContain("Current plan");
   });
 
+  test("does not offer a Stripe portal or another Pro purchase for a Founder entitlement", async () => {
+    stackConfigured = true;
+    currentUser = {
+      ...proUser,
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+    };
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("Current plan");
+    expect(html).not.toContain('href="/api/billing/portal"');
+    expect(html).not.toContain("api/billing/checkout?plan=pro");
+  });
+
   for (const [name, params, message] of [
     ["welcomeTeam", { welcome: "team" }, "Your cmux Team purchase is complete."],
     ["billingCancelled", { billing: "cancelled" }, "Checkout cancelled. You have not been charged."],

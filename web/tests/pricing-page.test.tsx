@@ -124,6 +124,7 @@ describe("localized pricing page", () => {
     process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
     stripeSubscriptionRows = [];
+    proUser.clientReadOnlyMetadata = { cmuxPlan: "pro" };
     getUser.mockClear();
     proUser.update.mockClear();
   });
@@ -199,6 +200,18 @@ describe("localized pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+  });
+
+  test("does not offer a Stripe portal or another Pro purchase for a Founder entitlement", async () => {
+    stackConfigured = true;
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("Current plan");
+    expect(html).not.toContain('href="/api/billing/portal"');
+    expect(html).not.toContain("/api/billing/checkout?plan=pro");
   });
 
   test("renders the annual price and sends annual checkout intent", async () => {
