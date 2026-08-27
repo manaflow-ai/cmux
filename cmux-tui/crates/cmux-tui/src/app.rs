@@ -10034,6 +10034,7 @@ impl App {
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
+        self.commit_workspace_preview();
         self.follow_sidebar_workspace(target.workspace);
         self.pane_focus_history.record(target.pane);
         self.claim_active_terminal_geometry(true);
@@ -10068,6 +10069,7 @@ impl App {
                 if !self.prepare_pty_input_before_mutation() {
                     return Ok(());
                 }
+                self.commit_workspace_preview();
                 self.follow_sidebar_workspace(workspace);
                 self.tree.active_workspace = workspace;
                 if let Some(workspace_view) = self.tree.workspaces.get_mut(workspace) {
