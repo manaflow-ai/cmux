@@ -8500,9 +8500,7 @@ fn prepare_machine_session(
 ) -> anyhow::Result<PreparedMachineSession> {
     // The managed-workspace guard runs on every presentation, reused or
     // not: a pooled session can change state while it is not presented, and
-    // the guard is the invariant that makes presenting it safe. Default
-    // colors are also refreshed for reused sessions because they belong to
-    // the current client presentation, not to the pooled remote session.
+    // the guard is the invariant that makes presenting it safe.
     ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
