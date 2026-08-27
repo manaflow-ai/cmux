@@ -6,6 +6,7 @@ Regression test: `cmux claude-teams` preserves fallback provider dirs in PATH.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -45,13 +46,14 @@ def main() -> int:
             managed_bin / "claude",
             "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
         )
-        make_executable(
-            live_managed_bin / "claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
-exec "$FAKE_CLAUDE_PROVIDER" "$@"
-""",
+        wrapper_source = (
+            Path(__file__).resolve().parents[1]
+            / "Resources"
+            / "bin"
+            / "cmux-claude-wrapper"
         )
+        shutil.copyfile(wrapper_source, live_managed_bin / "claude")
+        (live_managed_bin / "claude").chmod(0o755)
         # The production wrapper probes this sibling CLI to verify that the
         # live surface socket is still owned by cmux. Keep that probe live in
         # the fixture while leaving the provider itself under our control.
@@ -97,7 +99,6 @@ exit 86
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
         env["FAKE_CLAUDE_LOG"] = str(claude_log)
         env["FAKE_CODEX_LOG"] = str(codex_log)
-        env["FAKE_CLAUDE_PROVIDER"] = str(fallback_bin / "claude")
         env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
         proc = subprocess.run(
