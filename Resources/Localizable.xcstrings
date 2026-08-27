@@ -58102,6 +58102,23 @@
         }
       }
     },
+    "cli.vm.attach.cmuxTuiOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ attaches only through its cmux-tui daemon. Run `cmux vm tui %1$@`; if that reports no client, install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh` or point CMUX_TUI_CLIENT at a binary."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は cmux-tui デーモン経由でのみ接続できます。`cmux vm tui %1$@` を実行してください。クライアントが見つからない場合は `curl -fsSL https://cmux.com/tui/install-static.sh | sh` でインストールするか、CMUX_TUI_CLIENT にバイナリを指定してください。"
+          }
+        }
+      }
+    },
     "cli.vm.create.createdCloudVM": {
       "extractionState": "manual",
       "localizations": {
@@ -58272,6 +58289,584 @@
         }
       }
     },
+    "cli.vm.tree.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cloud machines. Try: cmux vm new"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンがありません。cmux vm new を試してください"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.disk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f GB disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク %.0f GB"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "link %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンク %@"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.workspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaces/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link.asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "asleep — cmux vm open %@ wakes it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ中 — cmux vm open %@ で起動します"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中…"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠ link %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠ リンク %@: %@"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.link.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "retry: cmux vm tree %@ --refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行: cmux vm tree %@ --refresh"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.noWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(none yet — cmux vm open %@ starts one)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(まだありません — cmux vm open %@ で開始します)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.noTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(no terminals)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(ターミナルなし)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[agent %@]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[エージェント %@]"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.localSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d terminals · %2$d browsers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル %1$d · ブラウザ %2$d"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.terminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminals/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.browsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browsers/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.noLocal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(no terminals open)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(開いているターミナルはありません)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.unknownWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(not in a workspace)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(ワークスペース外)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.openMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(open)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(表示中)"
+          }
+        }
+      }
+    },
+    "cli.surface.open.unknownResource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown surface '%@'. See: cmux surface ls --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なサーフェス '%@' です。cmux surface ls --json を参照してください"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(open: %@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(表示中: %@)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.desktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desktop  (cmux vm open %@:desktop)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ  (cmux vm open %@:desktop)"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.ports": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ports/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート/"
+          }
+        }
+      }
+    },
+    "cli.vm.open.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no workspace '%2$@'. See: cmux vm tree %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ にワークスペース '%2$@' はありません。cmux vm tree %1$@ を確認してください"
+          }
+        }
+      }
+    },
+    "cli.vm.route.wouldProvision": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pool machine is free for %@ — `cmux vm run` would provision a fresh one (add --provision to create it now)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 用に空いているプールマシンがありません — `cmux vm run` は新しいマシンを作成します（今すぐ作成するには --provision を付けてください）。"
+          }
+        }
+      }
+    },
+    "cli.vm.agent.started": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Started %1$@ on %2$@ — terminal %3$@ in workspace %4$@ (detached: it keeps running if the pane closes)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ で %1$@ を開始しました — ワークスペース %4$@ のターミナル %3$@（デタッチ済み: ペインを閉じても実行を続けます）。"
+          }
+        }
+      }
+    },
+    "cli.vm.agent.reattach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reattach: cmux vm open %1$@/%2$@/%3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続: cmux vm open %1$@/%2$@/%3$@"
+          }
+        }
+      }
+    },
+    "cli.vm.list.planMeter.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of 1 machine on the %2$@ plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ プランのマシン %1$d / 1"
+          }
+        }
+      }
+    },
+    "cli.vm.list.freeAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access expires in %1$@ (%2$@) — upgrade to keep using it: %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセスは残り %1$@（%2$@）で終了します — 引き続き使うにはアップグレード: %3$@"
+          }
+        }
+      }
+    },
+    "cli.vm.list.freeAccessExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access has expired — upgrade to reconnect: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセスは終了しました — 再接続するにはアップグレード: %1$@"
+          }
+        }
+      }
+    },
+    "cli.vm.pull.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm pull: %1$d/%2$d chunks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm pull: %1$d/%2$d チャンク"
+          }
+        }
+      }
+    },
+    "cli.vm.pull.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulled %1$@:%2$@ to %3$@ (%4$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@:%2$@ を %3$@ にプルしました（%4$@）"
+          }
+        }
+      }
+    },
+    "cli.vm.push.excludedNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped: %1$@ (pass --no-default-excludes to send everything)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ: %1$@（すべて送るには --no-default-excludes を指定）"
+          }
+        }
+      }
+    },
+    "cli.vm.push.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm push: %1$d/%2$d chunks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vm push: %1$d/%2$d チャンク"
+          }
+        }
+      }
+    },
+    "cli.vm.push.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pushed %1$@ to %2$@:%3$@ (%4$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を %2$@:%3$@ にプッシュしました（%4$@）"
+          }
+        }
+      }
+    },
     "cli.vm.reconnecting": {
       "extractionState": "manual",
       "localizations": {
@@ -58330,6 +58925,146 @@
           "stringUnit": {
             "state": "translated",
             "value": "使い方: cmux vm rename <id> <new-label>\n        cmux vm rename <id> --clear\n\nラベルは表示専用です。マシンのアドレスは id のままです。\nid の確認:\n  cmux vm ls"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.clientExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui exited with status %1$d. Re-run `cmux vm tui %2$@` to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui がステータス %1$d で終了しました。再接続するには `cmux vm tui %2$@` を再実行してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.clientMissingSearched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux-tui client found (searched: %1$@). Install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh`, or point CMUX_TUI_CLIENT at a binary."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui クライアントが見つかりません（検索したパス: %1$@）。`curl -fsSL https://cmux.com/tui/install-static.sh | sh` でインストールするか、CMUX_TUI_CLIENT にバイナリを指定してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to %1$@ through cmux-tui…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui 経由で %1$@ に接続しています…"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.mode.enrolled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "device already enrolled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスは登録済みです"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.mode.enrolling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enrolling this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を登録しています"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opened cmux-tui for %1$@ (%2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の cmux-tui を開きました（%2$@）"
+          }
+        }
+      }
+    },
+    "cli.vm.tui.protocolMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux-tui protocol mismatch: client %1$@ speaks protocol %2$d, the machine daemon %3$@ speaks protocol %4$d. %5$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux-tui のプロトコルが一致しません: クライアント %1$@ はプロトコル %2$d、マシンのデーモン %3$@ はプロトコル %4$d です。%5$@" } }
+      }
+    },
+    "cli.vm.tui.staleClient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux (its bundled cmux-tui client is older than the machine's daemon)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux を更新してください（同梱の cmux-tui クライアントがマシンのデーモンより古いです）。" } }
+      }
+    },
+    "cli.vm.tui.staleDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The machine's cmux-tui daemon is older than this client; reconnect once the machine has updated." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの cmux-tui デーモンがこのクライアントより古いです。マシンが更新されてから再接続してください。" } }
+      }
+    },
+    "cli.vm.wait.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is ready (%2$@) after %3$ds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は準備完了です（%2$@、%3$d 秒）"
           }
         }
       }
@@ -58865,6 +59600,652 @@
           "stringUnit": {
             "state": "translated",
             "value": "再接続"
+          }
+        }
+      }
+    },
+    "cloudTree.browser.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "cloudTree.group.browsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browsers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "cloudTree.group.ports": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ports"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート"
+          }
+        }
+      }
+    },
+    "cloudTree.group.workspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "cloudTree.local.browserCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ 1"
+          }
+        }
+      }
+    },
+    "cloudTree.local.browserCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d browsers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ %d"
+          }
+        }
+      }
+    },
+    "cloudTree.localWorkspace.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "cloudTree.machine.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.copyPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートをコピー"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.copySurfaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Surface ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス ID をコピー"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.copyWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Workspace ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース ID をコピー"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.newTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ターミナル"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.newTerminalHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Terminal Here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここに新規ターミナル"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openAllHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open All Here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてここで開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openAllInNewTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open All in New Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて新しいタブで開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openFullClient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Full cmux-tui Client"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui クライアント全体を開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openInNewPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in New Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいペインで開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openInNewTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in New Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブで開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.selectWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースへ移動"
+          }
+        }
+      }
+    },
+    "cloudTree.node.desktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ"
+          }
+        }
+      }
+    },
+    "cloudTree.node.desktop.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noVNC screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noVNC 画面"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.newTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting a terminal on %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でターミナルを起動しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening on %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で開いています…"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asleep — open to wake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ中 — 開くと起動します"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中…"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.linkError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続に失敗しました"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.noLocalTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminals open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているターミナルはありません"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.noWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspaces yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースはまだありません"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions unavailable on this machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンではセッションを利用できません"
+          }
+        }
+      }
+    },
+    "cloudTree.stats.cpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU %d%%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU %d%%"
+          }
+        }
+      }
+    },
+    "cloudTree.stats.disk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk %@/%@ GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク %@/%@ GB"
+          }
+        }
+      }
+    },
+    "cloudTree.stats.memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mem %@/%@ GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ %@/%@ GB"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in a pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインで開いています"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "cloudTree.workspace.terminalCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル 1 個"
+          }
+        }
+      }
+    },
+    "cloudTree.workspace.terminalCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル %d 個"
           }
         }
       }
@@ -123837,6 +125218,142 @@
         }
       }
     },
+    "machines.freeAccess.countdown.daysHours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$dd %2$dh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d日 %2$d時間"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.countdown.hoursMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$dh %2$dm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d時間 %2$d分"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.countdown.minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d分"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access expired · Upgrade to Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセスは終了しました · Pro にアップグレード"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.expiresIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access · expires in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセス · 残り %@"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.expiresToday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free cloud access · expires today, %@ left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料クラウドアクセス · 本日期限、残り %@"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free plans keep a machine reachable for %d days after it is created. Upgrade to Pro to keep using it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料プランでは作成から %d 日間マシンに接続できます。引き続き使うには Pro にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "machines.freeAccess.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレード"
+          }
+        }
+      }
+    },
     "machines.kind.base": {
       "extractionState": "manual",
       "localizations": {
@@ -124007,6 +125524,23 @@
         }
       }
     },
+    "machines.meter.count.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of 1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$d / 1"
+          }
+        }
+      }
+    },
     "machines.meter.help": {
       "extractionState": "manual",
       "localizations": {
@@ -124037,6 +125571,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在のプランでは %d 台まで作成できます。追加するにはアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "machines.meter.help.atLimit.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes 1 machine. Upgrade to create more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランでは 1 台まで作成できます。追加するにはアップグレードしてください。"
           }
         }
       }
@@ -124245,6 +125796,23 @@
         }
       }
     },
+    "machines.menu.upgradeToReconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Reconnect\u2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードして再接続\u2026"
+          }
+        }
+      }
+    },
     "machines.rename.confirm": {
       "extractionState": "manual",
       "localizations": {
@@ -124326,6 +125894,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシンを削除"
+          }
+        }
+      }
+    },
+    "machines.row.dayLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 day left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り1日"
+          }
+        }
+      }
+    },
+    "machines.row.daysLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d days left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り%d日"
+          }
+        }
+      }
+    },
+    "machines.row.locked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック中"
           }
         }
       }
@@ -124428,6 +126047,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ GB"
+          }
+        }
+      }
+    },
+    "machines.tree.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud tree error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドツリーのエラー"
           }
         }
       }

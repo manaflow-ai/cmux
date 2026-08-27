@@ -377,8 +377,9 @@ final class MobileHostIrxRuntime {
             authorization: .irohAdmission(admittedPeer),
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
-            isCurrent: { @MainActor [weak self] in
-                self?.generationToken == token
+            isCurrent: { [weak self] in
+                let runtime = self
+                return await MainActor.run { runtime?.generationToken == token }
             }
         )
         journal.record(
