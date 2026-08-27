@@ -2070,7 +2070,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 // The daemon upload streams the binary through an ssh exec channel into a backgrounded `cat`
                 // rather than shelling out to scp, so the remote path this test is about arrives
                 // inside the command and the destination host is its own argument.
-                if command.contains("cat > ") || command.contains("cat <&3 > ") {
+                if command.contains("cat <&3 >") {
                     lock.withLock {
                         uploadCommand = command
                         uploadDestination = arguments.dropLast().last
@@ -2178,6 +2178,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
                 if command.contains("uname -s") {
+                    // The probe only treats the daemon as installed when it
+                    // also reports a non-zero size; without the size marker
+                    // bootstrap runs a first install (and a local Go build)
+                    // before any hello, which is not the reinstall this test
+                    // is named for.
                     return (
                         status: 0,
                         stdout: """
@@ -2185,6 +2190,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         __CMUX_REMOTE_OS__=Linux
                         __CMUX_REMOTE_ARCH__=x86_64
                         __CMUX_REMOTE_EXISTS__=yes
+                        __CMUX_REMOTE_SIZE__=\(fakeDaemonData.count)
                         """,
                         stderr: ""
                     )
@@ -2212,7 +2218,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 // many hellos preceded it is what keeps this test about a *reinstall*: an upload
                 // before any hello would be a first install and would not exercise the
                 // missing-capability path this test is named for.
-                if command.contains("cat > ") || command.contains("cat <&3 > ") {
+                if command.contains("cat <&3 >") {
                     lock.withLock {
                         uploadCommand = command
                         uploadPayload = stdin
