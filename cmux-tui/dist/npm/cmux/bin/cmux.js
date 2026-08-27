@@ -1308,7 +1308,7 @@ async function main() {
     // it is safe to launch that verified binary when pruning is skipped.
     const cached = wanted && !installedBin ? cachedBinary(wanted) : null;
     const readOnlyCached = Boolean(
-      cached && !cacheVersionCanBeModified(wanted)
+      cached && cacheVersionIsReadOnly(wanted)
     );
     // Lease creation serializes with pruning. If another process owns the
     // lock, fail closed rather than launching an unleased binary that a prune
