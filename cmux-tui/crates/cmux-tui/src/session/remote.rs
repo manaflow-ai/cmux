@@ -1679,6 +1679,15 @@ fn remote_reader_end_reason(result: &io::Result<Option<String>>) -> Option<Strin
     }
 }
 
+fn remote_reader_message_too_large(message: &mut String) -> String {
+    let reason = format!(
+        "remote session message exceeds the \
+         {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
+    );
+    zeroize_string(message);
+    reason
+}
+
 impl RemoteMessageReader for JsonLineReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
         self.receive_with_progress(&mut |_| {})
@@ -1879,10 +1888,7 @@ impl RemoteSession {
                 }
                 let Ok(Some(mut message)) = received else { unreachable!("end reason handled") };
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
-                    break Some(format!(
-                        "remote session message exceeds the \
-                         {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
-                    ));
+                    break Some(remote_reader_message_too_large(&mut message));
                 }
                 let value = serde_json::from_str::<Value>(&message);
                 zeroize_string(&mut message);
@@ -6196,6 +6202,21 @@ mod tests {
 
         let message = Ok(Some("{}".to_string()));
         assert!(remote_reader_end_reason(&message).is_none());
+    }
+
+    #[test]
+    fn oversized_remote_reader_message_is_zeroized_before_disconnect() {
+        let mut message = "secret remote payload".to_string();
+        let reason = remote_reader_message_too_large(&mut message);
+
+        assert_eq!(
+            reason,
+            format!(
+                "remote session message exceeds the \
+                 {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
+            )
+        );
+        assert!(message.bytes().all(|byte| byte == 0));
     }
 
     #[test]
