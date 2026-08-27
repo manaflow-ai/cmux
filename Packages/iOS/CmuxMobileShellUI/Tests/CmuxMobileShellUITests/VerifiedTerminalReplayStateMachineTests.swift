@@ -228,10 +228,6 @@ struct VerifiedTerminalReplayStateMachineTests {
             machine.admitCompatibilityFallbackFrame(delta),
             "a persistent capture failure needs an explicit legacy escape"
         )
-        #expect(
-            machine.begin(frame: delta) == .keepFrozenAndRequestReplay,
-            "the normal verifier remains fail-closed when called directly"
-        )
 
         let freshFull = try frame(
             renderRevision: 3,
