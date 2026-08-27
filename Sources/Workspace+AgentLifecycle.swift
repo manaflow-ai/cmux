@@ -384,6 +384,13 @@ extension Workspace {
            ) {
             return
         }
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.binding.retire panel=\(panelId.uuidString.prefix(5)) " +
+            "kind=\(binding.kind ?? "unknown") " +
+            "session=\((binding.checkpointId ?? "").prefix(8))"
+        )
+#endif
         binding.autoResume = false
         surfaceResumeBindingsByPanelId[panelId] = binding
     }
@@ -609,6 +616,14 @@ extension Workspace {
     /// live-agent index is intentionally asynchronous. Keeping the request on
     /// the owner lets the terminal join its topology first and avoids a main
     /// actor hook-store scan.
+    /// A nil index (refresh timeout) and an incomplete index (a hook store or
+    /// agent state database that could not be read this pass) are transient on
+    /// agent-heavy machines: concurrent agents rewrite the stores and hold the
+    /// Codex state database busy. Retry a bounded number of times before
+    /// failing closed, so a moment of churn cannot silently cancel a restore.
+    static let deferredAgentResumeIndexMaxAttempts = 3
+    static let deferredAgentResumeIndexRetryDelay: Duration = .seconds(2)
+
     func deferAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore
@@ -616,11 +631,35 @@ extension Workspace {
         deferredAgentResumeRestoresByPanelId[panelId] = restore
         guard deferredAgentResumeIndexTask == nil else { return }
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
-            let index = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+            var attempt = 1
+            var index = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+            while index == nil || index?.isComplete == false,
+                  attempt < Self.deferredAgentResumeIndexMaxAttempts,
+                  !Task.isCancelled {
+#if DEBUG
+                cmuxDebugLog(
+                    "session.restore.deferredResume.retry attempt=\(attempt) " +
+                    "indexNil=\(index == nil ? 1 : 0) " +
+                    "incomplete=\(index?.isComplete == false ? 1 : 0)"
+                )
+#endif
+                try? await ContinuousClock().sleep(
+                    for: Self.deferredAgentResumeIndexRetryDelay
+                )
+                guard !Task.isCancelled else { break }
+                attempt += 1
+                index = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+            }
             guard !Task.isCancelled else { return }
             guard let self else { return }
             self.deferredAgentResumeIndexTask = nil
             guard let index else {
+#if DEBUG
+                cmuxDebugLog(
+                    "session.restore.deferredResume.failClosed " +
+                    "reason=indexUnavailable attempts=\(attempt)"
+                )
+#endif
                 self.clearDeferredAgentResumeRestores()
                 return
             }
@@ -645,18 +684,18 @@ extension Workspace {
             guard AgentSessionAutoResumeSettings.isEnabled(
                 defaults: agentSessionAutoResumeDefaults
             ) else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "autoResumeDisabled")
                 continue
             }
             guard index.isComplete else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "indexIncompleteAfterRetries")
                 continue
             }
             guard deferredAgentResumeRestoreMatchesCurrentSession(
                 panelId: panelId,
                 restore: restore
             ) else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "sessionMismatch")
                 continue
             }
             let currentResumeBinding: SurfaceResumeBindingSnapshot?
@@ -665,7 +704,7 @@ extension Workspace {
                       currentBinding.isAgentHookBinding,
                       currentBinding.isSameManagedSession(as: capturedBinding),
                       currentBinding.autoResume == true else {
-                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "bindingRetiredOrChanged")
                     continue
                 }
                 currentResumeBinding = currentBinding
@@ -681,7 +720,7 @@ extension Workspace {
                 guard let capturedBinding = restore.resumeBinding,
                       let currentResumeBinding,
                       capturedBinding == currentResumeBinding else {
-                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "remoteBindingChanged")
                     continue
                 }
             }
@@ -713,7 +752,7 @@ extension Workspace {
                     revalidateProcessEvidence: false
                 )
             guard !ownershipIsBlocked else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "ownershipAmbiguous")
                 continue
             }
 
@@ -734,7 +773,7 @@ extension Workspace {
             } else if let binding = currentResumeBinding ?? restore.resumeBinding {
                 if restore.restoresRemoteWorkspaceTerminalSnapshot {
                     guard binding.launchFlavor.remoteContext == restore.remoteResumeContext else {
-                        cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                        cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "remoteContextChanged")
                         continue
                     }
                 }
@@ -760,7 +799,7 @@ extension Workspace {
                 claim = nil
             }
             guard let startupInput, !startupInput.isEmpty else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "noResumeCommand")
                 continue
             }
             if let claim,
@@ -768,7 +807,7 @@ extension Workspace {
                    kind: claim.kind,
                    sessionId: claim.sessionId
                ) {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore, reason: "resumeClaimHeld")
                 continue
             }
             if let claim {
@@ -830,8 +869,17 @@ extension Workspace {
     func cancelDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore,
-        startRuntime: Bool = true
+        startRuntime: Bool = true,
+        reason: String = "unspecified"
     ) {
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.deferredResume.cancel panel=\(panelId.uuidString.prefix(5)) " +
+            "reason=\(reason) " +
+            "kind=\(restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind ?? "unknown") " +
+            "session=\((restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId ?? "").prefix(8))"
+        )
+#endif
         if startRuntime {
             (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
         } else {
@@ -925,7 +973,8 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(
                     panelId: panelId,
                     restore: restore,
-                    startRuntime: startRuntime
+                    startRuntime: startRuntime,
+                    reason: "clearAll"
                 )
             } else {
                 if startRuntime {
