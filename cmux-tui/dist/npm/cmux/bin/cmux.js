@@ -214,9 +214,13 @@ function releaseCacheLock() {
 }
 
 function acquireVersionLease(version) {
-  const lease = path.join(platformRoot(), "v", version, ".active");
+  const leaseRoot = path.join(platformRoot(), "v", version, ".active");
+  const lease = path.join(
+    leaseRoot,
+    `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  );
   try {
-    fs.mkdirSync(path.dirname(lease), { recursive: true });
+    fs.mkdirSync(leaseRoot, { recursive: true });
     fs.mkdirSync(lease, { recursive: false });
     fs.writeFileSync(path.join(lease, "pid"), `${process.pid}\n`);
     return lease;
@@ -229,6 +233,8 @@ function releaseVersionLease(lease) {
   if (!lease) return;
   try {
     fs.rmSync(lease, { recursive: true, force: true });
+    const leaseRoot = path.dirname(lease);
+    if (path.basename(leaseRoot) === ".active") fs.rmdirSync(leaseRoot);
   } catch {}
 }
 
@@ -240,6 +246,39 @@ function leaseIsActive(lease) {
     return true;
   } catch (error) {
     return error && error.code !== "ESRCH";
+  }
+}
+
+function versionHasActiveLease(versionDir) {
+  const leaseRoot = path.join(versionDir, ".active");
+  if (!fs.existsSync(leaseRoot)) return false;
+  try {
+    const entries = fs.readdirSync(leaseRoot, { withFileTypes: true });
+    let active = false;
+    for (const entry of entries) {
+      const lease = path.join(leaseRoot, entry.name);
+      if (entry.isDirectory()) {
+        if (leaseIsActive(lease)) {
+          active = true;
+        } else {
+          fs.rmSync(lease, { recursive: true, force: true });
+        }
+      } else if (entry.name === "pid") {
+        // Read leases written by older launchers, before leases became
+        // per-process directories.
+        active = leaseIsActive(leaseRoot);
+      } else {
+        // Unknown lease state is retained conservatively.
+        active = true;
+      }
+    }
+    if (!active && fs.readdirSync(leaseRoot).length === 0) {
+      fs.rmdirSync(leaseRoot);
+    }
+    return active;
+  } catch {
+    // Cleanup must never remove a version when lease state is unreadable.
+    return true;
   }
 }
 
@@ -453,13 +492,7 @@ function pruneCache(keepVersion) {
     const keep = new Set([keepVersion, ...managed.slice(-2)]);
     for (const version of fs.readdirSync(root)) {
       if (keep.has(version)) continue;
-      const lease = path.join(root, version, ".active");
-      if (fs.existsSync(lease)) {
-        if (leaseIsActive(lease)) continue;
-        try {
-          fs.rmSync(lease, { recursive: true, force: true });
-        } catch {}
-      }
+      if (versionHasActiveLease(path.join(root, version))) continue;
       try {
         fs.rmSync(path.join(root, version), { recursive: true, force: true });
       } catch {}
@@ -566,12 +599,11 @@ async function main() {
   let exitCode = 1;
   try {
     const wanted = wantedVersion(pkg);
-    const lockHeld = tryAcquireCacheLock();
-    if (lockHeld) {
-      lease = acquireVersionLease(wanted);
-      releaseCacheLock();
-      if (lease) process.once("exit", () => releaseVersionLease(lease));
-    }
+    // Hold a per-process lease independently of the update lock. An update
+    // may already own that lock while pruning another version, and the
+    // binary must remain present through resolution and spawn.
+    lease = acquireVersionLease(wanted);
+    if (lease) process.once("exit", () => releaseVersionLease(lease));
     const binPath = await resolveBinary(pkg, wanted);
     const result = spawnSync(binPath, args, { stdio: "inherit" });
     if (result.error) {
