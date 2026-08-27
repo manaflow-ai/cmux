@@ -1665,6 +1665,16 @@ class TerminalController {
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
             return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("mobile.panel.artifact."):
+            // ControlCommandExecutionPolicy routes the panel-artifact reads to
+            // this lane so a phone-sized file fetch never blocks the main
+            // actor; the same async dispatch the mobile RPC path uses answers
+            // them here. Without this case the backstop below reported
+            // `internal_error` for every socket client.
+            let params = request.params
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobilePanelArtifactDispatch(method: method, params: params)
+            }
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -2805,6 +2815,9 @@ class TerminalController {
             "mobile.browser.forward",
             "mobile.browser.reload",
             "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
+            "mobile.panel.artifact.stat",
+            "mobile.panel.artifact.fetch",
+            "mobile.panel.artifact.thumbnail",
             "terminal.create",
             "terminal.input",
             "terminal.paste",
