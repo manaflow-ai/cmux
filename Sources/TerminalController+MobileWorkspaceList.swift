@@ -477,7 +477,7 @@ extension TerminalController {
             memberIDsByGroup[groupId, default: []].append(workspace.id.uuidString)
         }
         return groups.map { group in
-            var payload: [String: Any] = [
+            let payload: [String: Any] = [
                 "id": group.id.uuidString,
                 "name": group.name,
                 "is_collapsed": group.isCollapsed,
