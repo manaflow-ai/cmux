@@ -59,7 +59,7 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
         if metadata.uid() != unsafe { libc::geteuid() } {
             return Err(error("Managed enrollment file must be owned by the current user."));
         }
-        if metadata.mode() & 0o077 != 0 {
+        if metadata.mode() & 0o777 != 0o600 {
             validation_error = Some(error("Managed enrollment file permissions must be 0600."));
         }
     }
@@ -92,8 +92,12 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
             }
             #[cfg(not(unix))]
             {
+                // Windows does not expose a portable inode identity through
+                // std::fs::Metadata. Failing closed keeps a concurrently
+                // replaced pathname from being unlinked by this one-shot
+                // cleanup path.
                 let _ = current;
-                true
+                false
             }
         })
         .unwrap_or(false);
