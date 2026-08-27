@@ -324,7 +324,9 @@ public actor IrxBrokerService {
     public func mintRelayCredentials() async throws -> [IrxRelayCredential] {
         let startedAt = DispatchTime.now()
         let endpointID = try CmxIrohPeerIdentity(endpointID: identity.endpointIDHex)
-        let bootstrap = try await client.issueRelayBootstrap(endpointID: endpointID)
+        let bootstrap = try await issueRelayBootstrapRetryingStaleConnection(
+            endpointID: endpointID
+        )
         guard let tokenResponse = bootstrap.relayToken else {
             journal.record("broker", "relay-mint-empty")
             throw IrxBrokerServiceError.noCredentialsIssued
@@ -419,6 +421,36 @@ public actor IrxBrokerService {
             ]
         )
         return pushed
+    }
+
+    /// One immediate retry for the connection-reuse failure class.
+    ///
+    /// The autopilot mints every ~3-4 minutes, longer than the broker edge's
+    /// idle keep-alive window, so the first POST of a cycle deterministically
+    /// lands on a pooled connection the server already closed: the write
+    /// succeeds into the dead socket, the first read fails with ECONNRESET,
+    /// and URLSession surfaces NSURLErrorNetworkConnectionLost (-1005)
+    /// without a transparent retry because the POST body was already written
+    /// (Apple QA1941). That failure also purged the dead pooled connection,
+    /// so one immediate retry runs on a fresh connection. Minting is
+    /// idempotent, the retry is bounded to exactly one attempt for exactly
+    /// this failure class, and the autopilot's half-remaining-validity sleep
+    /// loop stays the outer safety net for everything else.
+    private func issueRelayBootstrapRetryingStaleConnection(
+        endpointID: CmxIrohPeerIdentity
+    ) async throws -> CmxIrohRelayBootstrapResponse {
+        do {
+            return try await client.issueRelayBootstrap(endpointID: endpointID)
+        } catch let error as CmxIrohTrustBrokerClientError {
+            guard case let .connectivity(cause?) = error,
+                cause.isConnectionReuseFailure
+            else { throw error }
+            journal.record(
+                "broker", "relay-mint-retried",
+                ["error": String(describing: error)]
+            )
+            return try await client.issueRelayBootstrap(endpointID: endpointID)
+        }
     }
 
     // MARK: - Pair grants (keyed by the acceptor's endpoint, what routes carry)
