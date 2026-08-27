@@ -260,6 +260,33 @@ import CmuxSettings
         #expect(prepared == .named(NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping")))
     }
 
+    @Test func oversizedOverrideMatrixFallsBackToGlobalSound() throws {
+        let suiteName = "cmux-tests-notification-overrides-size-limit-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+
+        // Keep the JSON valid while making the persisted value large enough to
+        // exercise the bounded snapshot admission path.
+        let oversizedPath = String(repeating: "a", count: 300_000)
+        let raw = "{\"claude\":{\"turnDone\":{\"sound\":\"custom_file\",\"customSoundFilePath\":\"\(oversizedPath)\"}}}"
+        defaults.set(
+            raw,
+            forKey: NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        )
+
+        let context = try #require(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)
+        )
+        let snapshot = NotificationSoundSettings.resolutionSnapshot(
+            context: context,
+            defaults: defaults
+        )
+
+        #expect(snapshot.globalSelection.value == "Ping")
+        #expect(snapshot.overrideSelection == nil)
+    }
+
     @Test func customSelectionValidatesAndStagesM4R() async throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
