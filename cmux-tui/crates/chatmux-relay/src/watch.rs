@@ -37,7 +37,7 @@ const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 /// Recursive watcher startup and ignore-file discovery are synchronous
 /// filesystem operations. Keep them off the relay executor and bound the
 /// number of concurrent setup walks per connection.
-const WATCH_SETUP_CONCURRENCY: usize = 2;
+pub const WATCH_SETUP_CONCURRENCY: usize = 2;
 /// A replacement can keep one retired watcher in synchronous teardown while
 /// all sessions and setup slots are occupied. This hard cap bounds detached
 /// owner threads even if a platform backend blocks in its destructor.
@@ -229,11 +229,23 @@ impl WatchRegistry {
         outbound: OutboundSink,
         teardown_slots: Arc<Semaphore>,
     ) -> WatchRegistry {
+        Self::new_with_resource_slots(
+            outbound,
+            Arc::new(Semaphore::new(WATCH_SETUP_CONCURRENCY)),
+            teardown_slots,
+        )
+    }
+
+    pub(crate) fn new_with_resource_slots(
+        outbound: OutboundSink,
+        setup_slots: Arc<Semaphore>,
+        teardown_slots: Arc<Semaphore>,
+    ) -> WatchRegistry {
         WatchRegistry {
             outbound,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             next_generation: Arc::new(AtomicU64::new(0)),
-            setup_slots: Arc::new(Semaphore::new(WATCH_SETUP_CONCURRENCY)),
+            setup_slots,
             teardown_slots,
             cancellation: CancellationToken::new(),
         }

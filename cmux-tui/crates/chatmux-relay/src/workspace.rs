@@ -2242,6 +2242,9 @@ pub struct SharedRuntime {
     /// shared across reconnecting sockets, so one connection cannot consume a
     /// single-registry budget needed by another connection.
     pub watch_teardown_slots: Arc<Semaphore>,
+    /// Process-wide bound for non-abortable watcher setup walks. Reconnects
+    /// share this lane so abandoned blocking tasks cannot multiply per socket.
+    pub watch_setup_slots: Arc<Semaphore>,
 }
 
 impl SharedRuntime {
@@ -2252,6 +2255,7 @@ impl SharedRuntime {
             watch_teardown_slots: Arc::new(Semaphore::new(
                 crate::watch::WATCH_TEARDOWN_CONCURRENCY,
             )),
+            watch_setup_slots: Arc::new(Semaphore::new(crate::watch::WATCH_SETUP_CONCURRENCY)),
         }
     }
 }
@@ -2288,8 +2292,9 @@ pub struct Connection {
 
 impl Connection {
     pub(crate) fn new(runtime: Arc<SharedRuntime>, outbound: OutboundSink) -> Connection {
-        let watches = WatchRegistry::new_with_teardown_slots(
+        let watches = WatchRegistry::new_with_resource_slots(
             outbound.clone(),
+            Arc::clone(&runtime.watch_setup_slots),
             Arc::clone(&runtime.watch_teardown_slots),
         );
         Connection {
