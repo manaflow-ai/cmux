@@ -51,11 +51,14 @@ actor CloudMachineLink {
         if let localized = error as? LocalizedError, let text = localized.errorDescription, !text.isEmpty {
             return text
         }
-        if let described = error as? CustomStringConvertible {
-            let text = described.description
-            if !text.isEmpty { return text }
+        // Swift errors print their `description` (or case name) here; a real
+        // NSError prints "Error Domain=… Code=…", where localizedDescription
+        // is the readable form.
+        let described = String(describing: error)
+        if described.isEmpty || described.hasPrefix("Error Domain=") {
+            return error.localizedDescription
         }
-        return error.localizedDescription
+        return described
     }
     private(set) var connected: Connected?
 
