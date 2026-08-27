@@ -447,6 +447,14 @@ pub(crate) struct ClientFocus {
 }
 
 impl Session {
+    /// Returns the first reason recorded when a remote transport reader stops.
+    pub(crate) fn transport_disconnect_reason(&self) -> Option<String> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.transport_disconnect_reason(),
+        }
+    }
+
     /// Best-effort focus report: the client already navigated optimistically,
     /// so failures are ignored and remote sends are never awaited. On the
     /// local path and on a `client-focus-v1` server the report only writes
