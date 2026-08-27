@@ -1,9 +1,9 @@
 # cmux-tui technical-debt board
 
-Current snapshot: 2026-08-27T15:12:37Z. The exact source baseline is
-`origin/main` at [`08b43d87d1426c11aa879b37f79db9aeffed187d`](https://github.com/manaflow-ai/cmux/commit/08b43d87d1426c11aa879b37f79db9aeffed187d),
-committed 2026-08-27T07:27:51-07:00 with subject
-`Bound app event enqueue and wake blocked producers`. This is a documentation-
+Current snapshot: 2026-08-27T16:55:24Z. The exact source baseline is
+`origin/main` at [`3f6673fa71999a6e17b37bc40abd3888fa14cd01`](https://github.com/manaflow-ai/cmux/commit/3f6673fa71999a6e17b37bc40abd3888fa14cd01),
+committed 2026-08-27T09:50:40-07:00 with subject
+`fix(tui): bound CDP outbound commands (#10983)`. This is a documentation-
 only update, with no local Rust, Zig, or runtime build/test. The prior
 `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and `99bdc375e98eb9abddd3f54289bc16ef876e8095`
 snapshots are retained below as historical layers.
@@ -20,8 +20,11 @@ The current tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/1093
 [#10970](https://github.com/manaflow-ai/cmux/pull/10970), and
 [#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
 [#10959](https://github.com/manaflow-ai/cmux/pull/10959),
-[#10929](https://github.com/manaflow-ai/cmux/pull/10929), and
-[#10974](https://github.com/manaflow-ai/cmux/pull/10974). All listed authors are
+[#10929](https://github.com/manaflow-ai/cmux/pull/10929),
+[#10974](https://github.com/manaflow-ai/cmux/pull/10974),
+[#10979](https://github.com/manaflow-ai/cmux/pull/10979),
+[#10984](https://github.com/manaflow-ai/cmux/pull/10984), and
+[#10983](https://github.com/manaflow-ai/cmux/pull/10983). All listed authors are
 Lawrence Chen. Each row gives the exact merge SHA
 and a rollback command. The [#10936](https://github.com/manaflow-ai/cmux/pull/10936)
 change fails unknown workspace RPC responses instead of allowing a request
@@ -47,19 +50,26 @@ channel to hang.
 | [#10973](https://github.com/manaflow-ai/cmux/pull/10973) | Bound provider response channels and handle send errors. | `d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` | Re-run hosted response-channel and shutdown proof. `git revert d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` |
 | [#10929](https://github.com/manaflow-ai/cmux/pull/10929) | Re-land bounded relay lifecycle hardening. | `31a74487e1f824b450eaf0c2b43f0d77fe51563c` | Re-run hosted relay lifecycle proof on the re-landed path. `git revert 31a74487e1f824b450eaf0c2b43f0d77fe51563c` |
 | [#10974](https://github.com/manaflow-ai/cmux/pull/10974) | Centralize bounded event enqueue and wake blocked producers. | `08b43d87d1426c11aa879b37f79db9aeffed187d` | Re-run hosted enqueue, cancellation, and wake-up proof. `git revert 08b43d87d1426c11aa879b37f79db9aeffed187d` |
+| [#10979](https://github.com/manaflow-ai/cmux/pull/10979) | Wake headless TUI snapshot waiters when runtime work finishes. | `8ffcbc40594a377a4e7cfe948fa78960301f1ba4` | Prove one completion wake and no missed wake under headless completion. `git revert 8ffcbc40594a377a4e7cfe948fa78960301f1ba4` |
+| [#10984](https://github.com/manaflow-ai/cmux/pull/10984) | Skip redraw when a delete operation changes no state. | `e9543607420f7b3b3284ac4c71ea21918dea692e` | Prove no-op deletes do not redraw and real deletes still redraw. `git revert e9543607420f7b3b3284ac4c71ea21918dea692e` |
+| [#10983](https://github.com/manaflow-ai/cmux/pull/10983) | Bound CDP outbound commands and clean pending calls when admission fails. | `3f6673fa71999a6e17b37bc40abd3888fa14cd01` | Prove bounded admission, pending-call cleanup, and shutdown under saturation. `git revert 3f6673fa71999a6e17b37bc40abd3888fa14cd01` |
 
 ## Current audit additions
 
 | Area | Evidence and current state | Required proof or next action |
 | --- | --- | --- |
 | Completion subscription | Completion-subscription design note recorded in the current audit. | Use one typed completion signal, subscribe before work starts, and test normal completion, cancellation, timeout, and duplicate delivery. |
-| Cross-platform startup benchmark | Session archaeology dated 2026-08-09 requested event-based cold, warm, restore, incompatible, and headless measurements on macOS, Linux, and Windows. Owner: unassigned. | Define one harness and report event timestamps, resource bounds, and failure reasons for all five cases on all three platforms. |
+| Startup configuration ownership | [#9933](https://github.com/manaflow-ai/cmux/pull/9933), Lawrence Chen, is distinct product work. Current main still has repeated startup `config::load()` calls; the old head `cec2eb4ef4873ca0629ebd43ee360eb69d63bd13` conflicts. | Recut manually from current main. Load one startup snapshot, keep explicit runtime reload separate, and add behavior proof that the real dispatcher loads once. |
+| Cross-platform startup benchmark | [#10131](https://github.com/manaflow-ai/cmux/pull/10131), Lawrence Chen, is the canonical 25-file recut of [#9922](https://github.com/manaflow-ai/cmux/pull/9922). It is blocked by direct Windows job-membership, survivor-cleanup, and focused-mode gate findings. [#9876](https://github.com/manaflow-ai/cmux/pull/9876) is the superseded combined branch. | Recreate #10131 from current main, fix the evidence and cleanup findings, and report event-based cold, warm, restore, incompatible, and headless measurements on macOS, Linux, and Windows. Close #9876 with this intent receipt retained. |
 | PTY and layout ownership | Intent asks to decouple terminal/PTY resources from layout views and permit one terminal in multiple workspaces or views; reconcile with [#9903](https://github.com/manaflow-ai/cmux/pull/9903). Owner: unassigned. | Specify resource identity and attachment semantics, then test multi-view attach, detach, reconnect, and close without duplicate PTY ownership. |
 | [#9903](https://github.com/manaflow-ai/cmux/pull/9903) dependency ordering | Integration audit must order [#9903](https://github.com/manaflow-ai/cmux/pull/9903) against [#8378](https://github.com/manaflow-ai/cmux/pull/8378), [#9785](https://github.com/manaflow-ai/cmux/pull/9785), [#9647](https://github.com/manaflow-ai/cmux/pull/9647), [#9682](https://github.com/manaflow-ai/cmux/pull/9682), [#9846](https://github.com/manaflow-ai/cmux/pull/9846), [#9933](https://github.com/manaflow-ai/cmux/pull/9933), and [#9806](https://github.com/manaflow-ai/cmux/pull/9806). Owner: unassigned. | Build a dependency graph, identify conflicting ownership, and land or close changes bottom-up with exact-head checks. |
 | Alternate-screen wheel policy | `cmux-tui/crates/cmux-tui/src/app.rs:23053-23099` forwards Ghostty wheel events when tracking is enabled and emits three arrow sequences in the alternate-screen fallback; crossterm records scroll kinds in [`MouseEventKind`](https://docs.rs/crossterm/latest/crossterm/event/enum.MouseEventKind.html). | Add a modifier override and behavior tests without changing the default until TUI compatibility is measured. |
 | Resize blank-space behavior | The requested blank-space-preserving terminal resize behavior remains unmet; closed [#10201](https://github.com/manaflow-ai/cmux/pull/10201) is not completion evidence. | Reproduce resize with empty trailing rows, define the layout invariant, and add a behavior test. |
 | Claude resize and alternate-screen scroll | Claude report at `~/.claude/history.jsonl:90798` says wheel input reaches Claude Code as arrow keys. Current path is `cmux-tui/crates/cmux-tui/src/app.rs:23053-23099`; resize remains unproven after closed [#10201](https://github.com/manaflow-ai/cmux/pull/10201). | Open and unmet; define the policy and preserve trailing blank rows with behavior tests. |
 | Wave65 bounded enqueue audit | Merged [#10974](https://github.com/manaflow-ai/cmux/pull/10974), source `255c3293`, merge `08b43d87`; hosted run [`33080531391`](https://github.com/manaflow-ai/cmux/actions/runs/33080531391) passed. | Re-run enqueue, cancellation, and producer wake-up proof on the pinned head. |
+| Headless snapshot wake | Merged [#10979](https://github.com/manaflow-ai/cmux/pull/10979), source `3fd06370`, merge `8ffcbc40`. | Prove one completion wake for headless snapshot waiters and no missed completion. |
+| No-op deletion redraw | Merged [#10984](https://github.com/manaflow-ai/cmux/pull/10984), source `91b73f69`, merge `e9543607`. | Prove no-op deletion leaves the frame unchanged and real deletion redraws. |
+| CDP outbound command bound | Merged [#10983](https://github.com/manaflow-ai/cmux/pull/10983), source `42498b8c`, merge `3f6673fa`. | Prove bounded queue admission, pending-call cleanup, and shutdown under saturation on the pinned head. |
 
 ## Current PR disposition audit
 
@@ -72,15 +82,15 @@ fix. [#10800](https://github.com/manaflow-ai/cmux/pull/10800) and
 [#10812](https://github.com/manaflow-ai/cmux/pull/10812) are superseded by merged
 [#10887](https://github.com/manaflow-ai/cmux/pull/10887); residual cloud hardening
 remains open. Closed superseded rows in this snapshot are [#10736](https://github.com/manaflow-ai/cmux/pull/10736), [#10946](https://github.com/manaflow-ai/cmux/pull/10946), [#10800](https://github.com/manaflow-ai/cmux/pull/10800),
-[#10812](https://github.com/manaflow-ai/cmux/pull/10812), [#10252](https://github.com/manaflow-ai/cmux/pull/10252), [#10882](https://github.com/manaflow-ai/cmux/pull/10882), [#10213](https://github.com/manaflow-ai/cmux/pull/10213), and [#10201](https://github.com/manaflow-ai/cmux/pull/10201); closure does not prove completion.
+[#10812](https://github.com/manaflow-ai/cmux/pull/10812), [#10252](https://github.com/manaflow-ai/cmux/pull/10252), [#10882](https://github.com/manaflow-ai/cmux/pull/10882), [#10213](https://github.com/manaflow-ai/cmux/pull/10213), [#10201](https://github.com/manaflow-ai/cmux/pull/10201), [#10748](https://github.com/manaflow-ai/cmux/pull/10748), [#10239](https://github.com/manaflow-ai/cmux/pull/10239), [#10249](https://github.com/manaflow-ai/cmux/pull/10249), and [#9062](https://github.com/manaflow-ai/cmux/pull/9062); closure does not prove completion.
 
 Current open heads and dispositions are tracked in the intent board: [#10966](https://github.com/manaflow-ai/cmux/pull/10966)
-(`0b2d3fc6`, CLEAN with all observed checks passing), [#10975](https://github.com/manaflow-ai/cmux/pull/10975)
-(`9720c41a`, UNSTABLE with seven-language conformance pending), [#10976](https://github.com/manaflow-ai/cmux/pull/10976)
-(`95906311`, CLEAN with visible checks passing), [#10891](https://github.com/manaflow-ai/cmux/pull/10891)
-(`49d6310e`, UNSTABLE with four hosted checks failing), and [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
-(`dd8cea6d`, UNSTABLE with seven-language conformance failed). Closed superseded
-rows are listed below.
+(`d052eb76`, pending Rust package, MSRV, and conformance), [#10975](https://github.com/manaflow-ai/cmux/pull/10975)
+(`f1b824e2`, conformance pending), [#10976](https://github.com/manaflow-ai/cmux/pull/10976)
+(`f0742299`, fresh exact-head hosted gate required), [#10891](https://github.com/manaflow-ai/cmux/pull/10891)
+(`1ca111ef`, blocked by app-host, package, and build/lag failures), [#10982](https://github.com/manaflow-ai/cmux/pull/10982)
+(`b49d4526`, conformance and CodeRabbit pending), and [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
+(`dd8cea6d`, blocked by seven-language conformance). Startup/config heads and exact dispositions for [#9933](https://github.com/manaflow-ai/cmux/pull/9933), [#9922](https://github.com/manaflow-ai/cmux/pull/9922), [#9876](https://github.com/manaflow-ai/cmux/pull/9876), and [#10131](https://github.com/manaflow-ai/cmux/pull/10131) are in the intent board's batch-A table. Closed superseded rows are listed there.
 
 The session scan receipt and lower-bound ledger below remain retained audit
 evidence. It supports at least 263 named substantive turns, including five named
@@ -90,11 +100,14 @@ and no 10,000-session claim is made.
 
 ## Current delta since `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 
-| Area | Current state at `08b43d87d1426c11aa879b37f79db9aeffed187d` | Required proof or next action |
+| Area | Current state at `3f6673fa71999a6e17b37bc40abd3888fa14cd01` | Required proof or next action |
 | --- | --- | --- |
 | Workspace RPC response routing | Unknown responses fail the workspace RPC channel, and canceled request IDs are retired without exposing the local namespace. | Exercise unknown, late, canceled, and reconnect responses from multiple clients, then verify bounded failure and no request-ID leakage. |
 | Escape input routing | Escape passthrough is integrated from [#9810](https://github.com/manaflow-ai/cmux/pull/9810). | Exercise terminal, sidebar, and nested-frontend Escape behavior on the exact main snapshot. |
 | Alternate-screen wheel policy | Wheel events use Ghostty wheel reporting with mouse tracking, and emit `ESC[A/B` three times when alternate-screen apps do not enable tracking. | Add a configurable alternate-scroll policy and modifier override, with behavior tests. Changing the default may break TUIs that rely on arrow sequences. |
+| Headless snapshot completion | Runtime completion now wakes headless snapshot waiters. | Prove exactly-once wake behavior and cancellation/timeout handling on the pinned head. |
+| No-op deletion redraw | Delete operations that change no state skip redraw. | Prove no-op and real-delete redraw behavior, including repeated deletes. |
+| CDP command admission | CDP outbound commands use a bounded queue, and failed admission cleans pending calls. | Exercise saturation, cleanup, responder cancellation, and shutdown without leaked pending calls. |
 
 ## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 
