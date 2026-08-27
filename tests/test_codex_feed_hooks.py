@@ -59,6 +59,12 @@ CMUX_CODEX_FEED_EVENTS = (
     "SubagentStop",
 )
 
+CMUX_CODEX_SCRIPT_SUBCOMMANDS = {
+    *CMUX_CODEX_HOOK_SUBCOMMANDS,
+    *(f"persistent-{subcommand}" for subcommand in CMUX_CODEX_HOOK_SUBCOMMANDS),
+    *(f"persistent-feed-{agent_event}" for agent_event in CMUX_CODEX_FEED_EVENTS),
+}
+
 FAKE_WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
 FAKE_SURFACE_ID = "22222222-2222-2222-2222-222222222222"
 
@@ -724,7 +730,25 @@ def cmux_codex_feed_command(agent_event: str) -> str:
 def is_cmux_codex_hook_command(command: str) -> bool:
     hook_commands = {cmux_codex_hook_command(subcommand) for subcommand in CMUX_CODEX_HOOK_SUBCOMMANDS}
     feed_commands = {cmux_codex_feed_command(agent_event) for agent_event in CMUX_CODEX_FEED_EVENTS}
-    return command in hook_commands or command in feed_commands
+    if command in hook_commands or command in feed_commands:
+        return True
+
+    path = Path(command)
+    if path.parent.name != "hooks" or path.parent.parent.name != ".cmux":
+        return False
+    prefix = "cmux-codex-hook-"
+    suffix = ".sh"
+    if not path.name.startswith(prefix) or not path.name.endswith(suffix):
+        return False
+    body = path.name[len(prefix) : -len(suffix)]
+    if body in CMUX_CODEX_SCRIPT_SUBCOMMANDS:
+        return True
+    if len(body) <= 17 or body[16] != "-":
+        return False
+    content_id = body[:16]
+    subcommand = body[17:]
+    return all(character in "0123456789abcdef" for character in content_id) \
+        and subcommand in CMUX_CODEX_SCRIPT_SUBCOMMANDS
 
 
 def toml_basic_string_unescape(value: str) -> str:
@@ -828,6 +852,493 @@ def codex_hook_commands(hooks: dict) -> list[str]:
                 if isinstance(command, str):
                     commands.append(command)
     return commands
+
+
+def codex_hook_commands_by_event(hooks: dict) -> dict[str, list[str]]:
+    commands_by_event: dict[str, list[str]] = {}
+    for event_name, groups in hooks.get("hooks", {}).items():
+        commands_by_event[event_name] = [
+            command
+            for group in groups
+            for hook in group.get("hooks", [])
+            if isinstance((command := hook.get("command")), str)
+        ]
+    return commands_by_event
+
+
+def cmux_codex_hook_groups(hooks: dict, event_name: str) -> list[dict]:
+    return [
+        group
+        for group in hooks.get("hooks", {}).get(event_name, [])
+        if any(
+            is_cmux_codex_hook_command(command)
+            for command in [hook.get("command") for hook in group.get("hooks", [])]
+            if isinstance(command, str)
+        )
+    ]
+
+
+def third_party_codex_hook_groups(hooks: dict, event_name: str) -> list[dict]:
+    cmux_groups = cmux_codex_hook_groups(hooks, event_name)
+    return [
+        group
+        for group in hooks.get("hooks", {}).get(event_name, [])
+        if group not in cmux_groups
+    ]
+
+
+def isolated_codex_cli_env(
+    codex_home: Path,
+    *,
+    tool_hooks_disabled_value: str | None,
+) -> dict[str, str]:
+    env = os.environ.copy()
+    env["HOME"] = str(codex_home.parent)
+    env["CFFIXED_USER_HOME"] = str(codex_home.parent)
+    env["CODEX_HOME"] = str(codex_home)
+    env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
+    if tool_hooks_disabled_value is None:
+        env.pop("CMUX_CODEX_TOOL_HOOKS_DISABLED", None)
+    else:
+        env["CMUX_CODEX_TOOL_HOOKS_DISABLED"] = tool_hooks_disabled_value
+    return env
+
+
+def run_codex_cli(
+    cli_path: str,
+    codex_home: Path,
+    arguments: list[str],
+    *,
+    tool_hooks_disabled_value: str | None,
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        [cli_path, *arguments],
+        capture_output=True,
+        check=False,
+        env=isolated_codex_cli_env(
+            codex_home,
+            tool_hooks_disabled_value=tool_hooks_disabled_value,
+        ),
+        timeout=20,
+    )
+
+
+def codex_injected_hook_arguments(
+    cli_path: str,
+    codex_home: Path,
+    *,
+    tool_hooks_disabled_value: str | None,
+) -> list[str]:
+    result = run_codex_cli(
+        cli_path,
+        codex_home,
+        ["hooks", "codex", "inject-args"],
+        tool_hooks_disabled_value=tool_hooks_disabled_value,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"inject-args failed exit={result.returncode}: {result.stderr!r}"
+        )
+    return [part.decode() for part in result.stdout.split(b"\0") if part]
+
+
+def codex_injected_hook_events(
+    cli_path: str,
+    codex_home: Path,
+    *,
+    tool_hooks_disabled_value: str | None,
+) -> list[str]:
+    args = codex_injected_hook_arguments(
+        cli_path,
+        codex_home,
+        tool_hooks_disabled_value=tool_hooks_disabled_value,
+    )
+    return [
+        arg.split("=", 1)[0].removeprefix("hooks.")
+        for arg in args
+        if arg.startswith("hooks.")
+    ]
+
+
+def codex_injected_hook_commands(arguments: list[str]) -> dict[str, str]:
+    commands: dict[str, str] = {}
+    command_prefix = "command='''"
+    command_suffix = "''',timeout="
+    for argument in arguments:
+        if not argument.startswith("hooks."):
+            continue
+        event_assignment, separator, value = argument.partition("=")
+        if separator != "=" or command_prefix not in value or command_suffix not in value:
+            raise AssertionError(f"unexpected injected hook argument: {argument!r}")
+        command = value.split(command_prefix, 1)[1].split(command_suffix, 1)[0]
+        commands[event_assignment.removeprefix("hooks.")] = command
+    return commands
+
+
+def assert_persistent_codex_hook_groups(
+    hooks: dict,
+    expected_third_party_groups: dict[str, list[dict]],
+    *,
+    tool_hooks_disabled: bool,
+) -> None:
+    active_events = [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+        "PermissionRequest",
+        "PreCompact",
+        "PostCompact",
+        "SubagentStart",
+        "SubagentStop",
+    ]
+    if not tool_hooks_disabled:
+        active_events.extend(["PreToolUse", "PostToolUse"])
+
+    commands_by_event = codex_hook_commands_by_event(hooks)
+    for event_name in active_events:
+        groups = cmux_codex_hook_groups(hooks, event_name)
+        if len(groups) != 1:
+            raise AssertionError(
+                f"expected exactly one active cmux {event_name} group: "
+                f"groups={groups!r} commands={commands_by_event!r}"
+            )
+
+    expected_tool_group_count = 0 if tool_hooks_disabled else 1
+    for event_name in ["PreToolUse", "PostToolUse"]:
+        groups = cmux_codex_hook_groups(hooks, event_name)
+        if len(groups) != expected_tool_group_count:
+            raise AssertionError(
+                f"wrong cmux {event_name} group count: {groups!r}"
+            )
+        third_party_groups = third_party_codex_hook_groups(hooks, event_name)
+        if third_party_groups != expected_third_party_groups[event_name]:
+            raise AssertionError(
+                f"reconciliation changed third-party {event_name} groups: "
+                f"expected={expected_third_party_groups[event_name]!r} "
+                f"actual={third_party_groups!r}"
+            )
+
+
+def codex_third_party_tool_hook_fixture() -> tuple[dict, dict[str, list[dict]]]:
+    hooks = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Read|Write",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "printf third-party-pre-first",
+                            "timeout": 17,
+                        }
+                    ],
+                    "thirdPartyMetadata": {"position": "first"},
+                },
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "printf third-party-pre-second",
+                            "timeout": 23,
+                        }
+                    ]
+                },
+            ],
+            "PostToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "printf third-party-post-first",
+                            "timeout": 29,
+                        }
+                    ],
+                },
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "printf third-party-post-second",
+                            "timeout": 31,
+                        }
+                    ],
+                    "thirdPartyMetadata": ["kept", "ordered"],
+                },
+            ],
+        }
+    }
+    expected = {
+        event_name: json.loads(json.dumps(groups))
+        for event_name, groups in hooks["hooks"].items()
+    }
+    return hooks, expected
+
+
+def test_codex_tool_hook_opt_out_filters_real_injected_args(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-inject-opt-out" / ".codex"
+    codex_home.mkdir(parents=True)
+
+    hooks_path = codex_home / "hooks.json"
+    if hooks_path.exists():
+        raise AssertionError("wrapper-fallback test requires no persistent hooks file")
+
+    default_events = codex_injected_hook_events(
+        cli_path, codex_home, tool_hooks_disabled_value=None
+    )
+    disabled_events = codex_injected_hook_events(
+        cli_path, codex_home, tool_hooks_disabled_value="1"
+    )
+
+    if "PreToolUse" not in default_events or "PostToolUse" not in default_events:
+        raise AssertionError(f"default tool hooks missing: {default_events!r}")
+    if disabled_events != [
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+        "PermissionRequest",
+    ]:
+        raise AssertionError(f"wrong filtered events: {disabled_events!r}")
+
+    for value in ["", "0", "true", "01"]:
+        events = codex_injected_hook_events(
+            cli_path,
+            codex_home,
+            tool_hooks_disabled_value=value,
+        )
+        if events != default_events:
+            raise AssertionError(
+                f"non-exact opt-out value {value!r} changed hook events: "
+                f"expected={default_events!r} actual={events!r}"
+            )
+
+
+def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-persistent-opt-out" / ".codex"
+    codex_home.mkdir(parents=True)
+    hooks_path = codex_home / "hooks.json"
+    fixture, expected_third_party_groups = codex_third_party_tool_hook_fixture()
+    hooks_path.write_text(json.dumps(fixture, indent=2), encoding="utf-8")
+
+    install = run_codex_cli(
+        cli_path,
+        codex_home,
+        ["hooks", "codex", "install", "--yes"],
+        tool_hooks_disabled_value=None,
+    )
+    if install.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={install.returncode}: "
+            f"stdout={install.stdout!r} stderr={install.stderr!r}"
+        )
+
+    installed_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert_persistent_codex_hook_groups(
+        installed_hooks,
+        expected_third_party_groups,
+        tool_hooks_disabled=False,
+    )
+    installed_trust = expected_cmux_codex_hook_trust(installed_hooks, hooks_path)
+    stale_tool_trust_keys = {
+        key
+        for key in installed_trust
+        if ":pre_tool_use:" in key or ":post_tool_use:" in key
+    }
+    if not stale_tool_trust_keys:
+        raise AssertionError(f"installed tool-hook trust was missing: {installed_trust!r}")
+
+    disabled = run_codex_cli(
+        cli_path,
+        codex_home,
+        ["hooks", "codex", "inject-args"],
+        tool_hooks_disabled_value="1",
+    )
+    if disabled.returncode != 0 or disabled.stdout != b"":
+        raise AssertionError(
+            "persistent disabled reconciliation must emit an empty byte stream: "
+            f"exit={disabled.returncode} stdout={disabled.stdout!r} "
+            f"stderr={disabled.stderr!r}"
+        )
+
+    disabled_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert_persistent_codex_hook_groups(
+        disabled_hooks,
+        expected_third_party_groups,
+        tool_hooks_disabled=True,
+    )
+    disabled_config = (codex_home / "config.toml").read_text(encoding="utf-8")
+    disabled_trust = codex_hook_trust_state(disabled_config)
+    leaked_tool_trust = stale_tool_trust_keys.intersection(disabled_trust)
+    if leaked_tool_trust:
+        raise AssertionError(
+            f"disabled cmux tool-hook trust was retained: {leaked_tool_trust!r}"
+        )
+    expected_disabled_trust = expected_cmux_codex_hook_trust(disabled_hooks, hooks_path)
+    for key, trusted_hash in expected_disabled_trust.items():
+        if disabled_trust.get(key, {}).get("trusted_hash") != trusted_hash:
+            raise AssertionError(
+                f"active cmux hook trust was not preserved for {key}: "
+                f"expected={trusted_hash!r} actual={disabled_trust!r}"
+            )
+
+    restored = run_codex_cli(
+        cli_path,
+        codex_home,
+        ["hooks", "codex", "inject-args"],
+        tool_hooks_disabled_value=None,
+    )
+    if restored.returncode != 0 or restored.stdout != b"":
+        raise AssertionError(
+            "persistent default reconciliation must emit an empty byte stream: "
+            f"exit={restored.returncode} stdout={restored.stdout!r} "
+            f"stderr={restored.stderr!r}"
+        )
+
+    restored_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert_persistent_codex_hook_groups(
+        restored_hooks,
+        expected_third_party_groups,
+        tool_hooks_disabled=False,
+    )
+    restored_config = (codex_home / "config.toml").read_text(encoding="utf-8")
+    restored_trust = codex_hook_trust_state(restored_config)
+    expected_restored_trust = expected_cmux_codex_hook_trust(restored_hooks, hooks_path)
+    for key, trusted_hash in expected_restored_trust.items():
+        if restored_trust.get(key, {}).get("trusted_hash") != trusted_hash:
+            raise AssertionError(
+                f"restored cmux hook trust was missing for {key}: "
+                f"expected={trusted_hash!r} actual={restored_trust!r}"
+            )
+
+
+def test_codex_tool_hook_opt_out_reconciles_concurrent_inject_args(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-concurrent-opt-out" / ".codex"
+    codex_home.mkdir(parents=True)
+    hooks_path = codex_home / "hooks.json"
+    fixture, expected_third_party_groups = codex_third_party_tool_hook_fixture()
+    hooks_path.write_text(json.dumps(fixture, indent=2), encoding="utf-8")
+
+    install = run_codex_cli(
+        cli_path,
+        codex_home,
+        ["hooks", "codex", "install", "--yes"],
+        tool_hooks_disabled_value=None,
+    )
+    if install.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={install.returncode}: "
+            f"stdout={install.stdout!r} stderr={install.stderr!r}"
+        )
+
+    env = isolated_codex_cli_env(
+        codex_home,
+        tool_hooks_disabled_value="1",
+    )
+    processes = [
+        subprocess.Popen(
+            [cli_path, "hooks", "codex", "inject-args"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        for _ in range(2)
+    ]
+    results: list[tuple[int, bytes, bytes]] = []
+    try:
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=20)
+            results.append((process.returncode, stdout, stderr))
+    except subprocess.TimeoutExpired:
+        for process in processes:
+            process.kill()
+            process.communicate()
+        raise AssertionError("concurrent inject-args reconciliation timed out")
+
+    for returncode, stdout, stderr in results:
+        if returncode != 0 or stdout != b"":
+            raise AssertionError(
+                "concurrent persistent reconciliation failed: "
+                f"exit={returncode} stdout={stdout!r} stderr={stderr!r}"
+            )
+
+    reconciled_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert_persistent_codex_hook_groups(
+        reconciled_hooks,
+        expected_third_party_groups,
+        tool_hooks_disabled=True,
+    )
+
+
+def test_codex_tool_hook_opt_out_retains_aged_wrapper_scripts(
+    cli_path: str, root: Path
+) -> None:
+    isolated_root = root / "codex-wrapper-script-retention"
+    codex_home = isolated_root / ".codex"
+    codex_home.mkdir(parents=True)
+    real_home = Path.home().resolve()
+
+    default_arguments = codex_injected_hook_arguments(
+        cli_path,
+        codex_home,
+        tool_hooks_disabled_value=None,
+    )
+    commands = codex_injected_hook_commands(default_arguments)
+    expected_scripts_dir = (isolated_root / ".cmux" / "hooks").resolve()
+    retained_paths: list[Path] = []
+    for event_name in ["PreToolUse", "PostToolUse"]:
+        command = commands.get(event_name)
+        if command is None:
+            raise AssertionError(
+                f"default wrapper arguments omitted {event_name}: {commands!r}"
+            )
+        path = Path(command).resolve()
+        try:
+            path.relative_to(expected_scripts_dir)
+        except ValueError as exc:
+            raise AssertionError(
+                f"{event_name} script escaped isolated hooks directory: {path}"
+            ) from exc
+        try:
+            path.relative_to(real_home)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(
+                f"{event_name} script reached the operator's real home: {path}"
+            )
+        if not path.is_file():
+            raise AssertionError(f"generated {event_name} script is missing: {path}")
+        retained_paths.append(path)
+
+    collectible_timestamp = time.time() - 120
+    for path in retained_paths:
+        os.utime(path, (collectible_timestamp, collectible_timestamp))
+
+    disabled_arguments = codex_injected_hook_arguments(
+        cli_path,
+        codex_home,
+        tool_hooks_disabled_value="1",
+    )
+    disabled_events = [
+        argument.split("=", 1)[0].removeprefix("hooks.")
+        for argument in disabled_arguments
+        if argument.startswith("hooks.")
+    ]
+    if "PreToolUse" in disabled_events or "PostToolUse" in disabled_events:
+        raise AssertionError(
+            f"tool hooks remained in flagged wrapper arguments: {disabled_events!r}"
+        )
+    missing_paths = [path for path in retained_paths if not path.is_file()]
+    if missing_paths:
+        raise AssertionError(
+            f"flagged wrapper collection removed live-session scripts: {missing_paths!r}"
+        )
 
 
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
@@ -3997,6 +4508,10 @@ def main() -> int:
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_tool_hook_opt_out_filters_real_injected_args(cli_path, root)
+            test_codex_tool_hook_opt_out_reconciles_persistent_hooks(cli_path, root)
+            test_codex_tool_hook_opt_out_reconciles_concurrent_inject_args(cli_path, root)
+            test_codex_tool_hook_opt_out_retains_aged_wrapper_scripts(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)

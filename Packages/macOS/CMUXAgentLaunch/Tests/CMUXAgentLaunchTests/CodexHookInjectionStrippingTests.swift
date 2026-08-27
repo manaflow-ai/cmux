@@ -5,6 +5,57 @@ import Testing
 struct CodexHookInjectionStrippingTests {
     private let codexExecutable = "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex"
 
+    @Test
+    func codexToolHookOptOutKeepsLifecycleAndApprovalEvents() {
+        let events = CodexHookInjectionSchema.current
+            .events(toolHooksDisabled: true)
+            .map(\.agentEvent)
+
+        #expect(events == [
+            "SessionStart",
+            "UserPromptSubmit",
+            "Stop",
+            "PermissionRequest",
+        ])
+    }
+
+    @Test
+    func codexDefaultHookSelectionKeepsCurrentSchema() {
+        let events = CodexHookInjectionSchema.current
+            .events(toolHooksDisabled: false)
+            .map(\.agentEvent)
+
+        #expect(events == CodexHookInjectionSchema.current.events.map(\.agentEvent))
+    }
+
+    @Test
+    func codexWrapperScriptRetentionIgnoresRegistrationOptOut() {
+        let retained = CodexHookInjectionSchema.wrapperScriptRetentionEvents
+            .map(\.agentEvent)
+
+        #expect(retained == CodexHookInjectionSchema.current.events.map(\.agentEvent))
+        #expect(retained.contains("PreToolUse"))
+        #expect(retained.contains("PostToolUse"))
+        #expect(
+            CodexHookInjectionSchema.current
+                .events(toolHooksDisabled: true)
+                .map(\.agentEvent)
+                .contains("PreToolUse") == false
+        )
+    }
+
+    @Test(arguments: [
+        ("PreToolUse", true),
+        ("PostToolUse", true),
+        ("PermissionRequest", false),
+        ("Stop", false),
+        ("PreCompact", false),
+        ("SubagentStop", false),
+    ])
+    func codexToolExecutionClassification(event: String, expected: Bool) {
+        #expect(CodexHookInjectionSchema.isToolExecutionEvent(event) == expected)
+    }
+
     @Test("Strips realistic cmux-injected Codex hook flags")
     func stripsRealisticCmuxInjectedCodexHookFlags() {
         #expect(
