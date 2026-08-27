@@ -212,8 +212,12 @@ export interface CTLRelayPassesPayload {
 export interface Pass {
     expiresAt:  Date;
     generation: number;
-    relayUrl:   string;
-    token:      string;
+    /**
+     * server-driven early-refresh point (expiry minus margin)
+     */
+    refreshAfter: Date;
+    relayUrl:     string;
+    token:        string;
 }
 
 export type CTLRelayPassesType = "relay_passes";

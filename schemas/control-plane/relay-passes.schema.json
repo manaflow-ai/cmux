@@ -36,6 +36,7 @@
               "relayUrl",
               "token",
               "expiresAt",
+              "refreshAfter",
               "generation"
             ],
             "additionalProperties": false,
@@ -52,6 +53,11 @@
               },
               "generation": {
                 "type": "integer"
+              },
+              "refreshAfter": {
+                "type": "string",
+                "format": "date-time",
+                "description": "server-driven early-refresh point (expiry minus margin)"
               }
             }
           }

@@ -596,19 +596,23 @@ public struct CTLRelayPassesPayload: Codable, Equatable {
 public struct Pass: Codable, Equatable {
     public let expiresAt: Date
     public let generation: Int
+    /// server-driven early-refresh point (expiry minus margin)
+    public let refreshAfter: Date
     public let relayURL: String
     public let token: String
 
     public enum CodingKeys: String, CodingKey {
         case expiresAt = "expiresAt"
         case generation = "generation"
+        case refreshAfter = "refreshAfter"
         case relayURL = "relayUrl"
         case token = "token"
     }
 
-    public init(expiresAt: Date, generation: Int, relayURL: String, token: String) {
+    public init(expiresAt: Date, generation: Int, refreshAfter: Date, relayURL: String, token: String) {
         self.expiresAt = expiresAt
         self.generation = generation
+        self.refreshAfter = refreshAfter
         self.relayURL = relayURL
         self.token = token
     }
