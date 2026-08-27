@@ -246,9 +246,41 @@ resumed.ws.send(dataFrame(0, 3, "up-3"));
 const postResume = await waitData(host, 1);
 check("post-resume phone→host works", postResume[0]!.payload === "up-3");
 
+// ---- upload ingest acks (ackup) prune the sender's resend buffer ----
+const ackup = await waitControl(resumed, (frame) => frame.t === "ackup" && (frame.seq as number) >= 3);
+check("phone uploads get ackup", typeof ackup.seq === "number", `through seq ${ackup.seq}`);
+const hostAckup = await waitControl(host, (frame) => frame.t === "ackup" && frame.leg === phone.legId);
+check("host uploads get per-leg ackup", typeof hostAckup.seq === "number");
+
+// ---- host-away buffering: phone uploads while the Mac is gone, host resumes ----
+host.ws.send(JSON.stringify({ t: "ack", seq: 3, leg: phone.legId })); // host acks up-1..3
+await new Promise((resolve) => setTimeout(resolve, 300));
+host.ws.close(4000, "smoke: simulated mac drop");
+await host.closed;
+await waitControl(resumed, (frame) => frame.t === "peer.offline");
+resumed.ws.send(dataFrame(0, 4, "up-4"));
+resumed.ws.send(dataFrame(0, 5, "up-5"));
+await waitControl(resumed, (frame) => frame.t === "ackup" && (frame.seq as number) >= 5);
+check("uploads while host away are ring-durable (ackup)", true);
+
+const hostBack = await openLeg("host", MAC, token, {
+  key: host.resumeKey,
+  acks: { [String(phone.legId)]: 3 },
+});
+check("host resume rebinds", hostBack.legId === host.legId);
+check("host resume replays buffered uploads", hostBack.replayed === 2, `${hostBack.replayed} frames`);
+const buffered = await waitData(hostBack, 2);
+check(
+  "buffered uploads arrive in order with phone leg id",
+  buffered.map((frame) => frame.payload).join(",") === "up-4,up-5" &&
+    buffered.every((frame) => frame.legId === phone.legId),
+);
+await waitControl(resumed, (frame) => frame.t === "peer.online");
+check("phone notified host is back", true);
+
 // ---- teardown ----
 resumed.ws.close(1000, "smoke done");
-host.ws.close(1000, "smoke done");
+hostBack.ws.close(1000, "smoke done");
 
 console.log(JSON.stringify({ ok: !failed, base: BASE, mac: MAC, results }, null, 2));
 process.exit(failed ? 1 : 0);
