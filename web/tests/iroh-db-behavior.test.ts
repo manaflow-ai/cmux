@@ -395,6 +395,126 @@ describe("Iroh trust broker database behavior", () => {
     expect(pathHints).toEqual([]);
   });
 
+  dbTest("registers a self-contained proof atomically and dedupes its nonce", async () => {
+    const repo = requiredRepository();
+    const userId = "user-self-proof";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "40".repeat(32);
+    const nonceHash = "41".repeat(32);
+    const input = {
+      userId,
+      nonceHash,
+      payloadSha256: "46".repeat(32),
+      payload: {
+        route_contract_version: 1 as const,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac" as const,
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+      dedupeExpiresAt: new Date(NOW.getTime() + 10 * 60 * 1_000),
+    };
+
+    const first = await Effect.runPromise(repo.registerWithSelfProof(input));
+    expect(first.created).toBe(true);
+
+    // The one-use dedupe record persists as a consumed challenge row.
+    const [{ bindings, consumed }] = await requiredSql()<Array<{
+      bindings: string;
+      consumed: string;
+    }>>`
+      select
+        (select count(*)::text from iroh_endpoint_bindings) as bindings,
+        (select count(*)::text from iroh_registration_challenges
+          where consumed_at is not null) as consumed
+    `;
+    expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
+
+    // An identical nonce can never land twice.
+    const replay = await Effect.runPromiseExit(repo.registerWithSelfProof({
+      ...input,
+      now: new Date(NOW.getTime() + 1_000),
+    }));
+    expect(replay._tag).toBe("Failure");
+    const replayError = replay._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(replay.cause))
+      : undefined;
+    expect(replayError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "self_proof_replayed",
+    });
+  });
+
+  dbTest("a challenge minted before a self-proof registration cannot land after it", async () => {
+    const repo = requiredRepository();
+    const userId = "user-self-proof-ordering";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "42".repeat(32);
+    const payload = {
+      route_contract_version: 1 as const,
+      deviceId,
+      appInstanceId,
+      clientNamespace: "legacy",
+      tag: "stable",
+      platform: "mac" as const,
+      endpointId,
+      identityGeneration: 1,
+      pairingEnabled: true,
+      capabilities: [],
+      pathHints: [],
+    };
+    const staleNonceHash = "43".repeat(32);
+    const staleChallenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "44".repeat(32),
+      nonceHash: staleNonceHash,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+
+    const selfProof = await Effect.runPromise(repo.registerWithSelfProof({
+      userId,
+      nonceHash: "45".repeat(32),
+      payloadSha256: "47".repeat(32),
+      payload,
+      now: new Date(NOW.getTime() + 1_000),
+      dedupeExpiresAt: new Date(NOW.getTime() + 11 * 60 * 1_000),
+    }));
+    expect(selfProof.created).toBe(true);
+
+    // The self-proof advanced the slot's registration high-water mark; the
+    // older challenge lost the race and must not overwrite it.
+    const late = await Effect.runPromiseExit(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: staleChallenge.id,
+      nonceHash: staleNonceHash,
+      payload,
+      now: new Date(NOW.getTime() + 2_000),
+    }));
+    expect(late._tag).toBe("Failure");
+    const lateError = late._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(late.cause))
+      : undefined;
+    expect(lateError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "challenge_superseded",
+    });
+  });
+
   dbTest("adopts legacy and tag-only Mac bindings into the bundle namespace", async () => {
     const repo = requiredRepository();
     const userId = "user-legacy-namespace-adoption";
