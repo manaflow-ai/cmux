@@ -130,18 +130,30 @@ extension GitMetadataService {
             }
             let remaining = Self.maximumByteCount - byteCount
             var data = Data()
+            var readError: Int32?
             while data.count < remaining {
                 let chunkSize = min(64 * 1024, remaining - data.count)
                 var buffer = [UInt8](repeating: 0, count: chunkSize)
                 let readCount = buffer.withUnsafeMutableBytes { buffer in
                     Darwin.read(descriptor, buffer.baseAddress, buffer.count)
                 }
-                guard readCount > 0 else { break }
+                if readCount == 0 {
+                    break
+                }
+                if readCount < 0 {
+                    if errno == EINTR {
+                        continue
+                    }
+                    readError = errno
+                    break
+                }
                 data.append(contentsOf: buffer.prefix(readCount))
             }
             guard Darwin.fstat(descriptor, &status) == 0,
                   (status.st_mode & S_IFMT) == S_IFREG,
                   status.st_size <= Int64(Self.maximumByteCount - byteCount),
+                  readError == nil,
+                  Int64(data.count) == status.st_size,
                   data.count <= remaining,
                   let config = String(data: data, encoding: .utf8) else {
                 exceeded = true
