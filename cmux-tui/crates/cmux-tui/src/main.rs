@@ -2557,23 +2557,44 @@ fn initial_provider_connection_notice(
     format!("{}: {error}", messages.initial_machine_connection_failed)
 }
 
-fn publish_session_default_colors(
-    session: &Session,
-    colors: cmux_tui_core::DefaultColors,
-    surface_only: Option<cmux_tui_core::SurfaceId>,
-) -> anyhow::Result<()> {
-    // A scoped attach receives the target terminal's resolved colors through
-    // vt-state. Publishing this client's host colors would recolor sibling
-    // surfaces and change the session defaults for future terminals.
-    if surface_only.is_some() {
-        return Ok(());
+fn frontend_default_colors(
+    mut configured: cmux_tui_core::DefaultColors,
+    host: cmux_tui_core::DefaultColors,
+) -> cmux_tui_core::DefaultColors {
+    // Host OSC 10/11 replies describe this frontend. They may select
+    // compatible local chrome, but never become shared session defaults.
+    if host.fg.is_some() {
+        configured.fg = host.fg;
     }
-    match session {
-        Session::Local(mux) => {
-            mux.seed_default_colors_if_no_durable_override(colors);
-            Ok(())
-        }
-        Session::Remote(remote) => remote.set_default_colors(colors),
+    if host.bg.is_some() {
+        configured.bg = host.bg;
+    }
+    configured
+}
+
+struct FrontendSessionPreparation {
+    session: Session,
+    colors: cmux_tui_core::DefaultColors,
+}
+
+/// Resolve host-dependent colors for one frontend without publishing them to
+/// the shared session. The probe is supplied at the startup boundary so this
+/// color projection does not own terminal I/O.
+fn prepare_frontend_session(
+    session: Session,
+    configured: cmux_tui_core::DefaultColors,
+    host_probe: impl FnOnce() -> cmux_tui_core::DefaultColors,
+) -> FrontendSessionPreparation {
+    // A locally owned mux is the authority for new terminal defaults. Seed it
+    // from this client's configured Ghostty defaults before projecting host
+    // colors onto the frontend chrome. Remote sessions keep their server-side
+    // defaults unchanged.
+    if let Session::Local(mux) = &session {
+        mux.seed_default_colors_if_no_durable_override(configured);
+    }
+    FrontendSessionPreparation {
+        session,
+        colors: frontend_default_colors(configured, host_probe()),
     }
 }
 
@@ -2587,20 +2608,12 @@ fn run_tui_once(
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
-    let mut colors = config.terminal_defaults;
-    let host_colors = host_colors::probe_default_colors();
-    if host_colors.fg.is_some() {
-        colors.fg = host_colors.fg;
-    }
-    if host_colors.bg.is_some() {
-        colors.bg = host_colors.bg;
-    }
-    let color_result = publish_session_default_colors(&session, colors, surface_only);
-    let raw_result = crossterm::terminal::disable_raw_mode();
-    if let Err(err) = color_result {
-        crate::client_log::stderr_log!("startup", "cmux-tui: failed to set default colors: {err}");
-    }
-    raw_result?;
+    let FrontendSessionPreparation { session, colors } = prepare_frontend_session(
+        session,
+        config.terminal_defaults,
+        host_colors::probe_default_colors,
+    );
+    crossterm::terminal::disable_raw_mode()?;
     app::run_with_machine_updates(
         session,
         session_label,
@@ -3067,6 +3080,7 @@ mod tests {
         assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
     }
 
+    #[cfg(unix)]
     #[test]
     fn absent_socket_recovery_only_shows_reset_when_supported() {
         let messages = &localization::catalog_for_locale("en_US.UTF-8").startup;
@@ -3103,29 +3117,118 @@ mod tests {
         assert!(!unsupported.contains("reset-state"), "{unsupported}");
     }
 
+    #[cfg(unix)]
     #[test]
-    fn scoped_terminal_attach_does_not_publish_session_default_colors() {
-        let mux = Mux::new("scoped-terminal-color-test", SurfaceOptions::default());
-        let original = cmux_tui_core::DefaultColors {
-            fg: Some(cmux_tui_core::Rgb { r: 1, g: 2, b: 3 }),
+    fn local_frontend_seeds_configured_defaults_before_host_overlay() {
+        let configured = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0x12, g: 0x34, b: 0x56 }),
+            bg: Some(cmux_tui_core::Rgb { r: 0x65, g: 0x43, b: 0x21 }),
             ..Default::default()
         };
-        let client = cmux_tui_core::DefaultColors {
-            fg: Some(cmux_tui_core::Rgb { r: 4, g: 5, b: 6 }),
+        let host = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
+            bg: None,
             ..Default::default()
         };
-        mux.set_default_colors(original);
-        let session = Session::Local(mux.clone());
-
-        publish_session_default_colors(&session, client, Some(7)).unwrap();
-        assert_eq!(
-            mux.default_colors(),
-            original,
-            "scoped terminal attach must retain the session and sibling tabs' colors"
+        let mux = Mux::new(
+            format!("local-host-color-test-{}", std::process::id()),
+            SurfaceOptions::default(),
         );
 
-        publish_session_default_colors(&session, client, None).unwrap();
-        assert_eq!(mux.default_colors(), client, "full-session clients still publish their colors");
+        let FrontendSessionPreparation { session: _session, colors } =
+            prepare_frontend_session(Session::Local(mux.clone()), configured, || host);
+
+        assert_eq!(
+            mux.default_colors(),
+            configured,
+            "a locally owned mux must retain configured terminal defaults"
+        );
+        assert_eq!(colors.fg, host.fg, "host foreground may overlay local chrome defaults");
+        assert_eq!(
+            colors.bg, configured.bg,
+            "a missing host background must preserve the configured local default"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_host_colors_stay_client_local_across_concurrent_attaches() {
+        let dark = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0xee, g: 0xee, b: 0xee }),
+            bg: Some(cmux_tui_core::Rgb { r: 0x11, g: 0x11, b: 0x11 }),
+            ..Default::default()
+        };
+        let light = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0x22, g: 0x22, b: 0x22 }),
+            bg: Some(cmux_tui_core::Rgb { r: 0xee, g: 0xee, b: 0xee }),
+            ..Default::default()
+        };
+        let mux = Mux::new(
+            format!("remote-host-color-test-{}", std::process::id()),
+            SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
+        );
+        mux.set_default_colors(dark);
+        let authoritative = mux.new_workspace(None, Some((12, 4))).unwrap();
+        let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+
+        let existing = Session::Remote(RemoteSession::connect(&socket).unwrap());
+        let session::SurfaceAttach::Attached(existing_surface) =
+            existing.try_surface_sized(authoritative.id, Some((12, 4))).unwrap()
+        else {
+            panic!("existing client did not attach");
+        };
+        let light_client = Session::Remote(RemoteSession::connect(&socket).unwrap());
+        let session::SurfaceAttach::Attached(light_surface) =
+            light_client.try_surface_sized(authoritative.id, Some((12, 4))).unwrap()
+        else {
+            panic!("light client did not attach");
+        };
+
+        let host_probe_called = std::cell::Cell::new(false);
+        let FrontendSessionPreparation { session: _light_session, colors: light_projection } =
+            prepare_frontend_session(light_client, dark, || {
+                host_probe_called.set(true);
+                light
+            });
+        assert!(host_probe_called.get(), "frontend startup must invoke the host-color probe");
+        assert_eq!(
+            mux.default_colors(),
+            dark,
+            "a second client's host colors must not mutate the shared session"
+        );
+        let mut existing_render = ghostty_vt::RenderState::new().unwrap();
+        assert_eq!(
+            existing_surface.render_frame(&mut existing_render).unwrap().frame.default_colors.0,
+            dark.bg.unwrap(),
+            "the already-attached dark client must stay dark"
+        );
+        assert_eq!(
+            config::ChromeTheme::for_defaults(config::ChromeMode::Auto, light_projection),
+            config::ChromeTheme::light(),
+            "the light client may still project compatible local chrome"
+        );
+
+        let application_background = cmux_tui_core::Rgb { r: 0x17, g: 0x1b, b: 0x2e };
+        authoritative.write_bytes(b"\x1b]11;#171b2e\x1b\\\n").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let mut existing_render = ghostty_vt::RenderState::new().unwrap();
+            let existing_background =
+                existing_surface.render_frame(&mut existing_render).unwrap().frame.default_colors.0;
+            let mut light_render = ghostty_vt::RenderState::new().unwrap();
+            let light_background =
+                light_surface.render_frame(&mut light_render).unwrap().frame.default_colors.0;
+            if existing_background == application_background
+                && light_background == application_background
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "application-authored OSC defaults did not reach both client projections"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     #[test]

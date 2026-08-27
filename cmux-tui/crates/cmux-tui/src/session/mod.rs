@@ -23,10 +23,10 @@ use cmux_tui_core::server::{
     VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
-    BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, DefaultColors, GuardedMouseEncode,
-    LayoutRatioError, LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId,
-    PointerSemanticProbe, PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus,
-    SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
+    BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, GuardedMouseEncode, LayoutRatioError,
+    LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId, PointerSemanticProbe,
+    PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
+    Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
     TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
 use ghostty_vt::{
@@ -838,16 +838,6 @@ impl Session {
                     "approve": approve,
                 }))
                 .map(|_| ()),
-        }
-    }
-
-    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.set_default_colors(colors);
-                Ok(())
-            }
-            Session::Remote(remote) => remote.set_default_colors(colors),
         }
     }
 
