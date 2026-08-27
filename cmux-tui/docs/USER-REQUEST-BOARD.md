@@ -1,6 +1,53 @@
 # cmux-tui user request board
 
-Current snapshot: 2026-08-27T13:05:00Z, pinned to `origin/main`
+## Current refresh: main `2b61ecafceb4b1c008b6f07345270615a0fb4286`
+
+Snapshot: 2026-08-27T18:44:45Z, documentation only. Main includes merged
+[#10982](https://github.com/manaflow-ai/cmux/pull/10982), source
+`1e0c3eefaf43e733c967131199361d587f56a34b`, merge
+`642a65b1512d0d61aaef88290f90ef3408bbee74`, [run 33100547866](https://github.com/manaflow-ai/cmux/actions/runs/33100547866)
+passed, and [#10985](https://github.com/manaflow-ai/cmux/pull/10985), source
+`f32d788d1cb503fb7cddf50e70fc40d0e067ec4e`, merge
+`2b61ecafceb4b1c008b6f07345270615a0fb4286`, [runs 33103012053](https://github.com/manaflow-ai/cmux/actions/runs/33103012053)
+and [33103010095](https://github.com/manaflow-ai/cmux/actions/runs/33103010095)
+passed. Both have CodeRabbit comment-only reviews. Rollbacks are
+`git revert 642a65b1512d0d61aaef88290f90ef3408bbee74` and
+`git revert 2b61ecafceb4b1c008b6f07345270615a0fb4286`.
+
+| Current PR | Exact head | Exact runs | Gate and review state |
+| --- | --- | --- | --- |
+| [#10966](https://github.com/manaflow-ai/cmux/pull/10966), Lawrence Chen | `dda134e95835a415d6cce062e896367ad30c3a94` | [33104657912](https://github.com/manaflow-ai/cmux/actions/runs/33104657912), [33104745426](https://github.com/manaflow-ai/cmux/actions/runs/33104745426), in progress | Mergeable; five CodeRabbit comment-only reviews |
+| [#10969](https://github.com/manaflow-ai/cmux/pull/10969), Lawrence Chen | `0a89a140738c68d105ddd7d1cf5bbcb1e713bb02` | [33104519612](https://github.com/manaflow-ai/cmux/actions/runs/33104519612), [33104514655](https://github.com/manaflow-ai/cmux/actions/runs/33104514655), in progress | Mergeable; one CodeRabbit comment-only review |
+| [#10612](https://github.com/manaflow-ai/cmux/pull/10612), Lawrence Chen | `ddc15ed4d7fc737cf86e9bd4bf2adc8bd1ebf5fa`, stale base | [33103112353](https://github.com/manaflow-ai/cmux/actions/runs/33103112353), [33103077154](https://github.com/manaflow-ai/cmux/actions/runs/33103077154), passed | Comment-only Greptile, Codex connector, and CodeRabbit reviews; rebase |
+| [#10891](https://github.com/manaflow-ai/cmux/pull/10891), Lawrence Chen | `e16aa8c35bbb1fafa7b3cb1340f872754c66d6a7`, stale base | [33104968098](https://github.com/manaflow-ai/cmux/actions/runs/33104968098) queued; [33104965438](https://github.com/manaflow-ai/cmux/actions/runs/33104965438) in progress | Mergeability unknown; earlier-head CodeRabbit comments |
+
+Closed without merge, with no rollback: [#9806](https://github.com/manaflow-ai/cmux/pull/9806),
+[#9813](https://github.com/manaflow-ai/cmux/pull/9813),
+[#10136](https://github.com/manaflow-ai/cmux/pull/10136),
+[#10413](https://github.com/manaflow-ai/cmux/pull/10413),
+[#10237](https://github.com/manaflow-ai/cmux/pull/10237),
+[#10267](https://github.com/manaflow-ai/cmux/pull/10267), and
+[#10746](https://github.com/manaflow-ai/cmux/pull/10746). Exact closed heads in
+that order are `406529665e5494ca559acab47079d8e7fb274386`,
+`3b8d500aa23cfe9a7fbbe4a1dbdcf1be19902c61`,
+`0786b6b37e5a397c1acc15b14be4a89f4363117b`,
+`891544e0ab1f1ab277213b984e7f53078374fb63`,
+`187dffe3e181fd6a85f99dc3fec2244c4fbe6fff`,
+`7c8e4130737cf15f81086603364b587b13c05f40`, and
+`9fa4c1497719f3c205ce6d402b3ce338d7fd5504`.
+
+Issues [#10881](https://github.com/manaflow-ai/cmux/issues/10881) and
+[#10394](https://github.com/manaflow-ai/cmux/issues/10394) closed after merged
+[#10954](https://github.com/manaflow-ai/cmux/pull/10954). Browser
+[#335](https://github.com/manaflow-ai/cmux/pull/335) resolved at merge
+`5697f71fc6956729524a76a5f17d5611c3ff485b`; rollback:
+`git revert 5697f71fc6956729524a76a5f17d5611c3ff485b`.
+
+No new session scan ran. Retained evidence proves at least 258 named
+substantive turns, a lower bound only. No 10,000-session claim is made. Later
+code merges require a final refresh.
+
+Historical snapshot: 2026-08-27T13:05:00Z, pinned to `origin/main`
 [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0),
 committed 2026-08-27T05:49:57-07:00 with subject
 `Integrate Escape passthrough fix from PR #9810 (#10959)`. The prior
