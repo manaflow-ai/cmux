@@ -282,6 +282,10 @@ struct ChromiumEngineTests {
             url: URL(string: "https://example.com:8443/path?q=1#other"),
             target: target
         ))
+        #expect(ChromiumBrowserSession.matches(
+            url: URL(string: "https://example.com/path?q=1#section"),
+            target: URL(string: "https://example.com:443/path?q=1#section")!
+        ))
     }
 
     @Test("Chromium readiness accepts only a loopback DevTools websocket")

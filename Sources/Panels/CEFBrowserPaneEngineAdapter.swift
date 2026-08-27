@@ -629,12 +629,21 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         if url.absoluteString == target.absoluteString { return true }
         return url.scheme?.caseInsensitiveCompare(target.scheme ?? "") == .orderedSame &&
             url.host?.caseInsensitiveCompare(target.host ?? "") == .orderedSame &&
-            url.port == target.port &&
+            Self.effectivePort(for: url) == Self.effectivePort(for: target) &&
             url.user == target.user &&
             url.password == target.password &&
             url.path == target.path &&
             url.query == target.query &&
             url.fragment == target.fragment
+    }
+
+    private static func effectivePort(for url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
     }
 
     // MARK: - Event handling
