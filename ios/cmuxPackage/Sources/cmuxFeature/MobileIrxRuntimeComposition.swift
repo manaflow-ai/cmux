@@ -162,19 +162,30 @@ public actor MobileIrxRuntimeComposition {
         // Proactive provisioning so the user-visible connect is warm:
         // identity, binding, discovery, relay credentials all resolve in the
         // background at launch, never on the dial path.
+        //
+        // EVENT-DRIVEN on auth: setup never starts before sign-in is
+        // affirmatively complete. The identity stream's first element is the
+        // current state, so an already-signed-in launch provisions
+        // immediately, and a launch that races sign-in provisions the
+        // instant the session publishes instead of discovering it on a
+        // timer. Pre-auth attempts are not just wasted: a failed provision
+        // can burn broker registrations, and every registration write bumps
+        // the account route revision fleet-wide.
         provisioningTask?.cancel()
         provisioningTask = Task { [weak self] in
-            // Capped exponential backoff: a persistent broker-side failure
-            // must degrade to a gentle poll, never a 2s hammer (each failed
-            // attempt can hit registration, and registration writes bump the
-            // account route revision fleet-wide).
-            var delay: Duration = .seconds(2)
-            while !Task.isCancelled {
-                if await self?.provisionIfPossible() == true {
-                    return
+            for await identity in await auth.authenticatedSessionIdentities() {
+                guard !Task.isCancelled else { return }
+                guard identity != nil else { continue }
+                // Signed in: any failure past this point is a real broker or
+                // network failure, retried on a capped backoff.
+                var delay: Duration = .seconds(1)
+                while !Task.isCancelled {
+                    if await self?.provisionIfPossible() == true {
+                        return
+                    }
+                    try? await Task.sleep(for: delay)
+                    delay = min(delay * 2, .seconds(30))
                 }
-                try? await Task.sleep(for: delay)
-                delay = min(delay * 2, .seconds(30))
             }
         }
     }
