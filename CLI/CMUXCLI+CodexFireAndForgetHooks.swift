@@ -2,6 +2,10 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    static var codexToolHooksDisabled: Bool {
+        ProcessInfo.processInfo.environment["CMUX_CODEX_TOOL_HOOKS_DISABLED"] == "1"
+    }
+
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
     /// hooks for one codex invocation when no persistent cmux channel is
@@ -19,7 +23,9 @@ extension CMUXCLI {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
         let usesPersistentChannel = reconcileCodexPersistentHooksForWrapper()
-        let eventsToInject = usesPersistentChannel ? [] : CodexHookInjectionSchema.current.events
+        let eventsToInject = usesPersistentChannel
+            ? []
+            : CodexHookInjectionSchema.current.events(toolHooksDisabled: Self.codexToolHooksDisabled)
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
         // `command` string directly as a program instead of via a shell, so an
@@ -128,7 +134,7 @@ extension CMUXCLI {
 
     /// Names that the current wrapper schema may reference from a live session.
     static func currentCodexWrapperHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
-        Set(CodexHookInjectionSchema.current.events.compactMap { event in
+        Set(CodexHookInjectionSchema.wrapperScriptRetentionEvents.compactMap { event in
             let body = codexFireAndForgetAgentHookShellCommand(
                 "cmux hooks codex \(event.cmuxSubcommand)",
                 for: def
