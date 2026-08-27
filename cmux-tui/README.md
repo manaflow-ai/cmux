@@ -90,7 +90,7 @@ ssh -T dev@buildbox cmux relay --session agents
 
 The Unix-only `machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command is a low-level raw JSON-lines diagnostic. Use the machine rail or `cmux ssh` for the managed remote lifecycle.
 
-Upgrade a packaged install with `npx cmux update`; it downloads the latest verified binary without touching npm's caches. If `npx cmux@latest` fails with an npm `ENOTEMPTY: directory not empty, rename` error, the npx package cache is stale; see [Packaged installs and updates](docs/getting-started.md#packaged-installs-and-updates).
+Upgrade a packaged install with `npx cmux update`; it downloads the latest verified binary without rewriting npm's caches. `npx` can still touch, or fail while touching, npm's `_npx` cache before cmux starts. Use `npx cmux update` for routine platform-binary upgrades and `npx cmux@latest` when updating the npm launcher. If the latter fails with `ENOTEMPTY: directory not empty, rename`, see [Packaged installs and updates](docs/getting-started.md#packaged-installs-and-updates). Japanese: [npm パッケージ](README.ja.md).
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the terminal runtime default, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
