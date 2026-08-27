@@ -2536,7 +2536,7 @@ final class TerminalNotificationStore: ObservableObject {
                                       notificationID: notificationId,
                                       recordsNotification: effects.record
                                   ) else { return }
-                            self.enqueueNotificationFeedback(ownerID: fallbackOwnerID) {
+                            self.enqueueNotificationFeedback(ownerID: fallbackOwnerID) { [weak self] in
                                 guard let self,
                                       self.isNotificationDeliveryAdmitted(
                                           notificationID: notificationId,
