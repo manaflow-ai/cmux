@@ -67,6 +67,7 @@
     "e2b": "^2.20.0",
     "effect": "^3.21.2",
     "freestyle": "0.1.51",
+    "freestyle-beta": "npm:freestyle@0.2.0-beta.7",
     "fzstd": "^0.1.1",
     "next": "16.3.0",
     "next-intl": "^4.11.2",

@@ -18,7 +18,10 @@
  */
 import { Daytona } from "@daytonaio/sdk";
 import { Sandbox } from "e2b";
-import { Freestyle } from "freestyle";
+// The devbox freestyle bake targets the BETA platform (see
+// build-devbox-freestyle.ts), so its snapshots are verified with the beta
+// SDK too. The shipped freestyle driver still speaks the legacy platform.
+import { Freestyle } from "freestyle-beta";
 import path from "node:path";
 import { devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
 
@@ -86,13 +89,14 @@ const DAEMON_LIVE_CHECKS: readonly string[] = [
   "curl -sf http://127.0.0.1:7777/healthz >/dev/null && echo daemon-healthz-ok",
 ];
 
-// Freestyle: the driver installs the systemd unit at create time (admin
-// token) unless the signed-admin unit is baked, so daemon liveness is only
-// required when the unit exists. The managed-shell probe assets are required
-// unconditionally (a miss makes the driver clobber cmux-cloud-shell).
+// Freestyle: the beta bake always bakes the cmuxd-ws unit (beta creates
+// cannot inject systemd services), so the daemon must be live. The
+// managed-shell probe assets are required too (a miss makes the legacy
+// driver clobber cmux-cloud-shell on VMs it manages).
 const FREESTYLE_CHECKS: readonly string[] = [
   "command -v zsh && test -r /etc/cmux/zshrc && test -r /home/cmux/.zshrc && echo freestyle-shell-probe-ok",
-  "if [ -f /etc/systemd/system/cmuxd-ws.service ]; then grep -q -- '--shell /usr/local/bin/cmux-cloud-shell' /etc/systemd/system/cmuxd-ws.service && curl -sf http://127.0.0.1:7777/healthz >/dev/null && echo signed-admin-daemon-ok; else echo no-baked-unit-driver-installs-at-create; fi",
+  "grep -q -- '--shell /usr/local/bin/cmux-cloud-shell' /etc/systemd/system/cmuxd-ws.service && echo baked-unit-ok",
+  ...DAEMON_LIVE_CHECKS,
 ];
 
 type Exec = (cmd: string) => Promise<{ exitCode: number; output: string }>;
@@ -159,13 +163,25 @@ if (provider === "e2b") {
     console.log(`deleted ${sandbox.id}`);
   }
 } else if (provider === "freestyle") {
-  console.log(`===== freestyle (snapshot ${image}) =====`);
-  const fs = new Freestyle({
-    fetch: (input, init) =>
-      fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(15 * 60 * 1000) }),
-  });
+  console.log(`===== freestyle (snapshot ${image}, beta platform) =====`);
+  const apiKey = process.env.FREESTYLE_API_KEY;
+  const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
+  const teamId = process.env.FREESTYLE_TEAM_ID;
+  const fs = apiKey
+    ? new Freestyle({ apiKey })
+    : stackToken && teamId
+      ? new Freestyle({ stackAccessToken: stackToken, teamId })
+      : (() => {
+          throw new Error("set FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID");
+        })();
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({ snapshotId: image });
+  const { vm, vmId } = await fs.vms.create({
+    snapshotId: image,
+    displayName: "cmux-devbox-verify",
+    // Beta creates require an explicit firewall; the checks are local-only,
+    // but outbound stays open so a debugging session inside the VM works.
+    firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
+  });
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     pass = await runChecks("freestyle", [...CHECKS, ...FREESTYLE_CHECKS], async (cmd) => {

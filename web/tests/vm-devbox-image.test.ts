@@ -165,6 +165,28 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain("bakedFreestyleSignedAdmin: true");
   });
 
+  test("freestyle bake and verify ride the beta SDK; the driver stays legacy", () => {
+    // The devbox freestyle bake targets the beta platform
+    // (freestyle@0.2.0-beta.7 aliased as freestyle-beta). The shipped
+    // driver keeps the legacy 0.1.51 SDK: beta creates drop ports,
+    // readySignalTimeoutSeconds, and systemd injection, so the driver
+    // migration is a separate change, and mixing the platforms would break
+    // live attach.
+    expect(readScript("build-devbox-freestyle.ts")).toContain('from "freestyle-beta"');
+    expect(readScript("verify-devbox-image.ts")).toContain('from "freestyle-beta"');
+    const driver = readFileSync(
+      path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
+      "utf8",
+    );
+    expect(driver).toContain('from "freestyle"');
+    expect(driver).not.toContain("freestyle-beta");
+    const packageJson = JSON.parse(
+      readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
+    ) as { dependencies: Record<string, string> };
+    expect(packageJson.dependencies.freestyle).toBe("0.1.51");
+    expect(packageJson.dependencies["freestyle-beta"]).toBe("npm:freestyle@0.2.0-beta.7");
+  });
+
   test("daytona entrypoint self-heals across sandbox restarts", () => {
     expect(daytonaEntrypoint).toContain("mkdir -p /tmp/cmux");
     expect(daytonaEntrypoint).toContain("chmod 700 /tmp/cmux");

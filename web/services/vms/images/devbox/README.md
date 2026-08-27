@@ -22,13 +22,17 @@ Blaxel counterparts, so edit both copies together.
 - daytona: `/usr/local/bin/cmux-daytona-entrypoint` supervises the same
   serve command and is registered as the snapshot entrypoint, so Daytona
   restarts the daemon on every stop/start cycle.
-- freestyle: the driver installs the cmuxd-ws systemd unit at create time
-  (or the bake bakes the signed-admin unit when
-  `CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY` is set), pointing at the baked
-  `/usr/local/bin/cmuxd-remote`. Its managed-shell probe requires the cmux
-  user, zsh, `/etc/cmux/zshrc`, and `/home/cmux/.zshrc`; all are baked, and
-  a miss would make the driver overwrite `cmux-cloud-shell` with its
-  fallback zsh shell.
+- freestyle: the bake targets the Freestyle BETA platform
+  (`freestyle@0.2.0-beta.7` via the `freestyle-beta` npm alias;
+  beta-api.freestyle.sh). Beta creates cannot inject systemd services, so
+  the cmuxd-ws unit is always baked, with the signed-admin env when
+  `CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY` is set. The shipped freestyle
+  driver still speaks the legacy (0.1.51) platform and cannot boot beta
+  snapshots; migrating the driver is follow-up work, and until then
+  `FREESTYLE_SANDBOX_SNAPSHOT` must not point at a beta bake. The legacy
+  driver's managed-shell probe requirements (cmux user, zsh,
+  `/etc/cmux/zshrc`, `/home/cmux/.zshrc`) are baked anyway so the image
+  also satisfies it.
 - Every provider's PTY shell is `/usr/local/bin/cmux-cloud-shell`, which
   drops a root daemon to the `cmux` user and starts a login bash (the
   devshell).
@@ -46,10 +50,14 @@ FREESTYLE_API_KEY=... bun scripts/build-devbox-freestyle.ts cmux-devbox-<tag>
 ```
 
 Daytona snapshot names are immutable: always a fresh versioned name.
-Freestyle needs a daemon download URL: `CMUX_REMOTE_DAEMON_BUILD_URL`, or
-`R2_ENDPOINT` + `R2_BUCKET_NAME` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`
-for an upload + presign. Agent pins live only in the Dockerfile ARG defaults;
-bump them together with `CMUX_IMAGE_EPOCH` and the Blaxel template.
+Freestyle (beta) auth is `FREESTYLE_API_KEY`, or
+`FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`; the argument is the
+snapshot slug (falls back to slugless on a collision) and the printed
+`sh-…` id is the pointer to pin. Freestyle also needs a daemon download
+URL: `CMUX_REMOTE_DAEMON_BUILD_URL`, or `R2_ENDPOINT` + `R2_BUCKET_NAME` +
+`R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` for an upload + presign. Agent
+pins live only in the Dockerfile ARG defaults; bump them together with
+`CMUX_IMAGE_EPOCH` and the Blaxel template.
 
 ## Verify
 
