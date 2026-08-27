@@ -156,7 +156,7 @@
       "defaultForLocalDev": true,
       "cmuxdRemoteCommit": "none-cmux-tui",
       "builtAt": "2026-08-26T00:00:00.000Z",
-      "builderScriptVersion": "cmux-devbox-2026-08-26-r3",
+      "builderScriptVersion": "cmux-devbox-2026-08-26-r4",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.246",
         "@openai/codex": "0.150.0",

@@ -316,12 +316,18 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
 
-<<<<<<< HEAD
-Blaxel machines boot the baked `sandbox/cmux-devbox` image (template in `services/vms/images/blaxel/`, published with `web/scripts/build-blaxel-image.sh` on Blaxel's remote builder): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, and noVNC on 6901. The image stamps `/etc/cmux/image-stamp`, which short-circuits the driver's create-time provisioning fallback for stock images; it keeps the stock desktop contract (`start-vnc.sh` as user `cua`, RFB 5901) so the driver's VNC heal works unchanged. The session daemon is NOT baked: at create time the driver installs the pinned cmux-tui build onto the persistent home volume and starts it under the sandbox supervisor, identically for stock and baked images, so the attach path is untouched by the image choice. Stock `blaxel/xfce-vnc:latest` remains a validated manifest fallback (`BLAXEL_SANDBOX_IMAGE`). Config: `BL_API_KEY`, `BL_WORKSPACE`. Live driver E2E: `bun scripts/test-blaxel-vm-poc.ts`.
-=======
-Blaxel needs no baked image and runs no cmuxd-remote: the driver bootstraps the stock image
-(`blaxel/xfce-vnc:latest` by default, `blaxel/base-image:latest` with `cmux vm new --base`)
-at create time with the **cmux-tui remote daemon as the machine's only session daemon**.
+Blaxel machines boot the baked `sandbox/cmux-devbox` image (template in
+`services/vms/images/blaxel/`, published with `web/scripts/build-blaxel-image.sh` on
+Blaxel's remote builder): chatmux-devbox tool parity (mise node/python/bun, uv, gh,
+devtools, pinned coding agents, ble.sh, half-life prompt, seeded history) plus an
+openbox/TigerVNC desktop with Ghostty, Chrome, and noVNC on 6901. The image stamps
+`/etc/cmux/image-stamp`, which short-circuits the driver's create-time provisioning
+fallback for stock images, and keeps the stock desktop contract (`start-vnc.sh` as user
+`cua`, RFB 5901) so the driver's VNC heal works unchanged. Stock `blaxel/xfce-vnc:latest`
+remains a validated manifest fallback (`BLAXEL_SANDBOX_IMAGE`;
+`blaxel/base-image:latest` with `cmux vm new --base`). Machines run no cmuxd-remote: the
+driver bootstraps every image, baked or stock, at create time with the **cmux-tui remote
+daemon as the machine's only session daemon**.
 The sandbox downloads the pinned static-musl `cmux-tui` build onto its persistent home
 volume (`/root/.cmux/bin/cmux-tui`, sha256-verified inside the VM with `sha256sum -c`,
 reused on resurrection) and the sandbox supervisor runs `cmux-tui server start --session
@@ -361,7 +367,6 @@ Blaxel machines with `details.supportedTransports: ["cmux-remote"]`. `cmux vm sh
 `cmux vm new`, `cmux vm base open` and the Machines panel all drive this from the Mac.
 See docs/cloud-cmux-tui-daemon.md for the design. Live driver E2E:
 `bun scripts/test-blaxel-vm-poc.ts`.
->>>>>>> origin/main
 
 E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
 

@@ -50,7 +50,9 @@ describe("Blaxel baked image template", () => {
       "COPY --from=ghcr.io/blaxel-ai/sandbox:latest /sandbox-api /usr/local/bin/sandbox-api",
     );
     expect(dockerfile).toContain('ENTRYPOINT ["/entrypoint.sh"]');
-    expect(entrypoint).toContain("/usr/local/bin/sandbox-api &");
+    expect(entrypoint).toContain("/usr/local/bin/sandbox-api");
+    // The control plane is supervised: a crashed API restarts instead of leaving a dead machine.
+    expect(entrypoint).toContain("sandbox-api exited");
     expect(entrypoint.trimEnd().endsWith("wait")).toBe(true);
   });
 
@@ -133,7 +135,8 @@ describe("Blaxel baked image template", () => {
       "COPY google-chrome-cmux.desktop /etc/cmux/apps/google-chrome-cmux.desktop",
     );
     expect(entrypoint).toContain('touch "/home/cua/.config/google-chrome/First Run"');
-    expect(entrypoint).toContain("chown -R cua:cua /home/cua");
+    expect(entrypoint).not.toContain("chown -R");
+    expect(entrypoint).toContain("chown cua:cua /home/cua");
     // Launcher icons are baked into /etc/cmux/icons because Blaxel's rootfs
     // slimming strips /usr/share/applications and the raster icon themes.
     for (const icon of ["google-chrome.png", "thunar.png", "ghostty.png"]) {
