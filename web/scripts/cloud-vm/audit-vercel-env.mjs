@@ -18,6 +18,10 @@ const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slic
 const strict = rest.includes("--strict") || parseBoolean(process.env.CMUX_CLOUD_VM_ENV_AUDIT_STRICT, false);
 
 try {
+  // `target` selects which Vercel PROJECT to audit (staging and production
+  // are separate projects: cmux-staging vs cmux). Each project's runtime env
+  // is its own "production" environment, so the project object fully encodes
+  // the target and the loader needs nothing else.
   const env = loadTargetEnv(project);
   const keys = Object.keys(env).sort();
   const present = new Set(keys);
