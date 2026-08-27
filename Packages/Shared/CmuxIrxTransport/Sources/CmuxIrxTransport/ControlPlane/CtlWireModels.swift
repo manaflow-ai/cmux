@@ -17,7 +17,7 @@
 // for types that require the use of JSONAny, nor will the implementation of Hashable be
 // synthesized for types that have collections (such as arrays or dictionaries).
 
-import Foundation
+public import Foundation
 
 // MARK: - CTLError
 public struct CTLError: Codable, Equatable {

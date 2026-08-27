@@ -64,6 +64,10 @@ final class MobileHostIrxRuntime {
     private var registry: IrxServerSessionRegistry?
     private var acceptLoop: Task<Void, Never>?
     private var localBinding: IrxBindingSnapshot?
+    /// The always-on fact channel to the per-account control-plane DO: the
+    /// host publishes hint announcements on it (instant propagation to
+    /// phones) and ingests pushed relay passes. Never on any serving path.
+    private var controlPlane: IrxControlPlaneClient?
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
@@ -188,13 +192,60 @@ final class MobileHostIrxRuntime {
             // refresh the binding so registry consumers see it too.
             let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
             _ = try? await broker.register(pairingEnabled: true, relayURLHint: homeRelay)
+            // Control-plane socket: hint announcements out (instant phone
+            // propagation, the signed HTTPS registration stays authoritative)
+            // and pushed relay passes in (same mint rules as HTTPS).
+            let control: IrxControlPlaneClient?
+            if let controlURL = PresenceHeartbeatClient.resolvedServiceURL() {
+                let client = IrxControlPlaneClient(
+                    configuration: .init(
+                        socketURL: controlURL
+                            .appendingPathComponent("v1/control/socket"),
+                        endpointIDHex: identity.endpointIDHex,
+                        wantPasses: true,
+                        cacheDirectory: stateDir
+                    ),
+                    accessToken: { [weak auth] in
+                        try await auth?.authenticatedSessionSnapshot().accessToken
+                    },
+                    handlers: .init(
+                        onRelayPasses: { [weak broker, weak supervisor, weak pilot] pushed in
+                            guard let broker, let supervisor, let pilot,
+                                let accepted = await broker
+                                    .acceptPushedRelayCredentials(pushed)
+                            else { return }
+                            await supervisor.rotateCredentials(accepted)
+                            await pilot.kick()
+                        },
+                        // The host dials no peers; hint/directory facts are
+                        // for clients.
+                        onHintUpdate: { _, _ in },
+                        onDirectory: { _ in },
+                        onSnapshotComplete: { _ in }
+                    ),
+                    journal: Self.journal
+                )
+                controlPlane = client
+                control = client
+                await client.start()
+                if let homeRelay {
+                    await client.publishHint(homeRelayURL: homeRelay)
+                }
+            } else {
+                control = nil
+            }
             // Relay hints are server-capped at 1h; refresh the registration on
-            // every credential rotation so the advertised hint never expires.
+            // every credential rotation so the advertised hint never expires,
+            // and announce it over the socket so phones hear about relay
+            // moves in milliseconds instead of at the next registry read.
             await pilot.setOnRotation { [weak broker, weak supervisor] in
                 guard let broker, let supervisor else { return }
                 let relay = await supervisor.homeRelayURL()
                 try? await broker.registerHintIfNeeded(
                     pairingEnabled: true, relayURLHint: relay)
+                if let relay, let control {
+                    await control.publishHint(homeRelayURL: relay)
+                }
             }
             await pilot.start()
             registry = IrxServerSessionRegistry(journal: Self.journal)
@@ -238,6 +289,10 @@ final class MobileHostIrxRuntime {
             await registry.closeAll(code: .hostShutdown)
         }
         registry = nil
+        if let controlPlane {
+            await controlPlane.stop()
+        }
+        controlPlane = nil
         if let endpointSupervisor {
             await endpointSupervisor.close()
         }

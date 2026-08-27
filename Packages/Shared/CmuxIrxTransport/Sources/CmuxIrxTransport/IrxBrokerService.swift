@@ -378,6 +378,49 @@ public actor IrxBrokerService {
         return minted
     }
 
+    /// Accepts control-plane-pushed relay credentials under the SAME rules as
+    /// a mint: every relay must be in the authenticated fleet allowlist, the
+    /// snapshot is identity-bound, and freshness is monotonic (pushed passes
+    /// that don't outlive the cached set are dropped, so a delayed push can
+    /// never regress local state). Returns the accepted set, or nil.
+    public func acceptPushedRelayCredentials(
+        _ pushed: [IrxRelayCredential]
+    ) -> [IrxRelayCredential]? {
+        guard !pushed.isEmpty else { return nil }
+        let allowedFleet = Set(trustCache.load()?.relayFleet ?? [])
+        guard allowedFleet.isEmpty == false,
+            pushed.allSatisfy({ allowedFleet.contains($0.relayURL) })
+        else {
+            journal.record(
+                "broker", "pushed-credentials-rejected",
+                ["reason": "fleet-allowlist"]
+            )
+            return nil
+        }
+        let cachedMax = cachedRelayCredentials().map(\.expiresAt).max() ?? .distantPast
+        guard let pushedMax = pushed.map(\.expiresAt).max(), pushedMax > cachedMax
+        else {
+            journal.record(
+                "broker", "pushed-credentials-rejected", ["reason": "stale"]
+            )
+            return nil
+        }
+        credentialCache.save(
+            IrxRelayCredentialSnapshot(
+                credentials: pushed,
+                mintedAt: Date(),
+                endpointIDHex: identity.endpointIDHex
+            ))
+        journal.record(
+            "broker", "relay-passes-pushed",
+            [
+                "relays": pushed.map(\.relayURL).joined(separator: ","),
+                "expires_at": ISO8601DateFormatter().string(from: pushedMax),
+            ]
+        )
+        return pushed
+    }
+
     // MARK: - Pair grants (keyed by the acceptor's endpoint, what routes carry)
 
     public func cachedGrant(

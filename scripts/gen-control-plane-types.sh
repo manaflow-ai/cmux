@@ -31,6 +31,10 @@ mkdir -p "$(dirname "$SWIFT_OUT")" "$(dirname "$TS_OUT")"
   --no-initializers \
   --out "$SWIFT_OUT"
 
+# CmuxIrxTransport builds with Swift 6 access-level imports: public API using
+# Foundation types requires `public import Foundation`.
+perl -pi -e 's/^import Foundation$/public import Foundation/' "$SWIFT_OUT"
+
 "${QT[@]}" --src-lang schema "${SCHEMAS[@]}" \
   --lang typescript \
   --just-types \

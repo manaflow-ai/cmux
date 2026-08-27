@@ -75,6 +75,10 @@ public actor MobileIrxRuntimeComposition {
     private var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
     private var identity: IrxIdentity?
+    /// The always-on fact channel to the per-account control-plane DO.
+    /// Never on the dial path; delivers pushed passes and hint updates.
+    private var controlPlane: IrxControlPlaneClient?
+    private var controlPlaneBaseURL: URL?
     private var provisioningTask: Task<Void, Never>?
     private var provisionInFlight: Task<IrxBrokerService, any Error>?
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
@@ -140,10 +144,12 @@ public actor MobileIrxRuntimeComposition {
 
     public func configure(
         auth: AuthCoordinator,
-        legacy: MobileIrohRuntimeComposition? = nil
+        legacy: MobileIrohRuntimeComposition? = nil,
+        controlPlaneBaseURL: URL? = nil
     ) {
         self.auth = auth
         legacyComposition = legacy
+        self.controlPlaneBaseURL = controlPlaneBaseURL
         Self.journal.record(
             "client-runtime", "configured",
             [
@@ -168,11 +174,77 @@ public actor MobileIrxRuntimeComposition {
     }
 
     /// Foreground kick: re-check credential freshness immediately (iOS
-    /// suspension pauses the autopilot's sleep).
+    /// suspension pauses the autopilot's sleep) and reconnect the control
+    /// socket, which resyncs facts from the persisted revision.
     public func didBecomeActive() async {
         await autopilot?.kick()
+        await controlPlane?.kick()
         for engine in enginesByPeer.values {
             await engine.warmUp(trigger: "foreground")
+        }
+    }
+
+    // MARK: - Control-plane fact ingestion
+
+    private func startControlPlane(identity: IrxIdentity) {
+        guard controlPlane == nil, let controlPlaneBaseURL, let auth else { return }
+        let client = IrxControlPlaneClient(
+            configuration: .init(
+                socketURL: controlPlaneBaseURL
+                    .appendingPathComponent("v1/control/socket"),
+                endpointIDHex: identity.endpointIDHex,
+                wantPasses: true,
+                cacheDirectory: stateDirectory
+            ),
+            accessToken: { [weak auth] in
+                try await auth?.authenticatedSessionSnapshot().accessToken
+            },
+            handlers: .init(
+                onRelayPasses: { [weak self] credentials in
+                    await self?.ingestPushedPasses(credentials)
+                },
+                onHintUpdate: { [weak self] endpointIDHex, relayURL in
+                    await self?.ingestHintUpdate(
+                        endpointIDHex: endpointIDHex, relayURL: relayURL)
+                },
+                onDirectory: { _ in },
+                onSnapshotComplete: { _ in }
+            ),
+            journal: Self.journal
+        )
+        controlPlane = client
+        Task { await client.start() }
+    }
+
+    /// Pushed passes flow through the broker's mint rules (fleet allowlist,
+    /// identity binding, monotonic freshness), then rotate make-before-break
+    /// and reset the autopilot timer so push and fallback never double-mint.
+    private func ingestPushedPasses(_ credentials: [IrxRelayCredential]) async {
+        guard let broker, let endpointSupervisor, let autopilot else { return }
+        guard let accepted = await broker.acceptPushedRelayCredentials(credentials)
+        else { return }
+        await endpointSupervisor.rotateCredentials(accepted)
+        await autopilot.kick()
+    }
+
+    /// The event-driven relay race: a pushed hint that disagrees with the
+    /// route an in-flight dial used cancels that dial and redials at the
+    /// true relay. An admitted session is never touched, and an agreeing
+    /// hint (the overwhelmingly common case) is a no-op.
+    private func ingestHintUpdate(endpointIDHex: String, relayURL: String) async {
+        let existing = routesByPeer[endpointIDHex]
+        guard existing?.relayURL != relayURL else { return }
+        routesByPeer[endpointIDHex] = (relayURL, existing?.directAddresses ?? [])
+        Self.journal.record(
+            "client-runtime", "hint-adopted",
+            [
+                "peer": String(endpointIDHex.prefix(12)),
+                "relay": relayURL,
+                "was": existing?.relayURL ?? "-",
+            ]
+        )
+        if let engine = enginesByPeer[endpointIDHex] {
+            await engine.relayHintChanged(trigger: "ctl-hint-update")
         }
     }
 
@@ -294,6 +366,7 @@ public actor MobileIrxRuntimeComposition {
         self.broker = broker
         endpointSupervisor = supervisor
         autopilot = pilot
+        startControlPlane(identity: identity)
         return broker
     }
 
