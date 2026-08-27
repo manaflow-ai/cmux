@@ -731,6 +731,7 @@ extension TerminalController {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
@@ -752,6 +753,10 @@ extension TerminalController {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
         if let expectedSource, bindingForClear?.source != expectedSource {
+            return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
+        }
+        if let expectedUpdatedAt,
+           !expectedUpdatedAt.isFinite || bindingForClear?.updatedAt != expectedUpdatedAt {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
         target.clearBinding(bindingForClear, agentSessionEnded: agentSessionEnded)

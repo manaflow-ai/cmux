@@ -13,6 +13,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         source: String?,
         updatedAt: Double?
     )?
+    var resumeClearExpectedUpdatedAt: Double?
     var resumeClearAgentSessionEnded: Bool?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
@@ -95,9 +96,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded
+        resumeClearExpectedUpdatedAt = expectedUpdatedAt
         return resumeResolution
     }
 

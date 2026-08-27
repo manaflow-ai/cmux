@@ -280,6 +280,7 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - routing: The routing selectors (with the surface-resume precedence).
     ///   - expectedCheckpointID: The optional expected checkpoint guard.
     ///   - expectedSource: The optional expected source guard.
+    ///   - expectedUpdatedAt: The optional expected binding-generation timestamp.
     ///   - agentSessionEnded: Whether a managed hook is clearing the binding as
     ///     part of authoritative session teardown.
     /// - Returns: The resume resolution.
@@ -289,6 +290,7 @@ public protocol ControlSurfaceContext: AnyObject {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution
 

@@ -1701,7 +1701,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 launchWorkingDirectory: record.launchCommand?.workingDirectory ?? record.cwd,
                 launchVerificationHome: record.launchCommand?.verificationHome,
                 ambientEnvironment: environment,
-                fallbackHomeDirectory: homeDirectory
+                fallbackHomeDirectory: homeDirectory,
+                preferFallbackHomeDirectory: true
             )
             let transcriptPath = Self.normalizedNonEmptyValue(record.transcriptPath)
             return (
@@ -2530,14 +2531,23 @@ struct RestorableAgentSessionIndex: Sendable {
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             if record.isRestorable == true {
-                guard case .some(.exists(let evidence)) = codexDurableVerification,
-                      evidence.provenance.mayOwnBinding else {
+                switch codexDurableVerification {
+                case .some(.exists(let evidence)):
                     // A durable automation, child, or unclassified rollout is
                     // valid evidence for an explicit exec restore, but it can
                     // never become the interactive surface owner.
+                    return evidence.provenance.mayOwnBinding
+                case .some(.missing):
+                    // Pre-index Codex installations cannot provide provenance.
+                    // Preserve an explicitly restorable legacy record only when
+                    // it still carries positive launch evidence; current
+                    // indexed installations remain fail-closed on a missing
+                    // durable checkpoint.
+                    return !codexHasIndexedStore
+                        && codexLegacyLaunchHasPositiveEvidence(record, fileManager: fileManager)
+                case .some(.unavailable), .none:
                     return false
                 }
-                return true
             }
             switch codexDurableVerification {
             case .some(.exists(let evidence)):

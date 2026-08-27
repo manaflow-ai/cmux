@@ -206,6 +206,21 @@ struct CodexResumeBindingVerificationTests {
         )
     }
 
+    @Test func codexHomeResolverCanPreferExplicitFallbackOverAmbientState() {
+        let resolver = CodexHomeResolver()
+
+        #expect(
+            resolver.resolve(
+                ambientEnvironment: [
+                    "HOME": "/tmp/ambient-user",
+                    "CODEX_HOME": "/tmp/ambient-codex",
+                ],
+                fallbackHomeDirectory: "/tmp/fixture-user",
+                preferFallbackHomeDirectory: true
+            ) == "/tmp/fixture-user/.codex"
+        )
+    }
+
     @Test func readableIndexWithoutThreadDoesNotScanUnindexedRollouts() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

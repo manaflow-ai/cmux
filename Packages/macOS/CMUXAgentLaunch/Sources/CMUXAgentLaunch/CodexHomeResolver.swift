@@ -21,13 +21,18 @@ public struct CodexHomeResolver: Sendable {
     ///   - ambientEnvironment: Environment of the process doing the lookup.
     ///   - fallbackHomeDirectory: Home used when no launch or ambient home is
     ///     available; this is primarily a deterministic test seam.
+    ///   - preferFallbackHomeDirectory: Whether the explicit fallback root is
+    ///     authoritative over ambient process homes after launch metadata has
+    ///     been considered. Index loads use this to keep injected home roots
+    ///     isolated from the process running the test or app.
     /// - Returns: A tilde-expanded, standardized Codex state directory path.
     public func resolve(
         launchEnvironment: [String: String]? = nil,
         launchWorkingDirectory: String? = nil,
         launchVerificationHome: String? = nil,
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        fallbackHomeDirectory: String? = nil
+        fallbackHomeDirectory: String? = nil,
+        preferFallbackHomeDirectory: Bool = false
     ) -> String {
         if let launchCodexHome = normalized(launchEnvironment?["CODEX_HOME"]) {
             return standardized(
@@ -52,6 +57,10 @@ public struct CodexHomeResolver: Sendable {
                 relativeTo: launchWorkingDirectory,
                 tildeHome: launchHome
             )
+        }
+        if preferFallbackHomeDirectory,
+           let fallbackHome = normalized(fallbackHomeDirectory) {
+            return codexDirectory(forHome: fallbackHome, tildeHome: fallbackHome)
         }
         if let ambientCodexHome = normalized(ambientEnvironment["CODEX_HOME"]) {
             return standardized(

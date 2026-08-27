@@ -143,6 +143,14 @@ extension CMUXCLI {
         return result["resume_claimed"] as? Bool == true
     }
 
+    /// Whether a restore record represents a Codex hook-owned surface whose
+    /// binding generation must be claimed before execution.
+    func codexRestoreBindingRequiresClaim(_ record: RestoreRecord) -> Bool {
+        record.mode == AgentRestoreRequestMode.resumeAgent.rawValue
+            && record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
+            && record.source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "agent-hook"
+    }
+
     /// Leaves the shell in the recorded directory, then retires only the
     /// stale checkpoint that was actually rejected. The checkpoint guard in
     /// surface.resume.clear means a concurrently published parent binding is
@@ -197,6 +205,7 @@ extension CMUXCLI {
                 workspaceId: workspaceID ?? "",
                 surfaceId: surfaceID,
                 sessionId: checkpointID,
+                updatedAt: (bindingPayload?["updated_at"] as? NSNumber)?.doubleValue,
                 sessionDidEnd: true
             )
             if outcome == .failed {

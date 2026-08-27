@@ -389,6 +389,7 @@ import Testing
                     "source": "agent-hook",
                     "resume_evidence_provenance": "tui",
                     "auto_resume": true,
+                    "updated_at": 123.5,
                 ],
             ],
             workspaceID: workspaceID,
@@ -444,6 +445,10 @@ import Testing
         let clearParams = try XCTUnwrap(requests.last?["params"] as? [String: Any])
         XCTAssertEqual(clearParams["checkpoint_id"] as? String, checkpointID)
         XCTAssertEqual(clearParams["source"] as? String, "agent-hook")
+        XCTAssertEqual(
+            (clearParams["expected_updated_at"] as? NSNumber)?.doubleValue,
+            123.5
+        )
         XCTAssertEqual(clearParams["agent_session_ended"] as? Bool, true)
     }
 
