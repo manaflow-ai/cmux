@@ -31,7 +31,7 @@ struct CmxIrohRegistryContextProviderCacheFirstTests {
 
         let context = try await provider.context(for: fixture.request(hints: []))
 
-        #expect(context.credential.pairGrantToken == seeded.grant.grant)
+        #expect(context.credential?.pairGrantToken == seeded.grant.grant)
         #expect(await broker.pairGrantRequestCount() == 0)
     }
 
@@ -52,7 +52,7 @@ struct CmxIrohRegistryContextProviderCacheFirstTests {
         )
 
         let context = try await provider.context(for: fixture.request(hints: []))
-        #expect(context.credential.pairGrantToken == seeded.grant.grant)
+        #expect(context.credential?.pairGrantToken == seeded.grant.grant)
 
         var refreshed = false
         for _ in 0 ..< 50_000 {
@@ -170,7 +170,7 @@ struct CmxIrohRegistryContextProviderCacheFirstTests {
         )
 
         let first = try await provider.context(for: fixture.request(hints: []))
-        #expect(first.credential.pairGrantToken == seeded.grant.grant)
+        #expect(first.credential?.pairGrantToken == seeded.grant.grant)
         var refreshHeld = false
         for _ in 0 ..< 50_000 {
             if await broker.heldDiscoverCallCount() >= 1 {
@@ -199,7 +199,7 @@ struct CmxIrohRegistryContextProviderCacheFirstTests {
         // The fenced-off result must not have marked the peer stale: the
         // next dial is still served from the verified cached record.
         let second = try await provider.context(for: fixture.request(hints: []))
-        #expect(second.credential.pairGrantToken == seeded.grant.grant)
+        #expect(second.credential?.pairGrantToken == seeded.grant.grant)
         #expect(await broker.pairGrantRequestCount() == 0)
     }
 
