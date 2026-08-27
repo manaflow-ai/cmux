@@ -21,13 +21,17 @@ protocol SurfaceProvider: AnyObject {
     func projectionDidEnd(_ projection: SurfaceProjection)
     /// Close a pane that was created for a materialization but lost a race with an existing
     /// projection. The default implementation handles providers that use the shared pane
-    /// factory; providers may also clear provider-specific bookkeeping.
-    func discardMaterialization(_ projection: SurfaceProjection)
+    /// factory; providers may also clear provider-specific bookkeeping. Return true when the
+    /// provider preserved the projection, as the local provider does for a moved pane.
+    @discardableResult
+    func discardMaterialization(_ projection: SurfaceProjection) -> Bool
 }
 
 extension SurfaceProvider {
-    func discardMaterialization(_ projection: SurfaceProjection) {
+    @discardableResult
+    func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        return false
     }
 }
 
@@ -49,8 +53,9 @@ final class SurfaceCatalog {
     /// detaches, so a slow but observed materialization is still allowed to finish normally.
     static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
     static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
-    /// The coordinator never allows more than this many provider tasks to remain tracked while
-    /// cancellation is still unresolved. This is backpressure for providers that ignore cancel.
+    /// The coordinator never allows more than this many tasks from one provider to remain tracked
+    /// while cancellation is unresolved. This prevents one unhealthy provider from blocking
+    /// unrelated providers or a replacement provider for the same machine.
     static let defaultMaximumTrackedMaterializations = 16
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
@@ -68,6 +73,8 @@ final class SurfaceCatalog {
     private var retiredMaterializationTokens: Set<UUID> = []
     private var retiredMaterializationEvictionTasks: [UUID: Task<Void, Never>] = [:]
     private var trackedMaterializationTokens: Set<UUID> = []
+    private var trackedMaterializationProviders: [UUID: ObjectIdentifier] = [:]
+    private var trackedMaterializationCounts: [ObjectIdentifier: Int] = [:]
     private let retiredMaterializationRetention: Duration
     private let abandonedMaterializationTimeout: Duration
     private let maximumTrackedMaterializations: Int
@@ -223,11 +230,11 @@ final class SurfaceCatalog {
                 return
             }
 
-            if let inFlight = inFlightProjects[id], let completion = inFlight.completion {
+            if let inFlight = inFlightProjects[id], let completedProjection = inFlight.completedProjection {
                 var completed = inFlight
                 completed.pendingAcknowledgements.insert(waiterID)
                 inFlightProjects[id] = completed
-                continuation.resume(returning: (projection: completion.projection, reused: true))
+                continuation.resume(returning: (projection: completedProjection, reused: true))
                 return
             }
             if let inFlight = inFlightProjects[id], inFlight.provider !== provider {
@@ -242,13 +249,14 @@ final class SurfaceCatalog {
                 return
             }
 
-            guard trackedMaterializationTokens.count < maximumTrackedMaterializations else {
+            let providerIdentity = ObjectIdentifier(provider)
+            guard trackedMaterializationCounts[providerIdentity, default: 0] < maximumTrackedMaterializations else {
                 continuation.resume(throwing: SurfaceCatalogError.unavailable(id, reason: "materialization capacity exhausted"))
                 return
             }
 
             let token = UUID()
-            trackedMaterializationTokens.insert(token)
+            trackMaterialization(token, for: provider)
             let task = Task { @MainActor [weak self] in
                 do {
                     let projection = try await provider.materialize(resource, at: destination, focus: focus)
@@ -263,7 +271,8 @@ final class SurfaceCatalog {
                 task: task,
                 abandonmentDeadlineTask: nil,
                 waiters: [waiterID: (reused: false, continuation: continuation)],
-                completion: nil,
+                completedProjection: nil,
+                completionOwnsProjection: false,
                 pendingAcknowledgements: []
             )
         }
@@ -276,28 +285,28 @@ final class SurfaceCatalog {
         result: Result<SurfaceProjection, any Error>
     ) {
         guard var inFlight = inFlightProjects[id], inFlight.token == token else {
-            trackedMaterializationTokens.remove(token)
+            releaseTrackedMaterialization(token)
             if retiredMaterializationTokens.remove(token) != nil {
                 retiredMaterializationEvictionTasks.removeValue(forKey: token)?.cancel()
             }
             if case .success(let projection) = result {
-                provider.discardMaterialization(projection)
+                cleanupMaterialization(projection, from: provider)
             }
             return
         }
         inFlight.abandonmentDeadlineTask?.cancel()
-        trackedMaterializationTokens.remove(token)
+        releaseTrackedMaterialization(token)
 
         switch result {
         case .success(let projection):
             guard !inFlight.abandoned else {
                 inFlightProjects[id] = nil
-                inFlight.provider.discardMaterialization(projection)
+                cleanupMaterialization(projection, from: inFlight.provider)
                 return
             }
             guard resources[id] != nil else {
                 inFlightProjects[id] = nil
-                inFlight.provider.discardMaterialization(projection)
+                cleanupMaterialization(projection, from: inFlight.provider)
                 resume(inFlight.waiters, throwing: SurfaceCatalogError.unknownResource(id))
                 return
             }
@@ -305,7 +314,7 @@ final class SurfaceCatalog {
             let ownsProjection: Bool
             if let existing = projections.first(where: { $0.resource == id }) {
                 if existing.panelID != projection.panelID {
-                    inFlight.provider.discardMaterialization(projection)
+                    cleanupMaterialization(projection, from: inFlight.provider)
                 }
                 returnedProjection = existing
                 ownsProjection = false
@@ -316,11 +325,8 @@ final class SurfaceCatalog {
             }
             let waiters = inFlight.waiters
             inFlight.waiters.removeAll()
-            inFlight.completion = SurfaceProjectionMaterializationCompletion(
-                projection: returnedProjection,
-                provider: inFlight.provider,
-                ownsProjection: ownsProjection
-            )
+            inFlight.completedProjection = returnedProjection
+            inFlight.completionOwnsProjection = ownsProjection
             inFlight.pendingAcknowledgements = Set(waiters.keys)
             inFlightProjects[id] = inFlight
             for waiter in waiters.values {
@@ -364,7 +370,7 @@ final class SurfaceCatalog {
     }
 
     private func acknowledgeMaterialization(_ id: SurfaceResourceID, waiterID: UUID) {
-        guard let inFlight = inFlightProjects[id], inFlight.completion != nil,
+        guard let inFlight = inFlightProjects[id], inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.contains(waiterID) else { return }
         // One accepted result gives the pane an owner. The other resumed callers no longer need
         // bookkeeping because their later cancellation must not close a pane this caller owns.
@@ -376,21 +382,21 @@ final class SurfaceCatalog {
         projection: SurfaceProjection
     ) throws {
         guard let inFlight = inFlightProjects[id],
-              let completion = inFlight.completion,
-              completion.projection.resource == projection.resource,
-              completion.projection.panelID == projection.panelID else { return }
+              let completedProjection = inFlight.completedProjection,
+              completedProjection.resource == projection.resource,
+              completedProjection.panelID == projection.panelID else { return }
         guard !Task.isCancelled else { throw CancellationError() }
         inFlightProjects[id] = nil
     }
 
     private func cancelCompletedMaterialization(_ id: SurfaceResourceID, waiterID: UUID) {
         guard var inFlight = inFlightProjects[id],
-              let completion = inFlight.completion,
+              inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.remove(waiterID) != nil else { return }
         if inFlight.pendingAcknowledgements.isEmpty {
             inFlightProjects[id] = nil
-            if completion.ownsProjection {
-                discardRecordedMaterialization(completion)
+            if inFlight.completionOwnsProjection {
+                cleanupRecordedMaterialization(inFlight)
             }
         } else {
             inFlightProjects[id] = inFlight
@@ -401,28 +407,65 @@ final class SurfaceCatalog {
     /// provider completions always have at least one waiter unless every caller cancelled first.
     private func discardUnclaimedMaterializationIfEmpty(_ id: SurfaceResourceID) {
         guard let inFlight = inFlightProjects[id],
-              let completion = inFlight.completion,
+              inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.isEmpty else { return }
         inFlightProjects[id] = nil
-        if completion.ownsProjection {
-            discardRecordedMaterialization(completion)
+        if inFlight.completionOwnsProjection {
+            cleanupRecordedMaterialization(inFlight)
         }
     }
 
-    private func discardRecordedMaterialization(_ completion: SurfaceProjectionMaterializationCompletion) {
+    private func cleanupRecordedMaterialization(_ materialization: SurfaceProjectionMaterialization) {
+        guard let projection = materialization.completedProjection else { return }
+        let provider = materialization.provider
         let current = projections.first {
-            $0.resource == completion.projection.resource && $0.panelID == completion.projection.panelID
+            $0.resource == projection.resource && $0.panelID == projection.panelID
         }
-        if let current {
-            projections.remove(current)
-            notifyChange()
+        let preserved = provider.discardMaterialization(current ?? projection)
+        guard !preserved else {
+            guard providers[projection.resource.machine] === provider else { return }
+            if current == nil {
+                record(projection)
+            }
+            return
         }
-        completion.provider.discardMaterialization(current ?? completion.projection)
+        guard let current else { return }
+        projections.remove(current)
+        notifyChange()
+    }
+
+    /// Cleans up a provider result that arrived after its catalog operation was retired. A
+    /// preserving provider moved an existing pane, so its late result must remain represented.
+    private func cleanupMaterialization(_ projection: SurfaceProjection, from provider: any SurfaceProvider) {
+        guard provider.discardMaterialization(projection),
+              providers[projection.resource.machine] === provider,
+              !projections.contains(where: {
+                  $0.resource == projection.resource && $0.panelID == projection.panelID
+              }) else { return }
+        record(projection)
+    }
+
+    private func trackMaterialization(_ token: UUID, for provider: any SurfaceProvider) {
+        let providerIdentity = ObjectIdentifier(provider)
+        trackedMaterializationTokens.insert(token)
+        trackedMaterializationProviders[token] = providerIdentity
+        trackedMaterializationCounts[providerIdentity, default: 0] += 1
+    }
+
+    private func releaseTrackedMaterialization(_ token: UUID) {
+        guard trackedMaterializationTokens.remove(token) != nil,
+              let provider = trackedMaterializationProviders.removeValue(forKey: token) else { return }
+        let remaining = (trackedMaterializationCounts[provider] ?? 1) - 1
+        if remaining > 0 {
+            trackedMaterializationCounts[provider] = remaining
+        } else {
+            trackedMaterializationCounts[provider] = nil
+        }
     }
 
     private func cancelInFlightProjectWaiter(_ id: SurfaceResourceID, waiterID: UUID) {
         guard let current = inFlightProjects[id] else { return }
-        if current.completion != nil {
+        if current.completedProjection != nil {
             cancelCompletedMaterialization(id, waiterID: waiterID)
             return
         }
@@ -457,7 +500,7 @@ final class SurfaceCatalog {
     private func expireAbandonedMaterialization(_ id: SurfaceResourceID, token: UUID) {
         guard let inFlight = inFlightProjects[id],
               inFlight.token == token,
-              inFlight.completion == nil,
+              inFlight.completedProjection == nil,
               inFlight.abandoned,
               inFlight.waiters.isEmpty else { return }
         inFlightProjects[id] = nil
@@ -496,7 +539,7 @@ final class SurfaceCatalog {
     }
 
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
-        guard let current = inFlightProjects[id], current.completion == nil,
+        guard let current = inFlightProjects[id], current.completedProjection == nil,
               let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
         inFlight.abandonmentDeadlineTask?.cancel()
         retireMaterialization(inFlight.token)

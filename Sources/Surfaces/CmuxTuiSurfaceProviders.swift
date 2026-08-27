@@ -283,9 +283,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         materializedPanels.remove(projection.panelID)
     }
 
-    func discardMaterialization(_ projection: SurfaceProjection) {
+    @discardableResult
+    func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         materializedPanels.remove(projection.panelID)
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        return false
     }
 
     // MARK: - internals
