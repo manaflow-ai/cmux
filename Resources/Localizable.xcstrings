@@ -124853,6 +124853,40 @@
         }
       }
     },
+    "machines.empty.planIncludes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes %d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランでは %d 台のマシンを利用できます"
+          }
+        }
+      }
+    },
+    "machines.empty.planIncludes.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan includes 1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランでは 1 台のマシンを利用できます"
+          }
+        }
+      }
+    },
     "machines.empty.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -124883,6 +124917,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシンはまだありません"
+          }
+        }
+      }
+    },
+    "machines.empty.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to use more than %d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードすると %d 台を超えるマシンを利用できます"
+          }
+        }
+      }
+    },
+    "machines.empty.upgrade.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to use more than 1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードすると複数のマシンを利用できます"
           }
         }
       }

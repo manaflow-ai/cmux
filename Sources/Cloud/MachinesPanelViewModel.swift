@@ -142,7 +142,7 @@ enum MachineSnapshotBuilder {
             id: summary.id,
             provider: summary.provider,
             image: summary.image,
-            isDesktop: summary.image.contains("xfce-vnc"),
+            isDesktop: summary.image.contains("xfce-vnc") || summary.image.contains("cmux-devbox"),
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
             label: summary.displayName,

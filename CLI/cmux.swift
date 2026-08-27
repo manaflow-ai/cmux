@@ -4259,8 +4259,9 @@ struct CMUXCLI {
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
-    /// Blaxel image that boots an xfce desktop with a noVNC web front end.
-    private static let cloudVMDesktopImage = "blaxel/xfce-vnc:latest"
+    /// Baked cmux machine image (web/services/vms/images/blaxel): devtools, coding
+    /// agents, and an openbox desktop with a noVNC web front end, all preinstalled.
+    private static let cloudVMDesktopImage = "sandbox/cmux-devbox:latest"
     /// Shell-only image for `vm new --base`; the backend default is the desktop image.
     /// Internal (not private) so `vm run` in CMUXCLI+VMTransfer.swift provisions
     /// pool machines from the same image.
@@ -4281,7 +4282,7 @@ struct CMUXCLI {
     }
     private static let cloudVMDesktopPort = 6901
     static func cloudVMImageHasDesktop(_ image: String) -> Bool {
-        image.contains("xfce-vnc")
+        image.contains("xfce-vnc") || image.contains("cmux-devbox")
     }
 
     /// `vm shell <id>` and `vm open <id>`: the shared cloud open path (vmOpenShell — the
