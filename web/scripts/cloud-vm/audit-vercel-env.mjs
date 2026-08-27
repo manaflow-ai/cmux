@@ -1,20 +1,24 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import { auditDefaultProviderImage } from "./defaultProviderAudit.mjs";
 import {
   forbiddenRuntimeEnvKeys,
   legacyCloudVmEnvKeys,
+  loadTargetEnv,
   parseBoolean,
   parseWebDirAndTarget,
-  pullProductionEnv,
   recommendedRuntimeEnvKeys,
   requiredRuntimeEnvKeys,
 } from "./projects.mjs";
 
 const usage = "Usage: audit-vercel-env.mjs [web-dir] <staging|production> [--strict]";
-const { target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
+const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const strict = rest.includes("--strict") || parseBoolean(process.env.CMUX_CLOUD_VM_ENV_AUDIT_STRICT, false);
 
 try {
-  const env = pullProductionEnv(project);
+  const env = loadTargetEnv(project);
   const keys = Object.keys(env).sort();
   const present = new Set(keys);
   const missingRequired = requiredRuntimeEnvKeys.filter((key) => !present.has(key));
@@ -22,8 +26,18 @@ try {
   const forbiddenPresent = forbiddenRuntimeEnvKeys.filter((key) => present.has(key));
   const legacyCloudVmPresent = legacyCloudVmEnvKeys.filter((key) => present.has(key));
 
+  // Key presence alone missed the 2026-08-26 outage (stale
+  // CMUX_VM_DEFAULT_PROVIDER value): the default provider's image env value
+  // must exist in the image manifest the same deploy ships.
+  const manifest = JSON.parse(
+    readFileSync(path.join(webDir, "services", "vms", "images", "manifest.json"), "utf8"),
+  );
+  const defaultProvider = auditDefaultProviderImage(env, manifest);
+
   const result = {
-    ok: missingRequired.length === 0 && forbiddenPresent.length === 0,
+    ok: missingRequired.length === 0 &&
+      forbiddenPresent.length === 0 &&
+      defaultProvider.problems.length === 0,
     target,
     project: project.projectName,
     envKeyCount: keys.length,
@@ -32,6 +46,7 @@ try {
     missingRecommended,
     forbiddenPresent,
     legacyCloudVmPresent,
+    defaultProvider,
   };
 
   console.log(JSON.stringify(result, null, 2));

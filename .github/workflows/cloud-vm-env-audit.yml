@@ -1,0 +1,45 @@
+name: Cloud VM env audit
+
+# Guards against deployed-env / code drift: the 2026-08-26 outage shipped code
+# that assumed CMUX_VM_DEFAULT_PROVIDER=blaxel while production still said
+# freestyle, and every Cloud VM create 503ed for two days with nothing paging.
+# This audit pulls the real production env and fails when the default
+# provider's image value is missing from the image manifest, so drift is a red
+# workflow on merge (and daily) instead of a user-facing outage.
+
+on:
+  schedule:
+    - cron: "23 8 * * *"
+  push:
+    branches: [main]
+    paths:
+      - web/services/vms/**
+      - web/scripts/cloud-vm/**
+      - .github/workflows/cloud-vm-env-audit.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-vm-env-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The audit reads the production env; run only trusted main code.
+          ref: refs/heads/main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Audit production Cloud VM env
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: bun scripts/cloud-vm/audit-vercel-env.mjs . production --strict

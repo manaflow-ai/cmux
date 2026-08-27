@@ -146,6 +146,11 @@ export function requireEnvKeys(env, keys, label) {
 export function runVercel(args, options = {}) {
   const stdio = options.stdio ?? "inherit";
   const env = { ...process.env, ...options.env };
+  // CI has no interactive Vercel login; the CLI only honors --token, so
+  // forward VERCEL_TOKEN explicitly when the caller did not pass one.
+  if (env.VERCEL_TOKEN && !args.some((arg) => String(arg).startsWith("--token"))) {
+    args = [...args, "--token", env.VERCEL_TOKEN];
+  }
   const command = process.env.VERCEL_CLI;
   if (command) return execFileSync(command, args, { ...options, env, stdio });
   try {
