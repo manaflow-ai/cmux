@@ -1,65 +1,5 @@
 public import Foundation
 
-private let browserCookieGMT = TimeZone(secondsFromGMT: 0)!
-private let browserCookieWeekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-private let browserCookieMonthNames = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-]
-
-private func browserCookieURL(scheme: String, host: String) -> URL? {
-    var components = URLComponents()
-    components.scheme = scheme
-    components.host = host.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-    components.path = "/"
-    return components.url
-}
-
-private func browserCookieNormalizedDomain(_ domain: String) -> String {
-    domain
-        .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        .lowercased()
-}
-
-private func browserCookieSameDomainScope(_ lhs: String, _ rhs: String) -> Bool {
-    browserCookieNormalizedDomain(lhs) == browserCookieNormalizedDomain(rhs) &&
-        lhs.hasPrefix(".") == rhs.hasPrefix(".")
-}
-
-private func browserCookieHTTPDateString(_ date: Date) -> String? {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = browserCookieGMT
-    let components = calendar.dateComponents(
-        [.weekday, .day, .month, .year, .hour, .minute, .second],
-        from: date
-    )
-    guard let weekday = components.weekday,
-          let day = components.day,
-          let month = components.month,
-          let year = components.year,
-          let hour = components.hour,
-          let minute = components.minute,
-          let second = components.second,
-          browserCookieWeekdayNames.indices.contains(weekday - 1),
-          browserCookieMonthNames.indices.contains(month - 1) else {
-        return nil
-    }
-
-    return "\(browserCookieWeekdayNames[weekday - 1]), \(browserCookieTwoDigits(day)) \(browserCookieMonthNames[month - 1]) \(year) " +
-        "\(browserCookieTwoDigits(hour)):\(browserCookieTwoDigits(minute)):\(browserCookieTwoDigits(second)) GMT"
-}
-
-private func browserCookieTwoDigits(_ value: Int) -> String {
-    value < 10 ? "0\(value)" : String(value)
-}
-
-private func browserCookieHeaderComponentIsSafe(_ value: String) -> Bool {
-    !value.unicodeScalars.contains { scalar in
-        let code = scalar.value
-        return code == 0x3B || code == 0x0D || code == 0x0A || code < 0x20 || code == 0x7F
-    }
-}
-
 /// Builds browser cookies from the fields accepted by browser cookie automation.
 public struct BrowserCookieBuilder: Sendable {
     /// Creates a stateless browser cookie builder.
@@ -67,7 +7,7 @@ public struct BrowserCookieBuilder: Sendable {
 
     /// Builds the HTTP(S) origin URL used to scope a cookie to a host.
     public func originURL(forHost host: String, secure: Bool) -> URL? {
-        browserCookieURL(scheme: secure ? "https" : "http", host: host)
+        Self.cookieURL(scheme: secure ? "https" : "http", host: host)
     }
 
     /// Builds a cookie from its browser automation fields.
@@ -92,8 +32,8 @@ public struct BrowserCookieBuilder: Sendable {
         expires: Date?,
         httpOnly: Bool
     ) -> HTTPCookie? {
-        guard browserCookieHeaderComponentIsSafe(name),
-              browserCookieHeaderComponentIsSafe(value) else {
+        guard Self.headerComponentIsSafe(name),
+              Self.headerComponentIsSafe(value) else {
             return nil
         }
         var properties: [HTTPCookiePropertyKey: Any] = [
@@ -135,7 +75,7 @@ public struct BrowserCookieBuilder: Sendable {
               let parsedCookie = parsedCookies.first,
               parsedCookie.name == cookie.name,
               parsedCookie.value == cookie.value,
-              browserCookieSameDomainScope(parsedCookie.domain, cookie.domain),
+              Self.sameDomainScope(parsedCookie.domain, cookie.domain),
               parsedCookie.path == cookie.path,
               parsedCookie.isSecure == cookie.isSecure,
               parsedCookie.isHTTPOnly else {
@@ -154,7 +94,7 @@ public struct BrowserCookieBuilder: Sendable {
             header += "; Secure"
         }
         if let expiresDate = cookie.expiresDate {
-            guard let httpDate = browserCookieHTTPDateString(expiresDate) else {
+            guard let httpDate = Self.httpDateString(expiresDate) else {
                 return nil
             }
             header += "; Expires=\(httpDate)"
@@ -181,4 +121,66 @@ public struct BrowserCookieBuilder: Sendable {
         return components.url
     }
 
+}
+
+private extension BrowserCookieBuilder {
+    static let gmt = TimeZone(secondsFromGMT: 0)!
+    static let weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    static let monthNames = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+
+    static func headerComponentIsSafe(_ value: String) -> Bool {
+        !value.unicodeScalars.contains { scalar in
+            let code = scalar.value
+            return code == 0x3B || code == 0x0D || code == 0x0A || code < 0x20 || code == 0x7F
+        }
+    }
+
+    static func sameDomainScope(_ lhs: String, _ rhs: String) -> Bool {
+        normalizedDomain(lhs) == normalizedDomain(rhs) &&
+            lhs.hasPrefix(".") == rhs.hasPrefix(".")
+    }
+
+    static func normalizedDomain(_ domain: String) -> String {
+        domain
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+    }
+
+    static func httpDateString(_ date: Date) -> String? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = gmt
+        let components = calendar.dateComponents(
+            [.weekday, .day, .month, .year, .hour, .minute, .second],
+            from: date
+        )
+        guard let weekday = components.weekday,
+              let day = components.day,
+              let month = components.month,
+              let year = components.year,
+              let hour = components.hour,
+              let minute = components.minute,
+              let second = components.second,
+              weekdayNames.indices.contains(weekday - 1),
+              monthNames.indices.contains(month - 1) else {
+            return nil
+        }
+
+        return "\(weekdayNames[weekday - 1]), \(twoDigits(day)) \(monthNames[month - 1]) \(year) " +
+            "\(twoDigits(hour)):\(twoDigits(minute)):\(twoDigits(second)) GMT"
+    }
+
+    static func twoDigits(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : String(value)
+    }
+
+    static func cookieURL(scheme: String, host: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        components.path = "/"
+        return components.url
+    }
 }
