@@ -2114,7 +2114,8 @@ fn ensure_daemon(
         .or_else(|| std::env::var_os("CMUX_MUX_SOCKET").map(PathBuf::from))
         .map_or_else(|| cmux_tui_core::server::try_default_socket_path(session), Ok)?;
     if UnixStream::connect(&mux_socket).is_err() {
-        let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+        let log = open_private_daemon_file(&log_path, true)
+            .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
         let mut mux_owner = Command::new(&executable);
         mux_owner
             .args(["--headless", "--session", session, "--socket"])
@@ -2133,7 +2134,8 @@ fn ensure_daemon(
         )?;
     }
 
-    let log = OpenOptions::new().create(true).append(true).open(&log_path)?;
+    let log = open_private_daemon_file(&log_path, true)
+        .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
     let mut command = Command::new(executable);
     command
         .args(["remote-sidecar", "--session", session, "--mux-socket"])
@@ -2293,11 +2295,51 @@ fn mux_monitor_disconnected(stream: &mut UnixStream, path: &Path) -> anyhow::Res
     }
 }
 
+fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let mut options = OpenOptions::new();
+    options
+        .read(!append)
+        .write(true)
+        .create(true)
+        .append(append)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "daemon state path is not a regular file",
+        ));
+    }
+    if metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "daemon state file is not owned by the effective user",
+        ));
+    }
+    if metadata.nlink() != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "daemon state file has unexpected hard links",
+        ));
+    }
+    // Existing files may predate this check and have inherited a broad umask.
+    // Tighten the inode through the open descriptor, avoiding a pathname race.
+    if metadata.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
 fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
     fs::create_dir_all(session_state)?;
     let lock_path = session_state.join("start.lock");
-    let lock =
-        OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path)?;
+    let lock = open_private_daemon_file(&lock_path, false)
+        .with_context(|| format!("could not open daemon start lock {}", lock_path.display()))?;
     let locked = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
     if locked != 0 {
         return Err(io::Error::last_os_error().into());
@@ -3010,6 +3052,44 @@ mod tests {
         close_tx.send(()).unwrap();
         server.join().unwrap();
         assert!(mux_monitor_disconnected(&mut monitor, &mux).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_files_are_private_and_existing_permissions_are_tightened() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let log_path = directory.path().join("daemon.log");
+        fs::write(&log_path, b"old log\n").unwrap();
+        fs::set_permissions(&log_path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut log = open_private_daemon_file(&log_path, true).unwrap();
+        log.write_all(b"new log\n").unwrap();
+        let metadata = fs::metadata(&log_path).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.nlink(), 1);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::read_to_string(&log_path).unwrap(), "old log\nnew log\n");
+
+        let lock_path = directory.path().join("start.lock");
+        let lock = open_private_daemon_file(&lock_path, false).unwrap();
+        assert_eq!(fs::metadata(&lock_path).unwrap().permissions().mode() & 0o777, 0o600);
+        drop(lock);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_state_files_refuse_symlinks_without_touching_target() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target.log");
+        let link = directory.path().join("daemon.log");
+        fs::write(&target, b"keep\n").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let error = open_private_daemon_file(&link, true).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep\n");
     }
 
     #[cfg(unix)]
