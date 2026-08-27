@@ -498,6 +498,35 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         #expect(!snapshot.configURLs.contains(URL(fileURLWithPath: "/usr/etc/gitconfig")))
     }
 
+    @Test func symlinkToAppleGitUsesResolvedSystemConfig() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-apple-shim-(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let shim = bin.appendingPathComponent("git")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: shim.path,
+            withDestinationPath: "/usr/bin/git"
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "false",
+                "PATH": bin.path,
+            ]
+        )
+
+        #expect(snapshot.configURLs.contains(URL(fileURLWithPath: "/etc/gitconfig")))
+        #expect(!snapshot.configURLs.contains(root.appendingPathComponent("etc/gitconfig")))
+    }
+
     @Test func readsXDGGlobalConfigBeforeHomeWhenXDGIsEmpty() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
@@ -757,6 +786,30 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
 
         #expect(snapshot.isComplete)
         #expect(snapshot.remoteVOutput?.contains("https://github.com/zero-count/repo.git") == true)
+    }
+
+    @Test func emptyRuntimeGitConfigParametersLeavesFileConfigActive() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/empty-parameters/repo.git
+        """)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_PARAMETERS": "",
+            ]
+        )
+
+        #expect(snapshot.isComplete)
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/empty-parameters/repo.git") == true)
     }
 
     @Test func nonLocalConfigFailsClosedBeforeReadingItsContents() throws {
