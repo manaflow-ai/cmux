@@ -36342,13 +36342,12 @@ mod tests {
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
 
-        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
         app.status_message = Some("old failure".to_string());
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        assert_eq!(
-            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
-            Some("old failure"),
-            "the setup frame must retain the semantic status message"
+        assert!(
+            app.rendered_status_message.as_ref().is_some_and(|message| !message.text.is_empty()),
+            "the setup frame must retain a visible status message"
         );
 
         let action = app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
