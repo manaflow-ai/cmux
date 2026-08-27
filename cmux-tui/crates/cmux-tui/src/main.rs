@@ -2585,6 +2585,13 @@ fn prepare_frontend_session(
     configured: cmux_tui_core::DefaultColors,
     host_probe: impl FnOnce() -> cmux_tui_core::DefaultColors,
 ) -> FrontendSessionPreparation {
+    // A locally owned mux is the authority for new terminal defaults. Seed it
+    // from this client's configured Ghostty defaults before projecting host
+    // colors onto the frontend chrome. Remote sessions keep their server-side
+    // defaults unchanged.
+    if let Session::Local(mux) = &session {
+        mux.seed_default_colors_if_no_durable_override(configured);
+    }
     FrontendSessionPreparation {
         session,
         colors: frontend_default_colors(configured, host_probe()),
@@ -3108,6 +3115,39 @@ mod tests {
         assert!(unsupported.contains("no server is listening on this socket"), "{unsupported}");
         assert!(unsupported.contains("scoped saved-state reset is not supported"), "{unsupported}");
         assert!(!unsupported.contains("reset-state"), "{unsupported}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_frontend_seeds_configured_defaults_before_host_overlay() {
+        let configured = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0x12, g: 0x34, b: 0x56 }),
+            bg: Some(cmux_tui_core::Rgb { r: 0x65, g: 0x43, b: 0x21 }),
+            ..Default::default()
+        };
+        let host = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
+            bg: None,
+            ..Default::default()
+        };
+        let mux = Mux::new(
+            format!("local-host-color-test-{}", std::process::id()),
+            SurfaceOptions::default(),
+        );
+
+        let FrontendSessionPreparation { session: _session, colors } =
+            prepare_frontend_session(Session::Local(mux.clone()), configured, || host);
+
+        assert_eq!(
+            mux.default_colors(),
+            configured,
+            "a locally owned mux must retain configured terminal defaults"
+        );
+        assert_eq!(colors.fg, host.fg, "host foreground may overlay local chrome defaults");
+        assert_eq!(
+            colors.bg, configured.bg,
+            "a missing host background must preserve the configured local default"
+        );
     }
 
     #[cfg(unix)]
