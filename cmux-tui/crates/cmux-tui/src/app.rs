@@ -4192,6 +4192,9 @@ pub struct SidebarSplitGroupPlacement {
     pub id: String,
     pub dir: crate::config::SidebarSplitDir,
     pub children: Vec<Rect>,
+    /// Stable child ids in the same order as `children`. Drag state uses
+    /// these ids so a layout refresh cannot retarget a divider by index.
+    pub child_keys: Vec<String>,
 }
 
 /// A draggable boundary between two children of a split group. A vertical
@@ -5672,8 +5675,8 @@ enum Drag {
     /// Independent rail width override drag.
     RailResize(RailKind),
     /// Sidebar split-group divider drag: re-shares the group's children.
-    /// The stable config id survives layout pruning and reordering.
-    SidebarSplit { group: String, index: usize },
+    /// Stable group and child ids survive layout pruning and reordering.
+    SidebarSplit { group: String, first_child: String, second_child: String },
     /// Pane split resize drag.
     ResizeSplit { horizontal: Option<PaneResizeDragTarget>, vertical: Option<PaneResizeDragTarget> },
 }
@@ -7993,6 +7996,7 @@ enum SidebarColumnNode {
     Leaf {
         view_index: usize,
         kind: RailKind,
+        key: String,
         priority: u16,
     },
     Split {
@@ -8004,6 +8008,12 @@ enum SidebarColumnNode {
 }
 
 impl SidebarColumnNode {
+    fn key(&self) -> &str {
+        match self {
+            SidebarColumnNode::Leaf { key, .. } | SidebarColumnNode::Split { id: key, .. } => key,
+        }
+    }
+
     fn priority(&self) -> u16 {
         match self {
             SidebarColumnNode::Leaf { priority, .. }
@@ -8048,6 +8058,7 @@ fn prune_sidebar_layout_node(
             Some(SidebarColumnNode::Leaf {
                 view_index: *view_index,
                 kind,
+                key: view.id.clone(),
                 priority: view.collapse_priority,
             })
         }
@@ -8170,6 +8181,7 @@ fn place_sidebar_column_node(
                 id: id.clone(),
                 dir: *dir,
                 children: Vec::new(),
+                child_keys: Vec::new(),
             });
             let mut offset = 0u16;
             for (child_index, (_, child)) in kept.iter().enumerate() {
@@ -8188,6 +8200,7 @@ fn place_sidebar_column_node(
                     },
                 };
                 layout.split_groups[group_index].children.push(child_rect);
+                layout.split_groups[group_index].child_keys.push(child.key().to_string());
                 place_sidebar_column_node(child, child_rect, layout, split_fractions);
                 offset = offset.saturating_add(sizes[child_index]);
                 if child_index + 1 < kept.len() {
@@ -8279,7 +8292,7 @@ fn sidebar_layout_for_state(
             let node =
                 prune_sidebar_layout_node(layout_node, views, hidden_views, machine_visible)?;
             let (key, desired, max_width, priority) = match &node {
-                SidebarColumnNode::Leaf { view_index, kind, priority } => {
+                SidebarColumnNode::Leaf { view_index, kind, priority, .. } => {
                     let view = views.get(*view_index)?;
                     let width_override = match kind {
                         RailKind::Machine => machine_override,
@@ -10434,6 +10447,13 @@ impl App {
     ) {
         if previous != SidebarProjectionSpec::from_config(&self.config) {
             self.invalidate_projection_rows_cache();
+            self.cancel_sidebar_layout_drag();
+        }
+    }
+
+    fn cancel_sidebar_layout_drag(&mut self) {
+        if matches!(self.drag, Some(Drag::RailResize(_) | Drag::SidebarSplit { .. })) {
+            self.drag = None;
         }
     }
 
@@ -22457,23 +22477,21 @@ impl App {
                         .find(|divider| divider.rect.contains(x, y))
                         .copied()
                     {
-                        if let Some(group) = self
-                            .sidebar_layout
-                            .split_groups
-                            .get(divider.group)
-                            .map(|group| group.id.clone())
+                        if let Some((group, first_child, second_child)) =
+                            self.sidebar_split_drag_target(divider.group, divider.index)
                         {
-                            self.drag = Some(Drag::SidebarSplit { group, index: divider.index });
+                            self.drag =
+                                Some(Drag::SidebarSplit { group, first_child, second_child });
                         }
                     } else {
                         self.drag = Some(Drag::RailResize(kind));
                     }
                 }
                 Hit::SidebarSplitDivider { group, index } => {
-                    if let Some(group) =
-                        self.sidebar_layout.split_groups.get(group).map(|group| group.id.clone())
+                    if let Some((group, first_child, second_child)) =
+                        self.sidebar_split_drag_target(group, index)
                     {
-                        self.drag = Some(Drag::SidebarSplit { group, index });
+                        self.drag = Some(Drag::SidebarSplit { group, first_child, second_child });
                     }
                 }
                 Hit::PaneResize { horizontal, vertical } => {
@@ -22745,9 +22763,14 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::SidebarSplit { group, index }) => {
-                let group = group.clone();
-                self.drag_sidebar_split_divider(&group, *index, x, y);
+            Some(Drag::SidebarSplit { group, first_child, second_child }) => {
+                let (group, first_child, second_child) =
+                    (group.clone(), first_child.clone(), second_child.clone());
+                if !self.drag_sidebar_split_divider(&group, &first_child, &second_child, x, y) {
+                    // The split topology changed while the pointer was down.
+                    // Do not apply the old divider to a new child pair.
+                    self.drag = None;
+                }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
@@ -22764,18 +22787,47 @@ impl App {
         }
     }
 
+    /// Capture stable ids for the two children flanking a divider.
+    fn sidebar_split_drag_target(
+        &self,
+        group_index: usize,
+        child_index: usize,
+    ) -> Option<(String, String, String)> {
+        let group = self.sidebar_layout.split_groups.get(group_index)?;
+        let first_child = group.child_keys.get(child_index)?.clone();
+        let second_child = group.child_keys.get(child_index + 1)?.clone();
+        Some((group.id.clone(), first_child, second_child))
+    }
+
     /// Convert a divider drag into new share fractions for its split group.
-    /// Only the two children flanking the divider change; the rest keep
-    /// their rendered sizes.
-    fn drag_sidebar_split_divider(&mut self, group: &str, index: usize, x: u16, y: u16) {
+    /// Return false when the split topology no longer contains the same
+    /// adjacent child pair captured at mouse-down.
+    fn drag_sidebar_split_divider(
+        &mut self,
+        group: &str,
+        first_child: &str,
+        second_child: &str,
+        x: u16,
+        y: u16,
+    ) -> bool {
         use crate::config::SidebarSplitDir;
         let Some(placement) =
             self.sidebar_layout.split_groups.iter().find(|placement| placement.id == group)
         else {
-            return;
+            return false;
         };
-        let Some(first) = placement.children.get(index).copied() else { return };
-        let Some(second) = placement.children.get(index + 1).copied() else { return };
+        let Some(index) = placement.child_keys.iter().position(|key| key == first_child) else {
+            return false;
+        };
+        let Some(second_index) = placement.child_keys.iter().position(|key| key == second_child)
+        else {
+            return false;
+        };
+        if second_index != index + 1 {
+            return false;
+        }
+        let Some(first) = placement.children.get(index).copied() else { return false };
+        let Some(second) = placement.children.get(second_index).copied() else { return false };
         let mut sizes: Vec<u16> = placement
             .children
             .iter()
@@ -22801,18 +22853,19 @@ impl App {
             ),
         };
         if combined < min_each.saturating_mul(2) {
-            return;
+            return true;
         }
         let desired_first = desired_first.clamp(min_each, combined - min_each);
         sizes[index] = desired_first;
         sizes[index + 1] = combined - desired_first;
         let total: f32 = sizes.iter().map(|size| f32::from(*size)).sum();
         if total <= 0.0 {
-            return;
+            return true;
         }
         let id = placement.id.clone();
         let fractions = sizes.iter().map(|size| f32::from(*size) / total).collect();
         self.sidebar_split_fractions.insert(id, fractions);
+        true
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
@@ -27464,7 +27517,7 @@ mod tests {
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.dividers.len(), 1);
 
-        app.drag_sidebar_split_divider("left", 0, 0, 9);
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 9);
         app.sync_layout((120, 31));
         let top = app.sidebar_layout.ordered[0].rect;
         let bottom = app.sidebar_layout.ordered[1].rect;
@@ -27472,7 +27525,7 @@ mod tests {
         assert_eq!(top.height + bottom.height, 30);
 
         // The two rails clamp at their minimum height.
-        app.drag_sidebar_split_divider("left", 0, 0, 0);
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 0);
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.ordered[0].rect.height, super::MIN_SPLIT_RAIL_HEIGHT);
     }
@@ -27489,6 +27542,7 @@ mod tests {
                     Rect { x: 0, y: 0, width: 20, height: 10 },
                     Rect { x: 0, y: 11, width: 20, height: 10 },
                 ],
+                child_keys: vec!["other-first".into(), "other-second".into()],
             },
             SidebarSplitGroupPlacement {
                 id: "left".into(),
@@ -27497,13 +27551,72 @@ mod tests {
                     Rect { x: 0, y: 0, width: 20, height: 10 },
                     Rect { x: 0, y: 11, width: 20, height: 10 },
                 ],
+                child_keys: vec!["first".into(), "second".into()],
             },
         ];
 
-        app.drag_sidebar_split_divider("left", 0, 0, 9);
+        app.drag_sidebar_split_divider("left", "first", "second", 0, 9);
 
         assert!(app.sidebar_split_fractions.contains_key("left"));
         assert!(!app.sidebar_split_fractions.contains_key("other"));
+    }
+
+    #[test]
+    fn sidebar_split_drag_keeps_the_same_children_after_layout_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mux = Mux::new("sidebar-split-drag-pruning-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        let mut fourth = third.clone();
+        fourth.id = "fourth".into();
+        config.sidebar.views.extend([third, fourth]);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.views[3].collapse_priority = 40;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1; 4],
+            children: (0..4).map(SidebarLayoutNode::Leaf).collect(),
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config.sidebar.views_explicit = true;
+        app.config = config;
+
+        // Capture the divider between the second and third children while all
+        // four children fit.
+        app.sync_layout((120, 23));
+        let (group, first_child, second_child) =
+            app.sidebar_split_drag_target(0, 1).expect("second split divider exists");
+        assert_eq!((first_child.as_str(), second_child.as_str()), ("all-agents", "third"));
+        app.drag = Some(Drag::SidebarSplit { group, first_child, second_child });
+
+        // A shorter frame prunes only the first child. The captured pair is
+        // now at indexes 0 and 1, so an index-only drag would target the wrong
+        // pair (or fail when the old index is out of range).
+        app.sync_layout((120, 18));
+        assert_eq!(
+            app.sidebar_layout.split_groups[0].child_keys,
+            vec!["all-agents", "third", "fourth"]
+        );
+        app.handle_left_drag(0, 6).unwrap();
+        app.sync_layout((120, 18));
+
+        let fourth_height = app
+            .sidebar_layout
+            .ordered
+            .iter()
+            .find(|placement| placement.kind == RailKind::Projection(3))
+            .map(|placement| placement.rect.height)
+            .expect("fourth child remains visible");
+        assert_eq!(fourth_height, 5, "the captured pair, not the stale index, was resized");
+        assert!(matches!(app.drag, Some(Drag::SidebarSplit { .. })));
     }
 
     #[test]
