@@ -37,8 +37,6 @@ const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 /// filesystem operations. Keep them off the relay executor and bound the
 /// number of concurrent setup walks per connection.
 const WATCH_SETUP_CONCURRENCY: usize = 2;
-const WATCH_SETUP_FAILURE_MESSAGE: &str = "filesystem watcher setup failed";
-const WATCH_RUNTIME_FAILURE_MESSAGE: &str = "filesystem watcher stopped";
 
 /// All fallible watcher setup happens before a watch is published in the
 /// registry. A failed replacement therefore leaves the existing watch intact.
@@ -136,13 +134,17 @@ impl Drop for WatchRegistry {
     }
 }
 
-fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) -> String {
+fn watch_error_frame(
+    watch_id: &str,
+    code: wire::WorkspaceErrorCode,
+    message: Option<&str>,
+) -> String {
     serde_json::to_string(&wire::RelayFsWatchError {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagFsWatchError::FsWatchError,
         watch_id: watch_id.to_owned(),
         code,
-        message: Some(message.to_owned()),
+        message: message.map(str::to_owned),
     })
     .unwrap_or_else(|_| String::new())
 }
@@ -151,11 +153,7 @@ fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &s
 /// lossy event. The critical lane lets the client re-open the stream instead
 /// of retaining a permanently silent watch ID.
 fn report_watch_failure(watch_id: &str, outbound: &OutboundSink) {
-    let text = watch_error_frame(
-        watch_id,
-        wire::WorkspaceErrorCode::Failed,
-        WATCH_RUNTIME_FAILURE_MESSAGE,
-    );
+    let text = watch_error_frame(watch_id, wire::WorkspaceErrorCode::Failed, None);
     let _ = outbound.try_critical_text(text);
 }
 
@@ -171,7 +169,7 @@ impl WatchRegistry {
     }
 
     pub fn refuse(&self, watch_id: &str, code: wire::WorkspaceErrorCode, message: &str) {
-        let text = watch_error_frame(watch_id, code, message);
+        let text = watch_error_frame(watch_id, code, Some(message));
         let _ = self.outbound.try_critical_text(text);
     }
 
@@ -354,7 +352,7 @@ async fn coordinate_open(
                 sessions,
                 outbound,
                 code,
-                message,
+                Some(message),
             );
         }
         Err(SetupFailure::Failed(_message)) => {
@@ -366,7 +364,7 @@ async fn coordinate_open(
                 sessions,
                 outbound,
                 wire::WorkspaceErrorCode::Failed,
-                WATCH_SETUP_FAILURE_MESSAGE.to_owned(),
+                None,
             );
         }
     }
@@ -482,9 +480,9 @@ fn finish_open_failure(
     sessions: Sessions,
     outbound: OutboundSink,
     code: wire::WorkspaceErrorCode,
-    message: String,
+    message: Option<String>,
 ) {
-    let text = watch_error_frame(watch_id, code, &message);
+    let text = watch_error_frame(watch_id, code, message.as_deref());
     if let Ok(mut state) = sessions.lock() {
         let remove_slot = if let Some(slot) = state.get_mut(watch_id)
             && slot.opening.as_ref().is_some_and(|opening| {
@@ -672,7 +670,7 @@ async fn run_watch(
             let text = watch_error_frame(
                 watch_id,
                 wire::WorkspaceErrorCode::Failed,
-                "watch event burst overflowed; refresh the tree",
+                Some("watch event burst overflowed; refresh the tree"),
             );
             tokio::select! {
                 biased;
@@ -715,11 +713,7 @@ async fn run_watch(
             }
         }
         if let Some(_error) = fatal {
-            let text = watch_error_frame(
-                watch_id,
-                wire::WorkspaceErrorCode::Failed,
-                WATCH_RUNTIME_FAILURE_MESSAGE,
-            );
+            let text = watch_error_frame(watch_id, wire::WorkspaceErrorCode::Failed, None);
             tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => break 'watch,
@@ -728,11 +722,7 @@ async fn run_watch(
             break;
         }
         if let Some(_error) = latched_error {
-            let text = watch_error_frame(
-                watch_id,
-                wire::WorkspaceErrorCode::Failed,
-                WATCH_RUNTIME_FAILURE_MESSAGE,
-            );
+            let text = watch_error_frame(watch_id, wire::WorkspaceErrorCode::Failed, None);
             tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => break 'watch,
@@ -1206,12 +1196,13 @@ mod tests {
             Arc::clone(&sessions),
             sink,
             wire::WorkspaceErrorCode::Failed,
-            "internal details must not escape".to_owned(),
+            None,
         );
         let frame = critical.try_recv().expect("failure frame");
         assert!(frame.live.is_none(), "failure must not be fenced before delivery");
         let value: Value = serde_json::from_str(&frame.text).expect("failure json");
         assert_eq!(value["code"], "failed");
+        assert!(value["message"].is_null(), "internal failure copy stays out of the wire frame");
     }
 
     #[test]
@@ -1226,12 +1217,7 @@ mod tests {
         assert_eq!(value["type"], "fs_watch_error");
         assert_eq!(value["watchId"], "saturated");
         assert_eq!(value["code"], "failed");
-    }
-
-    #[test]
-    fn watcher_failure_messages_are_stable() {
-        assert_eq!(WATCH_SETUP_FAILURE_MESSAGE, "filesystem watcher setup failed");
-        assert_eq!(WATCH_RUNTIME_FAILURE_MESSAGE, "filesystem watcher stopped");
+        assert!(value["message"].is_null(), "terminal copy is localized by the client");
     }
 
     #[cfg(unix)]
