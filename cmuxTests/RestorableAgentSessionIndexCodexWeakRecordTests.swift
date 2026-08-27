@@ -496,9 +496,10 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
         #expect(index.isComplete)
-        #expect(index.isComplete(forWorkspaceId: ownerWorkspace, panelId: ownerPanel))
-        #expect(!index.isComplete(forPanelId: omittedPanelA))
-        #expect(!index.isComplete(forPanelId: omittedPanelB))
+        #expect(index.isComplete(forWorkspaceId: ownerWorkspace, panelId: ownerPanel, kind: "codex"))
+        #expect(!index.isComplete(forPanelId: omittedPanelA, kind: "codex"))
+        #expect(!index.isComplete(forPanelId: omittedPanelB, kind: "codex"))
+        #expect(index.isComplete(forPanelId: UUID(), kind: "claude"))
         let snapshot = try #require(
             index.snapshot(workspaceId: ownerWorkspace, panelId: ownerPanel)
         )
