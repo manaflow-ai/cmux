@@ -473,14 +473,28 @@ final class MobileHostService {
     private init() {}
 
     /// Inject the auth dependency. Call once at the composition root.
-    /// Exactly one iroh host runtime owns the app's broker binding slot:
-    /// the irx rebuild when its DEBUG flag is on, the legacy runtime
-    /// otherwise. Running both would reincarnate the binding in a loop.
+    /// Exactly one runtime owns the mobile transport slot: the dot relay
+    /// runtime when its gate is on (the default — the iroh endpoint is never
+    /// started in dot mode), the irx rebuild when its flag is on, the legacy
+    /// iroh runtime otherwise. Running two would fight over the identity /
+    /// broker binding slot.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        if MobileHostIrxRuntime.isEnabled {
+        if MobileHostDotRuntime.isEnabled {
+            MobileHostDotRuntime.shared.configure(auth: auth)
+        } else if MobileHostIrxRuntime.isEnabled {
+            if let reason = MobileHostDotRuntime.forceDisabledReason {
+                mobileHostLog.info(
+                    "dot transport disabled: \(reason, privacy: .public)"
+                )
+            }
             MobileHostIrxRuntime.shared.configure(auth: auth)
         } else {
+            if let reason = MobileHostDotRuntime.forceDisabledReason {
+                mobileHostLog.info(
+                    "dot transport disabled: \(reason, privacy: .public)"
+                )
+            }
             MobileHostIrohRuntime.shared.configure(auth: auth)
         }
     }

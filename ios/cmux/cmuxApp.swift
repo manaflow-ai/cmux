@@ -20,9 +20,18 @@ struct cmuxApp: App {
     @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
-    /// The de-singletonized composition root: built once, injected down.
+    /// The de-singletonized composition root: built once, injected down. The
+    /// dot composition rides beside it (not inside `AppCompositionRoot`)
+    /// because only this file consumes its lifecycle hooks.
     @MainActor
-    private static let root: AppCompositionRoot = {
+    private static var root: AppCompositionRoot { composition.root }
+
+    @MainActor
+    private static var dot: MobileDotRuntimeComposition? { composition.dot }
+
+    @MainActor
+    private static let composition:
+        (root: AppCompositionRoot, dot: MobileDotRuntimeComposition?) = {
         let reachability = ReachabilityService()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
@@ -58,16 +67,30 @@ struct cmuxApp: App {
                 "Connectivity invalidation disabled: presence service URL unavailable"
             )
         }
-        // Exactly one iroh runtime owns the app's broker binding slot: the
-        // irx rebuild when its DEBUG flag is on, the legacy composition
-        // otherwise. The unconfigured one stays dormant.
-        let irxEnabled = MobileIrxRuntimeComposition.isEnabled
+        // Exactly one runtime owns the `.iroh` route slot: dot (the Durable
+        // Object relay, default ON), else the irx rebuild when its DEBUG flag
+        // is on, else the legacy composition. The unconfigured ones stay
+        // dormant, so two stacks can never fight over the broker binding.
+        let dotEnabled = MobileDotRuntimeComposition.isEnabled
+        let dot = MobileDotRuntimeComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        )
+        let irxEnabled = !dotEnabled && MobileIrxRuntimeComposition.isEnabled
         let irx = MobileIrxRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             appNamespace: auth.appNamespace,
             keychainAccessGroup: auth.keychainAccessGroup
         )
-        if irxEnabled {
+        if dotEnabled {
+            // dot adopts the legacy composition's identity (identity
+            // donation), so every stored route, pair grant, and Mac stays
+            // valid over the relay with zero re-pairing.
+            let coordinator = auth.coordinator
+            Task { await dot.configure(auth: coordinator, legacy: iroh) }
+        } else if irxEnabled {
             let coordinator = auth.coordinator
             Task { await irx.configure(auth: coordinator, legacy: iroh) }
         } else {
@@ -83,6 +106,7 @@ struct cmuxApp: App {
         // real transports. Force-relay mode (soak rigs) registers NO fallback
         // kinds so even a simulator exercises the real relay path.
         let forceRelay = MobileIrxRuntimeComposition.forceRelayOnly
+            || (dotEnabled && MobileDotRuntimeComposition.forceTransportOnly)
         #if targetEnvironment(simulator) || DEBUG
         let supportedKinds: [CmxAttachTransportKind] =
             forceRelay ? [] : [.debugLoopback, .tailscale]
@@ -95,8 +119,13 @@ struct cmuxApp: App {
         }
         let registrations = [
             CmxRouteTransportFactoryRegistration(
+                // In dot mode the `.iroh` kind name is legacy wire compat:
+                // stored routes and tickets carry only the Mac's peer
+                // identity, and dot resolves the grant + relay from it.
                 kind: .iroh,
-                factory: irxEnabled ? irx.transportFactory : iroh.transportFactory
+                factory: dotEnabled
+                    ? dot.transportFactory
+                    : (irxEnabled ? irx.transportFactory : iroh.transportFactory)
             ),
         ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
@@ -112,13 +141,23 @@ struct cmuxApp: App {
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
             independentEventByteStreamProvider: { request in
-                irxEnabled
+                if dotEnabled {
+                    return try await dot.serverEventByteStream(for: request)
+                }
+                return irxEnabled
                     ? try await irx.serverEventByteStream(for: request)
                     : try await iroh.serverEventByteStream(for: request)
             },
             terminalLaneProvider: { request, surfaceID, cursor in
                 guard let surfaceUUID = UUID(uuidString: surfaceID) else {
                     throw MobileIrohTerminalLaneError.invalidSurfaceID
+                }
+                if dotEnabled {
+                    return try await dot.openTerminalLane(
+                        for: request,
+                        surfaceID: surfaceUUID,
+                        cursor: cursor
+                    )
                 }
                 return irxEnabled
                     ? try await irx.openTerminalLane(
@@ -133,7 +172,14 @@ struct cmuxApp: App {
                     )
             },
             artifactLaneProvider: { request, resourceID, offset in
-                irxEnabled
+                if dotEnabled {
+                    return try await dot.openArtifactLane(
+                        for: request,
+                        resourceID: resourceID,
+                        offset: offset
+                    )
+                }
+                return irxEnabled
                     ? try await irx.openArtifactLane(
                         for: request,
                         resourceID: resourceID,
@@ -149,8 +195,8 @@ struct cmuxApp: App {
                 guard let panelUUID = UUID(uuidString: panelID) else {
                     throw MobileIrohSimulatorStreamLaneError.invalidPanelID
                 }
-                guard !irxEnabled else {
-                    // Simulator streaming is not served by irx v1.
+                guard !dotEnabled, !irxEnabled else {
+                    // Simulator streaming is not served by dot/irx v1.
                     throw MobileIrohSimulatorStreamLaneError.closed
                 }
                 return try await iroh.openSimulatorStreamLane(
@@ -160,14 +206,17 @@ struct cmuxApp: App {
             }
         )
 
-        return AppCompositionRoot(
-            runtime: runtime,
-            auth: auth,
-            iroh: iroh,
-            irx: irxEnabled ? irx : nil,
-            buildCompatibilityPolicy: buildCompatibilityPolicy,
-            reachability: reachability,
-            diagnosticLog: diagnosticLog
+        return (
+            root: AppCompositionRoot(
+                runtime: runtime,
+                auth: auth,
+                iroh: iroh,
+                irx: irxEnabled ? irx : nil,
+                buildCompatibilityPolicy: buildCompatibilityPolicy,
+                reachability: reachability,
+                diagnosticLog: diagnosticLog
+            ),
+            dot: dotEnabled ? dot : nil
         )
     }()
 
@@ -187,6 +236,11 @@ struct cmuxApp: App {
                 // background-and-return.
                 .onChange(of: scenePhase, initial: true) { _, newPhase in
                     Self.root.handleScenePhase(newPhase)
+                    if newPhase == .active, let dot = Self.dot {
+                        // Foreground kick: dot engines redial dead sessions
+                        // now (iOS suspension pauses the leg watchdogs).
+                        Task { await dot.didBecomeActive() }
+                    }
                 }
         }
     }
@@ -208,7 +262,9 @@ struct cmuxApp: App {
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
-                if let irx = Self.root.irx {
+                if let dot = Self.dot {
+                    await dot.didBecomeActive()
+                } else if let irx = Self.root.irx {
                     await irx.didBecomeActive()
                 } else {
                     await Self.root.iroh.prepareForConnection()
