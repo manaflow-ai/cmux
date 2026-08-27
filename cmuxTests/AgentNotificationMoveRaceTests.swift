@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxControlSocket
 import CmuxSettings
 import Foundation
