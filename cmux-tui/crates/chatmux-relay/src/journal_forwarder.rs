@@ -1904,6 +1904,31 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn pooled_arm_wakes_are_coalesced_while_the_flusher_is_busy() {
+        let (root, path) = cursor_test_path("pool-arm-coalesce").await;
+        let (shared, mut cues) = test_shared(String::from("http://127.0.0.1:9"), path);
+        let generation = Some(String::from("gen_a"));
+        for sequence in 1..=3 {
+            enqueue_pending(
+                &shared,
+                "alpha",
+                "alpha",
+                &generation,
+                record("gen_a", &sequence.to_string()),
+            );
+        }
+
+        let mut arms = 0;
+        while let Ok(cue) = cues.try_recv() {
+            assert!(matches!(cue, FlushWake::Arm));
+            arms += 1;
+        }
+        assert_eq!(arms, 1, "repeated arm requests must use one pending wake");
+        remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn pooled_threshold_drains_an_exact_batch_and_defers_while_posting() {
         let (root, path) = cursor_test_path("pool-threshold").await;
         let (shared, mut cues) = test_shared(String::from("http://127.0.0.1:9"), path);
