@@ -51,6 +51,8 @@ const MAX_TARBALL_BYTES = 256 * 1024 * 1024;
 const MAX_METADATA_BYTES = 1024 * 1024;
 const REGISTRY_TIMEOUT_MS = 30_000;
 const STAGING_MAX_AGE_MS = 60 * 60 * 1000;
+const CACHE_LOCK_ATTEMPTS = 3;
+const MIN_NODE_MAJOR = 18;
 
 function fail(message) {
   console.error(`cmux: ${message}`);
@@ -200,58 +202,137 @@ function cacheLockPath() {
   return path.join(platformRoot(), ".update.lock");
 }
 
-function tryAcquireCacheLock() {
+function cacheLockOwnerPath() {
+  return path.join(cacheLockPath(), "owner");
+}
+
+function newCacheLockOwner() {
+  const token = `${process.pid}-${Date.now().toString(36)}-${crypto
+    .randomBytes(16)
+    .toString("hex")}`;
+  return {
+    pid: process.pid,
+    token,
+    raw: `${process.pid}\n${token}\n`,
+  };
+}
+
+function readCacheLockOwner() {
   try {
-    fs.mkdirSync(cacheLockPath(), { recursive: false });
-    fs.writeFileSync(path.join(cacheLockPath(), "pid"), `${process.pid}\n`);
-    return true;
+    const raw = fs.readFileSync(cacheLockOwnerPath(), "utf8");
+    const lines = raw.trim().split(/\s+/);
+    const pid = Number.parseInt(lines[0], 10);
+    const token = lines[1];
+    if (!Number.isInteger(pid) || pid <= 0 || !token) return null;
+    return { pid, token, raw };
   } catch {
-    try {
-      if (!fs.existsSync(path.join(cacheLockPath(), "pid"))) {
-        fs.rmSync(cacheLockPath(), { recursive: true, force: true });
-      }
-    } catch {}
-    try {
-      const pid = Number.parseInt(
-        fs.readFileSync(path.join(cacheLockPath(), "pid"), "utf8"),
-        10
-      );
-      process.kill(pid, 0);
-      return false;
-    } catch (error) {
-      if (!error || error.code !== "ESRCH") return false;
-      try {
-        fs.rmSync(cacheLockPath(), { recursive: true, force: true });
-        fs.mkdirSync(cacheLockPath(), { recursive: false });
-        fs.writeFileSync(path.join(cacheLockPath(), "pid"), `${process.pid}\n`);
-        return true;
-      } catch {
-        return false;
-      }
-    }
+    return null;
   }
 }
 
-function releaseCacheLock() {
+function processIsAlive(pid) {
   try {
-    fs.rmSync(cacheLockPath(), { recursive: true, force: true });
-  } catch {}
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !error || error.code !== "ESRCH";
+  }
+}
+
+// Remove a lock only when its owner file still matches the observed token.
+// The comparison prevents a stale-lock cleanup from deleting a newer owner.
+function removeCacheLockIfOwned(owner, allowEmpty = false) {
+  let current;
+  try {
+    current = fs.readFileSync(cacheLockOwnerPath(), "utf8");
+  } catch {
+    if (!allowEmpty) return false;
+    try {
+      fs.rmSync(cacheLockPath(), { recursive: true, force: false });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (current !== owner.raw) return false;
+  try {
+    fs.rmSync(cacheLockPath(), { recursive: true, force: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function tryAcquireCacheLock() {
+  const lockPath = cacheLockPath();
+  try {
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  } catch {
+    return null;
+  }
+
+  for (let attempt = 0; attempt < CACHE_LOCK_ATTEMPTS; attempt++) {
+    const owner = newCacheLockOwner();
+    let created = false;
+    try {
+      fs.mkdirSync(lockPath, { recursive: false });
+      created = true;
+      fs.writeFileSync(cacheLockOwnerPath(), owner.raw, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      return owner;
+    } catch {
+      // If this attempt created the directory but could not publish its owner,
+      // clean up only that empty lock. Never remove an owner published by a
+      // different process.
+      if (created) {
+        removeCacheLockIfOwned(owner, true);
+        return null;
+      }
+    }
+
+    const current = readCacheLockOwner();
+    // Unknown or malformed lock state is retained conservatively. A later
+    // invocation can recover it after an operator inspects the cache.
+    if (!current || processIsAlive(current.pid)) return null;
+    if (!removeCacheLockIfOwned(current)) return null;
+  }
+  return null;
+}
+
+function releaseCacheLock(owner) {
+  if (!owner) return;
+  removeCacheLockIfOwned(owner);
 }
 
 function acquireVersionLease(version) {
   const leaseRoot = path.join(platformRoot(), "v", version, ".active");
-  const lease = path.join(
-    leaseRoot,
-    `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-  );
-  try {
-    fs.mkdirSync(leaseRoot, { recursive: true });
-    fs.mkdirSync(lease, { recursive: false });
-    fs.writeFileSync(path.join(lease, "pid"), `${process.pid}\n`);
-    return lease;
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < CACHE_LOCK_ATTEMPTS; attempt++) {
+    const lock = tryAcquireCacheLock();
+    if (!lock) continue;
+    let lease = null;
+    try {
+      lease = path.join(
+        leaseRoot,
+        `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+      );
+      fs.mkdirSync(leaseRoot, { recursive: true });
+      fs.mkdirSync(lease, { recursive: false });
+      fs.writeFileSync(path.join(lease, "pid"), `${process.pid}\n`);
+      return lease;
+    } catch {
+      if (lease) {
+        try {
+          fs.rmSync(lease, { recursive: true, force: true });
+        } catch {}
+      }
+    } finally {
+      releaseCacheLock(lock);
+    }
   }
+  return null;
 }
 
 function releaseVersionLease(lease) {
@@ -410,7 +491,21 @@ function npmrcAuthToken(url) {
   return null;
 }
 
+function requireNetworkRuntime() {
+  const nodeMajor = Number.parseInt(String(process.versions.node).split(".", 1)[0], 10);
+  const hasFetch = typeof fetch === "function";
+  const hasAbortTimeout =
+    typeof AbortSignal === "function" && typeof AbortSignal.timeout === "function";
+  if (nodeMajor < MIN_NODE_MAJOR || !hasFetch || !hasAbortTimeout) {
+    fail(
+      "network operations require Node.js 18 or newer with global fetch and " +
+        "AbortSignal.timeout"
+    );
+  }
+}
+
 async function fetchJson(url) {
+  requireNetworkRuntime();
   const response = await fetch(url, {
     headers: registryHeaders(url, "application/json"),
     signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
@@ -641,7 +736,8 @@ async function downloadVersion(pkg, version) {
 }
 
 function pruneCache(keepVersion) {
-  if (!tryAcquireCacheLock()) return;
+  const lock = tryAcquireCacheLock();
+  if (!lock) return false;
   const root = path.join(platformRoot(), "v");
   try {
     const managed = fs
@@ -656,10 +752,12 @@ function pruneCache(keepVersion) {
         fs.rmSync(path.join(root, version), { recursive: true, force: true });
       } catch {}
     }
+    return true;
   } catch {
     // Cache cleanup is best effort and must never hide a successful update.
+    return false;
   } finally {
-    releaseCacheLock();
+    releaseCacheLock(lock);
   }
 }
 
@@ -740,13 +838,14 @@ async function runUpdate(pkg, args) {
 }
 
 async function main() {
-  const pkg = platformPackage();
   const args = process.argv.slice(2);
+  const override = process.env.CMUX_TUI_BIN;
 
   // Owned by the shim, not the Rust CLI: `update` must work even when no
   // binary is present, and must never go through npm. spec/cli.md has no
   // top-level `update` verb, so nothing is shadowed.
   if (args[0] === "update") {
+    const pkg = platformPackage();
     try {
       cleanupStaging();
       await runUpdate(pkg, args.slice(1));
@@ -756,16 +855,22 @@ async function main() {
     return;
   }
 
+  // An explicit development binary is independent of the published platform
+  // matrix. Resolve it before checking process.platform so unsupported hosts
+  // can still run with CMUX_TUI_BIN.
+  const pkg = override ? null : platformPackage();
   let lease = null;
   let exitCode = 1;
   try {
     cleanupStaging();
-    const override = process.env.CMUX_TUI_BIN;
     const wanted = override ? null : wantedVersion(pkg);
-    // Hold a per-process lease independently of the update lock. An update
-    // may already own that lock while pruning another version, and the
-    // binary must remain present through resolution and spawn.
+    // Lease creation serializes with pruning. If another process owns the
+    // lock, fail closed rather than launching an unleased binary that a prune
+    // can remove while it is running.
     lease = wanted ? acquireVersionLease(wanted) : null;
+    if (wanted && !lease) {
+      fail("could not reserve the native binary for launch");
+    }
     if (lease) process.once("exit", () => releaseVersionLease(lease));
     const binPath = await resolveBinary(pkg, wanted);
     if (wanted) pruneCache(wanted);
