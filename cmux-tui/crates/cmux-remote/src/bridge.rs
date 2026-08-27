@@ -35,7 +35,7 @@ impl ForwardConnections {
     }
 
     fn abort_all(&self) {
-        if let Ok(tasks) = self.tasks.try_lock() {
+        if let Ok(mut tasks) = self.tasks.try_lock() {
             tasks.abort_all();
         }
     }
