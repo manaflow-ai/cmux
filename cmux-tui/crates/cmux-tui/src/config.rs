@@ -1552,12 +1552,13 @@ struct SidebarViewResolution<'a> {
 }
 
 /// Column sizing of a resolved node, for bottom-up split-group defaults.
-fn sidebar_node_metrics(node: &SidebarLayoutNode, views: &[SidebarViewSpec]) -> (u16, u16) {
+/// A zero maximum means that the node is unbounded.
+fn sidebar_node_metrics(node: &SidebarLayoutNode, views: &[SidebarViewSpec]) -> (u16, u16, u16) {
     match node {
-        SidebarLayoutNode::Leaf(index) => {
-            views.get(*index).map_or((22, 20), |view| (view.width, view.collapse_priority))
-        }
-        SidebarLayoutNode::Split(split) => (split.width, split.collapse_priority),
+        SidebarLayoutNode::Leaf(index) => views
+            .get(*index)
+            .map_or((22, 0, 20), |view| (view.width, view.max_width, view.collapse_priority)),
+        SidebarLayoutNode::Split(split) => (split.width, split.max_width, split.collapse_priority),
     }
 }
 
@@ -1649,19 +1650,31 @@ fn resolve_sidebar_view_entry(
                 children.pop()
             }
             _ => {
-                let (default_width, default_priority) = children
-                    .iter()
-                    .map(|child| sidebar_node_metrics(child, &state.views))
-                    .fold((10u16, 0u16), |(width, priority), (child_width, child_priority)| {
-                        (width.max(child_width), priority.max(child_priority))
-                    });
+                let mut default_width = 10u16;
+                let mut default_max_width = 0u16;
+                let mut has_unlimited_child = false;
+                let mut default_priority = 0u16;
+                for child in &children {
+                    let (child_width, child_max_width, child_priority) =
+                        sidebar_node_metrics(child, &state.views);
+                    default_width = default_width.max(child_width);
+                    default_priority = default_priority.max(child_priority);
+                    if child_max_width == 0 {
+                        has_unlimited_child = true;
+                    } else {
+                        default_max_width = default_max_width.max(child_max_width);
+                    }
+                }
+                if has_unlimited_child {
+                    default_max_width = 0;
+                }
                 Some(SidebarLayoutNode::Split(SidebarSplitSpec {
                     id,
                     dir,
                     weights,
                     children,
                     width: view.width.map_or(default_width, |width| width.clamp(10, 60)),
-                    max_width: view.max_width.unwrap_or(0),
+                    max_width: view.max_width.unwrap_or(default_max_width),
                     collapse_priority: view.collapse_priority.unwrap_or(default_priority),
                 }))
             }
@@ -1679,12 +1692,16 @@ fn resolve_sidebar_view_entry(
 }
 
 fn collect_sidebar_view_ids(views: &[RawSidebarView], ids: &mut HashSet<String>) {
-    for view in views {
+    let mut pending = views.iter().map(|view| (view, 0usize)).collect::<Vec<_>>();
+    while let Some((view, depth)) = pending.pop() {
         if let Some(id) = view.id.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
             ids.insert(id.to_string());
         }
+        if depth >= MAX_SIDEBAR_SPLIT_DEPTH {
+            continue;
+        }
         if let Some(panes) = view.panes.as_deref() {
-            collect_sidebar_view_ids(panes, ids);
+            pending.extend(panes.iter().rev().map(|pane| (pane, depth + 1)));
         }
     }
 }
@@ -9033,6 +9050,7 @@ mod tests {
                     vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)]
                 );
                 assert_eq!(split.width, 22, "defaults to the widest pane");
+                assert_eq!(split.max_width, 0, "an unbounded pane keeps the group unbounded");
                 assert_eq!(split.collapse_priority, 30, "defaults to the highest pane priority");
             }
             node => panic!("expected a split column, got {node:?}"),
@@ -9109,6 +9127,43 @@ mod tests {
         group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
         let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
         assert!(resolved.views.is_empty());
+    }
+
+    #[test]
+    fn split_group_defaults_max_width_to_largest_finite_child() {
+        let mut narrow = raw_leaf("narrow", &["workspaces"]);
+        narrow.max_width = Some(31);
+        let mut wide = raw_leaf("wide", &["agents"]);
+        wide.max_width = Some(47);
+        let mut group = raw_leaf("group", &[]);
+        group.levels = None;
+        group.split = Some("horizontal".to_string());
+        group.panes = Some(vec![narrow, wide]);
+
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => assert_eq!(split.max_width, 47),
+            node => panic!("expected a split column, got {node:?}"),
+        }
+    }
+
+    #[test]
+    fn sidebar_view_id_prepass_stops_at_the_split_depth_limit() {
+        let mut nested = raw_leaf("leaf-too-deep", &["tabs"]);
+        for depth in (0..=MAX_SIDEBAR_SPLIT_DEPTH).rev() {
+            let mut group = raw_leaf(&format!("split-{depth}"), &[]);
+            group.levels = None;
+            group.split = Some("vertical".to_string());
+            group.panes = Some(vec![nested]);
+            nested = group;
+        }
+
+        let mut ids = HashSet::new();
+        collect_sidebar_view_ids(&[nested], &mut ids);
+        for depth in 0..=MAX_SIDEBAR_SPLIT_DEPTH {
+            assert!(ids.contains(&format!("split-{depth}")));
+        }
+        assert!(!ids.contains("leaf-too-deep"));
     }
 
     #[test]
