@@ -405,6 +405,56 @@ import Testing
         #expect(snapshot.remoteVOutput?.contains("https://github.com/system/repo.git") == true)
     }
 
+    @Test func gitExecPathDoesNotFallThroughToPathSystemConfig() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let execPrefix = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-authoritative-exec-\(UUID().uuidString)", isDirectory: true)
+        let execPath = execPrefix.appendingPathComponent("libexec/git-core", isDirectory: true)
+        let pathPrefix = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-authoritative-path-\(UUID().uuidString)", isDirectory: true)
+        let pathBin = pathPrefix.appendingPathComponent("bin", isDirectory: true)
+        let pathExecutable = pathBin.appendingPathComponent("git")
+        let pathSystemConfigURL = pathPrefix.appendingPathComponent("etc/gitconfig")
+        let execSystemConfigURL = execPrefix.appendingPathComponent("etc/gitconfig")
+        try FileManager.default.createDirectory(at: execPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: pathBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: pathSystemConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: pathExecutable)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: pathExecutable.path
+        )
+        defer {
+            try? FileManager.default.removeItem(at: execPrefix)
+            try? FileManager.default.removeItem(at: pathPrefix)
+        }
+        try """
+        [remote "origin"]
+            url = https://github.com/path-fallback/repo.git
+        """.write(to: pathSystemConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "false",
+                "GIT_EXEC_PATH": execPath.path,
+                "PATH": pathBin.path,
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput == nil)
+        #expect(snapshot.configStatuses.keys.contains(execSystemConfigURL.standardizedFileURL.path))
+        #expect(!snapshot.configURLs.contains(pathSystemConfigURL.standardizedFileURL))
+    }
+
     @Test func readsXDGGlobalConfigBeforeHomeWhenXDGIsEmpty() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
