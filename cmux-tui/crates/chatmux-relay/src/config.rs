@@ -1,4 +1,5 @@
-//! Local pairing config: `~/.config/chatmux-relay/config.json` (0600).
+//! Local pairing config: `~/.config/chatmux-relay/config.json` (owner-readable,
+//! normally 0600).
 //!
 //! Byte-level contract mirror of the JS relay (`packages/relay/bin/
 //! cmux-relay.mjs` `loadConfig`/`saveConfig`): pretty-printed JSON with a
@@ -143,10 +144,11 @@ fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
                 "relay config is not owned by the current user",
             ));
         }
-        if metadata.mode() & 0o777 != 0o600 {
+        let mode = metadata.mode();
+        if mode & 0o077 != 0 || mode & 0o400 == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "relay config permissions are not 0600",
+                "relay config is not owner-readable and private",
             ));
         }
     }
