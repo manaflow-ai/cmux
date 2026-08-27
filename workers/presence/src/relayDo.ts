@@ -88,18 +88,26 @@ function legKey(legId: number): string {
   return `leg:${legId}`;
 }
 
-function spillPrefix(dstLegId: number, src: string): string {
-  return `spill:${dstLegId}:${src}:`;
+/** Ring/spill destination key: host-destined streams are keyed by ROLE ("h"),
+ * not by the host's leg id, so phone uploads buffered while the Mac is away
+ * survive into the host's resume; phone-destined streams key on the phone's
+ * stable leg id. */
+function destKey(role: Role, legId: number): string {
+  return role === "host" ? "h" : String(legId);
 }
 
-function spillKey(dstLegId: number, src: string, seq: number): string {
-  return `${spillPrefix(dstLegId, src)}${String(seq).padStart(16, "0")}`;
+function spillPrefix(dst: string, src: string): string {
+  return `spill:${dst}:${src}:`;
 }
 
-/** Ring id for the directed stream src→dst. Host source is "h" so phone-leg
- * download rings survive host leg-id churn across host resumes. */
-function ringId(dstLegId: number, src: string): string {
-  return `${dstLegId}<${src}`;
+function spillKey(dst: string, src: string, seq: number): string {
+  return `${spillPrefix(dst, src)}${String(seq).padStart(16, "0")}`;
+}
+
+/** Ring id for the directed stream src→dst. Host is "h" on both axes so
+ * streams survive host leg-id churn across host resumes. */
+function ringId(dst: string, src: string): string {
+  return `${dst}<${src}`;
 }
 
 export class MacRelay extends DurableObject<RelayEnv> {
@@ -247,7 +255,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
       for (const other of this.liveLegs(att.role)) {
         const otherAtt = attachment(other);
         if (other !== ws && otherAtt?.device === att.device) {
-          await this.dropLegState(otherAtt.legId);
+          await this.dropLegState(otherAtt.legId, att.role);
           other.close(CLOSE_SUPERSEDED, "superseded by a new session");
         }
       }
@@ -256,9 +264,17 @@ export class MacRelay extends DurableObject<RelayEnv> {
         for (const other of this.liveLegs("host")) {
           if (other === ws) continue;
           const otherAtt = attachment(other);
-          await this.dropLegState(otherAtt?.legId);
+          await this.dropLegState(otherAtt?.legId, "host");
           other.close(CLOSE_SUPERSEDED, "superseded by a new host");
         }
+        // A fresh host session cannot decrypt frames phones buffered for the
+        // previous host process; clear every host-destined stream so stale
+        // ciphertext never replays into this session.
+        for (const id of [...this.rings.keys()]) {
+          if (id.startsWith("h<")) this.rings.delete(id);
+        }
+        const staleSpill = await this.ctx.storage.list({ prefix: "spill:h:" });
+        if (staleSpill.size > 0) await this.ctx.storage.delete([...staleSpill.keys()]);
       }
       legId = await this.nextLegId();
     }
@@ -340,13 +356,14 @@ export class MacRelay extends DurableObject<RelayEnv> {
     }
 
     // Prove and replay every download stream this leg consumes.
+    const dst = destKey(att.role, legId);
     const acks: Array<{ src: string; ack: number }> =
       att.role === "phone"
         ? [{ src: "h", ack: frame.ack ?? 0 }]
         : Object.entries(frame.acks ?? {}).map(([src, ack]) => ({ src, ack }));
     let replayed = 0;
     for (const { src, ack } of acks) {
-      const proof = await this.provableReplay(legId, src, ack, meta);
+      const proof = await this.provableReplay(dst, src, ack, meta);
       if (proof === null) {
         await this.dropLegState(legId);
         this.send(ws, { t: "resume.failed", reason: "gap not provable" });
@@ -369,14 +386,14 @@ export class MacRelay extends DurableObject<RelayEnv> {
       const listed = new Set(acks.map((entry) => entry.src));
       const unlisted = new Set<string>();
       for (const [id, ring] of this.rings) {
-        const [dst, src] = id.split("<");
-        if (Number(dst) === legId && !listed.has(src!) && ring.lastEnqueued > 0) unlisted.add(src!);
+        const [ringDst, src] = id.split("<");
+        if (ringDst === dst && !listed.has(src!) && ring.lastEnqueued > 0) unlisted.add(src!);
       }
       for (const src of Object.keys(meta.lastEnqueuedBySrc ?? {})) {
         if (!listed.has(src)) unlisted.add(src);
       }
       for (const src of unlisted) {
-        const proof = await this.provableReplay(legId, src, 0, meta);
+        const proof = await this.provableReplay(dst, src, 0, meta);
         if (proof === null) {
           await this.dropLegState(legId);
           this.send(ws, { t: "resume.failed", reason: "gap not provable" });
@@ -399,7 +416,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
     delete meta.detachedAt;
     delete meta.lastEnqueuedBySrc;
     await this.ctx.storage.put(legKey(legId), meta);
-    const spilled = await this.ctx.storage.list({ prefix: `spill:${legId}:` });
+    const spilled = await this.ctx.storage.list({ prefix: `spill:${dst}:` });
     if (spilled.size > 0) await this.ctx.storage.delete([...spilled.keys()]);
     return { legId, replayed };
   }
@@ -407,12 +424,12 @@ export class MacRelay extends DurableObject<RelayEnv> {
   /** Frames covering (ack, lastEnqueued] for the stream src→dst, from the
    * in-memory ring plus any spill. Null when coverage cannot be proven. */
   private async provableReplay(
-    dstLegId: number,
+    dst: string,
     src: string,
     ack: number,
     meta: LegMeta,
   ): Promise<ArrayBuffer[] | null> {
-    const ring = this.rings.get(ringId(dstLegId, src));
+    const ring = this.rings.get(ringId(dst, src));
     if (ring) {
       if (!ring.coversGap(ack)) return null;
       return ring.replayAfter(ack);
@@ -427,11 +444,11 @@ export class MacRelay extends DurableObject<RelayEnv> {
     }
     if (ack > persisted) return null;
     if (ack === persisted) return [];
-    const spilled = await this.ctx.storage.list<ArrayBuffer>({ prefix: spillPrefix(dstLegId, src) });
+    const spilled = await this.ctx.storage.list<ArrayBuffer>({ prefix: spillPrefix(dst, src) });
     const frames: ArrayBuffer[] = [];
     let expected = ack + 1;
     for (const [key, value] of spilled) {
-      const seq = Number(key.slice(spillPrefix(dstLegId, src).length));
+      const seq = Number(key.slice(spillPrefix(dst, src).length));
       if (seq <= ack) continue;
       if (seq !== expected) return null;
       frames.push(value);
@@ -439,7 +456,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
     }
     if (expected !== persisted + 1) return null;
     // Rebuild the ring so post-resume acks prune correctly.
-    const rebuilt = this.ring(dstLegId, src);
+    const rebuilt = this.ring(dst, src);
     let seq = ack + 1;
     for (const data of frames) {
       rebuilt.push(seq, data);
@@ -465,7 +482,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
     if (att.legId === undefined) return;
     if (att.role === "host" && leg === undefined) return;
     const src = att.role === "phone" ? "h" : String(leg);
-    this.rings.get(ringId(att.legId, src))?.ackTo(seq);
+    this.rings.get(ringId(destKey(att.role, att.legId), src))?.ackTo(seq);
   }
 
   // ---- data frames ----
@@ -482,24 +499,22 @@ export class MacRelay extends DurableObject<RelayEnv> {
     }
     if (att.role === "phone") {
       // Uploads go to the host; stamp the source leg id before forwarding.
+      // The ring is keyed by ROLE ("h"), so uploads while the Mac is briefly
+      // away buffer for its resume instead of dropping.
       rewriteLegId(frame, att.legId);
+      const ring = this.ring("h", String(att.legId));
+      ring.push(header.seq, frame);
       const host = this.hostSocket();
-      const hostAtt = host ? attachment(host) : null;
-      if (hostAtt?.legId !== undefined) {
-        const ring = this.ring(hostAtt.legId, String(att.legId));
-        ring.push(header.seq, frame);
-        this.forward(host!, frame, ring);
-      }
-      // Host absent: drop. The phone learns via peer.offline and the session
-      // layer holds; uploads during a host outage are retransmitted by the
-      // client from its own unacked buffer at the dialect layer.
+      if (host) this.forward(host, frame, ring);
+      this.send(ws, { t: "ackup", seq: ring.lastEnqueued });
       return;
     }
     // Host upload: header.legId names the destination phone leg.
     const dest = this.socketFor(header.legId);
-    const ring = this.ring(header.legId, "h");
+    const ring = this.ring(String(header.legId), "h");
     ring.push(header.seq, frame);
     if (dest) this.forward(dest, frame, ring);
+    this.send(ws, { t: "ackup", seq: ring.lastEnqueued, leg: header.legId });
   }
 
   private forward(ws: WebSocket, frame: ArrayBuffer, ring: ReplayRing): void {
@@ -527,12 +542,13 @@ export class MacRelay extends DurableObject<RelayEnv> {
       // Persist per-source lastEnqueued + spill un-acked frames so a resume
       // stays provable across DO restarts. Oversized frames mark the leg
       // broken instead (resume will fail closed).
+      const dstId = destKey(att.role, legId);
       const lastEnqueuedBySrc: Record<string, number> = {};
       let broken = false;
       const spillWrites: Record<string, ArrayBuffer> = {};
       for (const [id, ring] of this.rings) {
         const [dst, src] = id.split("<");
-        if (Number(dst) !== legId) continue;
+        if (dst !== dstId) continue;
         lastEnqueuedBySrc[src!] = ring.lastEnqueued;
         if (ring.broken) broken = true;
         for (const entry of ring.pendingEntries()) {
@@ -540,7 +556,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
             broken = true;
             continue;
           }
-          spillWrites[spillKey(legId, src!, entry.seq)] = entry.frame;
+          spillWrites[spillKey(dstId, src!, entry.seq)] = entry.frame;
         }
       }
       meta.lastEnqueuedBySrc = lastEnqueuedBySrc;
@@ -564,15 +580,29 @@ export class MacRelay extends DurableObject<RelayEnv> {
     }
   }
 
-  private async dropLegState(legId: number | undefined): Promise<void> {
+  private async dropLegState(legId: number | undefined, role?: Role): Promise<void> {
     if (legId === undefined) return;
     this.socketsByLeg.delete(legId);
+    const meta = role === undefined ? await this.ctx.storage.get<LegMeta>(legKey(legId)) : null;
+    const resolvedRole: Role = role ?? meta?.role ?? "phone";
+    const dst = destKey(resolvedRole, legId);
     for (const id of [...this.rings.keys()]) {
-      if (Number(id.split("<")[0]) === legId) this.rings.delete(id);
+      const [ringDst, src] = id.split("<");
+      // Drop the leg's download streams; for a phone leg also drop its upload
+      // stream into the host ring (a fresh session restarts seq at 1 — stale
+      // frames from the dead session must not replay into a host resume).
+      if (ringDst === dst || (resolvedRole === "phone" && ringDst === "h" && src === String(legId))) {
+        this.rings.delete(id);
+      }
     }
     await this.ctx.storage.delete(legKey(legId));
-    const spilled = await this.ctx.storage.list({ prefix: `spill:${legId}:` });
-    if (spilled.size > 0) await this.ctx.storage.delete([...spilled.keys()]);
+    const prefixes = resolvedRole === "phone"
+      ? [`spill:${dst}:`, `spill:h:${legId}:`]
+      : [`spill:${dst}:`];
+    for (const prefix of prefixes) {
+      const spilled = await this.ctx.storage.list({ prefix });
+      if (spilled.size > 0) await this.ctx.storage.delete([...spilled.keys()]);
+    }
   }
 
   // ---- alarm: auth deadlines, hello timeouts, resume-state GC ----
@@ -635,8 +665,8 @@ export class MacRelay extends DurableObject<RelayEnv> {
 
   // ---- helpers ----
 
-  private ring(dstLegId: number, src: string): ReplayRing {
-    const id = ringId(dstLegId, src);
+  private ring(dst: string, src: string): ReplayRing {
+    const id = ringId(dst, src);
     let ring = this.rings.get(id);
     if (!ring) {
       ring = new ReplayRing();
