@@ -50,6 +50,7 @@ const PUBLISHED_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const MAX_TARBALL_BYTES = 256 * 1024 * 1024;
 const MAX_METADATA_BYTES = 1024 * 1024;
 const REGISTRY_TIMEOUT_MS = 30_000;
+const STAGING_MAX_AGE_MS = 60 * 60 * 1000;
 
 function fail(message) {
   console.error(`cmux: ${message}`);
@@ -279,6 +280,43 @@ function versionHasActiveLease(versionDir) {
   } catch {
     // Cleanup must never remove a version when lease state is unreadable.
     return true;
+  }
+}
+
+function cleanupStaging() {
+  const root = path.join(platformRoot(), "tmp");
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const staging = path.join(root, entry.name);
+    let stat;
+    try {
+      stat = fs.statSync(staging);
+    } catch {
+      continue;
+    }
+    const age = now - stat.mtimeMs;
+    const match = /-(\d+)-[a-z0-9]+$/.exec(entry.name);
+    let active = false;
+    if (match) {
+      const pid = Number.parseInt(match[1], 10);
+      try {
+        process.kill(pid, 0);
+        active = true;
+      } catch (error) {
+        active = !error || error.code !== "ESRCH";
+      }
+    }
+    if (active && age < STAGING_MAX_AGE_MS) continue;
+    try {
+      fs.rmSync(staging, { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -538,12 +576,13 @@ function wantedVersion(pkg) {
   return pinned;
 }
 
-async function resolveBinary(pkg, wanted = wantedVersion(pkg)) {
+async function resolveBinary(pkg, wanted) {
   const override = process.env.CMUX_TUI_BIN;
   if (override) {
     if (!fs.existsSync(override)) fail(`CMUX_TUI_BIN does not exist: ${override}`);
     return override;
   }
+  if (wanted === undefined || wanted === null) wanted = wantedVersion(pkg);
 
   const installed = installedPackage(pkg);
   if (installed && installed.version === wanted) {
@@ -601,6 +640,7 @@ async function main() {
   // top-level `update` verb, so nothing is shadowed.
   if (args[0] === "update") {
     try {
+      cleanupStaging();
       await runUpdate(pkg, args.slice(1));
     } catch (error) {
       fail(`update failed: ${error.message}`);
@@ -611,11 +651,13 @@ async function main() {
   let lease = null;
   let exitCode = 1;
   try {
-    const wanted = wantedVersion(pkg);
+    cleanupStaging();
+    const override = process.env.CMUX_TUI_BIN;
+    const wanted = override ? null : wantedVersion(pkg);
     // Hold a per-process lease independently of the update lock. An update
     // may already own that lock while pruning another version, and the
     // binary must remain present through resolution and spawn.
-    lease = acquireVersionLease(wanted);
+    lease = wanted ? acquireVersionLease(wanted) : null;
     if (lease) process.once("exit", () => releaseVersionLease(lease));
     const binPath = await resolveBinary(pkg, wanted);
     const result = spawnSync(binPath, args, { stdio: "inherit" });
