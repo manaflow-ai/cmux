@@ -91,7 +91,7 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                     throw CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
                 }
                 if let pendingStop {
-                    await pendingStop.value
+                    _ = await pendingStop.value
                 }
                 try Task.checkCancellation()
                 try await session.start()

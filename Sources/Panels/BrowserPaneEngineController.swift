@@ -94,6 +94,7 @@ final class BrowserPaneEngineController {
         let documentScripts = (adapter as? (any ChromiumEngineAdapting))?
             .documentScriptDefinitions() ?? []
         if let oldCEF = adapter as? CEFBrowserPaneEngineAdapter {
+            didFallbackFromCEF = false
             oldCEF.onSnapshot = nil
             let stopTask = Task { @MainActor in
                 await oldCEF.stopAndWait()
