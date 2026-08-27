@@ -52,6 +52,7 @@ import Testing
         "../repo",
         "file:///tmp/repo.git",
         "file:/tmp/repo.git",
+        "ext::foo",
         "ftp://host/repo.git",
         "ftp:host/repo.git",
         "svn:host/repo.git",
@@ -552,6 +553,31 @@ import Testing
             ]
         )
 
+        #expect(snapshot.remoteVOutput == nil)
+    }
+
+    @Test func runtimeGitConfigOverridesFailClosed() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/file/repo.git
+        """)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "remote.origin.url",
+                "GIT_CONFIG_VALUE_0": "https://github.com/runtime/repo.git",
+            ]
+        )
+
+        #expect(!snapshot.isComplete)
         #expect(snapshot.remoteVOutput == nil)
     }
 
