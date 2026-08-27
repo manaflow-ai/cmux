@@ -29,14 +29,28 @@ extension GitMetadataService {
             return nil
         }
 
-        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
+        let repositoryConfigURLs = gitConfigURLs(
             repository: repository,
             environment: environment
         )
-            + gitlinkMetadataWatchPaths(
-                repository: repository,
-                safetyConfiguration: safetyConfiguration
-            )
+        let repositoryRoots = [
+            repository.workTreeRoot,
+            repository.gitDirectory,
+            repository.commonDirectory
+        ].map(nativeStandardizedPath)
+        let sharedGlobalConfigURLs = repositoryConfigURLs.filter { configURL in
+            let path = nativeStandardizedPath(configURL.path)
+            return !repositoryRoots.contains { isSameOrInside(path, root: $0) }
+        }
+        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
+            repository: repository,
+            configURLsOverride: repositoryConfigURLs
+        ) + gitlinkMetadataWatchPaths(
+            repository: repository,
+            safetyConfiguration: safetyConfiguration,
+            environment: environment,
+            sharedGlobalConfigURLs: sharedGlobalConfigURLs
+        )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexExists = FileManager.default.fileExists(atPath: indexPath)
         let header = gitIndexHeaderSummary(indexPath: indexPath)
@@ -158,15 +172,20 @@ extension GitMetadataService {
     /// `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository,
+        configURLsOverride: [URL]? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
+        let configURLs = configURLsOverride ?? gitConfigURLs(
+            repository: repository,
+            environment: environment
+        )
         [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
-        ] + gitConfigURLs(repository: repository, environment: environment).flatMap { configURL in
+        ] + configURLs.flatMap { configURL in
             [
                 configURL.path,
                 configURL.resolvingSymlinksInPath().path
@@ -361,14 +380,34 @@ extension GitMetadataService {
     /// depth wakes the watcher. Cycle-safe via the visited work-tree set.
     nonisolated static func gitlinkMetadataWatchPaths(
         repository: ResolvedGitRepository,
-        safetyConfiguration: GitMetadataSafetyConfiguration
+        safetyConfiguration: GitMetadataSafetyConfiguration,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        sharedGlobalConfigURLs: [URL]? = nil
     ) -> [String] {
+        let sharedGlobalConfigURLs = sharedGlobalConfigURLs ?? {
+            let configURLs = gitConfigURLs(
+                repository: repository,
+                safetyConfiguration: safetyConfiguration,
+                environment: environment
+            )
+            let repositoryRoots = [
+                repository.workTreeRoot,
+                repository.gitDirectory,
+                repository.commonDirectory
+            ].map(nativeStandardizedPath)
+            return configURLs.filter { configURL in
+                let path = nativeStandardizedPath(configURL.path)
+                return !repositoryRoots.contains { isSameOrInside(path, root: $0) }
+            }
+        }()
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
         return gitlinkMetadataWatchPaths(
             repository: repository,
             depth: 0,
             visitedWorkTreeRoots: &visitedWorkTreeRoots,
-            safetyConfiguration: safetyConfiguration
+            safetyConfiguration: safetyConfiguration,
+            environment: environment,
+            sharedGlobalConfigURLs: sharedGlobalConfigURLs
         )
     }
 
@@ -376,7 +415,9 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         depth: Int,
         visitedWorkTreeRoots: inout Set<String>,
-        safetyConfiguration: GitMetadataSafetyConfiguration
+        safetyConfiguration: GitMetadataSafetyConfiguration,
+        environment: [String: String],
+        sharedGlobalConfigURLs: [URL]
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
@@ -399,13 +440,31 @@ extension GitMetadataService {
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
-            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
+            let localConfigURLs = gitConfigURLs(
+                repository: submoduleRepository,
+                safetyConfiguration: safetyConfiguration,
+                configRootURLs: [
+                    URL(fileURLWithPath: submoduleRepository.commonDirectory)
+                        .appendingPathComponent("config"),
+                    URL(fileURLWithPath: submoduleRepository.gitDirectory)
+                        .appendingPathComponent("config"),
+                ],
+                environment: environment
+            )
+            paths.append(
+                contentsOf: gitRepositoryMetadataWatchPaths(
+                    repository: submoduleRepository,
+                    configURLsOverride: sharedGlobalConfigURLs + localConfigURLs
+                )
+            )
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(
                     repository: submoduleRepository,
                     depth: depth + 1,
                     visitedWorkTreeRoots: &visitedWorkTreeRoots,
-                    safetyConfiguration: safetyConfiguration
+                    safetyConfiguration: safetyConfiguration,
+                    environment: environment,
+                    sharedGlobalConfigURLs: sharedGlobalConfigURLs
                 )
             )
         }

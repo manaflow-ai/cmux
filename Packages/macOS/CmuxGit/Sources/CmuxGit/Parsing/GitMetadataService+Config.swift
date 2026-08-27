@@ -387,6 +387,7 @@ extension GitMetadataService {
         fileStatusReader: any GitFileStatusReading = SystemGitFileStatusReader(),
         filesystemLocalityReader: any GitFilesystemLocalityReading =
             SystemGitFilesystemLocalityReader(),
+        configRootURLs: [URL]? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GitRemoteConfigSnapshot {
         var lines: [String] = []
@@ -395,12 +396,12 @@ extension GitMetadataService {
         let commonConfigURL = URL(fileURLWithPath: repository.commonDirectory)
             .appendingPathComponent("config")
         let homeDirectory = gitHomeDirectory(environment: environment)
-        let rootConfigURLs = gitRootConfigURLs(
+        let rootConfigURLs = configRootURLs ?? gitRootConfigURLs(
             repository: repository,
             environment: environment
         )
         let hasRuntimeConfigOverrides: Bool = {
-            let hasConfigParameters = environment["GIT_CONFIG_PARAMETERS"] != nil
+            let hasConfigParameters = environment["GIT_CONFIG_PARAMETERS"]?.isEmpty == false
             guard let rawCount = environment["GIT_CONFIG_COUNT"] else {
                 return hasConfigParameters
             }
@@ -598,12 +599,14 @@ extension GitMetadataService {
     nonisolated static func gitConfigURLs(
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        configRootURLs: [URL]? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [URL] {
         let snapshot = gitRemoteConfigSnapshot(
             repository: repository,
             safetyConfiguration: safetyConfiguration,
             fileStatusReader: SystemGitFileStatusReader(),
+            configRootURLs: configRootURLs,
             environment: environment
         )
         return snapshot.configURLs + snapshot.watchFallbackURLs
