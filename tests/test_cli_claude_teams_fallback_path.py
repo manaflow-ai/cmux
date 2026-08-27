@@ -52,6 +52,10 @@ set -euo pipefail
 exec "$FAKE_CLAUDE_PROVIDER" "$@"
 """,
         )
+        # The production wrapper probes this sibling CLI to verify that the
+        # live surface socket is still owned by cmux. Keep that probe live in
+        # the fixture while leaving the provider itself under our control.
+        make_executable(live_managed_bin / "cmux", "#!/usr/bin/env bash\nexit 0\n")
 
         claude_log = tmp / "claude.log"
         codex_log = tmp / "codex.log"

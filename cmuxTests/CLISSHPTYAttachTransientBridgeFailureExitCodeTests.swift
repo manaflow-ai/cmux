@@ -214,6 +214,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try writeSSHPTYReconnectTestShell(at: fakeSSH, lines: [
             "#!/bin/sh",
             "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"-O\" ]; then",
+            "    exit 0",
+            "  fi",
             "  if [ \"$arg\" = \"-G\" ]; then",
             "    printf 'controlpath /tmp/cmux-ssh-%s-test-control\\n' \"$(id -u)\"",
             "    exit 0",
@@ -291,6 +294,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try writeSSHPTYReconnectTestShell(at: fakeAuth, lines: [
             "#!/bin/sh",
             "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"-O\" ]; then",
+            "    exit 0",
+            "  fi",
             "  if [ \"$arg\" = \"-G\" ]; then",
             "    printf 'controlpath /tmp/cmux-ssh-%s-test-control\\n' \"$(id -u)\"",
             "    exit 0",

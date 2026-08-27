@@ -857,7 +857,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceID = "33333333-3333-3333-3333-333333333333"
         let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
-        let fakeSSHPath = tempDirectory.appendingPathComponent("ssh").path
+        let fakeExpectPath = tempDirectory.appendingPathComponent("expect").path
         let capturedArgsPath = tempDirectory.appendingPathComponent("ssh-args").path
 
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -868,8 +868,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
           printf '%s\\n' "$arg" >> "$CMUX_FAKE_SSH_ARGS"
         done
         exit 0
-        """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
-        chmod(fakeSSHPath, 0o755)
+        """.write(toFile: fakeExpectPath, atomically: true, encoding: .utf8)
+        chmod(fakeExpectPath, 0o755)
 
         defer {
             Darwin.close(listenerFD)
@@ -933,8 +933,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
 
         let capturedArgs = try String(contentsOfFile: capturedArgsPath, encoding: .utf8)
         let decodedRemoteBootstrap = try XCTUnwrap(decodedFirstEmbeddedStartupScript(capturedArgs), capturedArgs)
