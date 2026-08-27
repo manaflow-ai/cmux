@@ -290,7 +290,7 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
             .joined(separator: "\n")
         try """
         [include]
-        (missingIncludes)
+        \(missingIncludes)
             path = ../remotes.inc
         """.write(
             to: fixture.gitDirectory.appendingPathComponent("config"),
