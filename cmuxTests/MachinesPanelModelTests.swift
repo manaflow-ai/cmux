@@ -307,7 +307,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
         XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
-        XCTAssertEqual(plural?.freeAccessBanner, .none)
+        XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
     }
 
     func testPlanSnapshotFallsBackToEarliestLocalExpiry() {

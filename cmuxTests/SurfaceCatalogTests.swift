@@ -13,6 +13,8 @@ final class SurfaceCatalogTests: XCTestCase {
         var info: SurfaceMachineInfo
         var materialized: [(SurfaceResourceID, SurfaceDestination)] = []
         var ended: [SurfaceProjection] = []
+        /// Every materialize makes a new pane, as real providers do; a fixed id would let
+        /// the catalog's projection set collapse a deliberate second pane into the first.
         var nextPanel = UUID()
 
         init(machine: SurfaceMachineID) {
@@ -24,7 +26,9 @@ final class SurfaceCatalogTests: XCTestCase {
 
         func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
             materialized.append((resource.id, destination))
-            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: nextPanel)
+            let panel = nextPanel
+            nextPanel = UUID()
+            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: panel)
         }
 
         func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
