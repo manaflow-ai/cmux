@@ -1,33 +1,65 @@
 # tint2 dock for the cmux-devbox desktop: launchers (Chrome, Thunar, Ghostty)
-# and a taskbar, no clock. Bottom panel, dark, matches the chatmux desktop
-# layout. Launchers and icons live under /etc/cmux because Blaxel's rootfs
-# slimming strips /usr/share/applications and the raster icon themes.
-
-panel_items = LT
-panel_position = bottom center horizontal
-panel_size = 100% 36
-panel_margin = 0 0
-panel_padding = 6 3 6
-panel_background_id = 1
-panel_layer = top
-wm_menu = 1
+# and a taskbar, no clock. Bottom panel, dark, same structure as the chatmux
+# desktop template (backgrounds first, explicit background ids). Launchers and
+# icons live under /etc/cmux because Blaxel's rootfs slimming strips
+# /usr/share/applications and the raster icon themes.
 
 # Background 1: panel
 rounded = 0
 border_width = 0
 background_color = #14161c 90
-border_color = #14161c 0
+border_color = #000000 0
 
-launcher_padding = 4 2 8
-launcher_icon_size = 26
+# Background 2: active task
+rounded = 6
+border_width = 0
+background_color = #3a3a3a 90
+border_color = #000000 0
+
+# Background 3: hovered task
+rounded = 6
+border_width = 0
+background_color = #2a2a2a 90
+border_color = #000000 0
+
+#--- Panel
+panel_items = LT
+panel_position = bottom center horizontal
+panel_size = 100% 40
+panel_background_id = 1
+panel_padding = 8 4 8
+panel_layer = top
+wm_menu = 1
+panel_monitor = all
+strut_policy = follow_size
+
+#--- Launcher
+launcher_padding = 4 2 6
+launcher_background_id = 0
+launcher_icon_size = 28
+launcher_icon_theme = Adwaita
+launcher_icon_theme_override = 0
+startup_notifications = 0
 launcher_item_app = /etc/cmux/apps/google-chrome-cmux.desktop
 launcher_item_app = /etc/cmux/apps/thunar-cmux.desktop
 launcher_item_app = /etc/cmux/apps/ghostty-cmux.desktop
 
+#--- Taskbar
 taskbar_mode = single_desktop
 taskbar_padding = 6 2 6
-task_maximum_size = 220 30
-task_padding = 8 3
+taskbar_background_id = 0
+taskbar_name = 0
+task_maximum_size = 180 32
+task_padding = 8 2 6
 task_text = 1
 task_icon = 1
+task_centered = 1
+task_font = DejaVu Sans 9
 task_font_color = #d8dee9 100
+task_background_id = 0
+task_active_background_id = 2
+task_hover_background_id = 3
+mouse_left = toggle_iconify
+mouse_middle = close
+mouse_scroll_up = toggle
+mouse_scroll_down = iconify
