@@ -52,6 +52,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     // Home boundary for safe external creation watches; injected with the
     // process home by the composition root.
     nonisolated let creationWatchHomeDirectory: String
+    // Off-main snapshots for missing config creation-watch targets.
+    nonisolated let creationWatchPathSnapshotter: CreationWatchPathSnapshotter
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
@@ -82,6 +84,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataCreationWatcherTargetExistsByPath: [String: Bool] = [:]
     var workspaceGitMetadataCreationWatchPathsByProbeKey: [WorkspaceGitProbeKey: Set<String>] = [:]
     var workspaceGitMetadataCreationWatchAllowedRootsByProbeKey: [WorkspaceGitProbeKey: [String]] = [:]
+    var workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey: [WorkspaceGitProbeKey: UInt64] = [:]
+    var workspaceGitMetadataCreationWatchUpdateGeneration: UInt64 = 0
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
     var workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey: [WorkspaceGitMetadataWatchedPathsKey: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
@@ -127,6 +131,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         self.probeLimiter = probeLimiter
         self.clock = clock
         self.creationWatchFileManager = creationWatchFileManager
+        self.creationWatchPathSnapshotter = CreationWatchPathSnapshotter(
+            fileManager: creationWatchFileManager
+        )
         self.creationWatchHomeDirectory =
             creationWatchHomeDirectory
                 ?? FileWatchPathResolver(fileManager: creationWatchFileManager).homeDirectoryPath
@@ -352,6 +359,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             .union(workspaceGitProbeTasksByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitTrackedDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataWatcherSourceDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             clearWorkspaceGitProbe(key)
         }
@@ -376,6 +384,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             .union(workspaceGitProbeTasksByKey.keys)
             .union(workspaceGitTrackedDirectoryByKey.keys)
             .union(workspaceGitMetadataWatcherSourceDirectoryByKey.keys)
+            .union(workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.keys)
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }
