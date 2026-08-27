@@ -241,7 +241,12 @@ final class MobileHostIrxRuntime {
                         socketURL: controlURL
                             .appendingPathComponent("v1/control/socket"),
                         endpointIDHex: identity.endpointIDHex,
-                        wantPasses: true,
+                        // Phase A: passes stay on the HTTPS autopilot (with
+                        // the stale-connection retry). The broker mint
+                        // requires an endpoint-signed proof for non-legacy
+                        // namespaces, which a bearer-only proxy cannot
+                        // satisfy; flip when proof pass-through ships.
+                        wantPasses: false,
                         cacheDirectory: stateDir
                     ),
                     accessToken: { [weak auth] in
