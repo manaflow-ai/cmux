@@ -72,6 +72,22 @@ struct FileDropOverlayViewTests {
         }
     }
 
+    private final class MouseEventSpyView: NSView {
+        var mouseCalls: [String] = []
+
+        override func mouseDown(with event: NSEvent) {
+            mouseCalls.append("down")
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            mouseCalls.append("dragged")
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            mouseCalls.append("up")
+        }
+    }
+
     private final class MockDraggingInfo: NSObject, NSDraggingInfo {
         let draggingDestinationWindow: NSWindow?
         let draggingSourceOperationMask: NSDragOperation
@@ -318,6 +334,74 @@ struct FileDropOverlayViewTests {
         #expect(
             webView.dragCalls == ["entered", "prepare", "perform"],
             "Rejected text drops should not be recorded as performed or receive a text-route conclude"
+        )
+    }
+
+    @Test("Forwarded mouse-up stays with the original drag target")
+    func forwardedMouseUpUsesOriginalTargetAfterPhysicalRelease() throws {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
+        window.contentView = contentView
+        let originalTarget = MouseEventSpyView(frame: NSRect(x: 0, y: 0, width: 210, height: 240))
+        let underCursorTarget = MouseEventSpyView(frame: NSRect(x: 210, y: 0, width: 210, height: 240))
+        contentView.addSubview(originalTarget)
+        contentView.addSubview(underCursorTarget)
+        let overlay = FileDropOverlayView(frame: contentView.bounds)
+        contentView.addSubview(overlay, positioned: .above, relativeTo: nil)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        let downLocation = originalTarget.convert(
+            NSPoint(x: originalTarget.bounds.midX, y: originalTarget.bounds.midY),
+            to: nil
+        )
+        let upLocation = underCursorTarget.convert(
+            NSPoint(x: underCursorTarget.bounds.midX, y: underCursorTarget.bounds.midY),
+            to: nil
+        )
+        let down = try #require(Self.mouseEvent(type: .leftMouseDown, location: downLocation, window: window))
+        let up = try #require(Self.mouseEvent(type: .leftMouseUp, location: upLocation, window: window))
+
+        overlay.mouseDown(with: down)
+        overlay.mouseUp(with: up)
+
+        #expect(
+            originalTarget.mouseCalls == ["down", "up"],
+            "AppKit's post-release button mask must not redirect mouse-up away from the original target"
+        )
+        #expect(underCursorTarget.mouseCalls.isEmpty)
+    }
+
+    private static func mouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow
+    ) -> NSEvent? {
+        NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: type == .leftMouseUp ? 0 : 1
         )
     }
 }
