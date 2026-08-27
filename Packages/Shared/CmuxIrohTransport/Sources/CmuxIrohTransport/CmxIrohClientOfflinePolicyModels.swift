@@ -91,6 +91,21 @@ public struct CmxIrohClientOfflinePolicyContext: Sendable {
 struct CmxIrohStoredClientPolicyTarget: Codable, Equatable, Sendable {
     let binding: CmxIrohBrokerBinding
     let pairGrant: CmxIrohPairGrantResponse
+    /// When this phone last completed a fully admitted session with the
+    /// target. Presence lets a later launch dial credential-less (allowlist
+    /// admission) with zero pair-grant fetches. Optional so records written
+    /// before this field decode unchanged.
+    var establishedSessionAt: Date?
+
+    init(
+        binding: CmxIrohBrokerBinding,
+        pairGrant: CmxIrohPairGrantResponse,
+        establishedSessionAt: Date? = nil
+    ) {
+        self.binding = binding
+        self.pairGrant = pairGrant
+        self.establishedSessionAt = establishedSessionAt
+    }
 }
 
 struct CmxIrohStoredClientPolicyRecord: Codable, Equatable, Sendable {

@@ -261,15 +261,16 @@ struct CmxIrohClientRuntimeTests {
             managedRelayURLs: [fixture.relayURL],
             cachedBinding: CmxIrohBrokerBindingMetadata(binding: localBinding)
         )
+        let broker = TestRevisionedClientBroker(
+            binding: localBinding,
+            discoveries: [rejectedRevision, rejectedRevision],
+            registrationRevision: 2
+        )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [
                 TestIrohEndpoint(identity: fixture.initiator.endpointID),
             ]),
-            broker: TestRevisionedClientBroker(
-                binding: localBinding,
-                discoveries: [rejectedRevision],
-                registrationError: .connectivity
-            ),
+            broker: broker,
             configuration: configuration,
             pendingRevocations: CmxIrohPendingRevocationOutbox(
                 secureStore: TestSecureCredentialStore()
@@ -278,9 +279,22 @@ struct CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
-            try await runtime.start()
+        // The warm caches activate immediately (cache-first). The immediate
+        // authenticated refresh then reads live discovery, which no longer
+        // lists this binding: that authoritative evidence must tear the
+        // activation down instead of being masked by the stale offline
+        // authority.
+        try await runtime.start()
+        await broker.waitUntilRegistrationCount(1)
+        var failedClosed = false
+        for _ in 0 ..< 50_000 {
+            if await runtime.snapshot().state == .failed {
+                failedClosed = true
+                break
+            }
+            await Task.yield()
         }
+        #expect(failedClosed)
     }
 
     @Test
@@ -1435,7 +1449,7 @@ struct CmxIrohClientRuntimeTests {
 
 }
 
-private actor TestRevisionedClientBroker:
+actor TestRevisionedClientBroker:
     CmxIrohClientBrokerServing,
     CmxConnectivityAuthorityServing
 {

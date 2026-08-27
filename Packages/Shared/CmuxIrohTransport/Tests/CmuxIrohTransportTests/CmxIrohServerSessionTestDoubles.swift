@@ -47,7 +47,7 @@ actor FixedAdmissionAuthorizer: CmxIrohAdmissionAuthorizing {
     }
 
     func authorize(
-        credential _: CmxIrohAdmissionCredential,
+        credential _: CmxIrohAdmissionCredential?,
         authenticatedPeerID _: CmxIrohPeerIdentity
     ) -> CmxIrohAdmissionAuthorization {
         observedCalls += 1

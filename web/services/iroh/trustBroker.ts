@@ -15,6 +15,7 @@ import {
   verifyEndpointAttestation,
   verifyEndpointRegistrationSignature,
   verifyPairGrant,
+  verifySelfProofRegistrationSignature,
   type EndpointAttestationClaims,
   type IrohBindingRequestProof,
   type PairGrantClaims,
@@ -37,6 +38,7 @@ import {
 import {
   IROH_ALPN,
   IROH_CHALLENGE_LIFETIME_MS,
+  IROH_SELF_PROOF_MAX_SKEW_MS,
   IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS,
   IROH_ENDPOINT_ATTESTATION_SCOPE,
   IROH_ENDPOINT_ATTESTATION_VERSION,
@@ -58,6 +60,7 @@ import {
   IrohRepository,
   IrohRepositoryLive,
   type IrohBindingRecord,
+  type IrohRegistrationCommit,
   type IrohRepositoryShape,
 } from "./repository";
 import {
@@ -377,17 +380,6 @@ export function makeIrohTrustBroker(
           new IrohForbiddenError({ code: "client_namespace_mismatch" }),
         );
       }
-      const challenge = yield* repository.findChallenge(userId, request.challengeId);
-      if (!challenge) return yield* Effect.fail(new IrohNotFoundError({ resource: "challenge" }));
-      if (challenge.consumedAt) return yield* Effect.fail(new IrohConflictError({ code: "challenge_replayed" }));
-      if (challenge.expiresAt <= now) return yield* Effect.fail(new IrohForbiddenError({ code: "challenge_expired" }));
-      if (!hashesEqual(challenge.payloadSha256, decoded.sha256)) {
-        return yield* Effect.fail(new IrohForbiddenError({ code: "payload_hash_mismatch" }));
-      }
-      if (!hashesEqual(challenge.nonceHash, nonceHash(request.nonce))) {
-        return yield* Effect.fail(new IrohForbiddenError({ code: "invalid_challenge_nonce" }));
-      }
-      yield* parseEffect(() => assertChallengeMatchesPayload(challenge, decoded.payload));
       if (
         request.discoveryScope
         && !discoveryScopeMatchesRegistration(
@@ -399,28 +391,83 @@ export function makeIrohTrustBroker(
           code: "invalid_discovery_scope",
         }));
       }
-      yield* parseEffect(() => verifyEndpointRegistrationSignature({
-        endpointId: decoded.payload.endpointId,
-        challengeId: request.challengeId,
-        nonce: request.nonce,
-        payloadSha256: decoded.sha256,
-        signature: request.signature,
-      }));
       const relayPreference = yield* accountRelayPreference(userId);
       const savedCustomRelayURLs = customRelayURLs(relayPreference);
-      const registration = yield* repository.consumeChallengeAndRegister({
-        userId,
-        challengeId: challenge.id,
-        nonceHash: nonceHash(request.nonce),
-        payload: {
-          ...decoded.payload,
-          pathHints: accountPrivateIrohPathHints(
-            decoded.payload.pathHints,
-            savedCustomRelayURLs,
+      const registrationPayload = {
+        ...decoded.payload,
+        pathHints: accountPrivateIrohPathHints(
+          decoded.payload.pathHints,
+          savedCustomRelayURLs,
+        ),
+      };
+      let registration: IrohRegistrationCommit;
+      if (request.challengeId !== undefined) {
+        const challengeId = request.challengeId;
+        const challenge = yield* repository.findChallenge(userId, challengeId);
+        if (!challenge) return yield* Effect.fail(new IrohNotFoundError({ resource: "challenge" }));
+        if (challenge.consumedAt) return yield* Effect.fail(new IrohConflictError({ code: "challenge_replayed" }));
+        if (challenge.expiresAt <= now) return yield* Effect.fail(new IrohForbiddenError({ code: "challenge_expired" }));
+        if (!hashesEqual(challenge.payloadSha256, decoded.sha256)) {
+          return yield* Effect.fail(new IrohForbiddenError({ code: "payload_hash_mismatch" }));
+        }
+        if (!hashesEqual(challenge.nonceHash, nonceHash(request.nonce))) {
+          return yield* Effect.fail(new IrohForbiddenError({ code: "invalid_challenge_nonce" }));
+        }
+        yield* parseEffect(() => assertChallengeMatchesPayload(challenge, decoded.payload));
+        yield* parseEffect(() => verifyEndpointRegistrationSignature({
+          endpointId: decoded.payload.endpointId,
+          challengeId,
+          nonce: request.nonce,
+          payloadSha256: decoded.sha256,
+          signature: request.signature,
+        }));
+        registration = yield* repository.consumeChallengeAndRegister({
+          userId,
+          challengeId: challenge.id,
+          nonceHash: nonceHash(request.nonce),
+          payload: registrationPayload,
+          now,
+        });
+      } else {
+        // One-round self-contained proof: freshness comes from the signed
+        // timestamp (the same ±5-minute window binding-request proofs get),
+        // one-use comes from the atomic nonce dedupe inside
+        // registerWithSelfProof.
+        const issuedAtSeconds = request.issuedAtSeconds;
+        if (issuedAtSeconds === undefined) {
+          return yield* Effect.fail(new IrohInvalidInputError({
+            code: "invalid_issued_at",
+          }));
+        }
+        if (
+          Math.abs(now.getTime() - issuedAtSeconds * 1_000)
+            > IROH_SELF_PROOF_MAX_SKEW_MS
+        ) {
+          return yield* Effect.fail(
+            new IrohForbiddenError({ code: "self_proof_expired" }),
+          );
+        }
+        yield* parseEffect(() => verifySelfProofRegistrationSignature({
+          endpointId: decoded.payload.endpointId,
+          issuedAtSeconds,
+          nonce: request.nonce,
+          payloadSha256: decoded.sha256,
+          signature: request.signature,
+        }));
+        registration = yield* repository.registerWithSelfProof({
+          userId,
+          nonceHash: nonceHash(request.nonce),
+          payloadSha256: decoded.sha256,
+          payload: registrationPayload,
+          now,
+          // The consumed dedupe row must outlive the proof's entire
+          // acceptance window (a future-dated issuedAt stays valid until
+          // issuedAt + skew), plus a boundary second.
+          dedupeExpiresAt: new Date(
+            issuedAtSeconds * 1_000 + IROH_SELF_PROOF_MAX_SKEW_MS + 1_000,
           ),
-        },
-        now,
-      });
+        });
+      }
 
       // Registration never mints a relay credential: relay admission is the
       // relay's allow hook against the proven endpoint key, so no client

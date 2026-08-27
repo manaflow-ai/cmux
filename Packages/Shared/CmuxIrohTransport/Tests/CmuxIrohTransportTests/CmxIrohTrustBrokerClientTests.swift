@@ -125,8 +125,11 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
-    func combinedRegistrationUsesOneGateForBothHTTPLegs() async throws {
+    func combinedRegistrationUsesOneGateForAllHTTPLegs() async throws {
+        // An older broker rejects the one-round proof, so this registration
+        // spans three HTTP legs; all of them ride one backpressure grant.
         let transport = RecordingBrokerTransport(responses: [
+            .json(status: 400, body: #"{"error":"invalid_challenge_id"}"#),
             .json(
                 status: 201,
                 body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
@@ -142,6 +145,7 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(response.binding.tag == "stable")
         #expect(response.discoveryComplete == nil)
         #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/devices/iroh/register",
             "/api/devices/iroh/challenge",
             "/api/devices/iroh/register",
         ])
@@ -150,10 +154,6 @@ struct CmxIrohTrustBrokerClientTests {
     @Test
     func postRegistrationRequestsCarryExactBindingProof() async throws {
         let transport = RecordingBrokerTransport(responses: [
-            .json(
-                status: 201,
-                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
-            ),
             .json(status: 201, body: Self.registrationResponse),
             .json(status: 200, body: Self.discoveryResponse),
         ])
@@ -259,7 +259,10 @@ struct CmxIrohTrustBrokerClientTests {
 
     @Test
     func scopedRegistrationFallsBackWithoutRegeneratingSignedPayload() async throws {
+        // An old broker rejects the one-round proof, then rejects the scoped
+        // v1 registration; both fallbacks reuse the identical signed payload.
         let transport = RecordingBrokerTransport(responses: [
+            .json(status: 400, body: #"{"error":"invalid_challenge_id"}"#),
             .json(
                 status: 201,
                 body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
@@ -278,12 +281,13 @@ struct CmxIrohTrustBrokerClientTests {
 
         let requests = await transport.requests()
         #expect(requests.compactMap { $0.url?.path } == [
+            "/api/devices/iroh/register",
             "/api/devices/iroh/challenge",
             "/api/devices/iroh/register",
             "/api/devices/iroh/register",
         ])
-        let scopedBody = try #require(requests[1].httpBody)
-        let fallbackBody = try #require(requests[2].httpBody)
+        let scopedBody = try #require(requests[2].httpBody)
+        let fallbackBody = try #require(requests[3].httpBody)
         var scopedObject = try #require(
             JSONSerialization.jsonObject(with: scopedBody) as? [String: Any]
         )

@@ -13,6 +13,12 @@ public actor CmxIrohRelayPolicyService {
     /// credential validity and rejects a truly stale token.
     public static let defaultExpiredPolicyReuseGrace: TimeInterval = 6 * 60 * 60
 
+    /// Consecutive ``refresh(accountID:trustRoot:now:)`` failures after which
+    /// the failure streak counts as persistent and must surface as a visible
+    /// degraded host state (cmux#10873). Below this, transient broker or
+    /// network hiccups stay quiet because the retry loop is already armed.
+    public static let persistentRefreshFailureThreshold = 3
+
     private let policyCache: CmxIrohRelayPolicyCache
     private let preferenceStore: CmxIrohRelayPreferenceStore
     private let credentialStore: CmxIrohCustomRelayCredentialStore
@@ -22,6 +28,11 @@ public actor CmxIrohRelayPolicyService {
     private var currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot.inactive
     private var continuations: [UUID: AsyncStream<CmxIrohRelayDiagnosticsSnapshot>.Continuation] = [:]
     private var operationRevision: UInt64 = 0
+    /// Current run of consecutive broker refresh failures; `nil` while the
+    /// last refresh succeeded. Stamped onto every published diagnostics
+    /// snapshot so a persistently failing refresh is visible host state.
+    private var refreshFailingSince: Date?
+    private var consecutiveRefreshFailures = 0
 
     /// Creates an inactive relay policy service with injected persistence boundaries.
     public init(
@@ -40,6 +51,12 @@ public actor CmxIrohRelayPolicyService {
     }
 
     /// Fetches and installs the broker's current signed relay policy.
+    ///
+    /// Every failure of this authenticated round (fetch or verification)
+    /// extends the refresh failure streak published with diagnostics; a
+    /// success clears it. Direct ``install(response:accountID:trustRoot:now:)``
+    /// and ``restore(accountID:trustRoot:now:)`` calls leave the streak
+    /// untouched: restore is the failed-refresh fallback, not a refresh.
     @discardableResult
     public func refresh(
         accountID: String,
@@ -47,13 +64,26 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         guard let broker else { throw CmxIrohRelayPolicyServiceError.brokerUnavailable }
-        let response = try await broker.fetchRelayPolicy()
-        return try await install(
-            response: response,
-            accountID: accountID,
-            trustRoot: trustRoot,
-            now: now
-        )
+        let response: CmxIrohRelayPolicyResponse
+        do {
+            response = try await broker.fetchRelayPolicy()
+        } catch {
+            recordRefreshFailure(at: now)
+            throw error
+        }
+        do {
+            let effective = try await install(
+                response: response,
+                accountID: accountID,
+                trustRoot: trustRoot,
+                now: now
+            )
+            clearRefreshFailureStreak()
+            return effective
+        } catch {
+            recordRefreshFailure(at: now)
+            throw error
+        }
     }
 
     /// Verifies and resolves one broker response without replacing last-known-good
@@ -469,15 +499,12 @@ public actor CmxIrohRelayPolicyService {
         failure: CmxIrohRelayPolicyFailure?
     ) {
         currentEffective = effective
-        currentDiagnostics = Resolver.diagnostics(for: effective, failure: failure)
-        for continuation in continuations.values {
-            continuation.yield(currentDiagnostics)
-        }
+        yieldDiagnostics(Resolver.diagnostics(for: effective, failure: failure))
     }
 
     private func publishFailure(_ failure: CmxIrohRelayPolicyFailure) {
         guard let effective = currentEffective else {
-            currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot(
+            yieldDiagnostics(CmxIrohRelayDiagnosticsSnapshot(
                 source: .inactive,
                 policyID: nil,
                 policySequence: nil,
@@ -488,16 +515,42 @@ public actor CmxIrohRelayPolicyService {
                 staleRelayIDs: [],
                 missingCredentialRelayIDs: [],
                 failure: failure
-            )
-            for continuation in continuations.values {
-                continuation.yield(currentDiagnostics)
-            }
+            ))
             return
         }
-        currentDiagnostics = Resolver.diagnostics(for: effective, failure: failure)
+        yieldDiagnostics(Resolver.diagnostics(for: effective, failure: failure))
+    }
+
+    /// The single diagnostics funnel: every published snapshot carries the
+    /// current refresh failure streak.
+    private func yieldDiagnostics(_ snapshot: CmxIrohRelayDiagnosticsSnapshot) {
+        currentDiagnostics = snapshot.withRefreshFailureStreak(
+            since: refreshFailingSince,
+            count: consecutiveRefreshFailures
+        )
         for continuation in continuations.values {
             continuation.yield(currentDiagnostics)
         }
+    }
+
+    private func recordRefreshFailure(at now: Date) {
+        consecutiveRefreshFailures = min(consecutiveRefreshFailures + 1, 1_000)
+        if refreshFailingSince == nil {
+            refreshFailingSince = now
+        }
+        // Re-publish so observers see the streak grow even when the failed
+        // round produced no new resolution (e.g. the broker fetch itself
+        // failed before install could publish anything).
+        yieldDiagnostics(currentDiagnostics)
+    }
+
+    private func clearRefreshFailureStreak() {
+        guard refreshFailingSince != nil || consecutiveRefreshFailures > 0 else {
+            return
+        }
+        refreshFailingSince = nil
+        consecutiveRefreshFailures = 0
+        yieldDiagnostics(currentDiagnostics)
     }
 
     private func removeContinuation(_ id: UUID) {

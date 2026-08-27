@@ -501,6 +501,126 @@ describe("Iroh trust broker registration", () => {
     );
   });
 
+  test("registers a self-contained proof in one broker round", async () => {
+    const fixture = makeFixture();
+    const request = fixture.selfProofRegistration();
+    const result = await Effect.runPromise(
+      fixture.broker.register(USER_A, request, NOW),
+    ) as {
+      revision: number;
+      binding: { endpoint_id: string };
+      relay: { status: string };
+      discovery_complete: boolean;
+      discovery: { revision: number; bindings: Array<{ binding_id: string }> };
+    };
+
+    expect(result.binding.endpoint_id).toBe(fixture.endpointId);
+    expect(result.relay.status).toBe("unavailable");
+    expect(result.discovery.revision).toBe(result.revision);
+    expect(result.discovery_complete).toBe(true);
+    expect(fixture.repository.bindings).toHaveLength(1);
+    // No prior challenge round happened; the proof itself minted the one-use
+    // consumed dedupe record.
+    expect(fixture.repository.challenges).toHaveLength(1);
+    expect(fixture.repository.challenges[0]?.consumedAt).not.toBeNull();
+  });
+
+  test("self-proof registration refreshes an existing slot in place", async () => {
+    const fixture = makeFixture();
+    await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    ));
+    const slotId = fixture.repository.bindings[0]!.id;
+
+    const refreshed = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      fixture.selfProofRegistration({
+        issuedAtSeconds: Math.floor(NOW.getTime() / 1_000) + 1,
+      }),
+      new Date(NOW.getTime() + 1_000),
+    )) as { binding: { binding_id: string } };
+
+    expect(refreshed.binding.binding_id).toBe(slotId);
+    expect(fixture.repository.bindings).toHaveLength(1);
+  });
+
+  test("rejects a replayed self-proof nonce", async () => {
+    const fixture = makeFixture();
+    const request = fixture.selfProofRegistration();
+    await Effect.runPromise(fixture.broker.register(USER_A, request, NOW));
+    await expectEffectFailure(
+      fixture.broker.register(USER_A, request, new Date(NOW.getTime() + 1_000)),
+      "IrohConflictError",
+    );
+  });
+
+  test("rejects a self-proof outside the freshness window", async () => {
+    const fixture = makeFixture();
+    const skewSeconds = 6 * 60;
+    await expectEffectFailure(
+      fixture.broker.register(
+        USER_A,
+        fixture.selfProofRegistration({
+          issuedAtSeconds: Math.floor(NOW.getTime() / 1_000) - skewSeconds,
+        }),
+        NOW,
+      ),
+      "IrohForbiddenError",
+    );
+    await expectEffectFailure(
+      fixture.broker.register(
+        USER_A,
+        fixture.selfProofRegistration({
+          issuedAtSeconds: Math.floor(NOW.getTime() / 1_000) + skewSeconds,
+        }),
+        NOW,
+      ),
+      "IrohForbiddenError",
+    );
+    expect(fixture.repository.bindings).toHaveLength(0);
+  });
+
+  test("rejects a self-proof whose signature does not cover the sent transcript", async () => {
+    const fixture = makeFixture();
+    const request = fixture.selfProofRegistration();
+    // Any post-signature mutation of the signed fields must fail: the
+    // timestamp here, which also guards freshness.
+    const tampered = { ...request, issuedAt: request.issuedAt + 1 };
+    await expectEffectFailure(
+      fixture.broker.register(USER_A, tampered, NOW),
+      "IrohForbiddenError",
+    );
+    expect(fixture.repository.bindings).toHaveLength(0);
+    expect(fixture.repository.challenges).toHaveLength(0);
+  });
+
+  test("self-proof registration returns the scoped discovery projection", async () => {
+    const fixture = makeFixture();
+    const request = fixture.selfProofRegistration({
+      platform: "ios",
+      discoveryScope: {
+        local_binding: {
+          device_id: fixture.deviceId,
+          app_instance_id: fixture.appInstanceId,
+          tag: "stable",
+          platform: "ios",
+        },
+        peer_bindings: { platform: "mac", pairing_enabled: true },
+      },
+    });
+    const result = await Effect.runPromise(
+      fixture.broker.register(USER_A, request, NOW),
+    ) as {
+      discovery_scope_complete?: boolean;
+      discovery_complete: boolean;
+      discovery: { bindings: Array<{ binding_id: string }> };
+    };
+    expect(result.discovery_scope_complete).toBe(true);
+    expect(result.discovery_complete).toBe(false);
+  });
+
   test("rejects expired and replayed challenges", async () => {
     const expired = makeFixture();
     await expectEffectFailure(
@@ -2241,6 +2361,51 @@ class MemoryRepository implements IrohRepositoryShape {
     });
   }
 
+  registerWithSelfProof(
+    input: Parameters<IrohRepositoryShape["registerWithSelfProof"]>[0],
+  ) {
+    if (this.challenges.some((row) =>
+      row.userId === input.userId && row.nonceHash === input.nonceHash)) {
+      return Effect.fail(new IrohConflictError({ code: "self_proof_replayed" }));
+    }
+    // Mirror the strict per-slot monotonic mint time so the
+    // challenge_superseded high-water gate stays exact across mixed flows.
+    const priorCreatedAt = this.challenges
+      .filter((row) =>
+        row.userId === input.userId
+        && row.deviceUuid === input.payload.deviceId
+        && row.clientNamespace === input.payload.clientNamespace
+        && row.tag === input.payload.tag)
+      .map((row) => row.createdAt.getTime())
+      .reduce((left, right) => Math.max(left, right), 0);
+    const createdAt = input.now.getTime() <= priorCreatedAt
+      ? new Date(priorCreatedAt + 1)
+      : input.now;
+    const challenge: IrohChallengeRecord = {
+      id: randomUUID(),
+      userId: input.userId,
+      deviceUuid: input.payload.deviceId,
+      appInstanceId: input.payload.appInstanceId,
+      clientNamespace: input.payload.clientNamespace,
+      tag: input.payload.tag,
+      endpointId: input.payload.endpointId,
+      identityGeneration: input.payload.identityGeneration,
+      payloadSha256: input.payloadSha256,
+      nonceHash: input.nonceHash,
+      createdAt,
+      expiresAt: input.dedupeExpiresAt,
+      consumedAt: null,
+    };
+    this.challenges.push(challenge);
+    return this.consumeChallengeAndRegister({
+      userId: input.userId,
+      challengeId: challenge.id,
+      nonceHash: input.nonceHash,
+      payload: input.payload,
+      now: input.now,
+    });
+  }
+
   discoveryPage(input: Parameters<IrohRepositoryShape["discoveryPage"]>[0]) {
     return Effect.promise(async () => {
       await this.beforeDiscoverySnapshot?.();
@@ -2646,6 +2811,60 @@ function makeFixture(options: {
           nonce: challenge.nonce,
           payloadSha256: sha256(payloadBytes),
         }), endpointKeys.privateKey).toString("base64url"),
+      };
+    },
+    selfProofRegistration(
+      options2: {
+        platform?: "mac" | "ios";
+        issuedAtSeconds?: number;
+        nonce?: string;
+        clientNamespace?: string;
+        discoveryScope?: unknown;
+      } = {},
+    ) {
+      const payload: IrohRegistrationPayload = {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        clientNamespace: options2.clientNamespace
+          ?? options.registrationClientNamespace ?? "legacy",
+        tag: "stable",
+        platform: options2.platform ?? "mac",
+        displayName: "Test Mac",
+        endpointId,
+        identityGeneration,
+        pairingEnabled: true,
+        capabilities: ["terminal", "artifacts"],
+        pathHints: options.registrationPathHints ?? [{
+          kind: "direct_address",
+          value: "8.8.8.8:4433",
+          source: "native",
+          privacy_scope: "public_internet",
+          observed_at: "2026-07-09T19:55:00.000Z",
+          expires_at: "2026-07-09T20:45:00.000Z",
+        }],
+      };
+      const payloadBytes = Buffer.from(JSON.stringify(payload));
+      const issuedAtSeconds = options2.issuedAtSeconds
+        ?? Math.floor(NOW.getTime() / 1_000);
+      const nonce = options2.nonce
+        ?? Buffer.from(randomUUID().replaceAll("-", "").padEnd(64, "a"), "hex")
+          .toString("base64url");
+      // The exact wire transcript, constructed independently of the
+      // production helper so a transcript drift fails this test.
+      const transcript = Buffer.from(
+        `cmux/iroh/device-registration/v2\n${issuedAtSeconds}\n${nonce}\n${sha256(payloadBytes)}`,
+        "utf8",
+      );
+      return {
+        issuedAt: issuedAtSeconds,
+        nonce,
+        payload: payloadBytes.toString("base64url"),
+        signature: sign(null, transcript, endpointKeys.privateKey)
+          .toString("base64url"),
+        ...(options2.discoveryScope === undefined
+          ? {}
+          : { discoveryScope: options2.discoveryScope }),
       };
     },
   };

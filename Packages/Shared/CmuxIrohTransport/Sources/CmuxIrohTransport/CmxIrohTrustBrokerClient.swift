@@ -201,6 +201,21 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 private struct DiscoverySnapshotChanged: Error {}
 
+/// Rejections that the two-leg challenge flow can repair: an older broker's
+/// parse rejection of the self-proof shape, or a client clock outside the
+/// proof freshness window. Every other verdict is authoritative for the
+/// registration itself and propagates.
+private func cmxRegistrationRetriesAsTwoStep(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, code) = error else { return false }
+    if statusCode == 400,
+       code == "invalid_challenge_id" || code == "unknown_field" {
+        return true
+    }
+    return statusCode == 403 && code == "self_proof_expired"
+}
+
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct ConnectivitySyncRequest: Encodable {
         let protocolVersion: Int
@@ -265,6 +280,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let clientNamespace: String
     private var bindingAuthorization: CmxIrohBindingRequestAuthorization?
     private let discoveryScope: CmxConnectivityDiscoveryScope?
+    private let randomness: any CmxIrohRandomByteGenerating =
+        CmxIrohSystemRandomByteGenerator()
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
@@ -358,7 +375,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
-    /// Runs the challenge and signed registration legs without regenerating payload bytes.
+    /// Registers in ONE broker round with a self-contained proof, falling
+    /// back to the two-leg challenge flow for brokers that do not accept it
+    /// (and for a client clock outside the broker's freshness window), all
+    /// without regenerating payload bytes.
     public func register(
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
@@ -366,6 +386,24 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let response: CmxIrohRegistrationResponse = try await withBackpressure(
             operation: .registration
         ) {
+            // Randomness failure is not a broker verdict: degrade to the
+            // two-leg flow, whose entropy is the server-minted nonce.
+            let selfProof = try? signer.signSelfProof(
+                prepared: prepared,
+                nonce: self.randomness.randomBytes(count: 32),
+                issuedAt: Int64(Date().timeIntervalSince1970)
+            )
+            if let selfProof {
+                do {
+                    return try await self.registerUngated(selfProof)
+                } catch let error as CmxIrohTrustBrokerClientError
+                    where cmxRegistrationRetriesAsTwoStep(error) {
+                    // An older broker rejects the proof shape at parse
+                    // (missing challengeId / unknown field), and a broker may
+                    // reject this client's clock skew; both are repaired by
+                    // the interactive challenge, never by retrying the proof.
+                }
+            }
             let challenge: CmxIrohChallengeResponse = try await self.sendUngated(
                 path: "api/devices/iroh/challenge",
                 method: "POST",

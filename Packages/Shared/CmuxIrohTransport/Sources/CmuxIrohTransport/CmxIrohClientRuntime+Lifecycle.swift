@@ -72,6 +72,7 @@ extension CmxIrohClientRuntime {
         registrationRefreshEnabled = false
         supervisorEventTask?.cancel()
         supervisorEventTask = nil
+        await registryContextProvider?.cancelCacheFirstRefresh()
         await contextRouter.clear()
         authoritativeDiscovery = nil
         if !preserveBinding {

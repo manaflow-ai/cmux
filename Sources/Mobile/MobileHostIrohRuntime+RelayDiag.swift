@@ -13,6 +13,33 @@ extension MobileHostIrohRuntime {
         let source: CmxIrohRelayPolicySource
         let usedCachedPolicy: Bool
         let relayURLs: [String]
+        /// Start of the current run of consecutive policy refresh failures,
+        /// mirrored from the service diagnostics so an unreachable-by-outage
+        /// host is visible in `iroh_diag` (cmux#10873).
+        let refreshFailingSince: Date?
+        let consecutiveRefreshFailures: Int
+
+        init(
+            source: CmxIrohRelayPolicySource,
+            usedCachedPolicy: Bool,
+            relayURLs: [String],
+            refreshFailingSince: Date? = nil,
+            consecutiveRefreshFailures: Int = 0
+        ) {
+            self.source = source
+            self.usedCachedPolicy = usedCachedPolicy
+            self.relayURLs = relayURLs
+            self.refreshFailingSince = refreshFailingSince
+            self.consecutiveRefreshFailures = consecutiveRefreshFailures
+        }
+    }
+
+    /// The refresh failure streak alone, for the launches where no relay
+    /// policy was ever installed but the refresh loop is failing: the diag
+    /// must say why relays are absent instead of only "none installed".
+    struct RelayDiagRefreshFailure: Equatable, Sendable {
+        let since: Date
+        let consecutiveFailures: Int
     }
 
     /// Mirror of the relay policy most recently installed by the account
@@ -24,26 +51,45 @@ extension MobileHostIrohRuntime {
     /// previous policy after installation), and the read must stay off the
     /// main actor so the verb keeps working when the main thread is wedged.
     /// Both critical sections are tiny value copies with no reentrancy.
-    private nonisolated static let relayDiagMirror = OSAllocatedUnfairLock<RelayDiagState?>(
-        initialState: nil
+    private nonisolated static let relayDiagMirror = OSAllocatedUnfairLock<RelayDiagMirror>(
+        initialState: RelayDiagMirror(policy: nil, refreshFailure: nil)
     )
 
-    /// The single write funnel, called from `relayPolicyEffective`'s
-    /// `didSet` so every installation and clearing site is mirrored before
-    /// the property write returns.
-    static func publishRelayDiagMirror(from policy: CmxIrohEffectiveRelayPolicy?) {
+    struct RelayDiagMirror: Equatable, Sendable {
+        var policy: RelayDiagState?
+        var refreshFailure: RelayDiagRefreshFailure?
+    }
+
+    /// The single write funnel, called from the `relayPolicyEffective` and
+    /// `relayPolicyDiagnostics` `didSet`s so every installation, clearing,
+    /// and refresh-outcome site is mirrored before the property write
+    /// returns.
+    static func publishRelayDiagMirror(
+        from policy: CmxIrohEffectiveRelayPolicy?,
+        diagnostics: CmxIrohRelayDiagnosticsSnapshot?
+    ) {
+        let refreshFailure = diagnostics?.refreshFailingSince.map {
+            RelayDiagRefreshFailure(
+                since: $0,
+                consecutiveFailures: diagnostics?.consecutiveRefreshFailures ?? 0
+            )
+        }
         let state = policy.map {
             RelayDiagState(
                 source: $0.source,
                 usedCachedPolicy: $0.usedCachedPolicy,
-                relayURLs: $0.endpointRelayProfile.allowedRelayURLs.sorted()
+                relayURLs: $0.endpointRelayProfile.allowedRelayURLs.sorted(),
+                refreshFailingSince: refreshFailure?.since,
+                consecutiveRefreshFailures: refreshFailure?.consecutiveFailures ?? 0
             )
         }
-        relayDiagMirror.withLock { $0 = state }
+        relayDiagMirror.withLock {
+            $0 = RelayDiagMirror(policy: state, refreshFailure: refreshFailure)
+        }
     }
 
     nonisolated static func currentRelayDiagState() -> RelayDiagState? {
-        relayDiagMirror.withLock { $0 }
+        relayDiagMirror.withLock { $0.policy }
     }
 
     /// The relay section appended to `iroh_diag` output: the profile the
@@ -52,14 +98,17 @@ extension MobileHostIrohRuntime {
     /// consulted first because every profile installation funnel replaces
     /// the installed profile with it while it is active.
     nonisolated static func relayDiagReportText() -> String {
-        relayDiagReport(
-            policy: currentRelayDiagState(),
+        let mirror = relayDiagMirror.withLock { $0 }
+        return relayDiagReport(
+            policy: mirror.policy,
+            refreshFailure: mirror.refreshFailure,
             debugOverrideRelayURL: CmxIrohDebugRelayOverrideDiagnostics().activeRelayURL
         )
     }
 
     nonisolated static func relayDiagReport(
         policy: RelayDiagState?,
+        refreshFailure: RelayDiagRefreshFailure? = nil,
         debugOverrideRelayURL: String?
     ) -> String {
         var lines = ["Active relay profile"]
@@ -70,7 +119,15 @@ extension MobileHostIrohRuntime {
             return lines.joined(separator: "\n")
         }
         guard let policy else {
-            lines.append("Source: none installed (no relay policy this launch)")
+            if let refreshFailure {
+                lines.append(
+                    "Source: none — policy refresh failing since "
+                        + iso8601(refreshFailure.since)
+                        + " (\(refreshFailure.consecutiveFailures) consecutive failures)"
+                )
+            } else {
+                lines.append("Source: none installed (no relay policy this launch)")
+            }
             return lines.joined(separator: "\n")
         }
         let source = switch policy.source {
@@ -91,6 +148,16 @@ extension MobileHostIrohRuntime {
         } else {
             lines.append("Relays: \(policy.relayURLs.joined(separator: ", "))")
         }
+        if let since = policy.refreshFailingSince {
+            lines.append(
+                "Policy refresh: failing since " + iso8601(since)
+                    + " (\(policy.consecutiveRefreshFailures) consecutive failures)"
+            )
+        }
         return lines.joined(separator: "\n")
+    }
+
+    private nonisolated static func iso8601(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
     }
 }

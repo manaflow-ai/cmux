@@ -257,6 +257,15 @@ public final class MobileIrohRuntimeComposition:
     private var lastKnownBindingTag: String?
     private var lastKnownBindingID: String?
     private var lifecycleRevision: UInt64 = 0
+    /// True while the in-flight activation adopted the relay-only cache-first
+    /// policy source; consumed by the reconcile failure path below.
+    private var relayOnlyActivationUsedCachedPolicy = false
+    /// The account whose last relay-only cache-first activation FAILED. That
+    /// account's next activation falls back to the blocking policy refresh,
+    /// so a stale cached fleet (every cached relay dead) cannot trap
+    /// relay-only activation in a cache-restore retry loop. Cleared by the
+    /// next successful activation.
+    private var relayOnlyCacheFirstFailureAccountID: String?
     private var signOutPhase = SignOutPhase.idle
     private var signOutObservedAuthClear = false
     private var signOutAuthRevisionAtPreparation: UInt64?
@@ -1686,10 +1695,20 @@ public final class MobileIrohRuntimeComposition:
         do {
             try await activate(accountID: targetAccountID, revision: revision)
             clearActivationRetryBackoff()
+            relayOnlyActivationUsedCachedPolicy = false
+            relayOnlyCacheFirstFailureAccountID = nil
             return .ready
         } catch is CancellationError {
             return .inactive
         } catch {
+            if relayOnlyActivationUsedCachedPolicy {
+                // The cache-first policy could not carry this activation
+                // (for example every cached relay is gone, so the relay-only
+                // readiness barrier timed out). Retry with the blocking live
+                // refresh instead of restoring the same dead catalog.
+                relayOnlyCacheFirstFailureAccountID = targetAccountID
+                relayOnlyActivationUsedCachedPolicy = false
+            }
             diagnosticLog?.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
@@ -1735,8 +1754,32 @@ public final class MobileIrohRuntimeComposition:
         activationFailureKind = nil
     }
 
+    /// Whether a relay-only activation may restore the verified cached policy
+    /// instead of blocking on the live refresh. Requires the verified cached
+    /// broker binding (the same proof that keeps managed relays installed at
+    /// bind), and backs off to the blocking refresh for the account whose
+    /// previous cache-first activation failed, so a dead cached fleet cannot
+    /// trap relay-only activation in a restore loop.
+    nonisolated static func shouldAttemptRelayOnlyCacheFirstActivation(
+        hasVerifiedCachedBinding: Bool,
+        accountID: String,
+        cacheFirstFailureAccountID: String?
+    ) -> Bool {
+        hasVerifiedCachedBinding && cacheFirstFailureAccountID != accountID
+    }
+
+    /// A restored policy supports relay-only activation only when it yields
+    /// relays the endpoint can actually dial; an unavailable or empty restore
+    /// falls back to the blocking refresh.
+    nonisolated static func relayOnlyRestoredPolicyIsUsable(
+        _ policy: CmxIrohEffectiveRelayPolicy
+    ) -> Bool {
+        policy.endpointRelayProfile.hasDialableRelays
+    }
+
     private func activate(accountID: String, revision: UInt64) async throws {
         guard let auth else { throw CmxIrohClientRuntimeError.inactive }
+        relayOnlyActivationUsedCachedPolicy = false
         // Resolve the durable device id BEFORE any iroh identity exists. The
         // device-id resolver's continuity probe treats a device-local iroh
         // identity as proof the install continues on this hardware; creating
@@ -1849,25 +1892,54 @@ public final class MobileIrohRuntimeComposition:
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
-                diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
-                do {
-                    effective = try await service.refresh(
+                // Relay-only historically blocked activation on this live
+                // policy refresh (F3 decomposition: the largest fixed cost of
+                // a warm cold start). A warm client — verified cached binding
+                // AND a restored policy with usable relays — activates on the
+                // verified cached policy exactly like automatic mode; the
+                // immediate refresh scheduled below fails closed per the
+                // shared taxonomy. A FRESH endpoint (no verified cached
+                // binding) keeps the blocking refresh: it withholds managed
+                // relays until its registration is acknowledged (#10857) and
+                // relay-only cannot become active without a current fleet.
+                var restored: CmxIrohEffectiveRelayPolicy?
+                if Self.shouldAttemptRelayOnlyCacheFirstActivation(
+                    hasVerifiedCachedBinding: bindingMatches,
+                    accountID: accountID,
+                    cacheFirstFailureAccountID: relayOnlyCacheFirstFailureAccountID
+                ) {
+                    restored = await service.restore(
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
                         now: now()
                     )
-                    diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
-                } catch {
-                    diagnosticLog?.record(DiagnosticEvent(
-                        .relayPolicyRefreshFailed,
-                        b: Self.diagnosticFailureKind(for: error).rawValue
-                    ))
-                    effective = await service.restore(
-                        accountID: accountID,
-                        trustRoot: relayPolicyTrustRoot,
-                        now: now()
-                    )
+                }
+                if let restored,
+                   Self.relayOnlyRestoredPolicyIsUsable(restored) {
+                    effective = restored
                     relayPolicyNeedsImmediateRefresh = true
+                    relayOnlyActivationUsedCachedPolicy = true
+                } else {
+                    diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
+                    do {
+                        effective = try await service.refresh(
+                            accountID: accountID,
+                            trustRoot: relayPolicyTrustRoot,
+                            now: now()
+                        )
+                        diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                    } catch {
+                        diagnosticLog?.record(DiagnosticEvent(
+                            .relayPolicyRefreshFailed,
+                            b: Self.diagnosticFailureKind(for: error).rawValue
+                        ))
+                        effective = await service.restore(
+                            accountID: accountID,
+                            trustRoot: relayPolicyTrustRoot,
+                            now: now()
+                        )
+                        relayPolicyNeedsImmediateRefresh = true
+                    }
                 }
             }
             endpointRelayProfile = effective.endpointRelayProfile

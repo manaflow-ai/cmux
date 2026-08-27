@@ -62,6 +62,9 @@ public actor CmxIrohHostRuntime {
     let factory: any CmxIrohEndpointFactory
     let broker: any CmxIrohHostBrokerServing
     let configuration: CmxIrohHostRuntimeConfiguration
+    /// Durable paired-phone allowlist consulted for credential-less admission.
+    /// `nil` disables allowlist admission entirely (fail closed).
+    let pairedPeerAllowlist: CmxIrohPairedPeerAllowlist?
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let protocolConfiguration: CmxIrohProtocolConfiguration
     let now: @Sendable () -> Date
@@ -126,6 +129,7 @@ public actor CmxIrohHostRuntime {
         broker: any CmxIrohHostBrokerServing,
         configuration: CmxIrohHostRuntimeConfiguration,
         pendingRevocations: CmxIrohPendingRevocationOutbox,
+        pairedPeerAllowlist: CmxIrohPairedPeerAllowlist? = nil,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         now: @escaping @Sendable () -> Date = { Date() },
         admissionClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
@@ -145,6 +149,7 @@ public actor CmxIrohHostRuntime {
         self.factory = factory
         self.broker = broker
         self.configuration = configuration
+        self.pairedPeerAllowlist = pairedPeerAllowlist
         self.pendingRevocations = pendingRevocations
         self.protocolConfiguration = protocolConfiguration
         self.now = now
@@ -301,7 +306,15 @@ public actor CmxIrohHostRuntime {
                 acceptor: grantPeer(for: policy.binding),
                 pairingEnabled: policy.pairingEnabled,
                 offlineSessions: offlineSessions,
-                onlineRegistry: onlineAdmissionRegistry
+                onlineRegistry: onlineAdmissionRegistry,
+                allowlist: pairedPeerAllowlist,
+                allowlistScope: pairedPeerAllowlist == nil
+                    ? nil
+                    : CmxIrohPairedPeerAllowlistScope(
+                        accountID: configuration.accountID,
+                        clientNamespace: configuration.clientNamespace,
+                        appInstanceID: configuration.appInstanceID
+                    )
             )
             self.offlineSessions = offlineSessions
             self.onlineAdmissionRegistry = onlineAdmissionRegistry

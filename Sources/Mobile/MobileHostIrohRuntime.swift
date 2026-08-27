@@ -90,6 +90,7 @@ final class MobileHostIrohRuntime {
     let brokerCredentials: CmxIrohBrokerCredentialRepository
     let brokerBackpressureGate: CmxIrohBrokerBackpressureGate
     let hostPolicies: CmxIrohHostPolicyCache
+    let pairedPeers: CmxIrohPairedPeerAllowlist
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let customRelayProfiles: CmxIrohCustomRelayProfileStore
     let relayPolicyCache: CmxIrohRelayPolicyCache
@@ -110,10 +111,20 @@ final class MobileHostIrohRuntime {
     var relayPolicyService: CmxIrohRelayPolicyService?
     var relayPolicyEffective: CmxIrohEffectiveRelayPolicy? {
         didSet {
-            Self.publishRelayDiagMirror(from: relayPolicyEffective)
+            Self.publishRelayDiagMirror(
+                from: relayPolicyEffective,
+                diagnostics: relayPolicyDiagnostics
+            )
         }
     }
-    var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
+    var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot? {
+        didSet {
+            Self.publishRelayDiagMirror(
+                from: relayPolicyEffective,
+                diagnostics: relayPolicyDiagnostics
+            )
+        }
+    }
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
     var relayPolicyObservationTask: Task<Void, Never>?
     var relayPolicyRefreshTask: Task<Void, Never>?
@@ -180,6 +191,11 @@ final class MobileHostIrohRuntime {
                 directory: Self.developmentStoreDirectory(service: "host-policy")
             )
         )
+        pairedPeers = CmxIrohPairedPeerAllowlist(
+            secureStore: CmxIrohDevelopmentFileCredentialStore(
+                directory: Self.developmentStoreDirectory(service: "paired-peers")
+            )
+        )
         pendingRevocations = CmxIrohPendingRevocationOutbox(
             secureStore: CmxIrohDevelopmentFileCredentialStore(
                 directory: Self.developmentStoreDirectory(
@@ -213,6 +229,7 @@ final class MobileHostIrohRuntime {
             installState: installState
         )
         hostPolicies = CmxIrohHostPolicyCache()
+        pairedPeers = CmxIrohPairedPeerAllowlist()
         pendingRevocations = CmxIrohPendingRevocationOutbox(
             secureStore: CmxIrohKeychainCredentialStore(
                 service: "com.cmuxterm.iroh.pending-revocations.v1"

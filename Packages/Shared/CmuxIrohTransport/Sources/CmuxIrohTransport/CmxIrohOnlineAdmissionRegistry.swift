@@ -118,6 +118,34 @@ public actor CmxIrohOnlineAdmissionRegistry {
         )
     }
 
+    /// Authorizes an already-paired phone endpoint from a persisted allowlist
+    /// entry, with no in-band credential. The TLS identity must match the
+    /// entry's initiator, and the entry's acceptor must be this Mac's exact
+    /// current binding. Broker bindings are then revalidated exactly as for a
+    /// live pair grant, so an unpaired (registry-removed) endpoint is refused
+    /// whenever the broker is reachable and its denial is learned locally.
+    func authorizePairedEndpoint(
+        initiator: CmxIrohGrantPeer,
+        acceptor entryAcceptor: CmxIrohGrantPeer,
+        expiresAt: Date,
+        authenticatedPeerID: CmxIrohPeerIdentity
+    ) async -> CmxIrohOnlineAdmissionAuthorization {
+        guard initiator.platform == .ios,
+              initiator.endpointID == authenticatedPeerID,
+              entryAcceptor.platform == .mac,
+              entryAcceptor == acceptor else {
+            return .denied
+        }
+        return await authorize(
+            CmxIrohOnlineAdmissionLease(
+                pairedInitiator: initiator,
+                acceptor: entryAcceptor,
+                expiresAt: expiresAt,
+                onlineValidatedAt: nil
+            )
+        )
+    }
+
     /// AdmissionController is the only production caller, after locally verifying and
     /// consuming the one-use proof, TLS identity, and both signed attestations.
     func authorizeOfflinePair(
@@ -411,6 +439,13 @@ public actor CmxIrohOnlineAdmissionRegistry {
             )
         case let .offlinePairing(initiator, acceptor):
             return validateOfflineBindings(
+                response.bindings,
+                initiator: initiator,
+                acceptor: acceptor,
+                learnDenial: learnDenial
+            )
+        case let .pairedEndpoint(initiator, acceptor):
+            return validatePairGrantBindings(
                 response.bindings,
                 initiator: initiator,
                 acceptor: acceptor,
