@@ -40,7 +40,7 @@ npm_cache="$(npm config get cache)"
 target="$npm_cache/_npx"
 printf '削除対象: %s\n' "$target"
 case "$npm_cache" in
-  ""|/|"$HOME"|"$HOME/"*) echo "安全でない npm キャッシュパスのため中止します" >&2; exit 1 ;;
+  ""|/) echo "安全でない npm キャッシュパスのため中止します" >&2; exit 1 ;;
 esac
 read -r -p '続行する場合は yes と入力してください: ' confirm
 [ "$confirm" = yes ] || exit 1
