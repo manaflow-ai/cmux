@@ -78,6 +78,7 @@ extension GitMetadataService {
                 repository: repository,
                 deadline: deadline
             )
+            forceWorkTreeRoots.insert(repository.workTreeRoot)
             return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)

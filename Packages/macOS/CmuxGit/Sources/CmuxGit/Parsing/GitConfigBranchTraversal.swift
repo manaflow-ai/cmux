@@ -79,7 +79,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         }
         // Keep the mandatory repository config roots ahead of optional include
         // sentinels so the bounded path list can never evict them.
-        let paths = rootWatchPaths
+        var paths = rootWatchPaths
             + Array(metadataSentinelParentPaths)
             + result.configURLs.map { $0.standardizedFileURL.path }
         // For an incomplete walk the caller adds its conservative root safety

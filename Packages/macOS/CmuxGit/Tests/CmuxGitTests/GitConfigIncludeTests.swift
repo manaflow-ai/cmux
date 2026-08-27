@@ -267,7 +267,8 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         )
         let result = GitConfigBranchTraversal(
             repository: repository,
-            branchContext: .resolved("main")
+            branchContext: .resolved("main"),
+            includeConditionalPathsForWatch: true
         ).watchPathResult()
 
         #expect(result.metadataSentinelPaths.count == 255)
@@ -323,7 +324,8 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         )
         let result = GitConfigBranchTraversal(
             repository: repository,
-            branchContext: .resolved(branch)
+            branchContext: .resolved(branch),
+            includeConditionalPathsForWatch: true
         ).watchPathResult()
 
         #expect(result.paths.contains(branchRef.standardizedFileURL.path))
