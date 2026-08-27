@@ -10239,12 +10239,21 @@ impl App {
                 HostInputMessage::Event(event) => AppEvent::Input(event),
                 HostInputMessage::Failed(error) => AppEvent::HostInputFailed(error),
             };
-            action = action.merge(self.handle(event)?);
-            action = action.merge(self.process_machine_requests());
-            self.mark_pointer_route_for_rebuild(action);
+            action = self.handle_event_and_process_machine_requests(event, action)?;
             drained += 1;
         }
         Ok((action, drained))
+    }
+
+    fn handle_event_and_process_machine_requests(
+        &mut self,
+        event: AppEvent,
+        mut action: RenderAction,
+    ) -> anyhow::Result<RenderAction> {
+        action = action.merge(self.handle(event)?);
+        action = action.merge(self.process_machine_requests());
+        self.mark_pointer_route_for_rebuild(action);
+        Ok(action)
     }
 
     fn event_loop<B: Backend>(
@@ -10333,16 +10342,12 @@ impl App {
                 hook();
             }
             if let Some(event) = first {
-                action = action.merge(self.handle(event)?);
-                action = action.merge(self.process_machine_requests());
-                self.mark_pointer_route_for_rebuild(action);
+                action = self.handle_event_and_process_machine_requests(event, action)?;
             }
             for _ in 0..256 {
                 match rx.try_recv() {
                     Ok(event) => {
-                        action = action.merge(self.handle(event)?);
-                        action = action.merge(self.process_machine_requests());
-                        self.mark_pointer_route_for_rebuild(action);
+                        action = self.handle_event_and_process_machine_requests(event, action)?;
                     }
                     Err(_) => break,
                 }
@@ -23777,6 +23782,56 @@ mod tests {
             RenderAction::Paint,
             "deferred input must flush the pointer route before replay"
         );
+    }
+
+    #[test]
+    fn event_transition_dispatches_machine_request_before_next_event() {
+        let mux = Mux::new("event-transition-machine-order", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let (controller, _requests) = fake_controller(FakeMachineAction::Fail("expected failure"));
+        install_machine_controller(&mut app, controller);
+        let request = MachineRequest::ReconnectProvider;
+        app.machine_ui.as_mut().unwrap().request = Some(request.clone());
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("first".into())),
+                RenderAction::None,
+            )
+            .unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.machine_action_in_flight);
+        assert_eq!(app.machine_action_request, Some(request.clone()));
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("next".into())),
+                action,
+            )
+            .unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.status_message.as_deref(), Some("next"));
+        assert_eq!(app.machine_action_request, Some(request));
+        app.shutdown_background_workers();
+    }
+
+    #[test]
+    fn event_transition_marks_pointer_route_after_structural_event() {
+        let mux = Mux::new("event-transition-pointer-phase", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("redraw".into())),
+                RenderAction::None,
+            )
+            .unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
     }
 
     #[test]
