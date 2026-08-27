@@ -217,12 +217,11 @@ pub(crate) async fn wait_for_shutdown_signal_async() {
         if shutdown_requested() {
             return;
         }
-        let ready = match stream.readable().await {
-            Ok(ready) => ready,
-            Err(_) => return,
-        };
+        if stream.readable().await.is_err() {
+            return;
+        }
         let mut byte = [0_u8; 1];
-        match ready.try_read(&mut byte) {
+        match stream.try_read(&mut byte) {
             Ok(_) => return,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
             Err(_) => return,
