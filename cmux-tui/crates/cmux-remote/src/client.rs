@@ -81,8 +81,9 @@ impl WorkspaceRequestRegistry {
             .next_sequence
             .checked_add(1)
             .filter(|sequence| *sequence <= REQUEST_ID_SEQUENCE_MAX)?;
+        let id = encode_request_id(self.namespace, sequence, &self.key)?;
         self.next_sequence = sequence;
-        Some(encode_request_id(self.namespace, sequence, &self.key))
+        Some(id)
     }
 
     fn retire(&mut self, id: RequestId) -> bool {
@@ -97,11 +98,13 @@ impl WorkspaceRequestRegistry {
     }
 }
 
-fn encode_request_id(namespace: u64, sequence: u64, key: &[u8; 32]) -> RequestId {
-    debug_assert!(sequence > 0 && sequence <= REQUEST_ID_SEQUENCE_MAX);
+fn encode_request_id(namespace: u64, sequence: u64, key: &[u8; 32]) -> Option<RequestId> {
+    if sequence == 0 || sequence > REQUEST_ID_SEQUENCE_MAX {
+        return None;
+    }
     let plaintext = (u128::from(namespace) << REQUEST_ID_SEQUENCE_BITS) | u128::from(sequence);
     let ciphertext = permute_request_id_payload(plaintext, key, false);
-    RequestId::from_u128(embed_uuid_payload(ciphertext))
+    Some(RequestId::from_u128(embed_uuid_payload(ciphertext)))
 }
 
 fn decode_request_id(id: RequestId, key: &[u8; 32]) -> Option<(u64, u64)> {
@@ -126,7 +129,7 @@ fn is_uuid_fixed_bit(bit: u32) -> bool {
 }
 
 fn embed_uuid_payload(payload: u128) -> u128 {
-    debug_assert!(payload < (1_u128 << REQUEST_ID_PAYLOAD_BITS));
+    assert!(payload < (1_u128 << REQUEST_ID_PAYLOAD_BITS));
     let mut raw = 0_u128;
     let mut payload_bit = REQUEST_ID_PAYLOAD_BITS;
     for bit in (0..128_u32).rev() {
@@ -136,7 +139,7 @@ fn embed_uuid_payload(payload: u128) -> u128 {
         payload_bit -= 1;
         raw |= ((payload >> payload_bit) & 1) << bit;
     }
-    debug_assert_eq!(payload_bit, 0);
+    assert_eq!(payload_bit, 0);
     raw | UUID_VERSION_VALUE | UUID_VARIANT_VALUE
 }
 
@@ -155,7 +158,7 @@ fn permute_request_id_payload(value: u128, key: &[u8; 32], decrypt: bool) -> u12
     // Feistel round reversal is a bijection over all 122 payload bits. HMAC
     // makes the private mapping pseudorandom; this is an in-process namespace
     // recognizer, not an authentication tag for the wire protocol.
-    debug_assert!(value < (1_u128 << REQUEST_ID_PAYLOAD_BITS));
+    assert!(value < (1_u128 << REQUEST_ID_PAYLOAD_BITS));
     let mut left = (value >> REQUEST_ID_FEISTEL_HALF_BITS) & REQUEST_ID_FEISTEL_HALF_MASK;
     let mut right = value & REQUEST_ID_FEISTEL_HALF_MASK;
     if decrypt {
@@ -842,30 +845,51 @@ mod tests {
     }
 
     #[test]
-    fn foreign_request_ids_are_not_recognized() {
-        let requests = WorkspaceRequestRegistry::new();
-        let mut foreign_registry = WorkspaceRequestRegistry {
+    fn foreign_and_malformed_request_ids_are_not_recognized() {
+        let mut requests = WorkspaceRequestRegistry::new();
+        let issued = requests.allocate().expect("request ID available");
+        assert!(requests.was_issued(issued));
+
+        let mut foreign_namespace_registry = WorkspaceRequestRegistry {
             namespace: requests.namespace ^ 1,
             key: requests.key,
             next_sequence: 0,
             pending: HashMap::new(),
         };
-        let foreign = foreign_registry.allocate().expect("request ID available");
+        let foreign_namespace =
+            foreign_namespace_registry.allocate().expect("request ID available");
+        let mut foreign_key = requests.key;
+        foreign_key[0] ^= 0x80;
+        let mut foreign_key_registry = WorkspaceRequestRegistry {
+            namespace: requests.namespace,
+            key: foreign_key,
+            next_sequence: 0,
+            pending: HashMap::new(),
+        };
+        let foreign_key = foreign_key_registry.allocate().expect("request ID available");
+        let wrong_version =
+            RequestId::from_u128((0x1_u128 << UUID_VERSION_SHIFT) | UUID_VARIANT_VALUE);
+        let wrong_variant = RequestId::from_u128(UUID_VERSION_VALUE);
 
-        assert!(!requests.was_issued(RequestId::from_u128(0)));
-        assert!(!requests.was_issued(foreign));
+        for foreign in
+            [RequestId::from_u128(0), foreign_namespace, foreign_key, wrong_version, wrong_variant]
+        {
+            assert!(!requests.was_issued(foreign));
+        }
         let requests = Arc::new(Mutex::new(requests));
-        let error = route_response(
-            RpcResponse { id: foreign, result: Err(RpcError::new("server", "foreign")) },
-            &requests,
-        )
-        .expect_err("a foreign response must fail the channel");
-        assert_eq!(error, "workspace RPC response could not be matched to a request");
+        for foreign in [foreign_namespace, foreign_key] {
+            let error = route_response(
+                RpcResponse { id: foreign, result: Err(RpcError::new("server", "foreign")) },
+                &requests,
+            )
+            .expect_err("a foreign response must fail the channel");
+            assert_eq!(error, "workspace RPC response could not be matched to a request");
+        }
     }
 
     #[test]
     fn request_id_encoding_round_trips_and_preserves_uuidv4_shape() {
-        let requests = WorkspaceRequestRegistry::new();
+        let key = [0x42_u8; 32];
         let payloads = [
             0,
             1,
@@ -875,13 +899,19 @@ mod tests {
         ];
 
         for payload in payloads {
-            let encoded_payload = permute_request_id_payload(payload, &requests.key, false);
+            let encoded_payload = permute_request_id_payload(payload, &key, false);
             let encoded = RequestId::from_u128(embed_uuid_payload(encoded_payload));
+            let uuid = uuid::Uuid::from_u128(encoded.as_u128());
 
             assert!(is_uuid_v4(encoded.as_u128()));
+            assert_eq!(uuid.get_version(), Some(uuid::Version::Random));
+            assert_eq!(uuid.get_variant(), uuid::Variant::RFC4122);
             assert_eq!(extract_uuid_payload(encoded.as_u128()), encoded_payload);
-            assert_eq!(permute_request_id_payload(encoded_payload, &requests.key, true), payload);
+            assert_eq!(permute_request_id_payload(encoded_payload, &key, true), payload);
         }
+
+        assert!(encode_request_id(7, 0, &key).is_none());
+        assert!(encode_request_id(7, REQUEST_ID_SEQUENCE_MAX + 1, &key).is_none());
 
         let mut requests = WorkspaceRequestRegistry::new();
         let first = requests.allocate().expect("request ID available");
