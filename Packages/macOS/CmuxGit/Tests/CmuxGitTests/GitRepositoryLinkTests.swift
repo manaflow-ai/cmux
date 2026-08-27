@@ -2,6 +2,16 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
+private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
+    let nonLocalPaths: Set<String>
+
+    func isLocal(path: String) -> Bool {
+        !nonLocalPaths.contains(
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        )
+    }
+}
+
 @Suite struct GitRepositoryLinkTests {
     @Test(arguments: [
         ("origin\thttps://github.com/manaflow-ai/cmux.git (fetch)\n", "manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux"),
@@ -660,6 +670,38 @@ import Testing
 
         #expect(snapshot.isComplete)
         #expect(snapshot.remoteVOutput?.contains("https://github.com/empty-count/repo.git") == true)
+    }
+
+    @Test func nonLocalConfigFailsClosedBeforeReadingItsContents() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/non-local/repo.git
+        """)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let configPath = fixture.gitDirectory
+            .appendingPathComponent("config")
+            .standardizedFileURL
+            .path
+        let statusReader = CountingGitFileStatusReader()
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            fileStatusReader: statusReader,
+            filesystemLocalityReader: FixedGitFilesystemLocalityReader(
+                nonLocalPaths: [configPath]
+            ),
+            environment: [
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+            ]
+        )
+
+        #expect(!snapshot.isComplete)
+        #expect(snapshot.remoteVOutput == nil)
+        #expect(statusReader.callCount(atPath: configPath) == 0)
     }
 
     @Test func devNullIncludeDoesNotInvalidateTheConfigSnapshot() throws {
