@@ -954,10 +954,19 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
         println!("{}", forward.webview_url(&scheme)?);
         let mut finished = connected.runtime.subscribe_finished();
         if !crate::shutdown_requested() && !*finished.borrow() {
+            #[cfg(unix)]
             tokio::select! {
                 biased;
-                _ = crate::wait_for_shutdown_signal_async() => {}
+                shutdown = crate::wait_for_shutdown_signal_async() => {
+                    if shutdown.is_err() {
+                        let _ = finished.changed().await;
+                    }
+                }
                 _ = finished.changed() => {}
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = finished.changed().await;
             }
         }
         forward.shutdown().await;
