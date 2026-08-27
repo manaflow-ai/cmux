@@ -315,7 +315,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         ( trap '' HUP INT TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
         cmux_test_auth_root=$!
-        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        trap 'kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -323,8 +323,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" 1
-        /bin/kill -0 "$cmux_test_auth_root" >/dev/null 2>&1 || exit 97
-        /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true
+        kill -0 "$cmux_test_auth_root" >/dev/null 2>&1 || exit 97
+        kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true
         wait "$cmux_test_auth_root" 2>/dev/null || true
         trap - EXIT
         """

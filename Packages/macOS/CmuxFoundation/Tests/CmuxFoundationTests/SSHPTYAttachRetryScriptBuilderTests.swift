@@ -199,7 +199,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "  cmux_ssh_attach_signal_status=\"$1\"",
             "  cmux_ssh_attach_signal_name=\"$2\"",
             "  if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then",
-            "    /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true",
+            "    kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true",
             "    wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true",
             "    cmux_ssh_attach_backoff_pid=",
             "  elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then",
