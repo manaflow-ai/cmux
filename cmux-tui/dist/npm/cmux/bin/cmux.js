@@ -184,27 +184,86 @@ function cacheRoot() {
   return path.join(base, "cmux-tui-launcher");
 }
 
-function statePath() {
-  return path.join(platformRoot(), "state.json");
-}
-
 function platformRoot() {
   return path.join(cacheRoot(), `${process.platform}-${process.arch}`);
 }
 
-function readState() {
+const STATE_CHANNEL = /^[a-z0-9]+$/;
+
+function statePath(channel) {
+  if (typeof channel !== "string" || !STATE_CHANNEL.test(channel)) return null;
+  return path.join(platformRoot(), "state", `${channel}.json`);
+}
+
+function legacyStatePath() {
+  return path.join(platformRoot(), "state.json");
+}
+
+function readStateFile(target) {
   try {
-    const state = JSON.parse(fs.readFileSync(statePath(), "utf8"));
-    if (state && typeof state.version === "string") return state;
+    const state = JSON.parse(fs.readFileSync(target, "utf8"));
+    if (state && validVersion(state.version)) return state;
   } catch {}
   return null;
 }
 
+function readLegacyState() {
+  return readStateFile(legacyStatePath());
+}
+
+function readState(channel) {
+  const target = statePath(channel);
+  if (!target) return null;
+  const state = readStateFile(target);
+  if (state && stateVersionChannel(state) === channel) return state;
+  // Migrate state written by older launchers lazily. A legacy record is only
+  // eligible for the channel encoded by its version, so a stable record can
+  // never satisfy a nightly launcher (or the reverse).
+  const legacy = readLegacyState();
+  return legacy && stateVersionChannel(legacy) === channel ? legacy : null;
+}
+
+function readUnambiguousManagedState() {
+  const candidates = [];
+  const legacy = readLegacyState();
+  if (legacy && stateVersionChannel(legacy)) candidates.push(legacy);
+  const stateRoot = path.join(platformRoot(), "state");
+  try {
+    for (const entry of fs.readdirSync(stateRoot, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      const state = readStateFile(path.join(stateRoot, entry.name));
+      if (state && stateVersionChannel(state)) candidates.push(state);
+    }
+  } catch {}
+  const unique = new Map(
+    candidates.map((state) => [
+      `${stateVersionChannel(state)}:${state.version}`,
+      state,
+    ])
+  );
+  return unique.size === 1 ? unique.values().next().value : null;
+}
+
 function writeState(state) {
-  const target = statePath();
+  const channel =
+    typeof state?.channel === "string"
+      ? state.channel.toLowerCase()
+      : versionChannel(state?.version);
+  if (
+    !channel ||
+    !STATE_CHANNEL.test(channel) ||
+    stateVersionChannel({ ...state, channel }) !== channel
+  ) {
+    fail("cannot persist launcher state for an invalid release channel");
+  }
+  const target = statePath(channel);
+  if (!target) fail("cannot persist launcher state for an invalid release channel");
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const tmp = `${target}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
+  fs.writeFileSync(
+    tmp,
+    JSON.stringify({ ...state, channel }, null, 2) + "\n"
+  );
   fs.renameSync(tmp, target);
 }
 
@@ -255,6 +314,24 @@ function openCachedBinary(bin) {
   }
 }
 
+function readCachedManifest(version) {
+  const bin = path.join(cachedBinDir(version), BIN_NAME);
+  try {
+    const manifest = JSON.parse(fs.readFileSync(cacheManifestPath(version), "utf8"));
+    const expected = manifest?.binaries?.[BIN_NAME];
+    if (
+      manifest?.version !== version ||
+      typeof expected !== "string" ||
+      !/^[a-f0-9]{128}$/.test(expected)
+    ) {
+      return null;
+    }
+    return { bin, expected };
+  } catch {
+    return null;
+  }
+}
+
 function readVerifiedCachedBinary(fd, expected) {
   const before = fs.fstatSync(fd);
   if (!before.isFile()) return null;
@@ -266,7 +343,7 @@ function readVerifiedCachedBinary(fd, expected) {
   const actual = Buffer.from(digestHex(data), "hex");
   const expectedBytes = Buffer.from(expected, "hex");
   if (!crypto.timingSafeEqual(actual, expectedBytes)) return null;
-  return after;
+  return { stat: after, data };
 }
 
 function cachedBinaryPathIsUnchanged(bin, expectedStat) {
@@ -274,23 +351,16 @@ function cachedBinaryPathIsUnchanged(bin, expectedStat) {
   return finalStat.isFile() && sameFileIdentity(finalStat, expectedStat);
 }
 
-function cachedBinary(version) {
-  const bin = path.join(cachedBinDir(version), BIN_NAME);
+function cachedBinary(version, candidate = null) {
+  const resolvedCandidate = candidate || readCachedManifest(version);
+  if (!resolvedCandidate) return null;
   let opened = null;
   try {
-    const manifest = JSON.parse(fs.readFileSync(cacheManifestPath(version), "utf8"));
-    const expected = manifest?.binaries?.[BIN_NAME];
-    if (
-      manifest?.version !== version ||
-      typeof expected !== "string" ||
-      !/^[a-f0-9]{128}$/.test(expected)
-    ) {
-      return null;
-    }
-    opened = openCachedBinary(bin);
+    opened = openCachedBinary(resolvedCandidate.bin);
     if (!opened) return null;
-    let verifiedStat = readVerifiedCachedBinary(opened.fd, expected);
-    if (!verifiedStat) return null;
+    let verified = readVerifiedCachedBinary(opened.fd, resolvedCandidate.expected);
+    if (!verified) return null;
+    let verifiedStat = verified.stat;
     if (process.platform !== "win32") {
       if ((verifiedStat.mode & 0o111) === 0) {
         const versionRoot = path.dirname(cachedBinDir(version));
@@ -301,15 +371,16 @@ function cachedBinary(version) {
         fs.fchmodSync(opened.fd, 0o755);
         fs.closeSync(opened.fd);
         opened = null;
-        opened = openCachedBinary(bin);
+        opened = openCachedBinary(resolvedCandidate.bin);
         if (!opened) return null;
-        verifiedStat = readVerifiedCachedBinary(opened.fd, expected);
-        if (!verifiedStat || (verifiedStat.mode & 0o111) === 0) return null;
+        verified = readVerifiedCachedBinary(opened.fd, resolvedCandidate.expected);
+        if (!verified || (verified.stat.mode & 0o111) === 0) return null;
+        verifiedStat = verified.stat;
       }
-      fs.accessSync(bin, fs.constants.X_OK);
+      fs.accessSync(resolvedCandidate.bin, fs.constants.X_OK);
     }
-    if (!cachedBinaryPathIsUnchanged(bin, verifiedStat)) return null;
-    return bin;
+    if (!cachedBinaryPathIsUnchanged(resolvedCandidate.bin, verifiedStat)) return null;
+    return resolvedCandidate.bin;
   } catch {
     return null;
   } finally {
@@ -317,17 +388,99 @@ function cachedBinary(version) {
   }
 }
 
+// Check only cheap metadata before lease setup. Full digest verification is
+// performed once after the lease, or while making a private read-only snapshot.
+function cachedBinaryCandidate(version) {
+  const candidate = readCachedManifest(version);
+  if (!candidate) return null;
+  try {
+    const stat = fs.lstatSync(candidate.bin);
+    if (!stat.isFile()) return null;
+    if (process.platform !== "win32") {
+      if ((stat.mode & 0o111) === 0) return null;
+      fs.accessSync(candidate.bin, fs.constants.X_OK);
+    }
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+function snapshotVerifiedCachedBinary(candidate) {
+  let opened = null;
+  let snapshotDirectory = null;
+  let snapshotFd;
+  let snapshot = null;
+  let complete = false;
+  try {
+    opened = openCachedBinary(candidate.bin);
+    if (!opened) return null;
+    const verified = readVerifiedCachedBinary(opened.fd, candidate.expected);
+    if (!verified) return null;
+    if (
+      process.platform !== "win32" &&
+      (verified.stat.mode & 0o111) === 0
+    ) {
+      return null;
+    }
+    if (!cachedBinaryPathIsUnchanged(candidate.bin, verified.stat)) return null;
+    snapshotDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-tui-launch-"));
+    snapshot = path.join(snapshotDirectory, BIN_NAME);
+    snapshotFd = fs.openSync(
+      snapshot,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
+      0o700
+    );
+    fs.writeFileSync(snapshotFd, verified.data);
+    if (process.platform !== "win32") fs.fchmodSync(snapshotFd, 0o700);
+    fs.closeSync(snapshotFd);
+    snapshotFd = undefined;
+    if (process.platform !== "win32") fs.accessSync(snapshot, fs.constants.X_OK);
+    complete = true;
+    return { path: snapshot, directory: snapshotDirectory };
+  } catch {
+    return null;
+  } finally {
+    if (opened) {
+      try {
+        fs.closeSync(opened.fd);
+      } catch {}
+    }
+    if (snapshotFd !== undefined) {
+      try {
+        fs.closeSync(snapshotFd);
+      } catch {}
+    }
+    if (snapshotDirectory && !complete) {
+      try {
+        fs.rmSync(snapshotDirectory, { recursive: true, force: true });
+      } catch {}
+    }
+  }
+}
+
+function removeLaunchSnapshot(snapshot) {
+  if (!snapshot) return;
+  try {
+    fs.rmSync(snapshot.directory, { recursive: true, force: true });
+  } catch {}
+}
+
 // A verified cache entry can be launched from a centrally provisioned
-// read-only cache. Check every directory that could let a routine launcher
-// publish a lease or prune the version before using that path. A partially
-// writable cache stays on the leased path so pruning remains serialized.
+// read-only cache. Check every directory and trusted file that could let a
+// routine launcher publish a lease or prune or replace the version before
+// using that path. A partially writable cache stays on the leased path so
+// pruning remains serialized.
 function cacheVersionIsReadOnly(version) {
   const versionRoot = path.dirname(cachedBinDir(version));
+  const binDir = cachedBinDir(version);
   const leaseRoot = path.join(versionRoot, ".active");
   const directories = [
+    cacheRoot(),
     platformRoot(),
     path.dirname(versionRoot),
     versionRoot,
+    binDir,
   ];
   try {
     if (fs.existsSync(leaseRoot)) directories.push(leaseRoot);
@@ -345,6 +498,31 @@ function cacheVersionIsReadOnly(version) {
       // EACCES/EPERM is the expected result for a read-only provisioned tree.
       // Unknown failures are not enough to prove that routine mutation is
       // impossible, so fail closed instead.
+      if (!error || (error.code !== "EACCES" && error.code !== "EPERM")) {
+        return false;
+      }
+    }
+  }
+  const trustedFiles = [
+    path.join(versionRoot, "manifest.json"),
+    path.join(binDir, BIN_NAME),
+  ];
+  const marker = path.join(versionRoot, "managed");
+  try {
+    if (fs.existsSync(marker)) trustedFiles.push(marker);
+  } catch {
+    return false;
+  }
+  for (const file of trustedFiles) {
+    try {
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile()) return false;
+      if (process.platform !== "win32" && (stat.mode & 0o222) !== 0) {
+        return false;
+      }
+      fs.accessSync(file, fs.constants.W_OK);
+      return false;
+    } catch (error) {
       if (!error || (error.code !== "EACCES" && error.code !== "EPERM")) {
         return false;
       }
@@ -819,6 +997,307 @@ function registryBase() {
   return raw.replace(/\/+$/, "");
 }
 
+// Node's built-in fetch does not consume npm's proxy, CA, or client
+// certificate settings. When one of those settings is present, delegate the
+// registry operation to npm itself, which owns the supported config contract.
+const NPM_NETWORK_CONFIG_KEYS = [
+  "proxy",
+  "https-proxy",
+  "http-proxy",
+  "noproxy",
+  "cafile",
+  "ca",
+  "cert",
+  "key",
+  "certfile",
+  "keyfile",
+  "strict-ssl",
+];
+let npmNetworkConfigPresent;
+
+function configValueIsPresent(value) {
+  if (value === undefined || value === null) return false;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized !== "" && normalized !== "null";
+}
+
+function npmConfigEnvironmentValue(key) {
+  const normalized = key.replace(/-/g, "_");
+  for (const name of [
+    `npm_config_${normalized}`,
+    `npm_config_${key}`,
+    `NPM_CONFIG_${normalized}`,
+    `NPM_CONFIG_${key}`,
+  ]) {
+    if (configValueIsPresent(process.env[name])) return process.env[name];
+  }
+  return undefined;
+}
+
+function npmEnvironmentHasScopedNetworkConfig() {
+  return Object.entries(process.env).some(([name, value]) => {
+    if (/^npm_config_ca\[\]$/i.test(name)) return configValueIsPresent(value);
+    if (!/^npm_config_\/\/[^/]+\/:/i.test(name)) return false;
+    const key = name.slice(name.lastIndexOf(":") + 1).toLowerCase();
+    return (
+      ["ca", "cafile", "cert", "certfile", "key", "keyfile"].includes(key) &&
+      configValueIsPresent(value)
+    );
+  });
+}
+
+function npmConfigFilePaths() {
+  const paths = new Set();
+  const add = (candidate) => {
+    if (candidate) paths.add(path.resolve(candidate));
+  };
+  add(npmConfigEnvironmentValue("userconfig"));
+  add(npmConfigEnvironmentValue("globalconfig"));
+
+  // npm reads a project .npmrc, then the user and global files. Walking to the
+  // nearest root also covers launchers started from a nested project folder.
+  let directory = process.cwd();
+  while (true) {
+    add(path.join(directory, ".npmrc"));
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  add(path.join(os.homedir(), ".npmrc"));
+  const nodePrefix = path.dirname(path.dirname(process.execPath));
+  add(path.join(nodePrefix, "etc", "npmrc"));
+  if (process.platform !== "win32") add("/etc/npmrc");
+  return paths;
+}
+
+function npmrcContainsNetworkConfig(contents) {
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+    // Scoped client certificate settings use
+    // `//registry.example/:certfile=/path/to/cert.pem`.
+    const scoped = /:(certfile|keyfile)\s*=/i.exec(line);
+    if (scoped) {
+      const value = line.slice(scoped.index + scoped[0].length);
+      if (configValueIsPresent(value)) return true;
+      continue;
+    }
+    const match = /^(?:@[^:]+:)?([a-z-]+)(\[\])?\s*=\s*(.*)$/i.exec(line);
+    if (!match) continue;
+    const key = match[1].toLowerCase();
+    if (NPM_NETWORK_CONFIG_KEYS.includes(key) && configValueIsPresent(match[3])) {
+      return true;
+    }
+    // `ca[]=` is npm's documented way to provide more than one CA value.
+    if (key === "ca" && match[2] === "[]" && configValueIsPresent(match[3])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function registryIsLoopback() {
+  try {
+    const hostname = new URL(registryBase()).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasNpmNetworkConfig() {
+  if (npmNetworkConfigPresent !== undefined) return npmNetworkConfigPresent;
+  npmNetworkConfigPresent = NPM_NETWORK_CONFIG_KEYS.some((key) =>
+    configValueIsPresent(npmConfigEnvironmentValue(key))
+  );
+  if (!npmNetworkConfigPresent) {
+    npmNetworkConfigPresent = npmEnvironmentHasScopedNetworkConfig();
+  }
+  if (!npmNetworkConfigPresent) {
+    for (const configPath of npmConfigFilePaths()) {
+      let contents;
+      try {
+        contents = fs.readFileSync(configPath, "utf8");
+      } catch {
+        continue;
+      }
+      if (npmrcContainsNetworkConfig(contents)) {
+        npmNetworkConfigPresent = true;
+        break;
+      }
+    }
+  }
+  // npm's registry fetch honors the conventional proxy variables even when
+  // they are not duplicated into an .npmrc file. Keep ambient CI proxy
+  // variables from changing explicitly loopback fixture registries.
+  if (!npmNetworkConfigPresent) {
+    const proxyConfigured = [
+      "HTTPS_PROXY",
+      "https_proxy",
+      "HTTP_PROXY",
+      "http_proxy",
+    ].some((name) => configValueIsPresent(process.env[name]));
+    npmNetworkConfigPresent = proxyConfigured && !registryIsLoopback();
+  }
+  return npmNetworkConfigPresent;
+}
+
+function npmChildEnvironment() {
+  const env = { ...process.env };
+  // npm's config loader uses lower-case npm_config_* names on Unix. Preserve
+  // the user's upper-case spelling while making its meaning explicit to the
+  // delegated process.
+  for (const key of ["userconfig", "globalconfig", ...NPM_NETWORK_CONFIG_KEYS]) {
+    const value = npmConfigEnvironmentValue(key);
+    if (value === undefined) continue;
+    const normalized = key.replace(/-/g, "_");
+    if (!configValueIsPresent(env[`npm_config_${normalized}`])) {
+      env[`npm_config_${normalized}`] = value;
+    }
+  }
+  for (const [name, value] of Object.entries(process.env)) {
+    const match = /^NPM_CONFIG_(\/\/.*)$/i.exec(name);
+    if (!match || !configValueIsPresent(value)) continue;
+    const lowerName = `npm_config_${match[1]}`;
+    if (!configValueIsPresent(env[lowerName])) env[lowerName] = value;
+  }
+  return env;
+}
+
+function npmInvocation() {
+  const configured = process.env.npm_execpath;
+  if (configured) {
+    const candidate = path.isAbsolute(configured)
+      ? configured
+      : path.resolve(process.cwd(), configured);
+    try {
+      if (fs.statSync(candidate).isFile()) {
+        if (/\.(?:c?m?js)$/i.test(candidate)) {
+          return { command: process.execPath, prefix: [candidate] };
+        }
+        return { command: candidate, prefix: [] };
+      }
+    } catch {}
+  }
+  return {
+    command: process.platform === "win32" ? "npm.cmd" : "npm",
+    prefix: [],
+  };
+}
+
+function runNpm(args) {
+  const invocation = npmInvocation();
+  const result = spawnSync(invocation.command, [...invocation.prefix, ...args], {
+    cwd: process.cwd(),
+    env: npmChildEnvironment(),
+    encoding: "buffer",
+    timeout: REGISTRY_TIMEOUT_MS,
+    killSignal: "SIGTERM",
+    maxBuffer: MAX_METADATA_BYTES,
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0 || result.signal) {
+    throw new Error("npm registry request failed");
+  }
+  const output = Buffer.isBuffer(result.stdout)
+    ? result.stdout
+    : Buffer.from(result.stdout || "");
+  if (output.length > MAX_METADATA_BYTES) {
+    throw new Error("npm registry response is too large");
+  }
+  return output;
+}
+
+function parseNpmJson(output) {
+  try {
+    return JSON.parse(output.toString("utf8").trim());
+  } catch {
+    throw new Error("npm registry response was invalid");
+  }
+}
+
+function npmPackageSpec(packageName, selector) {
+  const validSelector =
+    validVersion(selector) || /^[a-z0-9][a-z0-9._-]*$/i.test(selector);
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(packageName) || !validSelector) {
+    throw new Error("invalid npm package selector");
+  }
+  return `${packageName}@${selector}`;
+}
+
+function npmView(packageName, selector, field) {
+  const spec = npmPackageSpec(packageName, selector);
+  if (!/^[a-z][a-z0-9._-]*$/i.test(field)) {
+    throw new Error("invalid npm metadata field");
+  }
+  return parseNpmJson(
+    runNpm([
+      "view",
+      spec,
+      field,
+      "--json",
+      "--registry",
+      registryBase(),
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--prefer-online",
+      "--loglevel=error",
+    ])
+  );
+}
+
+function npmPack(packageName, version) {
+  const spec = npmPackageSpec(packageName, version);
+  const destination = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-tui-npm-pack-"));
+  try {
+    const output = parseNpmJson(
+      runNpm([
+        "pack",
+        spec,
+        "--json",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--prefer-online",
+        "--loglevel=error",
+        "--pack-destination",
+        destination,
+        "--registry",
+        registryBase(),
+      ])
+    );
+    const record = Array.isArray(output) ? output[0] : output;
+    const filename = record && record.filename;
+    if (
+      typeof filename !== "string" ||
+      !filename ||
+      filename === "." ||
+      filename === ".." ||
+      filename.includes("/") ||
+      filename.includes("\\") ||
+      !filename.endsWith(".tgz")
+    ) {
+      throw new Error("npm pack did not return a safe tarball name");
+    }
+    const tarball = path.join(destination, filename);
+    const stat = fs.lstatSync(tarball);
+    if (!stat.isFile() || stat.size > MAX_TARBALL_BYTES) {
+      throw new Error("npm pack returned an invalid tarball");
+    }
+    return fs.readFileSync(tarball);
+  } finally {
+    try {
+      fs.rmSync(destination, { recursive: true, force: true });
+    } catch {}
+  }
+}
+
 function registryHeaders(url, accept) {
   const headers = { accept };
   try {
@@ -875,8 +1354,11 @@ function requireNetworkRuntime() {
   }
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, npmQuery = null) {
   requireNetworkRuntime();
+  if (npmQuery && hasNpmNetworkConfig()) {
+    return npmView(npmQuery.packageName, npmQuery.selector, npmQuery.field);
+  }
   const response = await fetch(url, {
     headers: registryHeaders(url, "application/json"),
     signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
@@ -1023,21 +1505,34 @@ function removeCachedPayload(version) {
 // Download pkg@version from the registry, verify integrity, extract bin/
 // into the launcher cache. Returns the binary path.
 async function downloadVersion(pkg, version) {
-  const meta = await fetchJson(`${registryBase()}/${pkg}/${version}`);
-  const tarballUrl = meta && meta.dist && meta.dist.tarball;
-  const integrity = meta && meta.dist && meta.dist.integrity;
-  if (!tarballUrl) {
+  const meta = await fetchJson(`${registryBase()}/${pkg}/${version}`, {
+    packageName: pkg,
+    selector: version,
+    field: "dist",
+  });
+  // `npm view ... dist --json` returns the dist object directly, while the
+  // raw registry document wraps it under `dist`. Accept both shapes so the
+  // npm-configured and direct transports share one validation path.
+  const dist = meta && meta.dist ? meta.dist : meta;
+  const tarballUrl = dist && dist.tarball;
+  const integrity = dist && dist.integrity;
+  if (!integrity || (!tarballUrl && !hasNpmNetworkConfig())) {
     throw new Error("registry metadata is incomplete");
   }
   console.error(`cmux: downloading ${pkg}@${version}...`);
-  const response = await fetch(tarballUrl, {
-    headers: registryHeaders(tarballUrl, "application/octet-stream"),
-    signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    throw new Error("platform package download failed");
+  let tgz;
+  if (hasNpmNetworkConfig()) {
+    tgz = npmPack(pkg, version);
+  } else {
+    const response = await fetch(tarballUrl, {
+      headers: registryHeaders(tarballUrl, "application/octet-stream"),
+      signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error("platform package download failed");
+    }
+    tgz = await readResponseBody(response, MAX_TARBALL_BYTES);
   }
-  const tgz = await readResponseBody(response, MAX_TARBALL_BYTES);
   verifyIntegrity(tgz, integrity);
   let tar;
   try {
@@ -1152,11 +1647,14 @@ function pruneCache(keepVersion) {
 
 function wantedVersion(pkg) {
   const pinned = shimVersion();
-  const state = readState();
   if (isManagedPlaceholder(pinned)) {
-    if (state && validVersion(state.version)) return state.version;
     const installed = installedPackage(pkg);
-    if (installed && validVersion(installed.version)) return installed.version;
+    const installedVersion =
+      installed && validVersion(installed.version) ? installed.version : null;
+    const channel = installedVersion ? versionChannel(installedVersion) : null;
+    const state = channel ? readState(channel) : readUnambiguousManagedState();
+    if (state && validVersion(state.version)) return state.version;
+    if (installedVersion) return installedVersion;
     fail(
       "this launcher is an unpublished development copy without a pinned " +
         "binary. Set a development binary override or install a published release."
@@ -1165,6 +1663,7 @@ function wantedVersion(pkg) {
   if (!validVersion(pinned)) {
     fail("this launcher has an invalid release version");
   }
+  const state = readState(versionChannel(pinned));
   if (
     state &&
     stateVersionChannel(state) === versionChannel(pinned) &&
@@ -1175,7 +1674,7 @@ function wantedVersion(pkg) {
   return pinned;
 }
 
-async function resolveBinary(pkg, wanted) {
+async function resolveBinary(pkg, wanted, cachedCandidate = null) {
   const override = process.env.CMUX_TUI_BIN;
   if (override) {
     if (!fs.existsSync(override)) fail("configured native binary override does not exist");
@@ -1187,7 +1686,7 @@ async function resolveBinary(pkg, wanted) {
   if (installed && installed.version === wanted) {
     return installed.binPath;
   }
-  const cached = cachedBinary(wanted);
+  const cached = cachedBinary(wanted, cachedCandidate);
   if (cached) return cached;
 
   // Check the runtime before entering the generic download error boundary so
@@ -1210,8 +1709,13 @@ async function latestVersionForChannel(version) {
   if (!channel || !distTag) {
     fail("could not determine the launcher release channel");
   }
-  const latestMeta = await fetchJson(`${registryBase()}/cmux/${distTag}`);
-  const latest = latestMeta && latestMeta.version;
+  const latestMeta = await fetchJson(`${registryBase()}/cmux/${distTag}`, {
+    packageName: "cmux",
+    selector: distTag,
+    field: "version",
+  });
+  const latest =
+    typeof latestMeta === "string" ? latestMeta : latestMeta && latestMeta.version;
   if (!validVersion(latest) || versionChannel(latest) !== channel) {
     fail(`could not determine the latest published ${channel} release`);
   }
@@ -1240,7 +1744,8 @@ async function runUpdate(pkg, args) {
 
   // Keep one update-wide lock from the version check through download, state
   // publication, and pruning. This prevents two update processes from
-  // completing out of order and pinning state.json to an older version.
+  // completing out of order and pinning a channel state file to an older
+  // version.
   const updateLockPath = updateOperationLockPath();
   const updateLock = tryAcquireCacheLock(updateLockPath);
   if (!updateLock) fail("could not reserve the native binary for update");
@@ -1294,6 +1799,7 @@ async function main() {
   // can still run with CMUX_TUI_BIN.
   const pkg = override ? null : platformPackage();
   let lease = null;
+  let launchSnapshot = null;
   let exitCode = 1;
   let childSignal = null;
   try {
@@ -1306,9 +1812,10 @@ async function main() {
     // Resolve a verified cache hit before trying to create a lease. A
     // read-only, pre-populated cache cannot publish `.active` or `.update.lock`;
     // it is safe to launch that verified binary when pruning is skipped.
-    const cached = wanted && !installedBin ? cachedBinary(wanted) : null;
+    const cachedCandidate =
+      wanted && !installedBin ? cachedBinaryCandidate(wanted) : null;
     const readOnlyCached = Boolean(
-      cached && cacheVersionIsReadOnly(wanted)
+      cachedCandidate && cacheVersionIsReadOnly(wanted)
     );
     // Lease creation serializes with pruning. If another process owns the
     // lock, fail closed rather than launching an unleased binary that a prune
@@ -1323,12 +1830,14 @@ async function main() {
     if (lease) process.once("exit", () => releaseVersionLease(lease));
     let binPath = installedBin;
     if (!binPath && readOnlyCached) {
-      // Revalidate the read-only path after all setup before spawning. No
-      // cache mutation or prune is attempted on this path.
-      binPath = cachedBinary(wanted);
-      if (!binPath) fail("the cached native binary changed before launch");
+      // Revalidate and copy the read-only path after all setup. The private
+      // snapshot prevents a later replacement from changing the executable
+      // between verification and spawn.
+      launchSnapshot = snapshotVerifiedCachedBinary(cachedCandidate);
+      if (!launchSnapshot) fail("the cached native binary changed before launch");
+      binPath = launchSnapshot.path;
     } else if (!binPath) {
-      binPath = await resolveBinary(pkg, wanted);
+      binPath = await resolveBinary(pkg, wanted, cachedCandidate);
     }
     if (lease) pruneCache(wanted);
     const result = spawnSync(binPath, args, { stdio: "inherit" });
@@ -1342,6 +1851,7 @@ async function main() {
     }
   } finally {
     releaseVersionLease(lease);
+    removeLaunchSnapshot(launchSnapshot);
   }
   if (childSignal) {
     process.exitCode = 1;
