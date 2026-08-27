@@ -1,13 +1,64 @@
 # cmux-tui user request board
 
-Snapshot: 2026-08-27T09:25:01Z, pinned to `origin/main`
+Current snapshot: 2026-08-27T10:00:58Z, pinned to `origin/main`
+[`d65d6e6ccacf1d7300316451ce2830f05f889e14`](https://github.com/manaflow-ai/cmux/commit/d65d6e6ccacf1d7300316451ce2830f05f889e14),
+committed 2026-08-27T02:58:58-07:00 with subject
+`Fix workspace RPC unknown response hangs (#10936)`. The prior
+`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and earlier
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots are retained below.
+No new session scan was run, so the existing evidence and lower-bound ledger
+remain unchanged.
+
+The retained session receipt supports at least 258 named substantive turns.
+This is a verifiable lower bound, not a total session count, and no
+10,000-session claim is made.
+
+Merged context for the current main tail is recorded here so request status is
+not confused with code integration. A merge does not close a request without
+behavior evidence.
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA | Rollback |
+| --- | --- | --- | --- | --- | --- |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+| [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Lawrence Chen | `0f6bc912500c630921a6a74d86c09d5817e56278` | 2026-08-27 09:58:58 | `d65d6e6ccacf1d7300316451ce2830f05f889e14` | `git revert d65d6e6ccacf1d7300316451ce2830f05f889e14` |
+
+## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+
+The following request rows and scan receipt preserve the prior snapshot
+captured at 2026-08-27T09:54:48Z. They are historical evidence, not a fresh
+current-session inventory.
+
+Historical snapshot: 2026-08-27T09:54:48Z, pinned to `origin/main`
+[`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`](https://github.com/manaflow-ai/cmux/commit/5c2ee1244e2d796c9e4be5307788b320ac2ee4ff),
+committed 2026-08-27T02:31:38-07:00 with subject
+`fix(tui): zeroize oversized remote frames (#10950)`. The prior
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshot, captured at
+2026-08-27T09:25:01Z, is retained below. No new session scan was run, so the
+existing evidence and lower-bound ledger remain unchanged.
+
+Merged context for the current main tail is recorded here so request status is
+not confused with code integration. A merge does not close a request without
+behavior evidence.
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA | Rollback |
+| --- | --- | --- | --- | --- | --- |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+
+## Historical snapshot retained: main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+The following request rows and scan receipt preserve the prior snapshot. They
+are historical evidence, not a fresh current-session inventory.
+
+Historical snapshot: 2026-08-27T09:25:01Z, pinned to `origin/main`
 [`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095).
 Evidence comes from local Codex and Claude session records. A request stays
 open until its user-visible behavior has a focused test or a recorded dogfood
 result. The previous rows are preserved; this section adds only the current
 audit delta.
 
-## 2026-08-27 audit additions
+## Historical 2026-08-27 audit additions at main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
 
 The scan receipt is 174 parsed Claude records and 42 session IDs from
 `~/.claude/history.jsonl:90614-end`, plus 47 parsed Codex records and 17 IDs

@@ -1,10 +1,97 @@
 # cmux TUI PR intent and merge board
 
-Current snapshot: 2026-08-27T09:25:01Z. This board is pinned to
+Current snapshot: 2026-08-27T10:00:58Z. This board is pinned to
+`origin/main` at [`d65d6e6ccacf1d7300316451ce2830f05f889e14`](https://github.com/manaflow-ai/cmux/commit/d65d6e6ccacf1d7300316451ce2830f05f889e14),
+committed 2026-08-27T02:58:58-07:00 with subject
+`Fix workspace RPC unknown response hangs (#10936)`. The working branch
+contains documentation only. The prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+snapshot, captured at 2026-08-27T09:54:48Z, and the earlier
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshot are retained below as
+historical evidence. Open-PR heads and check rollups in those inventories must
+be re-queried before a merge decision.
+
+The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/10936),
+[#10944](https://github.com/manaflow-ai/cmux/pull/10944), and
+[#10950](https://github.com/manaflow-ai/cmux/pull/10950), plus the nine requested
+PRs. The latest merge fails unknown workspace RPC responses instead of hanging.
+Source heads, authors, merge times, and merge commits are recorded below.
+Individual rollback commands are in
+[`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA |
+| --- | --- | --- | --- | --- |
+| [#10941](https://github.com/manaflow-ai/cmux/pull/10941) | Lawrence Chen | `122a4ff210c50dea21e12846c276849047b16357` | 2026-08-27 07:14:20 | `6641abe023f3ab175fd910b547316fc00bf523ee` |
+| [#10940](https://github.com/manaflow-ai/cmux/pull/10940) | Lawrence Chen | `ab2e3d314285d0512280821711b518fae14c2557` | 2026-08-27 07:21:34 | `e6895d94d8fba491e823e3550dda6727cdd87d33` |
+| [#10938](https://github.com/manaflow-ai/cmux/pull/10938) | Lawrence Chen | `e9162bfbf4bdbabcd68ffa4461011262229740fe` | 2026-08-27 07:22:50 | `d0f1d94c431cd41947133f7d9406968ee70a7fc7` |
+| [#10935](https://github.com/manaflow-ai/cmux/pull/10935) | Lawrence Chen | `f6e9d9e9353c629fa42ff44b65a1074972384b3b` | 2026-08-27 07:37:37 | `502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` |
+| [#10932](https://github.com/manaflow-ai/cmux/pull/10932) | Lawrence Chen | `79d5bda289b5ff5e87e8714fd6f3f69f7e7e88fb` | 2026-08-27 07:38:07 | `6e67b662c649096b7133eaace8059cd4420a6ba6` |
+| [#10937](https://github.com/manaflow-ai/cmux/pull/10937) | Lawrence Chen | `da0239d03a3398556c496cffeb9ee393aff7ffaa` | 2026-08-27 08:01:23 | `41f17d77e00ed6ae8b022833301b979d82ee95e3` |
+| [#10939](https://github.com/manaflow-ai/cmux/pull/10939) | Lawrence Chen | `63805ab765f88419b5c87a63068c79e05948506e` | 2026-08-27 08:06:35 | `26fb89ceba985e908f50502e1666c77b8d7f8ead` |
+| [#10934](https://github.com/manaflow-ai/cmux/pull/10934) | Lawrence Chen | `04ab7444e49b05dc3d34dc129ff716780b807354` | 2026-08-27 08:17:49 | `f73fd08c161445b309f6d8d37374d85de58725df` |
+| [#10949](https://github.com/manaflow-ai/cmux/pull/10949) | Lawrence Chen | `634f34535681d01a9c51369eee5da21e3f57c3a5` | 2026-08-27 08:34:35 | `b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+| [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Lawrence Chen | `0f6bc912500c630921a6a74d86c09d5817e56278` | 2026-08-27 09:58:58 | `d65d6e6ccacf1d7300316451ce2830f05f889e14` |
+
+The bounded open-PR inventory retained below was captured before the d65 merge.
+It retains exact heads, check rollups, GitHub state, and classifications without
+pretending they are current. Run a fresh `gh pr view` and checks query before
+acting on any row.
+
+The retained session receipt supports at least 258 named substantive turns.
+This is a verifiable lower bound, not a total session count, and no
+10,000-session claim is made.
+
+## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+
+The following section preserves the prior current layer captured at
+2026-08-27T09:54:48Z. It is not current evidence.
+
+Historical snapshot: 2026-08-27T09:54:48Z. This board was pinned to
+`origin/main` at [`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`](https://github.com/manaflow-ai/cmux/commit/5c2ee1244e2d796c9e4be5307788b320ac2ee4ff),
+committed 2026-08-27T02:31:38-07:00 with subject
+`fix(tui): zeroize oversized remote frames (#10950)`. The working branch
+contains documentation only. The prior `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+snapshot, captured at 2026-08-27T09:25:01Z after [#10944](https://github.com/manaflow-ai/cmux/pull/10944),
+is retained below as historical evidence. Its open-PR heads and check rollups
+must be re-queried before a merge decision.
+
+The nine requested PRs, [#10944](https://github.com/manaflow-ai/cmux/pull/10944),
+and [#10950](https://github.com/manaflow-ai/cmux/pull/10950) are in this exact
+main snapshot. The latest merge zeroizes oversized remote session frames before
+disconnect. Source heads, authors, merge times, and merge commits are recorded
+below. Individual rollback commands are in
+[`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA |
+| --- | --- | --- | --- | --- |
+| [#10941](https://github.com/manaflow-ai/cmux/pull/10941) | Lawrence Chen | `122a4ff210c50dea21e12846c276849047b16357` | 2026-08-27 07:14:20 | `6641abe023f3ab175fd910b547316fc00bf523ee` |
+| [#10940](https://github.com/manaflow-ai/cmux/pull/10940) | Lawrence Chen | `ab2e3d314285d0512280821711b518fae14c2557` | 2026-08-27 07:21:34 | `e6895d94d8fba491e823e3550dda6727cdd87d33` |
+| [#10938](https://github.com/manaflow-ai/cmux/pull/10938) | Lawrence Chen | `e9162bfbf4bdbabcd68ffa4461011262229740fe` | 2026-08-27 07:22:50 | `d0f1d94c431cd41947133f7d9406968ee70a7fc7` |
+| [#10935](https://github.com/manaflow-ai/cmux/pull/10935) | Lawrence Chen | `f6e9d9e9353c629fa42ff44b65a1074972384b3b` | 2026-08-27 07:37:37 | `502ed87921f4ea933e30cfe8e5bb5aed0b4dad50` |
+| [#10932](https://github.com/manaflow-ai/cmux/pull/10932) | Lawrence Chen | `79d5bda289b5ff5e87e8714fd6f3f69f7e7e88fb` | 2026-08-27 07:38:07 | `6e67b662c649096b7133eaace8059cd4420a6ba6` |
+| [#10937](https://github.com/manaflow-ai/cmux/pull/10937) | Lawrence Chen | `da0239d03a3398556c496cffeb9ee393aff7ffaa` | 2026-08-27 08:01:23 | `41f17d77e00ed6ae8b022833301b979d82ee95e3` |
+| [#10939](https://github.com/manaflow-ai/cmux/pull/10939) | Lawrence Chen | `63805ab765f88419b5c87a63068c79e05948506e` | 2026-08-27 08:06:35 | `26fb89ceba985e908f50502e1666c77b8d7f8ead` |
+| [#10934](https://github.com/manaflow-ai/cmux/pull/10934) | Lawrence Chen | `04ab7444e49b05dc3d34dc129ff716780b807354` | 2026-08-27 08:17:49 | `f73fd08c161445b309f6d8d37374d85de58725df` |
+| [#10949](https://github.com/manaflow-ai/cmux/pull/10949) | Lawrence Chen | `634f34535681d01a9c51369eee5da21e3f57c3a5` | 2026-08-27 08:34:35 | `b151e7eebcf4d33ae0b5f09e3f5b8c9dc3072c87` |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+
+The bounded open-PR inventory from the prior snapshot remains below under
+`Historical live PR state (99bd snapshot)`. It retains exact heads, check
+rollups, GitHub state, and classifications without pretending they are current.
+Run a fresh `gh pr view` and checks query before acting on any row.
+
+## Historical snapshot retained: main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+The following section preserves the prior board state captured at
+2026-08-27T09:25:01Z. It is not current evidence.
+
+Historical snapshot: 2026-08-27T09:25:01Z. This board was pinned to
 `origin/main` at [`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095),
 committed 2026-08-27T02:13:58-07:00 with subject
 `fix(relay): bound Git child cleanup (#10944)`. The
-working branch contains documentation only. Older sections remain below as
+working branch contained documentation only. Older sections remain below as
 dated history and are not live evidence.
 
 The nine requested PRs, plus the subsequent [#10944](https://github.com/manaflow-ai/cmux/pull/10944)
@@ -37,7 +124,7 @@ rollup count (`S/F/P/T` means successful, failed, pending, total entries),
 mergeability, and a disposition. It is not a claim that the other 232 rows are
 safe to merge or irrelevant.
 
-## Live PR state (2026-08-27)
+## Historical live PR state (99bd snapshot, 2026-08-27)
 
 | PR | Author | Exact head | Checks at snapshot | GitHub state | Classification |
 | --- | --- | --- | --- | --- | --- |

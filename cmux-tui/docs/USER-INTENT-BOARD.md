@@ -1,6 +1,61 @@
 # cmux-tui user-intent board
 
-Current audit snapshot: 2026-08-27T09:25:01Z. The source baseline is
+Current audit snapshot: 2026-08-27T10:00:58Z. The source baseline is
+`origin/main` at [`d65d6e6ccacf1d7300316451ce2830f05f889e14`](https://github.com/manaflow-ai/cmux/commit/d65d6e6ccacf1d7300316451ce2830f05f889e14),
+committed 2026-08-27T02:58:58-07:00 with subject
+`Fix workspace RPC unknown response hangs (#10936)`. The prior
+`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and earlier
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots are retained below as
+historical evidence. No new session scan was run, so the existing scan receipt
+and honest lower-bound ledger remain unchanged.
+
+The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/10936),
+[#10944](https://github.com/manaflow-ai/cmux/pull/10944), and
+[#10950](https://github.com/manaflow-ai/cmux/pull/10950). Their exact source
+heads, authors, merge times, merge SHAs, and rollback commands are recorded in
+[`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
+
+The retained session receipt supports at least 258 named substantive turns.
+This is a verifiable lower bound, not a total session count, and no
+10,000-session claim is made.
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA | Rollback |
+| --- | --- | --- | --- | --- | --- |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+| [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Lawrence Chen | `0f6bc912500c630921a6a74d86c09d5817e56278` | 2026-08-27 09:58:58 | `d65d6e6ccacf1d7300316451ce2830f05f889e14` | `git revert d65d6e6ccacf1d7300316451ce2830f05f889e14` |
+
+## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
+
+The following intent delta and status labels preserve the prior snapshot
+captured at 2026-08-27T09:54:48Z. They are historical evidence, not a claim
+that the same rows were rescanned.
+
+Historical audit snapshot: 2026-08-27T09:54:48Z. The source baseline was
+`origin/main` at [`5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`](https://github.com/manaflow-ai/cmux/commit/5c2ee1244e2d796c9e4be5307788b320ac2ee4ff),
+committed 2026-08-27T02:31:38-07:00 with subject
+`fix(tui): zeroize oversized remote frames (#10950)`. The previous
+`99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshot, captured at
+2026-08-27T09:25:01Z, is retained below as historical evidence. No new session
+scan was run for this metadata refresh, so the existing scan receipt and honest
+lower-bound ledger remain unchanged.
+
+The current main tail includes [#10944](https://github.com/manaflow-ai/cmux/pull/10944)
+and [#10950](https://github.com/manaflow-ai/cmux/pull/10950). Their exact source
+heads, authors, merge times, merge SHAs, and rollback commands are recorded in
+[`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
+
+| PR | Author | Source head | Merged at (UTC) | Merge SHA | Rollback |
+| --- | --- | --- | --- | --- | --- |
+| [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
+| [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Lawrence Chen | `e6dd260ffb346b568aa3f6dabb8a68c7f72337f5` | 2026-08-27 09:31:39 | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
+
+## Historical snapshot retained: main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
+
+The following intent delta and status labels preserve the prior snapshot. They
+are historical evidence, not a claim that the same rows were rescanned.
+
+Historical audit snapshot: 2026-08-27T09:25:01Z. The source baseline was
 `origin/main` at [`99bdc375e98eb9abddd3f54289bc16ef876e8095`](https://github.com/manaflow-ai/cmux/commit/99bdc375e98eb9abddd3f54289bc16ef876e8095).
 This document records explicit user requests found in local session history. A
 merged code change does not close a row without behavior evidence. The prior
@@ -9,7 +64,7 @@ changes, open PR dispositions, and rollback commands, see
 [`TECH-DEBT-BOARD.md`](TECH-DEBT-BOARD.md) and
 [`PR-INTENT-BOARD.md`](PR-INTENT-BOARD.md).
 
-The current main tail includes merged PRs [#10941](https://github.com/manaflow-ai/cmux/pull/10941),
+The historical main tail included merged PRs [#10941](https://github.com/manaflow-ai/cmux/pull/10941),
 [#10940](https://github.com/manaflow-ai/cmux/pull/10940),
 [#10938](https://github.com/manaflow-ai/cmux/pull/10938),
 [#10935](https://github.com/manaflow-ai/cmux/pull/10935),
@@ -24,7 +79,7 @@ individual revert commands are recorded in the changelog. None of these merges
 proves full restore, cloud lifecycle, direct-I/O ownership, or end-to-end
 transport acceptance.
 
-## 2026-08-27 intent-audit delta
+## Historical 2026-08-27 intent-audit delta at main `99bdc375e98eb9abddd3f54289bc16ef876e8095`
 
 The tail scan covered 174 parsed Claude records across 42 session IDs from
 `~/.claude/history.jsonl:90614-end`; 26 records across 12 IDs matched the
@@ -55,7 +110,7 @@ New explicit intent clusters remain open:
   respectful ownership; strict conversation binding is not the requested
   policy. Evidence: `~/.claude/history.jsonl:90780-90781`.
 
-| ID | New explicit ask and evidence | Status at `origin/main` `99bdc375e9` | Acceptance test |
+| ID | New explicit ask and evidence | Status at historical `origin/main` `99bdc375e9` | Acceptance test |
 | --- | --- | --- | --- |
 | UI-26 | Account-scoped discovery and relay-side pairing before Iroh dialing; no endpoint probing or implicit transport fallback. Evidence: `~/.claude/history.jsonl:90614-90626,90736-90745`. | Open. | Pair two authorized accounts, reject unauthenticated discovery and endpoint probing, and record the selected transport and bounded reconnect result. |
 | UI-27 | Per-machine catalog with terminals, VNC screens, and remote workspaces as resources or pointers; agent-visible open/closed state. Evidence: `~/.claude/history.jsonl:90630-90631,90664-90673,90734-90735`. | Open. | Add two machines, open and close resources from separate clients, and prove one revisioned catalog, live mirror, and no stale resource after reconnect. |
