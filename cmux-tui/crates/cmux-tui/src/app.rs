@@ -42658,7 +42658,7 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.projection_rows(0);
 
-        assert!(app.mux_titles.push(surface.id, "renamed".into()));
+        assert!(app.mux_titles.push(surface.id, "renamed"));
         assert_eq!(app.handle(AppEvent::MuxTitlesReady).unwrap(), RenderAction::Paint);
         assert_eq!(
             app.tree
