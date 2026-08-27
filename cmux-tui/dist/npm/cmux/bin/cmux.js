@@ -686,6 +686,7 @@ async function main() {
     lease = wanted ? acquireVersionLease(wanted) : null;
     if (lease) process.once("exit", () => releaseVersionLease(lease));
     const binPath = await resolveBinary(pkg, wanted);
+    if (wanted) pruneCache(wanted);
     const result = spawnSync(binPath, args, { stdio: "inherit" });
     if (result.error) {
       fail("failed to launch the native binary");

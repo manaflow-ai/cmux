@@ -245,6 +245,37 @@ def test_missing_binary_override_hides_path_and_variable(tmp_path: Path) -> None
     assert "CMUX_TUI_BIN" not in result.stderr
 
 
+def test_launcher_prunes_old_managed_cache_after_download(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    arch = {
+        "aarch64": "arm64",
+        "arm64": "arm64",
+        "amd64": "x64",
+        "x86_64": "x64",
+    }[platform.machine().lower()]
+    platform_root = cache / f"{sys.platform}-{arch}" / "v"
+    for version in ("0.9.0", "1.0.0", "1.1.0"):
+        binary = platform_root / version / "bin/cmux-tui"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\nexit 0\n")
+        binary.chmod(0o755)
+        binary.parent.parent.joinpath("managed").write_text("cmux\n")
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(launcher, cache, registry)
+    finally:
+        server.shutdown()
+        thread.join()
+    assert result.returncode == 0, result.stderr
+    assert not (platform_root / "0.9.0").exists()
+    assert not (platform_root / "1.0.0").exists()
+    assert (platform_root / "1.1.0").exists()
+    assert (platform_root / "1.2.3").exists()
+
+
 def main() -> None:
     if sys.platform == "win32":
         return
@@ -256,6 +287,7 @@ def main() -> None:
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
         test_managed_launcher_honors_development_binary_override(root / "override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
+        test_launcher_prunes_old_managed_cache_after_download(root / "prune")
 
 
 if __name__ == "__main__":
