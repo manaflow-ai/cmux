@@ -62,6 +62,11 @@ final class VerifiedTerminalReplayStateMachine {
     /// a full frame does not make the consumer churn replay barriers forever.
     /// The first successfully verified full frame clears this escape.
     private var compatibilityFallbackActive = false
+    /// Compatibility deltas still pass through the terminal geometry path, so
+    /// keep their untrusted dimensions within the same conservative bounds as
+    /// the shell's byte-fallback policy.
+    private static let maxCompatibilityFallbackColumns = 1_000
+    private static let maxCompatibilityFallbackRows = 1_000
 
     private(set) var visibleSnapshot: MobileTerminalRenderGridVisualSnapshot?
 
@@ -309,6 +314,7 @@ final class VerifiedTerminalReplayStateMachine {
               frame.renderRevision > 0,
               frame.renderEpoch == activeRenderEpoch,
               activeTransaction == nil,
+              compatibilityDimensionsAreSafe(frame),
               frame.renderRevision > lastVerifiedRenderRevision,
               frame.renderRevision > (viewportRenderRevisionFloors[frame.renderEpoch] ?? 0)
         else {
@@ -316,6 +322,28 @@ final class VerifiedTerminalReplayStateMachine {
         }
         lastVerifiedRenderRevision = frame.renderRevision
         lastVerifiedStateSeq = max(lastVerifiedStateSeq, frame.stateSeq)
+        return true
+    }
+
+    private func compatibilityDimensionsAreSafe(
+        _ frame: MobileTerminalRenderGridFrame
+    ) -> Bool {
+        guard frame.columns > 0,
+              frame.rows > 0,
+              frame.columns <= Self.maxCompatibilityFallbackColumns,
+              frame.rows <= Self.maxCompatibilityFallbackRows else {
+            return false
+        }
+        guard let expectedViewportDimensions else { return true }
+        let dimensions = Dimensions(columns: frame.columns, rows: frame.rows)
+        if dimensions == expectedViewportDimensions {
+            return true
+        }
+        guard let settledViewportGrant,
+              settledViewportGrant.epoch == frame.renderEpoch,
+              settledViewportGrant.grant == dimensions else {
+            return false
+        }
         return true
     }
 

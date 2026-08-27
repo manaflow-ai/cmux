@@ -46,6 +46,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
+    /// Keep the stream-side buffer smaller than the delivery queue. If the
+    /// consumer stalls, the newest replay replaces the buffered element and
+    /// the sink starts one bounded recovery instead of retaining every retry.
+    static let terminalOutputStreamBufferCapacity = 1
     /// Upper bounds for compatibility dimensions before they reach Ghostty's
     /// pixel-size arithmetic. These are deliberately conservative because the
     /// fallback fields are diagnostics, not a negotiated render-grid contract.
@@ -1433,6 +1437,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// actually processed and re-establishes the verified baseline.
     var terminalCompatibilityFallbackSurfaceIDs: Set<String>
     var terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID: [String: UUID]
+    /// Surfaces whose bounded stream buffer already triggered replacement
+    /// recovery. Suppresses duplicate replay requests until the replacement is
+    /// acknowledged or the consumer is remounted.
+    var terminalOutputStreamOverflowRecoverySurfaceIDs: Set<String>
     /// History-row count of the last DELIVERED screen-anchored frame. Deltas
     /// carry the producer's previous history count as their diff base; a
     /// mismatch here means a frame was missed and dirty-row patching can no
@@ -1840,6 +1848,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalActiveScreenUnknownSinceBySurfaceID = [:]
         self.terminalCompatibilityFallbackSurfaceIDs = []
         self.terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
+        self.terminalOutputStreamOverflowRecoverySurfaceIDs = []
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
         self.terminalMirrorHydrationNeededSurfaceIDs = []
         self.terminalReplaySurfaceIDsInFlight = []
@@ -10702,6 +10711,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenUnknownSinceBySurfaceID = [:]
         terminalCompatibilityFallbackSurfaceIDs = []
         terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
+        terminalOutputStreamOverflowRecoverySurfaceIDs = []
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
         terminalMirrorHydrationNeededSurfaceIDs = []
@@ -13432,6 +13442,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
         terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputStreamOverflowRecoverySurfaceIDs.remove(surfaceID)
+        terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
@@ -13492,6 +13504,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
         terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
         terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputStreamOverflowRecoverySurfaceIDs.remove(surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         diagnosedTerminalOutputSurfaceIDs.remove(surfaceID)
@@ -13525,7 +13538,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         ownerID: UUID?
     ) -> AsyncStream<MobileTerminalOutputChunk> {
-        AsyncStream { continuation in
+        AsyncStream<MobileTerminalOutputChunk>(
+            bufferingPolicy: .bufferingNewest(Self.terminalOutputStreamBufferCapacity)
+        ) { continuation in
             let streamToken = registerTerminalOutput(
                 surfaceID: surfaceID,
                 continuation: continuation,
@@ -13806,12 +13821,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         return
                     }
                 }
+                let compatibilityFallbackActive =
+                    self.terminalCompatibilityFallbackSurfaceIDs.contains(surfaceID)
                 let replacementRequiresAuthoritativeGrid =
                     replayBarrierTokenForRequest != nil
                         && self.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
                         && self.terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
+                        && !compatibilityFallbackActive
                 let replayHasAuthoritativeGrid = renderGrid?.full == true
-                var deliverCompatFallbackAsReplacement = false
+                var deliverCompatFallbackAsReplacement =
+                    compatibilityFallbackActive && !replayHasAuthoritativeGrid
                 if replacementRequiresAuthoritativeGrid && !replayHasAuthoritativeGrid {
                     MobileDebugLog.anchormux(
                         "CMUX_REPLAY non_authoritative_fallback surface=\(surfaceID) " +
@@ -14021,13 +14040,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     }
                 }
-                if accepted, deliverCompatFallbackAsReplacement {
+                if accepted {
                     // A compatibility replacement carries only the visible
-                    // screen; the Mac still owns the full scrollback. Mark the
-                    // mirror for re-hydration so the next screen-anchored
-                    // replay refetches history instead of treating the
-                    // truncated mirror as complete.
+                    // screen or byte tail; the Mac still owns the full
+                    // scrollback. Mark every accepted byte fallback for
+                    // re-hydration because its clearing/replay bytes do not
+                    // preserve the render-grid history chain.
                     self.terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+                }
+                if accepted, deliverCompatFallbackAsReplacement {
                     self.rebaseTerminalSequenceForCompatibilityFallback(
                         surfaceID: surfaceID
                     )

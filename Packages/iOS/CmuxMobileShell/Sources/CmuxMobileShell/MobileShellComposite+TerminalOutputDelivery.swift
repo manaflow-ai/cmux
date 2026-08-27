@@ -410,6 +410,55 @@ extension MobileShellComposite {
         )
     }
 
+    /// Yields one chunk into the bounded stream buffer and starts a single
+    /// authoritative replacement when an older buffered chunk is displaced.
+    ///
+    /// The delivery queue bounds work before it reaches the stream, but an
+    /// unbounded `AsyncStream` buffer could still retain one replay per retry
+    /// while a consumer is stalled. `bufferingNewest` keeps only the newest
+    /// chunk; the overflow latch ensures that displacement triggers at most one
+    /// replacement request until the consumer acknowledges a current chunk.
+    private func yieldTerminalOutputChunk(
+        _ delivery: TerminalOutputDelivery,
+        continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation,
+        streamToken: UUID,
+        surfaceID: String
+    ) -> Bool {
+        let result = continuation.yield(
+            MobileTerminalOutputChunk(
+                data: delivery.bytes,
+                streamToken: streamToken,
+                viewportPolicy: delivery.viewportPolicy,
+                sourceRenderGridFrame: delivery.sourceRenderGridFrame,
+                endSequence: delivery.endSequence,
+                requiresVerifiedReplay: requiresVerifiedReplayApplication(for: delivery),
+                requiresVerifiedReplayReset: delivery.requiresVerifiedReplayReset,
+                terminalConfigTheme: delivery.terminalConfigTheme
+            )
+        )
+        switch result {
+        case .enqueued:
+            return true
+        case .dropped:
+            guard terminalOutputStreamOverflowRecoverySurfaceIDs.insert(surfaceID).inserted else {
+                return false
+            }
+            MobileDebugLog.anchormux(
+                "terminal.output.stream_buffer_overflow surface=\(surfaceID)"
+            )
+            requestAuthoritativeTerminalResync(
+                surfaceID: surfaceID,
+                reason: "output_stream_buffer_overflow",
+                forceReplacementReplay: true
+            )
+            return false
+        case .terminated:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
     private func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
@@ -481,18 +530,14 @@ extension MobileShellComposite {
             )
         }
         if case .immediate(let immediate) = enqueueResult {
-            continuation.yield(
-                MobileTerminalOutputChunk(
-                    data: immediate.bytes,
-                    streamToken: streamToken,
-                    viewportPolicy: immediate.viewportPolicy,
-                    sourceRenderGridFrame: immediate.sourceRenderGridFrame,
-                    endSequence: immediate.endSequence,
-                    requiresVerifiedReplay: requiresVerifiedReplayApplication(for: immediate),
-                    requiresVerifiedReplayReset: immediate.requiresVerifiedReplayReset,
-                    terminalConfigTheme: immediate.terminalConfigTheme
-                )
-            )
+            guard yieldTerminalOutputChunk(
+                immediate,
+                continuation: continuation,
+                streamToken: streamToken,
+                surfaceID: surfaceID
+            ) else {
+                return false
+            }
         }
         return true
     }
@@ -525,6 +570,7 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        terminalOutputStreamOverflowRecoverySurfaceIDs.remove(surfaceID)
         if terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID[surfaceID] == streamToken,
            queue.currentInFlightDelivery?.sourceRenderGridFrame?.full == true {
             // The UI calls this only after the full frame's verified
@@ -612,16 +658,12 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
-        continuation.yield(MobileTerminalOutputChunk(
-            data: next.bytes,
+        _ = yieldTerminalOutputChunk(
+            next,
+            continuation: continuation,
             streamToken: streamToken,
-            viewportPolicy: next.viewportPolicy,
-            sourceRenderGridFrame: next.sourceRenderGridFrame,
-            endSequence: next.endSequence,
-            requiresVerifiedReplay: requiresVerifiedReplayApplication(for: next),
-            requiresVerifiedReplayReset: next.requiresVerifiedReplayReset,
-            terminalConfigTheme: next.terminalConfigTheme
-        ))
+            surfaceID: surfaceID
+        )
     }
 
     /// Abandon the current yielded terminal-output chunk after the local render
