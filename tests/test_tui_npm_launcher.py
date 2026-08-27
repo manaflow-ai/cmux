@@ -385,6 +385,70 @@ def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
     assert not (unmanaged.stat().st_mode & stat.S_IXUSR)
 
 
+def test_launcher_keeps_stable_and_nightly_state_channels_separate(
+    tmp_path: Path,
+) -> None:
+    if sys.platform == "win32":
+        return
+
+    nightly_version = "1.2.3-nightly.20260827.1"
+    nightly_launcher = write_launcher(tmp_path / "nightly", nightly_version)
+    nightly_cache = tmp_path / "nightly-cache"
+    write_cached_binary(
+        nightly_cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'stable binary'\n",
+        managed=True,
+    )
+    nightly_binary = write_cached_binary(
+        nightly_cache,
+        nightly_version,
+        "#!/bin/sh\nprintf '%s\\n' 'nightly binary'\n",
+        managed=True,
+    )
+    nightly_state = nightly_cache / host_platform_key() / "state.json"
+    nightly_state.write_text(json.dumps({"version": "1.2.3"}) + "\n")
+
+    nightly_result = run_launcher(
+        nightly_launcher,
+        nightly_cache,
+        "http://127.0.0.1:1",
+        "--version",
+    )
+
+    assert nightly_result.returncode == 0, nightly_result.stderr
+    assert nightly_result.stdout == "nightly binary\n"
+    assert nightly_binary.is_file()
+
+    stable_launcher = write_launcher(tmp_path / "stable", "1.2.3")
+    stable_cache = tmp_path / "stable-cache"
+    stable_binary = write_cached_binary(
+        stable_cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'stable binary'\n",
+        managed=True,
+    )
+    write_cached_binary(
+        stable_cache,
+        nightly_version,
+        "#!/bin/sh\nprintf '%s\\n' 'nightly binary'\n",
+        managed=True,
+    )
+    stable_state = stable_cache / host_platform_key() / "state.json"
+    stable_state.write_text(json.dumps({"version": nightly_version}) + "\n")
+
+    stable_result = run_launcher(
+        stable_launcher,
+        stable_cache,
+        "http://127.0.0.1:1",
+        "--version",
+    )
+
+    assert stable_result.returncode == 0, stable_result.stderr
+    assert stable_result.stdout == "stable binary\n"
+    assert stable_binary.is_file()
+
+
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -995,6 +1059,9 @@ def main() -> None:
         test_update_lease_protects_download_from_concurrent_prune(root / "update-concurrent")
         test_concurrent_updates_fail_closed_while_one_downloads(root / "update-serialization")
         test_prune_preserves_unmanaged_cache_version(root / "unmanaged-cache")
+        test_launcher_keeps_stable_and_nightly_state_channels_separate(
+            root / "channel-state"
+        )
         test_launcher_keeps_current_and_one_previous_after_download(root / "prune")
 
 
