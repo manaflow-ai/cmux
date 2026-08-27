@@ -161,6 +161,42 @@ import Testing
         )
     }
 
+    @Test func structuredCodexRestoreExpandsHomeUsingCapturedLaunchHome() throws {
+        let launchHome = "/tmp/codex-captured-home"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/codex-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                arguments: ["codex"],
+                workingDirectory: "/tmp/codex-project",
+                environment: ["CODEX_HOME": "~/.codex-work"],
+                verificationHome: launchHome
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "HOME": "/tmp/restoring-process-home",
+                    "PATH": "/usr/bin:/bin",
+                ]
+            )
+        )
+
+        #expect(
+            invocation.environment["CODEX_HOME"]
+                == launchHome + "/.codex-work"
+        )
+    }
+
     @Test func structuredClaudeRestoreAppliesObservedPermissionModeWithoutParsingShell() throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
