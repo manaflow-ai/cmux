@@ -90,6 +90,9 @@ export type ControlFrame =
   | { t: "auth.refresh"; token: string }
   | { t: "auth.ok"; deadline: number }
   | { t: "ack"; seq: number; leg?: number }
+  // relay→uploader: "your upload is ring-durable through seq" — prunes the
+  // client's resend buffer. For host uploads, `leg` names the destination.
+  | { t: "ackup"; seq: number; leg?: number }
   | { t: "peer.online"; legId?: number; device?: string }
   | { t: "peer.offline"; legId?: number; reason?: string }
   | { t: "error"; code: string; message: string };
