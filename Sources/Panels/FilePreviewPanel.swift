@@ -641,7 +641,6 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             && (filePreviewDragId == nil || filePreviewDragId == liveFilePreviewDragId)
         let previewDragId: UUID? = {
             if let liveFilePreviewDragId,
-               FilePreviewDragRegistry.shared.contains(id: liveFilePreviewDragId),
                filePreviewDragId == nil || filePreviewDragId == liveFilePreviewDragId {
                 return liveFilePreviewDragId
             }
@@ -656,9 +655,20 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             return filePreviewDragId
         }()
         let previewFileURL = previewDragId.flatMap { dragId in
-            FilePreviewDragRegistry.shared.entry(id: dragId).map { entry in
-                URL(fileURLWithPath: entry.filePath).standardizedFileURL.absoluteString
+            if let entry = FilePreviewDragRegistry.shared.entry(id: dragId) {
+                return URL(fileURLWithPath: entry.filePath).standardizedFileURL.absoluteString
             }
+            // A successful pane drop may consume the preview registry entry
+            // before AppKit sends the source completion. The live Bonsplit
+            // capability and private marker still prove ownership, so retain
+            // the session's mirrored URL for exact cleanup.
+            guard canEndTransfer,
+                  let rawURL = pasteboard.string(forType: .fileURL),
+                  let url = URL(string: rawURL),
+                  url.isFileURL else {
+                return nil
+            }
+            return url.standardizedFileURL.absoluteString
         }
         if canEndTransfer {
             transferRegistry?.end(from: pasteboard)

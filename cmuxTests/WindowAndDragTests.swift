@@ -2929,6 +2929,10 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         )
         XCTAssertEqual(dragPasteboard.string(forType: .fileURL), fileURL.absoluteString)
 
+        // A pane drop may consume the path registry before AppKit delivers
+        // the source completion. The live Bonsplit capability must still let
+        // that completion clean every mirrored representation.
+        FilePreviewDragRegistry.shared.discard(id: dragID)
         FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: dragPasteboard)
         tabDragTransferRegistry.end(from: dragPasteboard)
 
