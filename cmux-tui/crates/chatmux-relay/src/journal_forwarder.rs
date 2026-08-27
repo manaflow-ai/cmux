@@ -304,8 +304,10 @@ struct Shared {
     /// The forwarder-level pooled buffers and flush state shared by every
     /// session (the Node forwarder's `pending` map plus its flush flags).
     pool: Arc<Mutex<PoolState>>,
-    /// Cues for the one shared flush task.
-    flush_wake: tokio::sync::mpsc::UnboundedSender<FlushWake>,
+    /// Coalesced cue for the one shared flush task. `Notify` stores at most
+    /// one permit, so records arriving while a POST is blocked cannot grow a
+    /// queue of redundant debounce wakes.
+    flush_wake: Arc<tokio::sync::Notify>,
 }
 
 #[cfg(unix)]
@@ -318,14 +320,8 @@ struct PoolState {
     flushing: bool,
     /// A flush was requested while a POST was in flight (Node `flushAgain`).
     flush_again: bool,
-}
-
-#[cfg(unix)]
-enum FlushWake {
-    /// The record threshold drained the buffers synchronously; POST this now.
-    Batch(Vec<SessionBatch>),
-    /// Arm the shared debounce timer if it is not already armed.
-    Arm,
+    /// A threshold flush drained an exact batch before notifying the flusher.
+    ready: Option<Vec<SessionBatch>>,
 }
 
 #[cfg(unix)]
@@ -338,7 +334,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
             return;
         }
     };
-    let (flush_wake, flush_cues) = tokio::sync::mpsc::unbounded_channel();
+    let flush_wake = Arc::new(tokio::sync::Notify::new());
     let shared = Shared {
         events,
         client,
@@ -349,7 +345,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         pool: Arc::new(Mutex::new(PoolState::default())),
         flush_wake,
     };
-    let flusher = tokio::spawn(run_flusher(shared.clone(), flush_cues));
+    let flusher = tokio::spawn(run_flusher(shared.clone()));
     let socket_dirs = socket_directories();
     let mut tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
     let mut scan = tokio::time::interval(SOCKET_SCAN_INTERVAL);
@@ -992,7 +988,7 @@ fn enqueue_pending(
     let total = pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
     if total < MAX_BATCH_RECORDS {
         drop(pool);
-        let _ = shared.flush_wake.send(FlushWake::Arm);
+        shared.flush_wake.notify_one();
         return;
     }
     if pool.flushing {
@@ -1005,17 +1001,23 @@ fn enqueue_pending(
         return;
     }
     pool.flushing = true;
+    pool.ready = Some(batches);
     drop(pool);
-    let _ = shared.flush_wake.send(FlushWake::Batch(batches));
+    shared.flush_wake.notify_one();
 }
 
 /// The one shared flush task: a single debounce timer and a single POST
 /// serve every session, so concurrent sessions pool into one request.
 #[cfg(unix)]
-async fn run_flusher(shared: Shared, mut cues: tokio::sync::mpsc::UnboundedReceiver<FlushWake>) {
+async fn run_flusher(shared: Shared) {
     let mut armed = false;
     let mut timer = Box::pin(tokio::time::sleep(Duration::from_secs(24 * 60 * 60)));
+    let mut wake = Box::pin(shared.flush_wake.notified());
     loop {
+        // Keep the notification future registered before select! polls it.
+        // This closes the small race where a notify_one() could otherwise
+        // wake a future that select! immediately cancels.
+        wake.as_mut().enable();
         tokio::select! {
             biased;
             _ = shared.cancellation.cancelled() => return,
@@ -1025,22 +1027,22 @@ async fn run_flusher(shared: Shared, mut cues: tokio::sync::mpsc::UnboundedRecei
                     return;
                 }
             }
-            cue = cues.recv() => {
-                match cue {
-                    None => return,
-                    Some(FlushWake::Batch(batches)) => {
-                        armed = false;
-                        if !flush_cycle(&shared, Some(batches), &mut armed, &mut timer).await {
-                            return;
-                        }
+            _ = &mut wake => {
+                let threshold_ready = shared
+                    .pool
+                    .lock()
+                    .map(|pool| pool.ready.is_some())
+                    .unwrap_or(false);
+                if threshold_ready {
+                    armed = false;
+                    if !flush_cycle(&shared, None, &mut armed, &mut timer).await {
+                        return;
                     }
-                    Some(FlushWake::Arm) => {
-                        if !armed {
-                            armed = true;
-                            timer.as_mut().reset(tokio::time::Instant::now() + DEFAULT_FLUSH_DEBOUNCE);
-                        }
-                    }
+                } else if !armed {
+                    armed = true;
+                    timer.as_mut().reset(tokio::time::Instant::now() + DEFAULT_FLUSH_DEBOUNCE);
                 }
+                wake = Box::pin(shared.flush_wake.notified());
             }
         }
     }
@@ -1062,18 +1064,22 @@ async fn flush_cycle(
             Some(batches) => batches,
             None => {
                 let Ok(mut pool) = shared.pool.lock() else { return true };
-                if pool.flushing {
-                    pool.flush_again = true;
-                    return true;
+                if let Some(batches) = pool.ready.take() {
+                    batches
+                } else {
+                    if pool.flushing {
+                        pool.flush_again = true;
+                        return true;
+                    }
+                    let entries = std::mem::take(&mut pool.pending);
+                    let batches = batch_records(&entries);
+                    if batches.is_empty() {
+                        return true;
+                    }
+                    pool.flushing = true;
+                    drop(pool);
+                    batches
                 }
-                let entries = std::mem::take(&mut pool.pending);
-                let batches = batch_records(&entries);
-                if batches.is_empty() {
-                    return true;
-                }
-                pool.flushing = true;
-                drop(pool);
-                batches
             }
         };
         let delivered = post_with_retry(shared, batches).await;
@@ -1840,12 +1846,10 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn test_shared(
-        url: String,
-        cursor_path: PathBuf,
-    ) -> (Shared, tokio::sync::mpsc::UnboundedReceiver<FlushWake>) {
+    fn test_shared(url: String, cursor_path: PathBuf) -> (Shared, Arc<tokio::sync::Notify>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let (flush_wake, cues) = tokio::sync::mpsc::unbounded_channel();
+        let flush_wake = Arc::new(tokio::sync::Notify::new());
+        let wake = Arc::clone(&flush_wake);
         let shared = Shared {
             events: ManagedEvents { url, token: String::from("test-token") },
             client: build_http_client(Duration::from_secs(5)).expect("build test client"),
@@ -1856,7 +1860,7 @@ mod tests {
             pool: Arc::new(Mutex::new(PoolState::default())),
             flush_wake,
         };
-        (shared, cues)
+        (shared, wake)
     }
 
     #[cfg(unix)]
@@ -1877,7 +1881,7 @@ mod tests {
     #[tokio::test]
     async fn pooled_buffers_group_records_by_session_in_arrival_order() {
         let (root, path) = cursor_test_path("pool-order").await;
-        let (shared, mut cues) = test_shared(String::from("http://127.0.0.1:9"), path);
+        let (shared, wake) = test_shared(String::from("http://127.0.0.1:9"), path);
         let gen_a = Some(String::from("gen_a"));
         let gen_b = Some(String::from("gen_b"));
         enqueue_pending(&shared, "alpha", "alpha", &None, record("gen_a", "1"));
@@ -1893,12 +1897,43 @@ mod tests {
             assert_eq!(pool.pending[1].cursor_key, "beta");
             assert!(!pool.flushing);
         }
-        let mut arms = 0;
-        while let Ok(cue) = cues.try_recv() {
-            assert!(matches!(cue, FlushWake::Arm));
-            arms += 1;
+        tokio::time::timeout(Duration::from_millis(100), wake.notified())
+            .await
+            .expect("pooled records must wake the flusher");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
+            "three arm requests must leave only one pending wake"
+        );
+        remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pooled_arm_wakes_are_coalesced_while_the_flusher_is_busy() {
+        let (root, path) = cursor_test_path("pool-arm-coalesce").await;
+        let (shared, wake) = test_shared(String::from("http://127.0.0.1:9"), path);
+        let generation = Some(String::from("gen_a"));
+        {
+            let mut pool = shared.pool.lock().expect("lock pool");
+            pool.flushing = true;
         }
-        assert_eq!(arms, 3);
+        for sequence in 1..=3 {
+            enqueue_pending(
+                &shared,
+                "alpha",
+                "alpha",
+                &generation,
+                record("gen_a", &sequence.to_string()),
+            );
+        }
+
+        tokio::time::timeout(Duration::from_millis(100), wake.notified())
+            .await
+            .expect("arm request must wake the flusher");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
+            "repeated arm requests must use one pending wake"
+        );
         remove_cursor_test_path(&root).await;
     }
 
@@ -1906,26 +1941,20 @@ mod tests {
     #[tokio::test]
     async fn pooled_threshold_drains_an_exact_batch_and_defers_while_posting() {
         let (root, path) = cursor_test_path("pool-threshold").await;
-        let (shared, mut cues) = test_shared(String::from("http://127.0.0.1:9"), path);
+        let (shared, wake) = test_shared(String::from("http://127.0.0.1:9"), path);
         let gen_a = Some(String::from("gen_a"));
         let gen_b = Some(String::from("gen_b"));
         for seq in 1..MAX_BATCH_RECORDS {
             enqueue_pending(&shared, "alpha", "alpha", &gen_a, record("gen_a", &seq.to_string()));
         }
         enqueue_pending(&shared, "beta", "beta", &gen_b, record("gen_b", "1"));
-        let mut batch = None;
-        let mut arms = 0_usize;
-        while let Ok(cue) = cues.try_recv() {
-            match cue {
-                FlushWake::Arm => arms += 1,
-                FlushWake::Batch(sessions) => {
-                    assert!(batch.is_none(), "the threshold must drain exactly once");
-                    batch = Some(sessions);
-                }
-            }
-        }
-        assert_eq!(arms, MAX_BATCH_RECORDS - 1);
-        let sessions = batch.expect("threshold batch");
+        tokio::time::timeout(Duration::from_millis(100), wake.notified())
+            .await
+            .expect("threshold records must wake the flusher");
+        let sessions = {
+            let pool = shared.pool.lock().expect("lock pool");
+            pool.ready.clone().expect("threshold batch")
+        };
         assert_eq!(sessions.len(), 2, "both sessions share the threshold POST");
         assert_eq!(sessions[0].session_name, "alpha");
         assert_eq!(sessions[0].records.len(), MAX_BATCH_RECORDS - 1);
@@ -1940,9 +1969,10 @@ mod tests {
         for seq in 2..=(MAX_BATCH_RECORDS + 1) {
             enqueue_pending(&shared, "beta", "beta", &gen_b, record("gen_b", &seq.to_string()));
         }
-        while let Ok(cue) = cues.try_recv() {
-            assert!(matches!(cue, FlushWake::Arm), "an in-flight POST defers the next flush");
-        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
+            "an in-flight POST defers the next flush without another wake"
+        );
         // Block scope, not drop(): clippy's await_holding_lock reasons
         // about lexical scope, so an explicit drop before the await still
         // trips it (rust-clippy#6446).
