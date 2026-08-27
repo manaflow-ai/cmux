@@ -52,6 +52,9 @@ const MAX_METADATA_BYTES = 1024 * 1024;
 const REGISTRY_TIMEOUT_MS = 30_000;
 const STAGING_MAX_AGE_MS = 60 * 60 * 1000;
 const CACHE_LOCK_ATTEMPTS = 3;
+const CACHE_LOCK_RETRY_INITIAL_MS = 25;
+const CACHE_LOCK_RETRY_MAX_MS = 250;
+const CACHE_LOCK_WAIT_MAX_MS = 2_000;
 // A process can be interrupted between creating the lock directory and
 // publishing its owner file. Reclaim only an ownerless lock that has been
 // quiet for long enough that the creator cannot still be in that window.
@@ -206,6 +209,9 @@ function cachedBinary(version) {
       return null;
     }
     if (!fs.lstatSync(bin).isFile()) return null;
+    if (process.platform !== "win32") {
+      fs.accessSync(bin, fs.constants.X_OK);
+    }
     const actual = Buffer.from(digestHex(fs.readFileSync(bin)), "hex");
     const expectedBytes = Buffer.from(expected, "hex");
     return crypto.timingSafeEqual(actual, expectedBytes) ? bin : null;
@@ -223,6 +229,48 @@ function cacheLockPath() {
 // those leases instead of failing every launch for the whole network request.
 function updateOperationLockPath() {
   return path.join(platformRoot(), ".update-operation.lock");
+}
+
+function waitForCacheLockRetry(delayMs, signal) {
+  if (signal?.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let timer;
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+    const onAbort = () => finish(false);
+    timer = setTimeout(() => finish(true), delayMs);
+    if (signal) {
+      if (signal.aborted) {
+        finish(false);
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
+function lockWaitCancellation() {
+  const controller = new AbortController();
+  const handlers = new Map();
+  for (const signalName of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    const handler = () => controller.abort();
+    handlers.set(signalName, handler);
+    process.once(signalName, handler);
+  }
+  return {
+    signal: controller.signal,
+    dispose() {
+      for (const [signalName, handler] of handlers) {
+        process.removeListener(signalName, handler);
+      }
+    },
+  };
 }
 
 function cacheLockOwnerPath(lockPath = cacheLockPath()) {
@@ -415,7 +463,7 @@ function releaseCacheLock(owner, lockPath = cacheLockPath()) {
   removeCacheLockIfOwned(owner, false, lockPath);
 }
 
-function acquireVersionLease(version) {
+function tryAcquireVersionLease(version) {
   const leaseRoot = path.join(platformRoot(), "v", version, ".active");
   for (let attempt = 0; attempt < CACHE_LOCK_ATTEMPTS; attempt++) {
     const lock = tryAcquireCacheLock();
@@ -455,6 +503,36 @@ function acquireVersionLease(version) {
     }
   }
   return null;
+}
+
+// Lease creation is normally short, but another launcher can briefly own the
+// cache lock while it publishes a lease or prunes old versions. Retry without
+// blocking the event loop, and stop waiting at a bounded deadline or signal.
+async function acquireVersionLease(version, signal) {
+  const deadline = Date.now() + CACHE_LOCK_WAIT_MAX_MS;
+  let delayMs = CACHE_LOCK_RETRY_INITIAL_MS;
+  while (!signal?.aborted) {
+    const lease = tryAcquireVersionLease(version);
+    if (lease) return lease;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return null;
+    const waited = await waitForCacheLockRetry(
+      Math.min(delayMs, remainingMs),
+      signal
+    );
+    if (!waited) return null;
+    delayMs = Math.min(delayMs * 2, CACHE_LOCK_RETRY_MAX_MS);
+  }
+  return null;
+}
+
+async function acquireVersionLeaseForProcess(version) {
+  const cancellation = lockWaitCancellation();
+  try {
+    return await acquireVersionLease(version, cancellation.signal);
+  } finally {
+    cancellation.dispose();
+  }
 }
 
 function releaseVersionLease(lease) {
@@ -895,6 +973,17 @@ async function downloadVersion(pkg, version) {
   return binPath;
 }
 
+function isManagedCacheVersion(versionRoot) {
+  try {
+    return (
+      fs.lstatSync(versionRoot).isDirectory() &&
+      fs.lstatSync(path.join(versionRoot, "managed")).isFile()
+    );
+  } catch {
+    return false;
+  }
+}
+
 function pruneCache(keepVersion) {
   const lock = tryAcquireCacheLock();
   if (!lock) return false;
@@ -902,7 +991,7 @@ function pruneCache(keepVersion) {
   try {
     const managed = fs
       .readdirSync(root)
-      .filter((version) => fs.existsSync(path.join(root, version, "managed")))
+      .filter((version) => isManagedCacheVersion(path.join(root, version)))
       .sort(compareVersions);
     const previous = managed
       .filter((version) => version !== keepVersion)
@@ -910,9 +999,13 @@ function pruneCache(keepVersion) {
     const keep = new Set([keepVersion, ...previous]);
     for (const version of fs.readdirSync(root)) {
       if (keep.has(version)) continue;
-      if (versionHasActiveLease(path.join(root, version))) continue;
+      const versionRoot = path.join(root, version);
+      // Direct-cache and development entries have no managed marker. Keep
+      // them untouched so routine launches only prune launcher-owned data.
+      if (!isManagedCacheVersion(versionRoot)) continue;
+      if (versionHasActiveLease(versionRoot)) continue;
       try {
-        fs.rmSync(path.join(root, version), { recursive: true, force: true });
+        fs.rmSync(versionRoot, { recursive: true, force: true });
       } catch {}
     }
     return true;
@@ -1014,7 +1107,7 @@ async function runUpdate(pkg, args) {
       console.log(`cmux ${current} is up to date (latest is ${latest}).`);
       return;
     }
-    lease = acquireVersionLease(latest);
+    lease = await acquireVersionLeaseForProcess(latest);
     if (!lease) fail("could not reserve the native binary for update");
     await downloadVersion(pkg, latest);
     writeState({
@@ -1064,7 +1157,7 @@ async function main() {
     // Lease creation serializes with pruning. If another process owns the
     // lock, fail closed rather than launching an unleased binary that a prune
     // can remove while it is running.
-    lease = wanted && !installedBin ? acquireVersionLease(wanted) : null;
+    lease = wanted && !installedBin ? await acquireVersionLeaseForProcess(wanted) : null;
     if (wanted && !installedBin && !lease) {
       fail("could not reserve the native binary for launch");
     }
