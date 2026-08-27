@@ -239,10 +239,32 @@ struct VerifiedTerminalReplayStateMachineTests {
             !machine.admitCompatibilityFallbackFrame(oversizedDelta),
             "compatibility deltas must retain bounded viewport dimensions"
         )
-
-        let freshFull = try frame(
+        let latestDelta = try frame(
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: 80,
+            text: "latest compatibility delta",
+            full: false
+        )
+        #expect(machine.admitCompatibilityFallbackFrame(latestDelta))
+        // Reset while a legacy compatibility delta is the latest admitted
+        // output. A full frame captured before that reset must be fenced even
+        // though there is no verified transaction in flight.
+        machine.resetForCompatibilityFallback()
+        let delayedFull = try frame(
             renderRevision: 4,
             stateSeq: 4,
+            columns: 80,
+            text: "delayed full frame"
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: delayedFull) else {
+            Issue.record("a delayed full frame must stay behind the compatibility reset fence")
+            return
+        }
+
+        let freshFull = try frame(
+            renderRevision: 5,
+            stateSeq: 5,
             columns: 80,
             text: "fresh verified recovery"
         )
