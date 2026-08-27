@@ -2661,7 +2661,8 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             processDetectedLauncher: registration.id,
             executablePath: "/usr/local/bin/acme-agent",
             arguments: ["/usr/local/bin/acme-agent", "--session", sessionID],
-            workingDirectory: capturedDirectory
+            workingDirectory: capturedDirectory,
+            environment: [:]
         )
         let binding = SurfaceResumeBindingSnapshot(
             kind: registration.id,
@@ -2685,7 +2686,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             restorableAgent: matchingAgent
         )
 
-        #expect(registered.restoreWorkingDirectorySelection == .exact(nil))
+        #expect(
+            registered.restoreWorkingDirectorySelection ==
+                AgentRestoreWorkingDirectorySelection.exact(nil)
+        )
     }
 
     @Test func unavailableRestorePolicyDoesNotAdvertiseForkSupport() async {
@@ -3053,7 +3057,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         let resolution = TerminalController.shared.controlSurfaceResumeGet(
             routing: routing,
             explicitTargetID: panelId,
-            hasResolvedWindowID: true
+            hasResolvedWindowID: true,
+            claimCheckpointID: nil,
+            claimSource: nil,
+            claimUpdatedAt: nil
         )
         guard case .result(let result) = resolution else {
             Issue.record("surface.resume.get failed: \(resolution)")
