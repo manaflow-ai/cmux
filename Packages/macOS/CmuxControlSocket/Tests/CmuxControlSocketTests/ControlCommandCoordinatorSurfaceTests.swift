@@ -486,6 +486,78 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
     }
 
+    /// The wrapper a session was started under has to survive the hook -> app -> CLI round trip, or
+    /// restore rebuilds a bare agent invocation and the wrapper is lost. https://github.com/manaflow-ai/cmux/issues/10494
+    @Test func surfaceResumeTransportsTheExternalLauncherID() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        context.resumeResolution = .setFailed
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("claude --resume checkpoint"),
+                "kind": .string("claude"),
+                "source": .string("agent-hook"),
+                "launch_command": .object([
+                    "launcher": .string("claude"),
+                    "external_launcher": .string("teamclaude"),
+                    "executable_path": .string("/opt/claude"),
+                    "arguments": .array([.string("/opt/claude")]),
+                ]),
+            ]
+        ))
+
+        let inputs = try #require(context.resumeSetInputs)
+        #expect(inputs.launchCommand?.externalLauncher == "teamclaude")
+
+        let command = ControlAgentLaunchCommand(
+            launcher: "claude",
+            externalLauncher: "teamclaude",
+            executablePath: "/opt/claude",
+            arguments: ["/opt/claude"],
+            workingDirectory: nil,
+            environment: nil,
+            capturedAt: nil,
+            source: "environment"
+        )
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: UUID(),
+            cleared: false,
+            binding: nil,
+            restoreRecord: ControlSurfaceRestoreRecord(
+                modeRawValue: "resumeAgent",
+                kind: "claude",
+                checkpointID: "checkpoint",
+                source: "agent-hook",
+                workingDirectory: nil,
+                environment: [:],
+                launchCommand: command,
+                preparedArguments: nil,
+                preparedArgumentsWorkingDirectory: nil,
+                permissionMode: nil,
+                legacyCommand: nil
+            )
+        ))
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(2),
+            method: "surface.resume.get",
+            params: [:]
+        ))
+        guard case .ok(.object(let payload)) = result,
+              case .object(let record)? = payload["restore_record"],
+              case .object(let launch)? = record["launch_command"] else {
+            Issue.record("expected structured restore record")
+            return
+        }
+        #expect(launch["external_launcher"] == .string("teamclaude"))
+    }
+
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

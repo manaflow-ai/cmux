@@ -318,3 +318,38 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 - `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
+
+## `agents.launchers`
+
+cmux resolves resume commands for the wrapper launchers it owns (`cmux claude-teams`, `cmux codex-teams`, `cmux omo`, …). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided — account fallback, quota spreading, request logging — is gone from the restored pane.
+
+Declare the wrapper here and cmux re-supplies it whenever that session resumes.
+
+```json
+{
+  "agents": {
+    "launchers": [
+      {
+        "id": "teamclaude",
+        "kinds": ["claude"],
+        "detect": { "argvExecutables": ["teamclaude"] },
+        "resumeArgvPrefix": ["teamclaude", "run", "--auto-fallback", "--"]
+      }
+    ]
+  }
+}
+```
+
+- `id`: stable identifier recorded on the launch capture. Letters, numbers, dots, underscores, and hyphens.
+- `kinds` (or `kind` for a single value, never both): built-in agent kinds the launcher wraps, e.g. `["claude"]`. Omit the key to match every kind — an empty array is treated as a mistake, not as "every kind".
+- `detect.argvExecutables`: executable names or paths that identify the launcher. A match requires the **executable** of an ancestor process — or its last path component — to equal an entry exactly, so `claude --add-dir ~/src/teamclaude-notes` never matches. Env prefixes, package runners, and interpreters are followed, up to two levels, so all of these are identified as `teamclaude`: `teamclaude run`, `node /usr/local/bin/teamclaude run`, `env VAR=1 VAR2=2 teamclaude run`, `npx --yes teamclaude run`. Only options whose shape cmux knows are skipped, and anything else ends the search rather than being guessed at — a runner option that takes a value (`npx --package <pkg> wrapper`) would otherwise make the value look like the launcher. An interpreter's own options decide what its program even is (`-e`/`-c` supply it inline, `-m` names a module, `-` reads it from stdin), so the search stops at the first option after an interpreter. In short: a wrapper is recognized in its plain forms (`wrapper run`, `node /path/to/wrapper run`, `env VAR=1 wrapper run`, `npx --yes wrapper run`), and a more exotic invocation simply resumes unwrapped. Detection walks the agent's ancestors at capture time, nearest first, and stops after 8 levels.
+- `resumeArgvPrefix`: argv words placed in front of the agent's own resume argv. cmux keeps every option it would have passed to the agent directly, so the wrapper never has to restate them.
+- `includesAgentExecutable`: keep the agent's `argv[0]` after the prefix. Default `false`, which suits wrappers that re-exec their own agent binary after a `--` separator; set it to `true` for `env`-style wrappers that take a full command.
+
+Behavior notes:
+
+- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `id`. The project file is resolved from the agent session's directory, not from wherever a CLI process happened to start.
+- Only resume is wrapped. Fresh launches already run under the wrapper because you started them there, and `cmux restore <kind> <checkpoint-id>` in direct mode is left untouched.
+- Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
+- Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
+- Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux hooks setup --agent claude`.

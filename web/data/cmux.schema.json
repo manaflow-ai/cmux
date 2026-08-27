@@ -172,6 +172,69 @@
         }
       }
     },
+    "agents": {
+      "title": "agents",
+      "description": "Coding-agent launchers cmux does not own. Declare a wrapper here when agents are started through it (a multi-account router, an LLM gateway front end, any \"<wrapper> run -- <agent argv>\" shim) so session restore re-supplies the wrapper instead of resuming the agent directly.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "launchers": {
+          "type": "array",
+          "default": [],
+          "description": "External launcher declarations. Detection runs against the argv of an agent's ancestor processes when the session is captured; the matched id is replayed at resume time.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "detect", "resumeArgvPrefix"],
+            "not": { "required": ["kind", "kinds"] },
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "Stable identifier recorded on the launch capture, for example teamclaude."
+              },
+              "kind": {
+                "type": "string",
+                "pattern": "\\S",
+                "description": "Single built-in agent kind this launcher wraps, for example claude. Omit the key entirely to match every kind; an empty or blank value makes the declaration unusable rather than widening it."
+              },
+              "kinds": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "\\S" },
+                "description": "Built-in agent kinds this launcher wraps, for example [\"claude\"]. Omit the key entirely to match every kind; an empty array makes the declaration unusable rather than widening it."
+              },
+              "detect": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["argvExecutables"],
+                "description": "How the launcher process is recognized among an agent's ancestors.",
+                "properties": {
+                  "argvExecutables": {
+                    "oneOf": [
+                      { "type": "string", "pattern": "\\S" },
+                      { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\S" } }
+                    ],
+                    "description": "Executable names or paths identifying the launcher, for example [\"teamclaude\"]. A match requires the executable of an ancestor process — or its last path component — to equal an entry exactly; substrings never match, so an unrelated path containing the name cannot claim the session. Env prefixes, package runners, and interpreters are followed (env VAR=1 llm-gateway exec, node /usr/local/bin/teamclaude run), up to two levels; after an interpreter the search stops at its first option, since those decide what the program is."
+                  }
+                }
+              },
+              "resumeArgvPrefix": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "\\S" },
+                "description": "Argv words prepended to the agent's own resume argv, for example [\"teamclaude\", \"run\", \"--auto-fallback\", \"--\"]."
+              },
+              "includesAgentExecutable": {
+                "type": "boolean",
+                "default": false,
+                "description": "Keep the agent's own executable after the prefix. Leave false for wrappers that re-exec their own agent binary after a -- separator; set true for env-style wrappers that take a full command."
+              }
+            }
+          }
+        }
+      }
+    },
     "vault": {
       "title": "vault",
       "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",

@@ -14,19 +14,34 @@ public struct AgentRestorePlanner: Sendable {
     ]
 
     private let isExecutableFile: @Sendable (String) -> Bool
+    private let externalLaunchers: AgentExternalLauncherRegistry
 
     /// Creates a restore planner.
     ///
-    /// - Parameter isExecutableFile: Executable-path lookup used for optional wrapper shims.
-    public init(isExecutableFile: @escaping @Sendable (String) -> Bool) {
+    /// - Parameters:
+    ///   - isExecutableFile: Executable-path lookup used for optional wrapper shims.
+    ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
+    public init(
+        isExecutableFile: @escaping @Sendable (String) -> Bool,
+        externalLaunchers: AgentExternalLauncherRegistry = .empty
+    ) {
         self.isExecutableFile = isExecutableFile
+        self.externalLaunchers = externalLaunchers
     }
 
     /// Creates a restore planner backed by an injected executable-file resolver.
     ///
-    /// - Parameter executableFileResolver: The filesystem dependency used to resolve wrapper shims.
-    public init(executableFileResolver: AgentRestoreExecutableFileResolver) {
-        self.init(isExecutableFile: executableFileResolver.isExecutableFile(atPath:))
+    /// - Parameters:
+    ///   - executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
+    public init(
+        executableFileResolver: AgentRestoreExecutableFileResolver,
+        externalLaunchers: AgentExternalLauncherRegistry = .empty
+    ) {
+        self.init(
+            isExecutableFile: executableFileResolver.isExecutableFile(atPath:),
+            externalLaunchers: externalLaunchers
+        )
     }
 
     /// Produces the final direct process invocation for a persisted restore request.
@@ -96,13 +111,55 @@ public struct AgentRestorePlanner: Sendable {
         }
         guard !routedArguments.isEmpty else { return nil }
 
-        let preflights = hermesPreflights(
+        var preflights = hermesPreflights(
             arguments: &routedArguments,
             kind: kind,
             environment: environment,
             ambientEnvironment: ambientEnvironment,
             profilePin: hermesProfilePin
         )
+
+        if request.mode == .resumeAgent,
+           let externalLauncher = externalLaunchers.resolvedLauncher(
+               id: request.launchCommand?.externalLauncher,
+               kind: kind
+           ) {
+            // After managed-wrapper routing, so the restore keeps its authorization environment and
+            // its custom-executable hint even when the wrapper replaces argv[0] with its own binary,
+            // and after the preflights are built, so each of them is wrapped as a whole command
+            // rather than inheriting the wrapper's own subcommand in place of the agent.
+            routedArguments = externalLauncher.applyingResumePrefix(to: routedArguments)
+            // The wrapper re-execs the agent by name, so the shim that managed-wrapper routing put
+            // in argv[0] is gone. Keep it reachable on PATH — for the resumed agent and for every
+            // preflight, which runs the same agent through the same wrapper — or the wrapped
+            // commands lose cmux's hooks.
+            let shimEnvironmentKey = externalLauncher.includesAgentExecutable
+                ? nil
+                : AgentRestoreLaunch(kind: kind, sessionID: request.checkpointID)?
+                    .wrapperShimEnvironmentKey
+            preflights = preflights.compactMap { preflight in
+                let preflightEnvironment = shimEnvironmentKey.map { key in
+                    AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+                        preflight.environment,
+                        shimEnvironmentKey: key,
+                        isExecutableFile: isExecutableFile
+                    )
+                } ?? preflight.environment
+                return AgentRestorePreflightInvocation(
+                    arguments: externalLauncher.applyingResumePrefix(to: preflight.arguments),
+                    environment: preflightEnvironment
+                )
+            }
+            if let shimEnvironmentKey {
+                environment = AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+                    environment,
+                    shimEnvironmentKey: shimEnvironmentKey,
+                    isExecutableFile: isExecutableFile
+                )
+            }
+        }
+        guard !routedArguments.isEmpty else { return nil }
+
         return AgentRestoreInvocation(
             arguments: routedArguments,
             workingDirectory: workingDirectory,

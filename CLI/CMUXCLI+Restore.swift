@@ -17,6 +17,9 @@ extension CMUXCLI {
         if let launcher = command.launcher {
             payload["launcher"] = launcher
         }
+        if let externalLauncher = command.externalLauncher {
+            payload["external_launcher"] = externalLauncher
+        }
         if let executablePath = command.executablePath {
             payload["executable_path"] = executablePath
         }
@@ -163,7 +166,14 @@ extension CMUXCLI {
             observedPermissionMode: record.permissionMode
         )
         guard let invocation = AgentRestorePlanner(
-            executableFileResolver: AgentRestoreExecutableFileResolver()
+            executableFileResolver: AgentRestoreExecutableFileResolver(),
+            // Resolved from the session's own directory, never from wherever `cmux restore` was
+            // invoked: when the saved directory is gone the restore falls back to the invocation
+            // directory, and resolving there would pick up an unrelated project's `agents.launchers`
+            // and apply its prefix to this session's captured id.
+            externalLaunchers: externalAgentLaunchers(
+                workingDirectory: record.launchCommand?.workingDirectory ?? record.workingDirectory
+            )
         ).invocation(
             for: request,
             ambientEnvironment: processEnvironment
@@ -500,6 +510,7 @@ extension CMUXCLI {
         }
         return AgentLaunchCommand(
             launcher: object["launcher"] as? String,
+            externalLauncher: object["external_launcher"] as? String,
             executablePath: object["executable_path"] as? String,
             arguments: arguments,
             workingDirectory: object["working_directory"] as? String,

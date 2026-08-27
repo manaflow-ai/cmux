@@ -235,7 +235,14 @@ extension ControlCommandCoordinator {
               case .array(let rawArguments)? = object["arguments"] else {
             return nil
         }
-        for key in ["launcher", "executable_path", "working_directory", "verification_home", "source"] {
+        for key in [
+            "launcher",
+            "external_launcher",
+            "executable_path",
+            "working_directory",
+            "verification_home",
+            "source",
+        ] {
             switch object[key] {
             case nil, .null, .string:
                 break
@@ -269,6 +276,9 @@ extension ControlCommandCoordinator {
         guard arguments.count == rawArguments.count, !arguments.isEmpty else { return nil }
         return ControlAgentLaunchCommand(
             launcher: rawString(object, "launcher"),
+            // Trimmed on the way in: the id is compared against `agents.launchers` declarations,
+            // which are normalized, so a padded value would silently resolve to nothing.
+            externalLauncher: optionalTrimmedRawString(object, "external_launcher"),
             executablePath: rawString(object, "executable_path"),
             arguments: arguments,
             workingDirectory: rawString(object, "working_directory"),
@@ -288,6 +298,7 @@ extension ControlCommandCoordinator {
         } ?? .null
         return .object([
             "launcher": orNull(command.launcher),
+            "external_launcher": orNull(command.externalLauncher),
             "executable_path": orNull(command.executablePath),
             "arguments": .array(command.arguments.map(JSONValue.string)),
             "working_directory": orNull(command.workingDirectory),
