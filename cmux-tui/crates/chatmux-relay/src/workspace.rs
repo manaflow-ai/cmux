@@ -1461,37 +1461,60 @@ fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
     }
 }
 
+enum BoundedGitDiffLine {
+    Complete(String),
+    TooLong,
+}
+
 /// Read one diff line without allowing a missing newline to grow the buffer
-/// without bound. `fill_buf` is cancellation-safe; consume only accepted
-/// bytes so the caller never retains more than `maximum` bytes.
+/// without bound. `fill_buf` is cancellation-safe; consume every byte of an
+/// over-limit line without retaining it, so the caller can keep calculating
+/// the full diff stat while dropping the patch safely.
 async fn read_bounded_git_diff_line<R>(
     reader: &mut R,
     line: &mut Vec<u8>,
     maximum: usize,
-) -> std::io::Result<Option<String>>
+) -> std::io::Result<Option<BoundedGitDiffLine>>
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
     use tokio::io::AsyncBufReadExt as _;
 
     line.clear();
+    let mut too_long = false;
     loop {
         let buffer = reader.fill_buf().await?;
         if buffer.is_empty() {
-            return if line.is_empty() { Ok(None) } else { decode_git_diff_line(line).map(Some) };
+            if too_long {
+                return Ok(Some(BoundedGitDiffLine::TooLong));
+            }
+            return if line.is_empty() {
+                Ok(None)
+            } else {
+                decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
+            };
         }
         let newline = buffer.iter().position(|byte| *byte == b'\n');
         let take = newline.map_or(buffer.len(), |index| index + 1);
-        if line.len().saturating_add(take) > maximum {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "git diff line exceeds the configured bound",
-            ));
+        if too_long {
+            reader.consume(take);
+        } else if line.len().saturating_add(take) > maximum {
+            // Consume this chunk, including a possible newline, and then
+            // report a marker instead of returning an error. This keeps the
+            // stream aligned for later lines and bounds retained memory.
+            reader.consume(take);
+            line.clear();
+            too_long = true;
+        } else {
+            line.extend_from_slice(&buffer[..take]);
+            reader.consume(take);
         }
-        line.extend_from_slice(&buffer[..take]);
-        reader.consume(take);
         if newline.is_some() {
-            return decode_git_diff_line(line).map(Some);
+            return if too_long {
+                Ok(Some(BoundedGitDiffLine::TooLong))
+            } else {
+                decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
+            };
         }
     }
 }
@@ -2035,6 +2058,20 @@ async fn run_git_diff_with_cancel_until(
                     return Err(Refusal::failed(format!("could not read git diff: {error}")));
                 }
             },
+        };
+        if matches!(line, BoundedGitDiffLine::TooLong) {
+            if !capped {
+                // Drop the partial file: a caller must never see half a
+                // file's hunks (parsePatchFiles input). Continue reading so
+                // stats cover the complete Git output.
+                patch.truncate(current_file_start);
+                capped = true;
+                truncated = true;
+            }
+            continue;
+        }
+        let BoundedGitDiffLine::Complete(line) = line else {
+            unreachable!("handled all bounded diff line variants");
         };
         if line.starts_with("diff --git ") {
             files += 1;
@@ -2989,15 +3026,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bounded_git_diff_line_rejects_unterminated_input() {
+    async fn bounded_git_diff_line_discards_unterminated_over_limit_input() {
         let mut reader = tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789"));
         let mut line = Vec::new();
-        let error = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
             .await
-            .expect_err("oversized unterminated diff line");
+            .expect("oversized unterminated diff line should be consumed")
+            .expect("the oversized line marker");
 
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-        assert!(line.len() <= 8, "reader appended bytes past its limit");
+        assert!(matches!(result, BoundedGitDiffLine::TooLong));
+        assert!(line.is_empty(), "reader retained bytes past its limit");
+        assert!(
+            read_bounded_git_diff_line(&mut reader, &mut line, 8)
+                .await
+                .expect("EOF after discarded line")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn bounded_git_diff_line_keeps_stream_aligned_after_over_limit_input() {
+        let mut reader =
+            tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789\nshort\n"));
+        let mut line = Vec::new();
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("oversized line should be consumed")
+            .expect("the oversized line marker");
+        assert!(matches!(result, BoundedGitDiffLine::TooLong));
+
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("short line should decode")
+            .expect("short line");
+        assert!(matches!(result, BoundedGitDiffLine::Complete(value) if value == "short"));
     }
 
     #[test]
