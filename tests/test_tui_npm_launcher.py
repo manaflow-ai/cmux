@@ -27,12 +27,16 @@ LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js"
 NIGHTLY_VERSION = "1.2.3-nightly.20260827.1"
 
 
-def make_tarball(payload: bytes | None = None) -> bytes:
+def make_tarball(
+    payload: bytes | None = None,
+    *,
+    binary_name: str = "cmux-tui",
+) -> bytes:
     if payload is None:
         payload = b"#!/bin/sh\nprintf '%s\\n' 'fake cmux-tui 1.2.3'\n"
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
-        info = tarfile.TarInfo("package/bin/cmux-tui")
+        info = tarfile.TarInfo(f"package/bin/{binary_name}")
         info.mode = 0o755
         info.size = len(payload)
         archive.addfile(info, io.BytesIO(payload))
@@ -294,12 +298,26 @@ process.exit(2);
     return fake
 
 
-def write_platform_stub(tmp_path: Path, platform_name: str = "freebsd") -> Path:
+def write_platform_stub(
+    tmp_path: Path,
+    platform_name: str = "freebsd",
+    arch_name: str | None = None,
+) -> Path:
     stub = tmp_path / "unsupported-platform.cjs"
-    stub.write_text(
+    # Load the host path implementation before overriding process metadata.
+    # Node normally selects this module during startup, but preloading it here
+    # keeps the portable branch test's filesystem paths native to the host.
+    contents = (
+        'require("path");\n'
         "Object.defineProperty(process, \"platform\", "
         f"{{ configurable: true, value: {json.dumps(platform_name)} }});\n"
     )
+    if arch_name is not None:
+        contents += (
+            "Object.defineProperty(process, \"arch\", "
+            f"{{ configurable: true, value: {json.dumps(arch_name)} }});\n"
+        )
+    stub.write_text(contents)
     return stub
 
 
@@ -729,6 +747,145 @@ def test_launcher_keeps_stable_and_nightly_state_channels_separate(
     assert nightly_result.stdout == "nightly binary\n"
     assert stable_result.returncode == 0, stable_result.stderr
     assert stable_result.stdout == "stable binary\n"
+
+
+def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
+    tmp_path: Path,
+) -> None:
+    """Exercise the Windows launcher branches on every supported CI host.
+
+    Native Windows runs this path with the system ``cmd.exe``. Unix runners
+    preload a small process metadata shim so the same launcher code selects
+    ``win32-x64`` and ``cmux-tui.exe`` while executing a real host executable.
+    This keeps the Windows-specific cache, snapshot, lock, and update behavior
+    covered even when the surrounding workflow has no Windows Python job.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        assert host_platform_key() == "win32-x64"
+        command_path = os.environ.get("ComSpec") or os.environ.get("COMSPEC")
+        if not command_path:
+            command_path = str(
+                Path(os.environ.get("SystemRoot", r"C:\\Windows"))
+                / "System32"
+                / "cmd.exe"
+            )
+        executable = Path(command_path)
+        child_args = ("/d", "/c", "echo", "windows-cache-snapshot")
+        env_extra: dict[str, str] = {}
+    else:
+        executable = Path("/bin/sh")
+        child_args = ("-c", "printf '%s\\n' windows-cache-snapshot")
+        platform_stub = write_platform_stub(tmp_path, "win32", "x64")
+        env_extra = {"NODE_OPTIONS": f"--require={platform_stub}"}
+
+    assert executable.is_file(), executable
+    payload = executable.read_bytes()
+    tarball = make_tarball(payload, binary_name="cmux-tui.exe")
+    launcher = write_launcher(tmp_path / "launcher", "1.0.0")
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry(tarballs={"1.2.3": tarball})
+    platform_root = cache / "win32-x64"
+    update_process = None
+    update_stdout = ""
+    update_stderr = ""
+    try:
+        # Hold the tarball response so the test can observe the update-wide
+        # lock and target lease before any bytes are published.
+        RegistryHandler.block_tarball = True
+        RegistryHandler.block_tarball_versions = {"1.2.3"}
+        update_env = os.environ.copy()
+        update_env.update(
+            {
+                "CMUX_TUI_LAUNCHER_CACHE": str(cache),
+                "CMUX_NPM_REGISTRY": registry,
+                "NO_COLOR": "1",
+                **env_extra,
+            }
+        )
+        update_process = subprocess.Popen(
+            ["node", str(write_launcher(tmp_path / "update", "1.0.0")), "update"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=update_env,
+        )
+        assert RegistryHandler.tarball_started.wait(timeout=5), (
+            "Windows update did not start its tarball request"
+        )
+        update_lock = platform_root / ".update-operation.lock"
+        assert (update_lock / "owner").is_file(), (
+            "Windows update did not hold the operation lock"
+        )
+        active_root = platform_root / "v/1.2.3/.active"
+        assert any(entry.is_dir() for entry in active_root.iterdir()), (
+            "Windows update did not publish its target lease"
+        )
+        RegistryHandler.tarball_release.set()
+        update_stdout, update_stderr = update_process.communicate(timeout=10)
+    finally:
+        RegistryHandler.tarball_release.set()
+        if update_process is not None and update_process.poll() is None:
+            update_process.kill()
+            update_process.communicate(timeout=5)
+        server.shutdown()
+        thread.join()
+
+    assert update_process is not None
+    assert update_process.returncode == 0, update_stderr or update_stdout
+    assert RegistryHandler.latest_requests == ["/cmux/latest"]
+    binary = platform_root / "v/1.2.3/bin/cmux-tui.exe"
+    assert binary.is_file()
+    assert binary.read_bytes() == payload
+    state = json.loads((platform_root / "state/stable.json").read_text())
+    assert state["version"] == "1.2.3"
+    assert state["channel"] == "stable"
+    assert not (platform_root / ".update-operation.lock").exists()
+    assert not (platform_root / ".update.lock").exists()
+    assert not (platform_root / "v/1.2.3/.active").exists()
+    assert RegistryHandler.metadata_requests == 1
+    assert RegistryHandler.tarball_requests == 1
+
+    first = run_launcher(
+        launcher,
+        cache,
+        registry,
+        *child_args,
+        env_extra=env_extra,
+    )
+    assert first.returncode == 0, first.stderr
+    assert "windows-cache-snapshot" in first.stdout
+    assert RegistryHandler.metadata_requests == 2
+    assert RegistryHandler.tarball_requests == 2
+
+    # A writable cache hit is authenticated by a fresh registry response. A
+    # matching local manifest cannot bless a replaced executable or tarball.
+    version_dir = binary.parent.parent
+    manifest_path = version_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    tampered = b"tampered Windows executable"
+    manifest["tarballIntegrity"] = "sha512-" + base64.b64encode(
+        hashlib.sha512(b"tampered tarball").digest()
+    ).decode()
+    manifest["binaries"]["cmux-tui.exe"] = hashlib.sha512(tampered).hexdigest()
+    manifest_path.write_text(json.dumps(manifest) + "\n")
+    binary.write_bytes(tampered)
+
+    second = run_launcher(
+        launcher,
+        cache,
+        registry,
+        *child_args,
+        env_extra=env_extra,
+    )
+    assert second.returncode == 0, second.stderr
+    assert "windows-cache-snapshot" in second.stdout
+    assert binary.read_bytes() == payload
+    assert RegistryHandler.metadata_requests == 3
+    assert RegistryHandler.tarball_requests == 3
+    assert not (platform_root / ".update-operation.lock").exists()
+    assert not (platform_root / ".update.lock").exists()
+    assert not (platform_root / "v/1.2.3/.active").exists()
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
@@ -1480,10 +1637,13 @@ def test_launcher_keeps_current_and_one_previous_after_download(tmp_path: Path) 
 
 
 def main() -> None:
-    if sys.platform == "win32":
-        return
     with tempfile.TemporaryDirectory(prefix="cmux-tui-launcher-test-") as directory:
         root = Path(directory)
+        test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
+            root / "windows"
+        )
+        if sys.platform == "win32":
+            return
         test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
         test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
