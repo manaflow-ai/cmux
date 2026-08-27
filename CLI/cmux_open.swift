@@ -540,7 +540,9 @@ extension CMUXCLI {
                 "saveComment": CMUXDiffViewerLocalization.string("diffViewer.saveComment", defaultValue: "Comment"),
                 "changedFiles": CMUXDiffViewerLocalization.string("diffViewer.changedFiles", defaultValue: "Changed files"),
                 "classic": CMUXDiffViewerLocalization.string("diffViewer.classic", defaultValue: "Classic"),
+                "close": CMUXDiffViewerLocalization.string("diffViewer.close", defaultValue: "Close"),
                 "commit": CMUXDiffViewerLocalization.string("about.commit", defaultValue: "Commit"),
+                "compare": CMUXDiffViewerLocalization.string("diffViewer.compare", defaultValue: "Compare"),
                 "collapseAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.collapseAllDiffs", defaultValue: "Collapse all diffs"),
                 "collapseUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.collapseUnchangedContext", defaultValue: "Collapse unchanged context"),
                 "copyFailedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyFailedGitApplyCommand", defaultValue: "Could not copy git apply command."),
@@ -550,11 +552,23 @@ extension CMUXCLI {
                 "diffStats": CMUXDiffViewerLocalization.string("diffViewer.diffStats", defaultValue: "Diff stats"),
                 "diffTarget": CMUXDiffViewerLocalization.string("diffViewer.diffTarget", defaultValue: "Diff target"),
                 "diffViewer": CMUXDiffViewerLocalization.string("diffViewer.diffViewer", defaultValue: "Diff viewer"),
+                "disableEditing": CMUXDiffViewerLocalization.string("diffViewer.disableEditing", defaultValue: "Disable editing"),
                 "renderFailed": CMUXDiffViewerLocalization.string("diffViewer.renderFailed", defaultValue: "Could not render this diff. Check the patch input and try again."),
                 "disableWordDiffs": CMUXDiffViewerLocalization.string("diffViewer.disableWordDiffs", defaultValue: "Disable word diffs"),
                 "disableWordWrap": CMUXDiffViewerLocalization.string("diffViewer.disableWordWrap", defaultValue: "Disable word wrap"),
                 "enableWordDiffs": CMUXDiffViewerLocalization.string("diffViewer.enableWordDiffs", defaultValue: "Enable word diffs"),
                 "enableWordWrap": CMUXDiffViewerLocalization.string("diffViewer.enableWordWrap", defaultValue: "Enable word wrap"),
+                "enableEditing": CMUXDiffViewerLocalization.string("diffViewer.enableEditing", defaultValue: "Enable editing"),
+                "editConflict": CMUXDiffViewerLocalization.string("diffViewer.editConflict", defaultValue: "Failed to save '{path}': The file changed on disk. Compare your version or overwrite the file."),
+                "editConflictDisk": CMUXDiffViewerLocalization.string("diffViewer.editConflictDisk", defaultValue: "On disk"),
+                "editConflictDraft": CMUXDiffViewerLocalization.string("diffViewer.editConflictDraft", defaultValue: "Your edits"),
+                "editConflictTitle": CMUXDiffViewerLocalization.string("diffViewer.editConflictTitle", defaultValue: "Resolve save conflict"),
+                "editFileSaved": CMUXDiffViewerLocalization.string("diffViewer.editFileSaved", defaultValue: "Saved '{path}'. Other edits are still unsaved."),
+                "editLoadFailed": CMUXDiffViewerLocalization.string("diffViewer.editLoadFailed", defaultValue: "Could not load this file for editing."),
+                "editOverwriteFailed": CMUXDiffViewerLocalization.string("diffViewer.editOverwriteFailed", defaultValue: "Could not overwrite '{path}'. Your edits are still available."),
+                "editingUnavailable": CMUXDiffViewerLocalization.string("diffViewer.editingUnavailable", defaultValue: "Editing is unavailable for this diff."),
+                "editsSaved": CMUXDiffViewerLocalization.string("diffViewer.editsSaved", defaultValue: "Edits saved"),
+                "editSaveFailed": CMUXDiffViewerLocalization.string("diffViewer.editSaveFailed", defaultValue: "Could not save your edits. They are still available."),
                 "expandAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.expandAllDiffs", defaultValue: "Expand all diffs"),
                 "expandUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.expandUnchangedContext", defaultValue: "Expand unchanged context"),
                 "files": CMUXDiffViewerLocalization.string("diffViewer.files", defaultValue: "Files"),
@@ -571,10 +585,15 @@ extension CMUXCLI {
                 "none": CMUXDiffViewerLocalization.string("diffViewer.none", defaultValue: "None"),
                 "openSourceURL": CMUXDiffViewerLocalization.string("diffViewer.openSourceURL", defaultValue: "Open source URL"),
                 "options": CMUXDiffViewerLocalization.string("diffViewer.options", defaultValue: "Options"),
+                "overwrite": CMUXDiffViewerLocalization.string("diffViewer.overwrite", defaultValue: "Overwrite"),
                 "parsingDiff": CMUXDiffViewerLocalization.string("diffViewer.parsingDiff", defaultValue: "Parsing diff..."),
                 "refresh": CMUXDiffViewerLocalization.string("diffViewer.refresh", defaultValue: "Refresh"),
                 "renderingDiff": CMUXDiffViewerLocalization.string("diffViewer.renderingDiff", defaultValue: "Rendering diff..."),
                 "repoPath": CMUXDiffViewerLocalization.string("diffViewer.repoPath", defaultValue: "Repository path"),
+                "retry": CMUXDiffViewerLocalization.string("diffViewer.retry", defaultValue: "Retry"),
+                "saveEdits": CMUXDiffViewerLocalization.string("diffViewer.saveEdits", defaultValue: "Save edits"),
+                "saveOrDiscardEdits": CMUXDiffViewerLocalization.string("diffViewer.saveOrDiscardEdits", defaultValue: "Save or discard edits before changing the diff."),
+                "discardEdits": CMUXDiffViewerLocalization.string("diffViewer.discardEdits", defaultValue: "Discard edits"),
                 "branchBase": CMUXDiffViewerLocalization.string("diffViewer.branchBase", defaultValue: "Branch base"),
                 "branchPickerCurrent": CMUXDiffViewerLocalization.string("diffViewer.branchPickerCurrent", defaultValue: "current"),
                 "branchPickerBasePrefix": CMUXDiffViewerLocalization.string("diffViewer.branchPickerBasePrefix", defaultValue: "Base:"),
@@ -7566,7 +7585,7 @@ extension CMUXCLI {
 
     func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
-        let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
+        let assetDirectoryName = "pierre-diffs-1.3.1-trees-1.0.0-beta.4"
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)

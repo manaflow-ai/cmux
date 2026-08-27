@@ -25,7 +25,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let shared = DiffSidecarBridge()
 
     private static var handlerInstalledKey: UInt8 = 0
-    private static let maximumRequestBytes = 1024 * 1024
+    private static let maximumRequestBytes = 16 * 1024 * 1024
     private nonisolated static let maximumResponseBytes = 32 * 1024 * 1024
     private nonisolated static let processPool = DiffSidecarProcessPool(limit: 4)
     private nonisolated static let processGroupReadyMarker = Data("cmux-diff-sidecar-process-group-ready\n".utf8)

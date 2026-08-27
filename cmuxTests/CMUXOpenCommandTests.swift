@@ -708,16 +708,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
+            .appendingPathComponent("pierre-diffs-1.3.1-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
-        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
-        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
-        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
-        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
+        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/diffs.mjs")
+        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/trees.mjs")
+        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
+        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
         let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
         XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
@@ -740,7 +740,11 @@ final class CMUXOpenCommandTests: XCTestCase {
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
+            file["request_path"] as? String == "/assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
+                file["mime_type"] as? String == "text/javascript"
+        })
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/worker-pool/wasm-B9ZqxnKj.js" &&
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertFalse(html.contains("hello.txt"), html)
@@ -850,7 +854,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         let appEntry = try XCTUnwrap(files.first { file in
-            (file["request_path"] as? String)?.hasSuffix("/assets/cmux-diff-viewer-app/main.mjs") == true
+            guard let requestPath = file["request_path"] as? String else { return false }
+            return requestPath.hasPrefix("/assets/cmux-diff-viewer-app-") &&
+                requestPath.hasSuffix("/main.mjs")
         })
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         XCTAssertTrue(appFilePath.hasSuffix("main.mjs.deflate"), appFilePath)
@@ -2820,6 +2826,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
         try DeflatedAssetTestSupport.writeText("self.cmuxWorkerFixture = true;\n",
             to: workerPoolURL.appendingPathComponent("worker-portable.js", isDirectory: false),
+            addingDeflateExtension: true
+        )
+        try DeflatedAssetTestSupport.writeText("export const wasmFixture = true;\n",
+            to: workerPoolURL.appendingPathComponent("wasm-B9ZqxnKj.js", isDirectory: false),
             addingDeflateExtension: true
         )
         try DeflatedAssetTestSupport.writeText(appMain,

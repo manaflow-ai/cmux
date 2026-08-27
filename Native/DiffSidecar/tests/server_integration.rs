@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use futures_util::{SinkExt, StreamExt};
@@ -25,15 +25,15 @@ fn rpc_returns_typed_failure_for_malformed_request() {
 
 #[test]
 fn rpc_returns_typed_failure_for_oversized_request() {
-    let output = run_stdio_rpc(&vec![b' '; 1024 * 1024 + 1]);
+    let output = run_stdio_rpc(&vec![b' '; 16 * 1024 * 1024 + 1]);
     assert!(output.status.success());
     assert_rpc_failure(&output, "requestTooLarge");
 }
 
 #[test]
-fn rpc_accepts_request_at_one_mib_limit() {
+fn rpc_accepts_request_at_sixteen_mib_limit() {
     let mut request = br#"{"id":"limit","version":1,"method":"protocolHandshake"}"#.to_vec();
-    request.resize(1024 * 1024, b' ');
+    request.resize(16 * 1024 * 1024, b' ');
     let output = run_stdio_rpc(&request);
     assert!(output.status.success());
     let response: serde_json::Value =
@@ -357,6 +357,299 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn rpc_diff_editing_loads_saves_and_rejects_conflicts() {
+    let fixture = EditFixture::new();
+    let source = serde_json::json!({"kind": "unstaged", "repoRoot": fixture.repo});
+    let (session_id, request_path) = open_session_matches_git(
+        &fixture.root,
+        &fixture.repo,
+        fixture.token,
+        &source,
+        &["diff", "--no-ext-diff", "--no-color", "--binary", "--"],
+    );
+    let loaded = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "load-file",
+            "version": 1,
+            "method": "sessionFileLoad",
+            "params": {
+                "sessionId": session_id,
+                "capabilityToken": fixture.token,
+                "path": "story.txt"
+            }
+        }),
+    );
+    assert_eq!(loaded["result"]["type"], "sessionFileLoaded");
+    assert_eq!(loaded["result"]["value"]["oldContents"], "one\n");
+    assert_eq!(loaded["result"]["value"]["newContents"], "one\ntwo\n");
+
+    let saved = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "save-file",
+            "version": 1,
+            "method": "sessionFileSave",
+            "params": {
+                "sessionId": session_id,
+                "capabilityToken": fixture.token,
+                "path": "story.txt",
+                "expectedContents": "one\ntwo\n",
+                "contents": "one\nedited\n"
+            }
+        }),
+    );
+    assert_eq!(saved["result"]["type"], "sessionFileSaved");
+    assert_eq!(
+        std::fs::read_to_string(fixture.repo.join("story.txt")).expect("read saved file"),
+        "one\nedited\n"
+    );
+
+    std::fs::write(fixture.repo.join("story.txt"), b"outside\n").expect("write external edit");
+    let conflict = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "save-conflict",
+            "version": 1,
+            "method": "sessionFileSave",
+            "params": {
+                "sessionId": session_id,
+                "capabilityToken": fixture.token,
+                "path": "story.txt",
+                "expectedContents": "one\nedited\n",
+                "contents": "overwritten\n"
+            }
+        }),
+    );
+    assert_eq!(conflict["error"]["code"], "editConflict");
+    assert_eq!(
+        std::fs::read_to_string(fixture.repo.join("story.txt")).expect("read conflicted file"),
+        "outside\n"
+    );
+    close_session(&fixture.root, fixture.token, &session_id, &request_path);
+}
+
+#[test]
+fn rpc_diff_editing_rejects_wrong_tokens_and_traversal() {
+    let fixture = EditFixture::new();
+    let source = serde_json::json!({"kind": "unstaged", "repoRoot": fixture.repo});
+    let (session_id, request_path) = open_session_matches_git(
+        &fixture.root,
+        &fixture.repo,
+        fixture.token,
+        &source,
+        &["diff", "--no-ext-diff", "--no-color", "--binary", "--"],
+    );
+    let wrong_token = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "load-wrong-token",
+            "version": 1,
+            "method": "sessionFileLoad",
+            "params": {
+                "sessionId": session_id,
+                "capabilityToken": "fedcba9876543210",
+                "path": "story.txt"
+            }
+        }),
+    );
+    assert_eq!(wrong_token["error"]["code"], "notAllowed");
+
+    let traversal = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "load-traversal",
+            "version": 1,
+            "method": "sessionFileLoad",
+            "params": {
+                "sessionId": session_id,
+                "capabilityToken": fixture.token,
+                "path": "../story.txt"
+            }
+        }),
+    );
+    assert_eq!(traversal["error"]["code"], "notAllowed");
+    close_session(&fixture.root, fixture.token, &session_id, &request_path);
+}
+
+#[test]
+fn rpc_staged_diff_sessions_are_not_editable() {
+    let fixture = EditFixture::new();
+    run_git(&fixture.repo, &["add", "story.txt"]);
+    let staged_source = serde_json::json!({"kind": "staged", "repoRoot": fixture.repo});
+    let (staged_session, staged_path) = open_session_matches_git(
+        &fixture.root,
+        &fixture.repo,
+        fixture.token,
+        &staged_source,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "--cached",
+            "--",
+        ],
+    );
+    let staged_load = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "load-staged",
+            "version": 1,
+            "method": "sessionFileLoad",
+            "params": {
+                "sessionId": staged_session,
+                "capabilityToken": fixture.token,
+                "path": "story.txt"
+            }
+        }),
+    );
+    assert_eq!(staged_load["error"]["code"], "notEditable");
+    close_session(&fixture.root, fixture.token, &staged_session, &staged_path);
+}
+
+#[test]
+fn rpc_branch_diff_editing_pins_the_original_merge_base() {
+    let fixture = EditFixture::new();
+    run_git(&fixture.repo, &["add", "story.txt"]);
+    run_git(&fixture.repo, &["commit", "-m", "feature change"]);
+    run_git(&fixture.repo, &["branch", "edit-base", "HEAD^"]);
+    let branch_source = serde_json::json!({
+        "kind": "branch",
+        "repoRoot": fixture.repo,
+        "baseRef": "edit-base"
+    });
+    let (branch_session, branch_path) = open_session_matches_git(
+        &fixture.root,
+        &fixture.repo,
+        fixture.token,
+        &branch_source,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "edit-base",
+            "--",
+        ],
+    );
+    run_git(&fixture.repo, &["branch", "-f", "edit-base", "HEAD"]);
+    let branch_loaded = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "load-branch",
+            "version": 1,
+            "method": "sessionFileLoad",
+            "params": {
+                "sessionId": branch_session,
+                "capabilityToken": fixture.token,
+                "path": "story.txt"
+            }
+        }),
+    );
+    assert_eq!(branch_loaded["result"]["type"], "sessionFileLoaded");
+    assert_eq!(branch_loaded["result"]["value"]["oldContents"], "one\n");
+    assert_eq!(
+        branch_loaded["result"]["value"]["newContents"],
+        "one\ntwo\n"
+    );
+    let branch_saved = edit_rpc(
+        &fixture.root,
+        &serde_json::json!({
+            "id": "save-branch",
+            "version": 1,
+            "method": "sessionFileSave",
+            "params": {
+                "sessionId": branch_session,
+                "capabilityToken": fixture.token,
+                "path": "story.txt",
+                "expectedContents": "one\ntwo\n",
+                "contents": "branch edited\n"
+            }
+        }),
+    );
+    assert_eq!(branch_saved["result"]["type"], "sessionFileSaved");
+    assert_eq!(
+        std::fs::read_to_string(fixture.repo.join("story.txt")).expect("read branch edit"),
+        "branch edited\n"
+    );
+    close_session(&fixture.root, fixture.token, &branch_session, &branch_path);
+}
+
+struct EditFixture {
+    root: PathBuf,
+    repo: PathBuf,
+    token: &'static str,
+}
+
+impl EditFixture {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-edit-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        #[cfg(unix)]
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+            .expect("secure root permissions");
+        run_git(&repo, &["init"]);
+        run_git(&repo, &["config", "user.name", "cmux tests"]);
+        run_git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(repo.join("story.txt"), b"one\n").expect("write initial file");
+        run_git(&repo, &["add", "story.txt"]);
+        run_git(&repo, &["commit", "-m", "initial"]);
+        std::fs::write(repo.join("story.txt"), b"one\ntwo\n").expect("write changed file");
+
+        let token = "0123456789abcdef";
+        let shell = root.join("viewer.html");
+        std::fs::write(&shell, b"<!doctype html>").expect("write shell");
+        std::fs::write(
+            root.join(format!(".manifest-{token}.json")),
+            serde_json::to_vec(&serde_json::json!({
+                "token": token,
+                "files": [{
+                    "request_path": "/viewer.html",
+                    "file_path": shell,
+                    "mime_type": "text/html"
+                }]
+            }))
+            .expect("encode manifest"),
+        )
+        .expect("write manifest");
+        std::fs::write(
+            root.join(".branch-session-edit-test.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "token": token,
+                "groupID": "edit-test",
+                "allowedRepoRoots": [&repo]
+            }))
+            .expect("encode session"),
+        )
+        .expect("write session");
+        Self { root, repo, token }
+    }
+}
+
+impl Drop for EditFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+fn edit_rpc(root: &Path, request: &serde_json::Value) -> serde_json::Value {
+    let encoded = serde_json::to_vec(request).expect("encode edit request");
+    let output = run_stdio_rpc_in_root(&encoded, root);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("decode edit response")
+}
+
 fn assert_overlapping_sessions_remain_independently_closable(
     root: &Path,
     repo: &Path,
@@ -495,7 +788,10 @@ fn close_session(root: &Path, token: &str, session_id: &str, request_path: &str)
     assert!(close_output.status.success());
     let close_response: serde_json::Value =
         serde_json::from_slice(&close_output.stdout).expect("decode close response");
-    assert_eq!(close_response["result"]["type"], "sessionClosed");
+    assert_eq!(
+        close_response["result"]["type"], "sessionClosed",
+        "{close_response}"
+    );
     assert!(!root.join(request_path.trim_start_matches('/')).exists());
 }
 

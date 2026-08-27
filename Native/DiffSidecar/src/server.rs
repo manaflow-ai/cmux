@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 #[cfg(feature = "http-server")]
 use std::io::Read;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -45,7 +45,8 @@ use crate::manifest::{
 };
 use crate::protocol::{
     BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
-    DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
+    DiffSource, NavigationResult, OpenSessionRequest, SessionFileLoaded, SessionFileRequest,
+    SessionFileSaveRequest, SessionFileSaved, SessionOpened, SessionRequest, handshake,
 };
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
@@ -89,7 +90,7 @@ struct BranchSessionAuthorization {
 }
 
 const MAX_CACHED_MANIFESTS: usize = 64;
-const MAX_RPC_REQUEST_BYTES: usize = 1024 * 1024;
+const MAX_RPC_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 const MAX_RPC_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
 // The caller-supplied ID cannot be trusted until the complete envelope parses.
@@ -99,6 +100,8 @@ const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_EDIT_FILE_BYTES: u64 = 1024 * 1024;
+const MAX_EDITABLE_PATH_BYTES: usize = 8 * 1024 * 1024;
 const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
 const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
@@ -110,6 +113,34 @@ const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
 struct SessionOwner {
     session_id: String,
     capability_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edit_source: Option<SessionEditSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    editable_files: Vec<SessionEditableFile>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum SessionEditSource {
+    Unstaged {
+        repo_root: String,
+    },
+    Branch {
+        repo_root: String,
+        base_commit: String,
+    },
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionEditableFile {
+    path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    previous_path: Option<String>,
 }
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
@@ -270,7 +301,7 @@ where
         return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
             UNTRUSTED_RPC_REQUEST_ID.to_owned(),
             "requestTooLarge",
-            "RPC request exceeds 1 MiB",
+            "RPC request exceeds 16 MiB",
         )));
     }
     match serde_json::from_slice(&input) {
@@ -479,6 +510,12 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
                 DiffResponse::failure(request.id, "notAllowed", "Diff session is not authorized")
             }
         }
+        DiffCommand::SessionFileLoad(params) => {
+            handle_session_file_load(request.id, state, params).await
+        }
+        DiffCommand::SessionFileSave(params) => {
+            handle_session_file_save(request.id, state, params).await
+        }
         DiffCommand::BranchList(params) => {
             let Some(state) = state else {
                 return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
@@ -524,11 +561,66 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
     }
 }
 
+async fn handle_session_file_load(
+    id: String,
+    state: Option<&AppState>,
+    params: SessionFileRequest,
+) -> DiffResponse {
+    let Some(state) = state else {
+        return DiffResponse::failure(id, "hostUnavailable", "Host unavailable");
+    };
+    match load_session_file(state, &params).await {
+        Ok(value) => DiffResponse::success(id, DiffResult::SessionFileLoaded(value)),
+        Err(error) => file_edit_failure(id, error),
+    }
+}
+
+async fn handle_session_file_save(
+    id: String,
+    state: Option<&AppState>,
+    params: SessionFileSaveRequest,
+) -> DiffResponse {
+    let Some(state) = state else {
+        return DiffResponse::failure(id, "hostUnavailable", "Host unavailable");
+    };
+    match save_session_file(state, &params).await {
+        Ok(value) => DiffResponse::success(id, DiffResult::SessionFileSaved(value)),
+        Err(error) => file_edit_failure(id, error),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionOpenError {
     Unauthorized,
     Empty,
     Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FileEditError {
+    Unauthorized,
+    NotEditable,
+    Conflict,
+    Failed,
+}
+
+fn file_edit_failure(id: String, error: FileEditError) -> DiffResponse {
+    match error {
+        FileEditError::Unauthorized => {
+            DiffResponse::failure(id, "notAllowed", "Diff session is not authorized")
+        }
+        FileEditError::NotEditable => {
+            DiffResponse::failure(id, "notEditable", "This diff file cannot be edited")
+        }
+        FileEditError::Conflict => DiffResponse::failure(
+            id,
+            "editConflict",
+            "The file changed outside the diff editor",
+        ),
+        FileEditError::Failed => {
+            DiffResponse::failure(id, "editFailed", "Could not update the diff file")
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -594,9 +686,16 @@ async fn open_session(
     let request_path = format!("/{file_name}");
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
-    let owner_path =
-        reserve_session_owner(&state.config.root, &session_id, &params.capability_token)
-            .map_err(|_| SessionOpenError::Failed)?;
+    let source = resolve_session_source(state, params.source, &canonical_repo).await?;
+    let (edit_source, editable_files) = session_edit_context(&source, &canonical_repo).await?;
+    let owner_path = reserve_session_owner(
+        &state.config.root,
+        &session_id,
+        &params.capability_token,
+        edit_source.clone(),
+        editable_files,
+    )
+    .map_err(|_| SessionOpenError::Failed)?;
     reserve_session_temp(&state.config.root, &temporary_path)
         .inspect_err(|_| {
             let _ = std::fs::remove_file(&owner_path);
@@ -608,8 +707,13 @@ async fn open_session(
         owner_path,
     );
 
-    let source = resolve_session_source(state, params.source, &canonical_repo).await?;
-    run_git_patch(&source, &canonical_repo, &temporary_path).await?;
+    run_git_patch(
+        &source,
+        edit_source.as_ref(),
+        &canonical_repo,
+        &temporary_path,
+    )
+    .await?;
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
@@ -744,14 +848,23 @@ async fn resolve_session_source(
 
 async fn run_git_patch(
     source: &DiffSource,
+    edit_source: Option<&SessionEditSource>,
     repo: &Path,
     output_path: &Path,
 ) -> Result<(), SessionOpenError> {
-    run_git_patch_with_limit(source, repo, output_path, MAX_SESSION_PATCH_BYTES).await
+    run_git_patch_with_limit(
+        source,
+        edit_source,
+        repo,
+        output_path,
+        MAX_SESSION_PATCH_BYTES,
+    )
+    .await
 }
 
 async fn run_git_patch_with_limit(
     source: &DiffSource,
+    edit_source: Option<&SessionEditSource>,
     repo: &Path,
     output_path: &Path,
     max_patch_bytes: u64,
@@ -771,21 +884,12 @@ async fn run_git_patch_with_limit(
             arguments.push("--".to_owned());
         }
         DiffSource::Branch {
-            base_ref: Some(base_ref),
-            ..
+            base_ref: Some(_), ..
         } => {
-            let base_commit = git_single_line(
-                repo,
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--end-of-options",
-                    &format!("{base_ref}^{{commit}}"),
-                ],
-            )
-            .await?;
-            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
-            arguments.push(merge_base);
+            let Some(SessionEditSource::Branch { base_commit, .. }) = edit_source else {
+                return Err(SessionOpenError::Failed);
+            };
+            arguments.push(base_commit.clone());
             arguments.push("--".to_owned());
         }
         DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
@@ -850,6 +954,120 @@ async fn run_git_patch_with_limit(
     Ok(())
 }
 
+async fn session_edit_context(
+    source: &DiffSource,
+    repo: &Path,
+) -> Result<(Option<SessionEditSource>, Vec<SessionEditableFile>), SessionOpenError> {
+    let edit_source = match source {
+        DiffSource::Unstaged { .. } => Some(SessionEditSource::Unstaged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        }),
+        DiffSource::Branch {
+            base_ref: Some(base_ref),
+            ..
+        } => Some(SessionEditSource::Branch {
+            repo_root: repo.to_string_lossy().into_owned(),
+            base_commit: branch_merge_base(repo, base_ref).await?,
+        }),
+        DiffSource::Staged { .. }
+        | DiffSource::Patch { .. }
+        | DiffSource::Branch { base_ref: None, .. } => None,
+    };
+    let editable_files = match edit_source.as_ref() {
+        Some(edit_source) => collect_editable_files(edit_source, repo).await?,
+        None => Vec::new(),
+    };
+    Ok((edit_source, editable_files))
+}
+
+async fn collect_editable_files(
+    source: &SessionEditSource,
+    repo: &Path,
+) -> Result<Vec<SessionEditableFile>, SessionOpenError> {
+    let mut arguments = vec![
+        "-C".to_owned(),
+        repo.to_string_lossy().into_owned(),
+        "diff".to_owned(),
+        "--no-ext-diff".to_owned(),
+        "--no-color".to_owned(),
+        "--name-status".to_owned(),
+        "-z".to_owned(),
+    ];
+    match source {
+        SessionEditSource::Unstaged { .. } => arguments.push("--".to_owned()),
+        SessionEditSource::Branch { base_commit, .. } => {
+            arguments.push(base_commit.clone());
+            arguments.push("--".to_owned());
+        }
+    }
+    let output = tokio::time::timeout(
+        SESSION_GIT_TIMEOUT,
+        Command::new("/usr/bin/git")
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .map_err(|_| SessionOpenError::Failed)?
+    .map_err(|_| SessionOpenError::Failed)?;
+    if !output.status.success() || output.stdout.len() > MAX_EDITABLE_PATH_BYTES {
+        return Err(SessionOpenError::Failed);
+    }
+    parse_editable_files(&output.stdout).ok_or(SessionOpenError::Failed)
+}
+
+fn parse_editable_files(output: &[u8]) -> Option<Vec<SessionEditableFile>> {
+    let fields: Vec<&[u8]> = output
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty())
+        .collect();
+    let mut files = Vec::new();
+    let mut index = 0;
+    while index < fields.len() {
+        let status = std::str::from_utf8(fields[index]).ok()?;
+        index += 1;
+        let kind = status.as_bytes().first().copied()?;
+        if matches!(kind, b'R' | b'C') {
+            let previous_path = std::str::from_utf8(fields.get(index)?).ok()?.to_owned();
+            let path = std::str::from_utf8(fields.get(index + 1)?).ok()?.to_owned();
+            index += 2;
+            if valid_edit_path(&path) && valid_edit_path(&previous_path) {
+                files.push(SessionEditableFile {
+                    path,
+                    previous_path: Some(previous_path),
+                });
+            }
+            continue;
+        }
+        let path = std::str::from_utf8(fields.get(index)?).ok()?.to_owned();
+        index += 1;
+        if !valid_edit_path(&path) || !matches!(kind, b'A' | b'M' | b'T') {
+            continue;
+        }
+        files.push(SessionEditableFile {
+            previous_path: (kind != b'A').then(|| path.clone()),
+            path,
+        });
+    }
+    Some(files)
+}
+
+async fn branch_merge_base(repo: &Path, base_ref: &str) -> Result<String, SessionOpenError> {
+    let base_commit = git_single_line(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            &format!("{base_ref}^{{commit}}"),
+        ],
+    )
+    .await?;
+    git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await
+}
+
 async fn git_single_line(repo: &Path, arguments: &[&str]) -> Result<String, SessionOpenError> {
     let mut command = Command::new("/usr/bin/git");
     command
@@ -872,6 +1090,270 @@ async fn git_single_line(repo: &Path, arguments: &[&str]) -> Result<String, Sess
         .to_owned();
     if line.is_empty() || line.contains(['\r', '\n']) {
         return Err(SessionOpenError::Failed);
+    }
+    Ok(line)
+}
+
+async fn load_session_file(
+    state: &AppState,
+    request: &SessionFileRequest,
+) -> Result<SessionFileLoaded, FileEditError> {
+    let (source, file) = authorized_edit_file(state, request).await?;
+    let repo = source.repo_root();
+    let new_contents = read_worktree_text(repo, &file.path).await?.0;
+    let old_contents = match &file.previous_path {
+        Some(previous_path) => Some(read_old_file_text(&source, previous_path).await?),
+        None => None,
+    };
+    Ok(SessionFileLoaded {
+        path: file.path,
+        previous_path: file.previous_path,
+        old_contents,
+        new_contents,
+    })
+}
+
+async fn save_session_file(
+    state: &AppState,
+    request: &SessionFileSaveRequest,
+) -> Result<SessionFileSaved, FileEditError> {
+    if request.expected_contents.len() as u64 > MAX_EDIT_FILE_BYTES
+        || request.contents.len() as u64 > MAX_EDIT_FILE_BYTES
+        || request.expected_contents.contains('\0')
+        || request.contents.contains('\0')
+    {
+        return Err(FileEditError::NotEditable);
+    }
+    let session_request = SessionFileRequest {
+        session_id: request.session_id.clone(),
+        capability_token: request.capability_token.clone(),
+        path: request.path.clone(),
+    };
+    let (source, file) = authorized_edit_file(state, &session_request).await?;
+    let repo = source.repo_root();
+    let (current_contents, permissions, target) = read_worktree_text(repo, &file.path).await?;
+    if current_contents != request.expected_contents {
+        return Err(FileEditError::Conflict);
+    }
+    let parent = target.parent().ok_or(FileEditError::NotEditable)?;
+    let temporary_path = parent.join(format!(".cmux-edit-{}.tmp", uuid::Uuid::new_v4()));
+    let write_result = async {
+        let mut temporary = tokio::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary_path)
+            .await
+            .map_err(|_| FileEditError::Failed)?;
+        temporary
+            .write_all(request.contents.as_bytes())
+            .await
+            .map_err(|_| FileEditError::Failed)?;
+        temporary.flush().await.map_err(|_| FileEditError::Failed)?;
+        temporary
+            .sync_all()
+            .await
+            .map_err(|_| FileEditError::Failed)?;
+        tokio::fs::set_permissions(&temporary_path, permissions)
+            .await
+            .map_err(|_| FileEditError::Failed)?;
+
+        // Recheck immediately before the atomic replacement so an external edit
+        // observed while the temporary file was being written becomes a conflict.
+        let (latest_contents, _, latest_target) = read_worktree_text(repo, &file.path).await?;
+        if latest_target != target || latest_contents != request.expected_contents {
+            return Err(FileEditError::Conflict);
+        }
+        tokio::fs::rename(&temporary_path, &target)
+            .await
+            .map_err(|_| FileEditError::Failed)
+    }
+    .await;
+    if write_result.is_err() {
+        let _ = tokio::fs::remove_file(&temporary_path).await;
+    }
+    write_result?;
+    Ok(SessionFileSaved { path: file.path })
+}
+
+impl SessionEditSource {
+    fn repo_root(&self) -> &Path {
+        match self {
+            Self::Unstaged { repo_root } | Self::Branch { repo_root, .. } => Path::new(repo_root),
+        }
+    }
+}
+
+async fn authorized_edit_file(
+    state: &AppState,
+    request: &SessionFileRequest,
+) -> Result<(SessionEditSource, SessionEditableFile), FileEditError> {
+    if !valid_token(&request.capability_token)
+        || uuid::Uuid::parse_str(&request.session_id).is_err()
+        || !valid_edit_path(&request.path)
+    {
+        return Err(FileEditError::Unauthorized);
+    }
+    let patch_path = state
+        .config
+        .root
+        .join(format!("diff-session-{}.patch", request.session_id));
+    if !tokio::fs::metadata(&patch_path)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+    {
+        return Err(FileEditError::Unauthorized);
+    }
+    let owner_path = session_owner_path(&state.config.root, &request.session_id);
+    let owner_metadata = tokio::fs::symlink_metadata(&owner_path)
+        .await
+        .map_err(|_| FileEditError::Unauthorized)?;
+    if !owner_metadata.is_file()
+        || owner_metadata.file_type().is_symlink()
+        || owner_metadata.len() > MAX_EDITABLE_PATH_BYTES as u64
+    {
+        return Err(FileEditError::Unauthorized);
+    }
+    let owner_bytes = tokio::fs::read(owner_path)
+        .await
+        .map_err(|_| FileEditError::Unauthorized)?;
+    let owner: SessionOwner =
+        serde_json::from_slice(&owner_bytes).map_err(|_| FileEditError::Unauthorized)?;
+    if owner.session_id != request.session_id || owner.capability_token != request.capability_token
+    {
+        return Err(FileEditError::Unauthorized);
+    }
+    let source = owner.edit_source.ok_or(FileEditError::NotEditable)?;
+    let file = owner
+        .editable_files
+        .into_iter()
+        .find(|file| file.path == request.path)
+        .ok_or(FileEditError::NotEditable)?;
+    Ok((source, file))
+}
+
+fn valid_edit_path(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains('\0')
+        && Path::new(value)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
+async fn read_worktree_text(
+    repo: &Path,
+    relative_path: &str,
+) -> Result<(String, std::fs::Permissions, PathBuf), FileEditError> {
+    if !valid_edit_path(relative_path) {
+        return Err(FileEditError::NotEditable);
+    }
+    let canonical_repo = tokio::fs::canonicalize(repo)
+        .await
+        .map_err(|_| FileEditError::Unauthorized)?;
+    if canonical_repo != repo {
+        return Err(FileEditError::Unauthorized);
+    }
+    let requested_path = canonical_repo.join(relative_path);
+    let link_metadata = tokio::fs::symlink_metadata(&requested_path)
+        .await
+        .map_err(|_| FileEditError::NotEditable)?;
+    if !link_metadata.is_file()
+        || link_metadata.file_type().is_symlink()
+        || link_metadata.len() > MAX_EDIT_FILE_BYTES
+    {
+        return Err(FileEditError::NotEditable);
+    }
+    let canonical_path = tokio::fs::canonicalize(&requested_path)
+        .await
+        .map_err(|_| FileEditError::NotEditable)?;
+    if canonical_path == canonical_repo || !canonical_path.starts_with(&canonical_repo) {
+        return Err(FileEditError::NotEditable);
+    }
+    let bytes = tokio::fs::read(&canonical_path)
+        .await
+        .map_err(|_| FileEditError::Failed)?;
+    if bytes.len() as u64 > MAX_EDIT_FILE_BYTES || bytes.contains(&0) {
+        return Err(FileEditError::NotEditable);
+    }
+    let contents = String::from_utf8(bytes).map_err(|_| FileEditError::NotEditable)?;
+    Ok((contents, link_metadata.permissions(), canonical_path))
+}
+
+async fn read_old_file_text(
+    source: &SessionEditSource,
+    path: &str,
+) -> Result<String, FileEditError> {
+    if !valid_edit_path(path) {
+        return Err(FileEditError::NotEditable);
+    }
+    let object = match source {
+        SessionEditSource::Unstaged { .. } => format!(":{path}"),
+        SessionEditSource::Branch { base_commit, .. } => format!("{base_commit}:{path}"),
+    };
+    let object_id = git_edit_single_line(
+        source.repo_root(),
+        &["rev-parse", "--verify", "--end-of-options", &object],
+    )
+    .await?;
+    if !object_id
+        .chars()
+        .all(|character| character.is_ascii_hexdigit())
+    {
+        return Err(FileEditError::Failed);
+    }
+    let size = git_edit_single_line(source.repo_root(), &["cat-file", "-s", &object_id])
+        .await?
+        .parse::<u64>()
+        .map_err(|_| FileEditError::Failed)?;
+    if size > MAX_EDIT_FILE_BYTES {
+        return Err(FileEditError::NotEditable);
+    }
+    let output = tokio::time::timeout(
+        SESSION_GIT_TIMEOUT,
+        Command::new("/usr/bin/git")
+            .arg("-C")
+            .arg(source.repo_root())
+            .args(["cat-file", "blob", &object_id])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .map_err(|_| FileEditError::Failed)?
+    .map_err(|_| FileEditError::Failed)?;
+    if !output.status.success()
+        || output.stdout.len() as u64 > MAX_EDIT_FILE_BYTES
+        || output.stdout.contains(&0)
+    {
+        return Err(FileEditError::NotEditable);
+    }
+    String::from_utf8(output.stdout).map_err(|_| FileEditError::NotEditable)
+}
+
+async fn git_edit_single_line(repo: &Path, arguments: &[&str]) -> Result<String, FileEditError> {
+    let output = tokio::time::timeout(
+        SESSION_GIT_TIMEOUT,
+        Command::new("/usr/bin/git")
+            .arg("-C")
+            .arg(repo)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .map_err(|_| FileEditError::Failed)?
+    .map_err(|_| FileEditError::Failed)?;
+    if !output.status.success() || output.stdout.len() > 4096 {
+        return Err(FileEditError::Failed);
+    }
+    let line = String::from_utf8(output.stdout)
+        .map_err(|_| FileEditError::Failed)?
+        .trim()
+        .to_owned();
+    if line.is_empty() || line.contains(['\r', '\n']) {
+        return Err(FileEditError::Failed);
     }
     Ok(line)
 }
@@ -1101,7 +1583,13 @@ fn session_owner_directory(root: &Path) -> PathBuf {
     root.join(".diff-session-owners")
 }
 
-fn reserve_session_owner(root: &Path, session_id: &str, token: &str) -> Result<PathBuf, String> {
+fn reserve_session_owner(
+    root: &Path,
+    session_id: &str,
+    token: &str,
+    edit_source: Option<SessionEditSource>,
+    editable_files: Vec<SessionEditableFile>,
+) -> Result<PathBuf, String> {
     let directory = session_owner_directory(root);
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     #[cfg(unix)]
@@ -1114,6 +1602,8 @@ fn reserve_session_owner(root: &Path, session_id: &str, token: &str) -> Result<P
     let owner = SessionOwner {
         session_id: session_id.to_owned(),
         capability_token: token.to_owned(),
+        edit_source,
+        editable_files,
     };
     let bytes = serde_json::to_vec(&owner).map_err(|error| error.to_string())?;
     let mut file = OpenOptions::new()
@@ -1967,6 +2457,11 @@ mod tests {
                 .capabilities
                 .contains(&"transport.webkit".to_owned())
         );
+        assert!(
+            handshake
+                .capabilities
+                .contains(&"session.fileEdit".to_owned())
+        );
         #[cfg(feature = "http-server")]
         assert!(
             handshake
@@ -2106,7 +2601,7 @@ mod tests {
         let token = "b".repeat(64);
         let temporary = root.join(format!(".diff-session-{session_id}.patch.tmp"));
         let final_path = root.join(format!("diff-session-{session_id}.patch"));
-        reserve_session_owner(&root, &session_id, &token).expect("reserve owner");
+        reserve_session_owner(&root, &session_id, &token, None, Vec::new()).expect("reserve owner");
         register_session_temp(&root, &temporary).expect("index temporary name");
         std::fs::write(&final_path, b"private diff after rename").expect("write final patch");
         let page = root.join("index.html");
@@ -2205,6 +2700,7 @@ mod tests {
             &DiffSource::Unstaged {
                 repo_root: repo.to_string_lossy().into_owned(),
             },
+            None,
             &repo,
             &patch_path,
             1024,

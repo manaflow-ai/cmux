@@ -8,12 +8,15 @@ export type IconName =
   | "clipboard"
   | "document"
   | "dots"
+  | "discard"
   | "expand"
   | "external"
   | "eye"
   | "files"
   | "numbers"
+  | "pencil"
   | "refresh"
+  | "save"
   | "search"
   | "sidebarCollapse"
   | "split"
@@ -47,6 +50,8 @@ function IconPaths({ name }: { name: IconName }) {
     return <><rect x="5" y="4" width="10" height="13" rx="2" /><path d="M8 4a2 2 0 0 1 4 0" /><path d="M8 7h4" /></>;
   case "document":
     return <><path d="M6 3h6l4 4v10H6z" /><path d="M12 3v5h5" /></>;
+  case "discard":
+    return <><path d="M5 5l10 10" /><path d="M15 5 5 15" /></>;
   case "dots":
     return <><path d="M5 10h.01" data-precision-dot="true" /><path d="M10 10h.01" data-precision-dot="true" /><path d="M15 10h.01" data-precision-dot="true" /></>;
   case "expand":
@@ -59,10 +64,14 @@ function IconPaths({ name }: { name: IconName }) {
     return <><rect x="3.5" y="4" width="13" height="12" rx="2" /><path d="M11.5 4v12" /></>;
   case "numbers":
     return <><path d="M5 5h2v10" /><path d="M4 15h4" /><path d="M11 6.5a2 2 0 1 1 3.2 1.6L11 12h4" /><path d="M11 15h4" /></>;
+  case "pencil":
+    return <><path d="m4 16 3.5-.8L16 6.7 13.3 4 4.8 12.5z" /><path d="m11.8 5.5 2.7 2.7" /></>;
   case "refresh":
     return <><path d="M16 8a6 6 0 0 0-10.3-3.7L4 6" /><path d="M4 3v3h3" /><path d="M4 12a6 6 0 0 0 10.3 3.7L16 14" /><path d="M16 17v-3h-3" /></>;
   case "search":
     return <><circle cx="8.5" cy="8.5" r="4.5" /><path d="m12 12 4 4" /></>;
+  case "save":
+    return <><path d="M4 3h10l2 2v12H4z" /><path d="M7 3v5h6V3" /><path d="M7 17v-5h6v5" /></>;
   case "sidebarCollapse":
     return <><rect x="3.5" y="4" width="13" height="12" rx="2" /><path d="M8 4v12" /><path d="m12 8 2 2-2 2" /></>;
   case "split":

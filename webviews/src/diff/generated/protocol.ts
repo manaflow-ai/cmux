@@ -16,13 +16,13 @@ export type DiffEvent = { "type": "sessionStatus", sessionId: string, status: Di
 
 export type DiffProtocolError = { code: string, message: string, };
 
-export type DiffRequest = { id: string, version: number, } & ({ "method": "protocolHandshake" } | { "method": "sessionOpen", "params": OpenSessionRequest } | { "method": "sessionClose", "params": SessionRequest } | { "method": "branchList", "params": BranchListRequest } | { "method": "branchChange", "params": BranchChangeRequest });
+export type DiffRequest = { id: string, version: number, } & ({ "method": "protocolHandshake" } | { "method": "sessionOpen", "params": OpenSessionRequest } | { "method": "sessionClose", "params": SessionRequest } | { "method": "sessionFileLoad", "params": SessionFileRequest } | { "method": "sessionFileSave", "params": SessionFileSaveRequest } | { "method": "branchList", "params": BranchListRequest } | { "method": "branchChange", "params": BranchChangeRequest });
 
 export type DiffResourceRef = { id: string, mediaType: string, byteLength: number | null, revision: number, };
 
 export type DiffResponse = { id: string, version: number, result: DiffResult | null, error: DiffProtocolError | null, };
 
-export type DiffResult = { "type": "handshake", "value": HandshakeResult } | { "type": "sessionOpened", "value": SessionOpened } | { "type": "sessionClosed" } | { "type": "branches", "value": BranchListResult } | { "type": "navigation", "value": NavigationResult };
+export type DiffResult = { "type": "handshake", "value": HandshakeResult } | { "type": "sessionOpened", "value": SessionOpened } | { "type": "sessionClosed" } | { "type": "sessionFileLoaded", "value": SessionFileLoaded } | { "type": "sessionFileSaved", "value": SessionFileSaved } | { "type": "branches", "value": BranchListResult } | { "type": "navigation", "value": NavigationResult };
 
 export type DiffSessionStatus = "opening" | "ready" | "closed";
 
@@ -37,6 +37,14 @@ export type HandshakeResult = { protocolVersion: number, capabilities: Array<str
 export type NavigationResult = { url: string, };
 
 export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, sessionId?: string, };
+
+export type SessionFileLoaded = { path: string, previousPath?: string, oldContents?: string, newContents: string, };
+
+export type SessionFileRequest = { sessionId: string, capabilityToken: string, path: string, };
+
+export type SessionFileSaveRequest = { sessionId: string, capabilityToken: string, path: string, expectedContents: string, contents: string, };
+
+export type SessionFileSaved = { path: string, };
 
 export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, };
 
