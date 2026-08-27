@@ -4131,10 +4131,10 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
 }
 
 /// Serializes a config value to a private staging file before atomically
-/// replacing the destination and durably syncing its parent directory. An
+/// replacing the destination and durably syncing its parent directories. An
 /// `Err` means that replacement did not commit. A
 /// [`ConfigWriteOutcome::CommittedButUnsynced`] value means the rename did
-/// commit, but the parent directory sync failed.
+/// commit, but a directory sync failed.
 fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
     write_config_value_atomic_with_sync(path, value, &sync_config_parent_directory)
 }
@@ -4186,8 +4186,24 @@ fn write_config_value_atomic_with_sync(
 }
 
 fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    std::fs::create_dir_all(parent)?;
-    Ok(Vec::new())
+    let mut created_directories = Vec::new();
+    let mut current = PathBuf::new();
+    for component in parent.components() {
+        current.push(component.as_os_str());
+        match std::fs::create_dir(&current) {
+            Ok(()) => created_directories.push(current.clone()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if !std::fs::metadata(&current)?.is_dir() {
+                    anyhow::bail!(
+                        "config parent component {} is not a directory",
+                        current.display()
+                    );
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(created_directories)
 }
 
 #[cfg(unix)]
@@ -4204,10 +4220,14 @@ fn sync_config_parent_directory(_parent: &Path) -> anyhow::Result<()> {
 #[cfg(unix)]
 fn sync_config_parent_directories(
     parent: &Path,
-    _created_directories: &[PathBuf],
+    created_directories: &[PathBuf],
     sync_parent: &dyn Fn(&Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    sync_parent(parent)
+    sync_parent(parent)?;
+    for directory in created_directories.iter().rev() {
+        sync_parent(config_parent_directory(directory))?;
+    }
+    Ok(())
 }
 
 fn config_parent_directory(path: &Path) -> &Path {
