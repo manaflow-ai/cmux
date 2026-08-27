@@ -16428,7 +16428,7 @@ impl App {
         let surface = destination.or_else(|| self.active_surface())?;
         (self.tree.surface_kind(surface) == SurfaceKind::Pty).then(|| VisiblePtyInputState {
             surface,
-            selection: self.selection.filter(|selection| selection.surface == surface),
+            selection: self.selection,
             scroll_offset: self.surface_scroll_offset(surface),
         })
     }
@@ -16448,8 +16448,7 @@ impl App {
     fn visible_pty_input_action(&self, before: Option<VisiblePtyInputState>) -> RenderAction {
         let status_action = self.painted_status_message_action();
         let Some(before) = before else { return status_action };
-        let selection = self.selection.filter(|selection| selection.surface == before.surface);
-        let action = if selection != before.selection
+        let action = if self.selection != before.selection
             || self.surface_scroll_offset(before.surface) != before.scroll_offset
         {
             RenderAction::Draw
@@ -36245,6 +36244,40 @@ mod tests {
         );
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_keyboard_requests_draw_after_selection_clear_on_other_surface() {
+        let mux = Mux::new("visible-state-split-selection-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 12))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 12))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(app.active_surface(), Some(second.id));
+
+        app.replace_selection(Some(Selection { surface: first.id, anchor: (0, 0), head: (3, 0) }));
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+
+        let action = app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "typing in the active pane must repaint a selection cleared from another pane"
+        );
+        assert!(app.selection.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
     }
 
     #[test]
