@@ -1436,14 +1436,16 @@ final class TerminalControllerSocketSecurityTests {
         )
         try waitForSocket(at: socketPath)
 
+        let workspaceID = workspace.id.uuidString
+        let targetPanelID = targetPanel.id.uuidString
         let response = try await withCheckedThrowingContinuation { continuation in
             CLITestProcessRunner.detachBlockingThread(name: "cmux-test-TerminalControllerSocketSecurityTests") {
                 do {
                     let response = try self.sendV2Request(
                         method: "notification.create",
                         params: [
-                            "workspace_id": workspace.id.uuidString,
-                            "surface_id": targetPanel.id.uuidString,
+                            "workspace_id": workspaceID,
+                            "surface_id": targetPanelID,
                             "title": "Targeted"
                         ],
                         to: socketPath
@@ -1629,12 +1631,13 @@ final class TerminalControllerSocketSecurityTests {
         )
         try waitForSocket(at: socketPath)
 
+        let pinnedWorkspaceID = pinnedWorkspace.id.uuidString
         let response = try await withCheckedThrowingContinuation { continuation in
             CLITestProcessRunner.detachBlockingThread(name: "cmux-test-TerminalControllerSocketSecurityTests") {
                 do {
                     let response = try self.sendV2Request(
                         method: "workspace.close",
-                        params: ["workspace_id": pinnedWorkspace.id.uuidString],
+                        params: ["workspace_id": pinnedWorkspaceID],
                         to: socketPath
                     )
                     continuation.resume(returning: response)
