@@ -155,6 +155,11 @@ use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 
+#[cfg(test)]
+std::thread_local! {
+    static FAIL_CONFIG_PARENT_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
 /// also produces, so callers can tell "not set" from "set to null".
@@ -4146,6 +4151,10 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
 
 #[cfg(unix)]
 fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<()> {
+    #[cfg(test)]
+    if FAIL_CONFIG_PARENT_SYNC.with(|fail| fail.replace(false)) {
+        return Err(std::io::Error::other("injected parent directory sync failure").into());
+    }
     let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
     #[cfg(target_os = "macos")]
     if let Err(error) = &result {
@@ -8904,6 +8913,20 @@ mod tests {
         write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}})).unwrap();
 
         let value: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(value["server"]["ws_token"], json!("secret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_does_not_report_failure_after_parent_sync_error() {
+        let dir = TestDirectory::new("parent-sync-failure");
+        let path = dir.path.join("cmux-tui.json");
+        FAIL_CONFIG_PARENT_SYNC.with(|fail| fail.set(true));
+
+        let result = write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}}));
+
+        assert!(result.is_ok(), "a committed rename must not be reported as a write failure");
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["server"]["ws_token"], json!("secret"));
     }
 }
