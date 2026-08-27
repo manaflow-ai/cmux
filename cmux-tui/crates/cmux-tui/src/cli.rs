@@ -55,7 +55,20 @@ const REMOTE_COMMANDS: &[&str] = &[
 /// Keeping this classifier next to the public CLI grammar prevents startup
 /// routing and the Unix remote implementation from maintaining separate lists.
 pub(super) fn is_remote_invocation(args: &[String]) -> bool {
-    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => return false,
+            "--socket" | "--session" | "--machine" => index += 2,
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            value if value.starts_with("--socket=")
+                || value.starts_with("--session=")
+                || value.starts_with("--machine=") => index += 1,
+            value if value.starts_with('-') => return false,
+            value => return REMOTE_COMMANDS.contains(&value),
+        }
+    }
+    false
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

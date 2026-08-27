@@ -1382,8 +1382,64 @@ fn is_cli_invocation(args: &[String]) -> bool {
 }
 
 fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), String> {
-    if raw_args.first().map(String::as_str) != Some("remote") {
+    let mut index = 0;
+    let mut leading = Vec::new();
+    while index < raw_args.len() {
+        match raw_args[index].as_str() {
+            "--socket" | "--session" | "--machine" => {
+                leading.extend(raw_args[index..].iter().take(2).cloned());
+                index += 2;
+            }
+            value if value.starts_with("--socket=")
+                || value.starts_with("--session=")
+                || value.starts_with("--machine=") => {
+                leading.push(raw_args[index].clone());
+                index += 1;
+            }
+            "--json" | "--jsonl" | "--quiet" => {
+                leading.push(raw_args[index].clone());
+                index += 1;
+            }
+            _ => break,
+        }
+    }
+    let Some(command) = raw_args.get(index).cloned() else {
         return Ok(());
+    };
+    if !crate::cli::is_remote_invocation(raw_args) {
+        return Ok(());
+    }
+    let rest = raw_args[index + 1..].to_vec();
+    *raw_args = std::iter::once(command.clone()).chain(leading).chain(rest).collect();
+    if command != "remote" {
+        return Ok(());
+    }
+    if command == "remote" {
+        let mut action_index = 1;
+        while action_index < raw_args.len() {
+            match raw_args[action_index].as_str() {
+                "--socket" | "--session" | "--machine" => action_index += 2,
+                "--json" | "--jsonl" | "--quiet" => action_index += 1,
+                value if value.starts_with("--socket=")
+                    || value.starts_with("--session=")
+                    || value.starts_with("--machine=") => action_index += 1,
+                _ => break,
+            }
+        }
+        if let Some(action) = raw_args.get(action_index).cloned() {
+            let recognized = matches!(
+                action.as_str(),
+                "connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons" | "stop"
+            );
+            raw_args.remove(action_index);
+            if recognized {
+                raw_args.remove(0);
+                raw_args.insert(0, if action == "stop" { "remote-stop".into() } else { action });
+            } else {
+                raw_args.insert(1, action);
+            }
+            return Ok(());
+        }
     }
     match raw_args.get(1).map(String::as_str) {
         Some("stop") => {
