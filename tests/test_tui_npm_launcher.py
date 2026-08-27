@@ -325,7 +325,7 @@ def test_launcher_refetches_a_tampered_cached_binary(tmp_path: Path) -> None:
     assert RegistryHandler.tarball_requests == 2
 
 
-def test_launcher_refetches_non_executable_cached_binary(tmp_path: Path) -> None:
+def test_launcher_repairs_non_executable_cached_binary(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
     launcher = write_launcher(tmp_path)
@@ -344,7 +344,8 @@ def test_launcher_refetches_non_executable_cached_binary(tmp_path: Path) -> None
     assert second.returncode == 0, second.stderr
     assert second.stdout == "fake cmux-tui 1.2.3\n"
     assert binary.stat().st_mode & stat.S_IXUSR
-    assert RegistryHandler.tarball_requests == 2
+    assert RegistryHandler.metadata_requests == 1
+    assert RegistryHandler.tarball_requests == 1
 
 
 def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
@@ -359,6 +360,7 @@ def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
         "9.9.9-dev",
         "#!/bin/sh\nprintf '%s\\n' 'development binary'\n",
     )
+    unmanaged.chmod(0o644)
     write_cached_binary(cache, "1.2.3", "#!/bin/sh\nexit 0\n", managed=True)
 
     result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
@@ -366,6 +368,7 @@ def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert unmanaged.is_file()
     assert not unmanaged.parent.parent.joinpath("managed").exists()
+    assert not (unmanaged.stat().st_mode & stat.S_IXUSR)
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
@@ -953,7 +956,7 @@ def main() -> None:
         test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
         test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
-        test_launcher_refetches_non_executable_cached_binary(root / "non-executable-cache")
+        test_launcher_repairs_non_executable_cached_binary(root / "non-executable-cache")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_releases_lease_when_native_launch_fails(root / "launch-failure")
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
