@@ -3,8 +3,10 @@
 //! The forwarder is deliberately independent from the relay WebSocket. It
 //! tails cmux-tui JSON-lines resource sockets and POSTs the original
 //! `stream_item` envelopes to the origin-bound endpoint in the enrollment
-//! file. Every queue and batch has a limit; network failures keep one bounded
-//! batch for retry and never take down the relay session.
+//! file. All sessions share one pending buffer, one debounce timer, and one
+//! POST path, so concurrent sessions pool into a single request exactly like
+//! the Node forwarder. Every batch is bounded; network failures keep one
+//! bounded batch for retry and never take down the relay session.
 
 use std::collections::HashMap;
 #[cfg(unix)]
@@ -299,6 +301,31 @@ struct Shared {
     cursor_path: PathBuf,
     cancellation: CancellationToken,
     claims: Arc<Mutex<HashSet<String>>>,
+    /// The forwarder-level pooled buffers and flush state shared by every
+    /// session (the Node forwarder's `pending` map plus its flush flags).
+    pool: Arc<Mutex<PoolState>>,
+    /// Cues for the one shared flush task.
+    flush_wake: tokio::sync::mpsc::UnboundedSender<FlushWake>,
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct PoolState {
+    /// Per-session record buffers awaiting the shared flush, in first-record
+    /// arrival order so pooled POST bodies are deterministic.
+    pending: Vec<PendingSession>,
+    /// A POST is in flight; a threshold flush defers to `flush_again`.
+    flushing: bool,
+    /// A flush was requested while a POST was in flight (Node `flushAgain`).
+    flush_again: bool,
+}
+
+#[cfg(unix)]
+enum FlushWake {
+    /// The record threshold drained the buffers synchronously; POST this now.
+    Batch(Vec<SessionBatch>),
+    /// Arm the shared debounce timer if it is not already armed.
+    Arm,
 }
 
 #[cfg(unix)]
@@ -311,6 +338,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
             return;
         }
     };
+    let (flush_wake, flush_cues) = tokio::sync::mpsc::unbounded_channel();
     let shared = Shared {
         events,
         client,
@@ -318,7 +346,10 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         cursor_path: PathBuf::from(DEFAULT_CURSOR_PATH),
         cancellation: cancellation.clone(),
         claims: Arc::new(Mutex::new(HashSet::new())),
+        pool: Arc::new(Mutex::new(PoolState::default())),
+        flush_wake,
     };
+    let flusher = tokio::spawn(run_flusher(shared.clone(), flush_cues));
     let socket_dirs = socket_directories();
     let mut tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
     let mut scan = tokio::time::interval(SOCKET_SCAN_INTERVAL);
@@ -334,6 +365,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
     for (_, task) in tasks {
         task.abort();
     }
+    flusher.abort();
 }
 
 fn build_http_client(timeout: Duration) -> Result<reqwest::Client, reqwest::Error> {
@@ -383,6 +415,7 @@ async fn discover_session_candidates(socket_dirs: &[PathBuf]) -> Vec<SessionCand
     let mut safe_socket_dirs = Vec::new();
     for socket_dir in socket_dirs {
         if !safe_socket_directory(socket_dir).await {
+            warn_insecure_socket_root(socket_dir).await;
             continue;
         }
         safe_socket_dirs.push(socket_dir.clone());
@@ -481,6 +514,37 @@ async fn safe_socket_directory(path: &Path) -> bool {
         && metadata.is_dir()
         && metadata.uid() == unsafe { libc::getuid() }
         && metadata.permissions().mode() & 0o077 == 0
+}
+
+/// The mode of an EXISTING own directory whose only defect is group/world
+/// access bits. Missing roots and every other rejection reason return None.
+#[cfg(unix)]
+async fn insecure_socket_root_mode(path: &Path) -> Option<u32> {
+    let metadata = tokio::fs::symlink_metadata(path).await.ok()?;
+    let mode = metadata.permissions().mode();
+    (!metadata.file_type().is_symlink()
+        && metadata.is_dir()
+        && metadata.uid() == unsafe { libc::getuid() }
+        && mode & 0o077 != 0)
+        .then_some(mode)
+}
+
+/// A silent skip of a group- or world-accessible socket root is very hard to
+/// diagnose. Name the directory and its mode, once per unique root.
+#[cfg(unix)]
+async fn warn_insecure_socket_root(path: &Path) {
+    static WARNED_ROOTS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    let Some(mode) = insecure_socket_root_mode(path).await else { return };
+    let Ok(mut warned) = WARNED_ROOTS.lock() else { return };
+    if warned.iter().any(|existing| existing == path) {
+        return;
+    }
+    warned.push(path.to_owned());
+    eprintln!(
+        "chatmux-relay: journal: ignoring socket directory {} (mode {:03o} grants group/world access)",
+        path.display(),
+        mode & 0o777
+    );
 }
 
 #[cfg(unix)]
@@ -801,29 +865,11 @@ async fn run_session(
         let mut subscribed = false;
         let mut generation = cursor.as_ref().map(|cursor| cursor.generation.clone());
         let mut last_delivered = None;
-        let mut pending = Vec::new();
-        let mut flush_armed = false;
-        let mut flush_timer = Box::pin(tokio::time::sleep(Duration::from_secs(24 * 60 * 60)));
         let mut cursor_invalid = false;
         loop {
             tokio::select! {
                 biased;
                 _ = shared.cancellation.cancelled() => return,
-                _ = &mut flush_timer, if flush_armed => {
-                    flush_armed = false;
-                    if !flush_pending(
-                        &shared,
-                        &effective_session_key,
-                        wire_session_name,
-                        &session_key,
-                        &generation,
-                        &mut pending,
-                    )
-                    .await
-                    {
-                        return;
-                    }
-                }
                 result = read_bounded_line(&mut reader, MAX_JOURNAL_LINE_BYTES) => {
                     let Ok(Some(line)) = result else { break };
                     let Some(envelope) = parse_journal_line(line.trim_end_matches(['\r', '\n'])) else { continue };
@@ -852,14 +898,13 @@ async fn run_session(
                                 generation.get_or_insert_with(|| cursor.generation.clone());
                                 last_delivered = Some(cursor);
                             }
-                            pending.push(envelope);
-                            if pending.len() >= MAX_BATCH_RECORDS {
-                                if !flush_pending(&shared, &effective_session_key, wire_session_name, &session_key, &generation, &mut pending).await { return; }
-                                flush_armed = false;
-                            } else {
-                                flush_armed = true;
-                                flush_timer.as_mut().reset(tokio::time::Instant::now() + DEFAULT_FLUSH_DEBOUNCE);
-                            }
+                            enqueue_pending(
+                                &shared,
+                                wire_session_name.unwrap_or(&session_key),
+                                &effective_session_key,
+                                &generation,
+                                envelope,
+                            );
                         }
                         Some("stream_end") => {
                             if envelope.get("reason").and_then(Value::as_str) == Some("gap") {
@@ -872,19 +917,9 @@ async fn run_session(
                 }
             }
         }
-        if !pending.is_empty()
-            && !flush_pending(
-                &shared,
-                &effective_session_key,
-                wire_session_name,
-                &session_key,
-                &generation,
-                &mut pending,
-            )
-            .await
-        {
-            return;
-        }
+        // Records buffered on this connection stay in the shared pool; the
+        // armed debounce timer delivers them, exactly like the Node
+        // forwarder on a socket close.
         if let Some(cursor) = volatile_resume.clone().or(last_delivered) {
             update_resume(&mut volatile_resume, cursor);
         }
@@ -907,29 +942,152 @@ async fn run_session(
     }
 }
 
+/// Buffer one delivered record under its session in the forwarder-level
+/// pooled buffers, then apply the Node forwarder's `#scheduleFlush` decision
+/// synchronously: at the shared record threshold the buffers are drained on
+/// the spot — so the batch boundary is exact even while records keep
+/// arriving — and handed to the flush task; below it the shared debounce
+/// timer is armed.
 #[cfg(unix)]
-async fn flush_pending(
+fn enqueue_pending(
     shared: &Shared,
+    session_name: &str,
     cursor_key: &str,
-    wire_session_name: Option<&str>,
-    fallback_wire_name: &str,
     generation: &Option<String>,
-    pending: &mut Vec<Value>,
-) -> bool {
-    if pending.is_empty() {
-        return true;
-    }
-    let entry = PendingSession {
-        session_name: wire_session_name.unwrap_or(fallback_wire_name).to_owned(),
-        cursor_key: cursor_key.to_owned(),
-        generation: generation.clone(),
-        records: std::mem::take(pending),
+    record: Value,
+) {
+    let Ok(mut pool) = shared.pool.lock() else { return };
+    let index = match pool.pending.iter().position(|entry| entry.cursor_key == cursor_key) {
+        Some(index) => index,
+        None => {
+            pool.pending.push(PendingSession {
+                session_name: session_name.to_owned(),
+                cursor_key: cursor_key.to_owned(),
+                generation: None,
+                records: Vec::new(),
+            });
+            pool.pending.len() - 1
+        }
     };
-    let batches = batch_records(&[entry]);
+    if let Some(entry) = pool.pending.get_mut(index) {
+        if entry.generation.is_none() {
+            entry.generation = generation.clone();
+        }
+        entry.records.push(record);
+    }
+    let total = pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
+    if total < MAX_BATCH_RECORDS {
+        drop(pool);
+        let _ = shared.flush_wake.send(FlushWake::Arm);
+        return;
+    }
+    if pool.flushing {
+        pool.flush_again = true;
+        return;
+    }
+    let entries = std::mem::take(&mut pool.pending);
+    let batches = batch_records(&entries);
     if batches.is_empty() {
+        return;
+    }
+    pool.flushing = true;
+    drop(pool);
+    let _ = shared.flush_wake.send(FlushWake::Batch(batches));
+}
+
+/// The one shared flush task: a single debounce timer and a single POST
+/// serve every session, so concurrent sessions pool into one request.
+#[cfg(unix)]
+async fn run_flusher(shared: Shared, mut cues: tokio::sync::mpsc::UnboundedReceiver<FlushWake>) {
+    let mut armed = false;
+    let mut timer = Box::pin(tokio::time::sleep(Duration::from_secs(24 * 60 * 60)));
+    loop {
+        tokio::select! {
+            biased;
+            _ = shared.cancellation.cancelled() => return,
+            _ = &mut timer, if armed => {
+                armed = false;
+                if !flush_cycle(&shared, None, &mut armed, &mut timer).await {
+                    return;
+                }
+            }
+            cue = cues.recv() => {
+                match cue {
+                    None => return,
+                    Some(FlushWake::Batch(batches)) => {
+                        armed = false;
+                        if !flush_cycle(&shared, Some(batches), &mut armed, &mut timer).await {
+                            return;
+                        }
+                    }
+                    Some(FlushWake::Arm) => {
+                        if !armed {
+                            armed = true;
+                            timer.as_mut().reset(tokio::time::Instant::now() + DEFAULT_FLUSH_DEBOUNCE);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One Node `#flush` plus its completion logic. `prepared` carries a batch
+/// the threshold path already drained; otherwise the pooled buffers are
+/// drained here. Returns false only when the forwarder is stopping.
+#[cfg(unix)]
+async fn flush_cycle(
+    shared: &Shared,
+    prepared: Option<Vec<SessionBatch>>,
+    armed: &mut bool,
+    timer: &mut std::pin::Pin<Box<tokio::time::Sleep>>,
+) -> bool {
+    let mut next = prepared;
+    loop {
+        let batches = match next.take() {
+            Some(batches) => batches,
+            None => {
+                let Ok(mut pool) = shared.pool.lock() else { return true };
+                if pool.flushing {
+                    pool.flush_again = true;
+                    return true;
+                }
+                let entries = std::mem::take(&mut pool.pending);
+                let batches = batch_records(&entries);
+                if batches.is_empty() {
+                    return true;
+                }
+                pool.flushing = true;
+                drop(pool);
+                batches
+            }
+        };
+        let delivered = post_with_retry(shared, batches).await;
+        let (again, total) = match shared.pool.lock() {
+            Ok(mut pool) => {
+                pool.flushing = false;
+                (
+                    std::mem::take(&mut pool.flush_again),
+                    pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>(),
+                )
+            }
+            Err(_) => (false, 0),
+        };
+        if !delivered {
+            return false;
+        }
+        if !again && total == 0 {
+            return true;
+        }
+        if total >= MAX_BATCH_RECORDS {
+            continue;
+        }
+        if total > 0 && !*armed {
+            *armed = true;
+            timer.as_mut().reset(tokio::time::Instant::now() + DEFAULT_FLUSH_DEBOUNCE);
+        }
         return true;
     }
-    post_with_retry(shared, batches).await
 }
 
 #[cfg(unix)]
@@ -1635,6 +1793,217 @@ mod tests {
         let metadata = tokio::fs::symlink_metadata(&path).await.expect("read migrated cursor");
         assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
         remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
+    fn test_shared(
+        url: String,
+        cursor_path: PathBuf,
+    ) -> (Shared, tokio::sync::mpsc::UnboundedReceiver<FlushWake>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let (flush_wake, cues) = tokio::sync::mpsc::unbounded_channel();
+        let shared = Shared {
+            events: ManagedEvents { url, token: String::from("test-token") },
+            client: build_http_client(Duration::from_secs(5)).expect("build test client"),
+            cursors: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            cursor_path,
+            cancellation: CancellationToken::new(),
+            claims: Arc::new(Mutex::new(HashSet::new())),
+            pool: Arc::new(Mutex::new(PoolState::default())),
+            flush_wake,
+        };
+        (shared, cues)
+    }
+
+    #[cfg(unix)]
+    fn http_request_body(buffer: &[u8]) -> Option<Vec<u8>> {
+        let header_end = buffer.windows(4).position(|window| window == b"\r\n\r\n")? + 4;
+        let headers = std::str::from_utf8(&buffer[..header_end]).ok()?;
+        let length = headers.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if !name.eq_ignore_ascii_case("content-length") {
+                return None;
+            }
+            value.trim().parse().ok()
+        })?;
+        Some(buffer.get(header_end..header_end.checked_add(length)?)?.to_vec())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pooled_buffers_group_records_by_session_in_arrival_order() {
+        let (root, path) = cursor_test_path("pool-order").await;
+        let (shared, mut cues) = test_shared(String::from("http://127.0.0.1:9"), path);
+        let gen_a = Some(String::from("gen_a"));
+        let gen_b = Some(String::from("gen_b"));
+        enqueue_pending(&shared, "alpha", "alpha", &None, record("gen_a", "1"));
+        enqueue_pending(&shared, "beta", "beta", &gen_b, record("gen_b", "1"));
+        enqueue_pending(&shared, "alpha", "alpha", &gen_a, record("gen_a", "2"));
+        {
+            let pool = shared.pool.lock().expect("lock pool");
+            assert_eq!(pool.pending.len(), 2);
+            assert_eq!(pool.pending[0].cursor_key, "alpha");
+            assert_eq!(pool.pending[0].records.len(), 2);
+            // `??=` semantics: a late generation still fills an empty slot.
+            assert_eq!(pool.pending[0].generation.as_deref(), Some("gen_a"));
+            assert_eq!(pool.pending[1].cursor_key, "beta");
+            assert!(!pool.flushing);
+        }
+        let mut arms = 0;
+        while let Ok(cue) = cues.try_recv() {
+            assert!(matches!(cue, FlushWake::Arm));
+            arms += 1;
+        }
+        assert_eq!(arms, 3);
+        remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pooled_threshold_drains_an_exact_batch_and_defers_while_posting() {
+        let (root, path) = cursor_test_path("pool-threshold").await;
+        let (shared, mut cues) = test_shared(String::from("http://127.0.0.1:9"), path);
+        let gen_a = Some(String::from("gen_a"));
+        let gen_b = Some(String::from("gen_b"));
+        for seq in 1..MAX_BATCH_RECORDS {
+            enqueue_pending(&shared, "alpha", "alpha", &gen_a, record("gen_a", &seq.to_string()));
+        }
+        enqueue_pending(&shared, "beta", "beta", &gen_b, record("gen_b", "1"));
+        let mut batch = None;
+        let mut arms = 0_usize;
+        while let Ok(cue) = cues.try_recv() {
+            match cue {
+                FlushWake::Arm => arms += 1,
+                FlushWake::Batch(sessions) => {
+                    assert!(batch.is_none(), "the threshold must drain exactly once");
+                    batch = Some(sessions);
+                }
+            }
+        }
+        assert_eq!(arms, MAX_BATCH_RECORDS - 1);
+        let sessions = batch.expect("threshold batch");
+        assert_eq!(sessions.len(), 2, "both sessions share the threshold POST");
+        assert_eq!(sessions[0].session_name, "alpha");
+        assert_eq!(sessions[0].records.len(), MAX_BATCH_RECORDS - 1);
+        assert_eq!(sessions[1].session_name, "beta");
+        assert_eq!(sessions[1].records.len(), 1);
+        {
+            let pool = shared.pool.lock().expect("lock pool");
+            assert!(pool.pending.is_empty(), "the threshold snapshot is synchronous");
+            assert!(pool.flushing);
+        }
+        // While the POST is in flight, another threshold hit only defers.
+        for seq in 2..=(MAX_BATCH_RECORDS + 1) {
+            enqueue_pending(&shared, "beta", "beta", &gen_b, record("gen_b", &seq.to_string()));
+        }
+        while let Ok(cue) = cues.try_recv() {
+            assert!(matches!(cue, FlushWake::Arm), "an in-flight POST defers the next flush");
+        }
+        // Block scope, not drop(): clippy's await_holding_lock reasons
+        // about lexical scope, so an explicit drop before the await still
+        // trips it (rust-clippy#6446).
+        {
+            let pool = shared.pool.lock().expect("lock pool");
+            assert!(pool.flush_again);
+            let total = pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
+            assert_eq!(total, MAX_BATCH_RECORDS);
+        }
+        remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pooled_flush_posts_two_sessions_in_one_body_and_acks_each_cursor() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind pooled ack endpoint");
+        let address = listener.local_addr().expect("read pooled ack endpoint address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept pooled POST");
+            let mut buffer = Vec::new();
+            let body = loop {
+                let mut chunk = [0_u8; 4096];
+                let read = tokio::io::AsyncReadExt::read(&mut stream, &mut chunk)
+                    .await
+                    .expect("read pooled POST");
+                assert!(read > 0, "connection closed before one full POST");
+                buffer.extend_from_slice(&chunk[..read]);
+                if let Some(body) = http_request_body(&buffer) {
+                    break body;
+                }
+            };
+            let ack = json!({
+                "cursors": {
+                    "gen_a": {"generation": "gen_a", "revision": "2"},
+                    "gen_b": {"generation": "gen_b", "revision": "3"},
+                },
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{ack}",
+                ack.len()
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write pooled ack");
+            let _ = tokio::io::AsyncWriteExt::shutdown(&mut stream).await;
+            body
+        });
+
+        let (root, path) = cursor_test_path("pooled").await;
+        let (shared, _cues) = test_shared(format!("http://{address}"), path);
+        let gen_a = Some(String::from("gen_a"));
+        let gen_b = Some(String::from("gen_b"));
+        enqueue_pending(&shared, "alpha", "alpha", &gen_a, record("gen_a", "1"));
+        enqueue_pending(&shared, "alpha", "alpha", &gen_a, record("gen_a", "2"));
+        enqueue_pending(&shared, "beta", "beta", &gen_b, record("gen_b", "3"));
+        let mut armed = false;
+        let mut timer = Box::pin(tokio::time::sleep(Duration::from_secs(60)));
+        assert!(flush_cycle(&shared, None, &mut armed, &mut timer).await);
+
+        let body = server.await.expect("pooled ack server");
+        let posted = serde_json::from_slice::<Value>(&body).expect("posted JSON body");
+        let sessions = posted["sessions"].as_array().expect("sessions array");
+        assert_eq!(sessions.len(), 2, "two sessions must share one POST");
+        assert_eq!(sessions[0]["sessionName"], "alpha");
+        assert_eq!(sessions[0]["sessionId"], "gen_a");
+        assert_eq!(sessions[0]["records"].as_array().map(|records| records.len()), Some(2));
+        assert_eq!(sessions[1]["sessionName"], "beta");
+        assert_eq!(sessions[1]["records"].as_array().map(|records| records.len()), Some(1));
+        let cursors = shared.cursors.lock().await;
+        assert_eq!(cursors.get("alpha"), Some(&cursor("gen_a", "2")));
+        assert_eq!(cursors.get("beta"), Some(&cursor("gen_b", "3")));
+        drop(cursors);
+        // Block scope, not drop(): see the await_holding_lock note above.
+        {
+            let pool = shared.pool.lock().expect("lock pool");
+            assert!(pool.pending.is_empty());
+            assert!(!pool.flushing);
+        }
+        remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn insecure_socket_root_mode_flags_only_existing_shared_directories() {
+        let root = std::env::temp_dir()
+            .join(format!("chatmux-relay-insecure-root-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        tokio::fs::create_dir_all(&root).await.expect("create insecure root");
+        tokio::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755))
+            .await
+            .expect("share insecure root");
+        let flagged = insecure_socket_root_mode(&root).await.map(|mode| mode & 0o777);
+        assert_eq!(flagged, Some(0o755));
+        // The warning path must not panic, and a repeat stays quiet.
+        warn_insecure_socket_root(&root).await;
+        warn_insecure_socket_root(&root).await;
+        tokio::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("protect root");
+        assert_eq!(insecure_socket_root_mode(&root).await, None);
+        assert_eq!(insecure_socket_root_mode(&root.join("missing")).await, None);
+        tokio::fs::remove_dir_all(&root).await.expect("remove insecure root fixture");
     }
 
     #[cfg(unix)]

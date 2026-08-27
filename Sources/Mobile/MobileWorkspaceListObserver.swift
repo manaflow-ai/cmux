@@ -238,9 +238,9 @@ final class MobileWorkspaceListObserver {
         symbols.reserveCapacity(groups.count)
         let controller = TerminalController.shared
         for group in groups {
-            let anchorCwd = currentDirectoryByWorkspaceID[
-                group.anchorWorkspaceId
-            ] ?? nil
+            let anchorCwd = group.liveAnchorWorkspaceId.flatMap {
+                currentDirectoryByWorkspaceID[$0]
+            }
             symbols[group.id] = controller.mobileWorkspaceGroupEffectiveIconSymbol(
                 group,
                 anchorCwd: anchorCwd,
@@ -489,7 +489,8 @@ final class MobileWorkspaceListObserver {
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
             hasher.combine(groupIconSymbols[group.id] ?? group.iconSymbol)
-            hasher.combine(group.anchorWorkspaceId)
+            hasher.combine(group.liveAnchorWorkspaceId)
+            hasher.combine(group.isEmpty)
         }
         for workspace in tabs {
             hasher.combine(workspace.id)

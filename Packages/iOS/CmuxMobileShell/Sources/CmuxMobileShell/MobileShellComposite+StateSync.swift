@@ -411,7 +411,8 @@ extension MobileShellComposite {
                 isCollapsed: record.isCollapsed,
                 isPinned: record.isPinned,
                 iconSymbol: record.iconSymbol,
-                anchorWorkspaceID: record.anchorWorkspaceID
+                anchorWorkspaceID: record.anchorWorkspaceID,
+                isEmpty: record.isEmpty
             )
         }
         applyRemoteWorkspaceList(

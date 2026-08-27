@@ -76,6 +76,17 @@ extension CMUXCLI {
         struct HookEvent {
             let agentEvent: String
             let cmuxSubcommand: String
+            let matcher: String?
+
+            init(
+                agentEvent: String,
+                cmuxSubcommand: String,
+                matcher: String? = nil
+            ) {
+                self.agentEvent = agentEvent
+                self.cmuxSubcommand = cmuxSubcommand
+                self.matcher = matcher
+            }
         }
 
         enum PostInstallAction {
@@ -149,7 +160,7 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse, shellObserved, shellDone, shellFailed, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -161,7 +172,8 @@ extension CMUXCLI {
         "agent-response": .stop,
         "approval-response": .approvalResponse,
         "shell-exec": .promptSubmit,
-        "shell-done": .noop,
+        "shell-done": .shellDone,
+        "shell-failed": .shellFailed,
         "session-end": .sessionEnd,
         "session-finalize": .sessionFinalize,
     ]

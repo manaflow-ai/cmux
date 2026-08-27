@@ -148,13 +148,14 @@ final class MobileStateSyncHost {
                         isPinned: group.isPinned,
                         iconSymbol: controller.mobileWorkspaceGroupEffectiveIconSymbol(
                             group,
-                            anchorCwd: currentDirectoryByWorkspaceID[
-                                group.anchorWorkspaceId
-                            ] ?? nil,
+                            anchorCwd: group.liveAnchorWorkspaceId.flatMap {
+                                currentDirectoryByWorkspaceID[$0]
+                            },
                             configStore: configStore
                         ),
-                        anchorWorkspaceID: group.anchorWorkspaceId.uuidString,
-                        sortIndex: groupRows.count
+                        anchorWorkspaceID: group.liveAnchorWorkspaceId?.uuidString,
+                        sortIndex: groupRows.count,
+                        isEmpty: group.isEmpty
                     )
                 )
             }

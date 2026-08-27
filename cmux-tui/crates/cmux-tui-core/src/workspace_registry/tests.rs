@@ -1179,6 +1179,7 @@ fn terminal(id: &str, workspace_key: &str) -> RegistryTerminal {
         lifecycle: TerminalLifecycle::Launching,
         launch_spec: json!({"command":["/bin/zsh"],"cwd":"/tmp","rows":24,"cols":80}),
         exit: None,
+        on_exit: TerminalOnExit::Close,
     }
 }
 
@@ -3528,6 +3529,154 @@ fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
 }
 
 #[test]
+fn terminal_on_exit_policy_round_trips_and_is_fixed_at_reservation() {
+    let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+    seed_workspace(&mut registry, "one");
+    let mut keep = terminal(TERMINAL_ONE, "one");
+    keep.on_exit = TerminalOnExit::Keep;
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("reserve-keep", "browser").unwrap(),
+            &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(0),
+            "terminal-reserved",
+            &keep,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().on_exit,
+        TerminalOnExit::Keep
+    );
+    assert_eq!(registry.terminal_snapshot().unwrap().terminals[0].on_exit, TerminalOnExit::Keep);
+
+    let mut repolicied = keep.clone();
+    repolicied.lifecycle = TerminalLifecycle::Adopting;
+    repolicied.incarnation = Some(INCARNATION_ONE.into());
+    repolicied.on_exit = TerminalOnExit::Close;
+    let error = registry
+        .commit_terminal(
+            &WorkspaceMutation::new("adopt-repolicied", "daemon").unwrap(),
+            &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(1),
+            "terminal-adopting",
+            &repolicied,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("on-exit policy is fixed at reservation"));
+
+    let mut adopting = keep;
+    adopting.lifecycle = TerminalLifecycle::Adopting;
+    adopting.incarnation = Some(INCARNATION_ONE.into());
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("adopt-keep", "daemon").unwrap(),
+            &json!({"op":"adopt-terminal","terminal_id":TERMINAL_ONE}),
+            None,
+            Some(1),
+            "terminal-adopting",
+            &adopting,
+            &json!({"terminal_id":TERMINAL_ONE}),
+        )
+        .unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().on_exit,
+        TerminalOnExit::Keep
+    );
+}
+
+/// Registries created before the exit-policy column existed gain it on open;
+/// every pre-existing terminal keeps today's close-on-exit behavior.
+#[test]
+fn registries_created_before_on_exit_gain_the_column_with_close_default() {
+    let root = temp_root("on-exit-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+        let mut keep = terminal(TERMINAL_ONE, "one");
+        keep.on_exit = TerminalOnExit::Keep;
+        registry
+            .commit_terminal(
+                &WorkspaceMutation::new("reserve-keep", "browser").unwrap(),
+                &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
+                None,
+                Some(0),
+                "terminal-reserved",
+                &keep,
+                &json!({"terminal_id":TERMINAL_ONE}),
+            )
+            .unwrap();
+    }
+
+    // Recreate the pre-policy table shape: same rows, no on_exit column.
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP INDEX IF EXISTS terminal_incarnation;
+             DROP INDEX IF EXISTS live_terminals_by_workspace;
+             CREATE TABLE terminal_hosts_pre_on_exit (
+               terminal_id TEXT PRIMARY KEY NOT NULL,
+               workspace_key TEXT NOT NULL,
+               incarnation TEXT,
+               lifecycle TEXT NOT NULL CHECK(
+                 lifecycle IN ('launching','adopting','running','exited','tombstoned')
+               ),
+               launch_spec_json TEXT NOT NULL,
+               exit_json TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER
+             );
+             INSERT INTO terminal_hosts_pre_on_exit(
+               terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+               exit_json, created_revision, updated_revision, deleted_revision
+             )
+             SELECT terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+                    exit_json, created_revision, updated_revision, deleted_revision
+             FROM terminal_hosts;
+             DROP TABLE terminal_hosts;
+             ALTER TABLE terminal_hosts_pre_on_exit RENAME TO terminal_hosts;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().on_exit,
+        TerminalOnExit::Close
+    );
+
+    // The migrated column stores and reloads a fresh keep reservation.
+    let mut keep = terminal(TERMINAL_TWO, "one");
+    keep.on_exit = TerminalOnExit::Keep;
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new("reserve-keep-two", "browser").unwrap(),
+            &json!({"op":"reserve-terminal","terminal_id":TERMINAL_TWO}),
+            None,
+            Some(1),
+            "terminal-reserved",
+            &keep,
+            &json!({"terminal_id":TERMINAL_TWO}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        registry.terminal_record(TERMINAL_TWO).unwrap().unwrap().on_exit,
+        TerminalOnExit::Keep
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -4934,6 +5083,197 @@ fn terminal_output_survives_immutable_segment_round_trip() {
     drop(reader);
     drop(registry);
     fs::remove_dir_all(root).unwrap();
+}
+
+fn append_terminal_output_for_test(
+    registry: &mut WorkspaceRegistry,
+    terminal_id: &TerminalPublicId,
+    generation: &str,
+    records: &[&[u8]],
+) {
+    let terminal_id = Arc::new(terminal_id.clone());
+    let generation: Arc<str> = generation.into();
+    let events = records
+        .iter()
+        .enumerate()
+        .map(|(index, bytes)| crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+            terminal_id: terminal_id.clone(),
+            generation: generation.clone(),
+            occurred_at_ms: u64::try_from(index).unwrap() + 1,
+            bytes: bytes.to_vec(),
+        })
+        .collect::<Vec<_>>();
+    registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
+}
+
+fn vt_replay_blob_for_test(
+    terminal_id: &TerminalPublicId,
+    cols: u16,
+    rows: u16,
+    replay: &[u8],
+) -> JournalContentBlob {
+    use base64::Engine as _;
+    use std::io::Write as _;
+    let value = json!({
+        "format":"cmux.vt-replay.v1",
+        "cols":cols,
+        "rows":rows,
+        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(replay),
+    });
+    let uncompressed = serde_json::to_vec(&value).unwrap();
+    let digest = Sha256::digest(&uncompressed);
+    let digest_hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let mut encoder =
+        flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+    encoder.write_all(&uncompressed).unwrap();
+    let compressed = encoder.finish().unwrap();
+    JournalContentBlob::verified(
+        JournalContentRef {
+            content_id: format!("jcontent_{digest_hex}"),
+            terminal_id: terminal_id.as_str().into(),
+            format: "cmux.vt-replay.v1".into(),
+            codec: "gzip".into(),
+            sha256: digest_hex,
+            uncompressed_bytes: u64::try_from(uncompressed.len()).unwrap(),
+            cols,
+            rows,
+        },
+        compressed,
+    )
+    .unwrap()
+}
+
+#[test]
+fn terminal_output_window_resumes_exactly_and_honors_record_boundaries() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-output-window").unwrap();
+    commit_terminal_topology(&mut registry, "terminal-output-window-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let first: &[u8] = b"first \x1b[31mred\x1b[0m\r\n";
+    let second: &[u8] = b"second plain\r\n";
+    let third: &[u8] = b"third \x1b[1mbold\x1b[0m\r\n";
+    append_terminal_output_for_test(
+        &mut registry,
+        &terminal_id,
+        INCARNATION_ONE,
+        &[first, second, third],
+    );
+    let total = u64::try_from(first.len() + second.len() + third.len()).unwrap();
+    assert_eq!(
+        registry.terminal_stream_latest(terminal_id.as_str()).unwrap(),
+        Some((INCARNATION_ONE.to_string(), total))
+    );
+
+    // The full window is contiguous and record-aligned.
+    let window = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, 0, 1 << 20)
+        .unwrap();
+    assert!(!window.truncated);
+    let offsets = window
+        .chunks
+        .iter()
+        .map(|chunk| (chunk.stream_offset_start, chunk.stream_offset_end))
+        .collect::<Vec<_>>();
+    let first_end = u64::try_from(first.len()).unwrap();
+    let second_end = first_end + u64::try_from(second.len()).unwrap();
+    assert_eq!(offsets, vec![(0, first_end), (first_end, second_end), (second_end, total)]);
+    assert_eq!(window.chunks[0].bytes.as_ref(), first);
+
+    // A cursor at a record boundary resumes exactly after it.
+    let resumed = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, first_end, 1 << 20)
+        .unwrap();
+    assert_eq!(resumed.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
+
+    // A mid-record cursor never splits the record: the window starts at the
+    // boundary of the record containing the cursor.
+    let mid = registry
+        .terminal_output_records_after(
+            terminal_id.as_str(),
+            INCARNATION_ONE,
+            first_end + 1,
+            1 << 20,
+        )
+        .unwrap();
+    assert_eq!(mid.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
+
+    // The byte budget truncates at record boundaries and reports truncation.
+    let budgeted = registry
+        .terminal_output_records_after(
+            terminal_id.as_str(),
+            INCARNATION_ONE,
+            0,
+            u64::try_from(first.len()).unwrap(),
+        )
+        .unwrap();
+    assert!(budgeted.truncated);
+    assert_eq!(budgeted.chunks.len(), 1);
+    assert_eq!(budgeted.chunks[0].stream_offset_end, first_end);
+
+    // Even a budget below one record returns the first record whole.
+    let tiny = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, 0, 1)
+        .unwrap();
+    assert!(tiny.truncated);
+    assert_eq!(tiny.chunks.len(), 1);
+    assert_eq!(tiny.chunks[0].bytes.as_ref(), first);
+
+    // A cursor at the stream head returns an empty, non-truncated window,
+    // and a foreign generation owns no records.
+    let drained = registry
+        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, total, 1 << 20)
+        .unwrap();
+    assert!(drained.chunks.is_empty() && !drained.truncated);
+    let foreign = registry
+        .terminal_output_records_after(
+            terminal_id.as_str(),
+            "20000000000040008000000000000001",
+            0,
+            1 << 20,
+        )
+        .unwrap();
+    assert!(foreign.chunks.is_empty() && !foreign.truncated);
+}
+
+#[test]
+fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-exit-snapshot").unwrap();
+    commit_terminal_topology(&mut registry, "terminal-exit-snapshot-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let output: &[u8] = b"snapshot \x1b[32mready\x1b[0m\r\n";
+    append_terminal_output_for_test(&mut registry, &terminal_id, INCARNATION_ONE, &[output]);
+    let replay: &[u8] = b"snapshot \x1b[32mready\x1b[0m\r\n";
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, replay);
+
+    assert!(
+        registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+    );
+    // The exit latch is first-writer-wins; a replayed store is a no-op.
+    assert!(
+        !registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+    );
+
+    let snapshot = registry
+        .terminal_exit_snapshot(terminal_id.as_str())
+        .unwrap()
+        .expect("stored snapshot decodes");
+    assert_eq!(snapshot.generation, INCARNATION_ONE);
+    assert_eq!(snapshot.covered_through, u64::try_from(output.len()).unwrap());
+    assert_eq!((snapshot.cols, snapshot.rows), (100, 30));
+    assert_eq!(snapshot.replay_bytes.as_slice(), replay);
+
+    // A generation that journaled nothing has nothing to cover: no row.
+    let other = terminal_resource(TERMINAL_TWO);
+    let other_blob = vt_replay_blob_for_test(&other, 80, 24, b"idle");
+    assert!(
+        !registry
+            .put_terminal_exit_snapshot(
+                other.as_str(),
+                "30000000000040008000000000000002",
+                &other_blob
+            )
+            .unwrap()
+    );
+    assert!(registry.terminal_exit_snapshot(other.as_str()).unwrap().is_none());
 }
 
 fn receipt_test_producer() -> JournalProducerManifest {

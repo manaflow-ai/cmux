@@ -1,12 +1,13 @@
 import {
   jsonResponse,
   notFoundVm,
+  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { openAttachEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
+import { openAttachEndpoint, openVmCmuxRemote, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 
 export async function POST(
@@ -37,12 +38,55 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
+      // Transport selection: "cmux-remote" is the cmux-tui remote daemon — the only
+      // transport Blaxel machines serve. Clients that do not ask keep the legacy
+      // WebSocket PTY/RPC endpoint on providers that still run cmuxd-remote; on a
+      // cmux-tui-only machine that request answers 409 vm_attach_transport_unsupported.
+      const transport = optionalString(body.transport);
+      if (transport === "cmux-remote") {
+        let deviceFingerprint: string | undefined;
+        try {
+          deviceFingerprint = optionalClientIdentifier(body.deviceFingerprint ?? body.device_fingerprint, "deviceFingerprint");
+        } catch (err) {
+          return jsonResponse({
+            error: "invalid_request",
+            message: err instanceof Error ? err.message : "Invalid Cloud VM attach request.",
+          }, 400);
+        }
+        const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
+        setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
+        try {
+          const endpoint = await runVmWorkflow(openVmCmuxRemote({
+            userId: user.id,
+            billingTeamId: account.entitlements.billingTeamId,
+            teamIds: user.teamIds,
+            providerVmId: id,
+            deviceFingerprint,
+            clientCapabilities,
+            callerPlanId: account.entitlements.planId,
+          }));
+          return jsonResponse(endpoint);
+        } catch (err) {
+          if (isVmNotFoundError(err)) return notFoundVm(id);
+          if (isVmFreeAccessExpiredError(err)) {
+            return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+          }
+          throw err;
+        }
+      }
+      if (transport && transport !== "websocket") {
+        return jsonResponse({
+          error: "invalid_request",
+          message: `Unknown attach transport "${transport}". Use "websocket" or "cmux-remote".`,
+        }, 400);
+      }
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
       try {
         const endpoint = await runVmWorkflow(openAttachEndpoint({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
           sessionTitle,
@@ -51,11 +95,24 @@ export async function POST(
         setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
         return jsonResponse(endpoint);
       } catch (err) {
+        if (isVmFreeAccessExpiredError(err)) {
+          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+        }
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
       }
     },
   );
+}
+
+/** Client transport capabilities: short lowercase tokens, bounded, anything else dropped. */
+function capabilityList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const tokens = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => /^[a-z0-9-]{1,64}$/.test(entry));
+  return tokens.length ? Array.from(new Set(tokens)).slice(0, 16) : undefined;
 }
 
 function optionalString(value: unknown): string | null {
