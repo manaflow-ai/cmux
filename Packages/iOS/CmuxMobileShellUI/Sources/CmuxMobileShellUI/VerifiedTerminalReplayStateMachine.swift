@@ -268,6 +268,16 @@ final class VerifiedTerminalReplayStateMachine {
     /// a full frame verifies against the live surface.
     func resetForCompatibilityFallback() {
         guard phase != .invalidated else { return }
+        if let activeTransaction {
+            // The canceled transaction may still complete after the
+            // compatibility bytes are applied. Retain its revision as a
+            // presentation floor so that delayed full frame cannot become the
+            // first post-fallback baseline.
+            viewportRenderRevisionFloors[activeTransaction.renderEpoch] = max(
+                viewportRenderRevisionFloors[activeTransaction.renderEpoch] ?? 0,
+                activeTransaction.renderRevision
+            )
+        }
         nextTransactionID &+= 1
         activeTransaction = nil
         phase = .recovering

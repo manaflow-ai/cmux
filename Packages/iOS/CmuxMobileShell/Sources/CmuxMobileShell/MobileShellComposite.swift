@@ -13309,6 +13309,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         activeScreen: MobileTerminalRenderGridFrame.Screen?
     ) {
+        // Compatibility bytes carry no render-grid rows or history base. An
+        // unknown screen must therefore invalidate every render-grid baseline
+        // and history-chain assumption even though the last known screen stays
+        // in place for hybrid raw-byte suppression.
+        terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
+        terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         guard let activeScreen else { return }
         if terminalActiveScreenBySurfaceID[surfaceID] != activeScreen {
             terminalActiveScreenBySurfaceID[surfaceID] = activeScreen
@@ -13318,11 +13324,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 count: activeScreen == .alternate ? 1 : 0
             )
         }
-        // Neither fallback screen is a verified render-grid baseline. A
-        // primary fallback explicitly clears an alternate marker; an alternate
-        // fallback must also clear it so the next full grid remains the only
-        // operation that can authorize alternate deltas.
-        terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
     }
 
     @discardableResult
