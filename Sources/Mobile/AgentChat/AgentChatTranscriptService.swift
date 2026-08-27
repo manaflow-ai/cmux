@@ -714,8 +714,8 @@ final class AgentChatTranscriptService {
         // so tear down synchronously when already on the main actor and on the
         // next main-queue turn otherwise; the streamer and driver are retained
         // by the block until then.
-        nonisolated(unsafe) let proseWakeDriver = proseWakeDriver
-        nonisolated(unsafe) let proseStreamer = proseStreamer
+        let proseWakeDriver = proseWakeDriver
+        let proseStreamer = proseStreamer
         if Thread.isMainThread {
             MainActor.assumeIsolated {
                 proseWakeDriver?.stop()
