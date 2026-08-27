@@ -58,7 +58,11 @@ impl IgnoredResponses {
     }
 
     fn remove(&mut self, id: &RequestId) -> bool {
-        self.ids.remove(id)
+        let removed = self.ids.remove(id);
+        if removed {
+            self.order.retain(|queued| queued != id);
+        }
+        removed
     }
 }
 
@@ -771,5 +775,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn removing_an_ignored_response_does_not_evict_live_ids_early() {
+        let mut ignored = IgnoredResponses::default();
+        let live = RequestId::from_u128(1);
+        let consumed = RequestId::from_u128(2);
+        ignored.insert(live);
+        ignored.insert(consumed);
+        assert!(ignored.remove(&consumed));
+
+        for id in 3..(3 + (MAX_IGNORED_RESPONSES as u128 - 1)) {
+            ignored.insert(RequestId::from_u128(id));
+        }
+
+        assert!(ignored.ids.contains(&live));
+        assert!(ignored.remove(&live));
     }
 }
