@@ -297,6 +297,54 @@ import CmuxGit
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
 
+    @Test func symlinkedCreationWatchKeepsLogicalParentWatcher() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let resolvedDirectory = fixture.root.appendingPathComponent(
+            "resolved-config",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: resolvedDirectory,
+            withIntermediateDirectories: true
+        )
+        let logicalLink = fixture.root.appendingPathComponent("logical-link")
+        try FileManager.default.createSymbolicLink(
+            atPath: logicalLink.path,
+            withDestinationPath: resolvedDirectory.path
+        )
+        let targetPath = logicalLink.appendingPathComponent("future.inc").path
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "logical-symlink",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
+            creationWatchPaths: [targetPath]
+        ))
+        var logIterator = logEvents.makeAsyncIterator()
+        _ = try #require(await logIterator.next())
+
+        let logicalParent = fixture.root.path
+        #expect(
+            service.workspaceGitMetadataCreationWatchersByAncestor[logicalParent] != nil
+        )
+        #expect(service.workspaceGitMetadataCreationWatchersByAncestor.count == 2)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func configCreatedBeforeWatcherRegistrationForcesDescriptorRefresh() async throws {
         let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
