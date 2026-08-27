@@ -127,10 +127,14 @@ struct TerminalKeyboardFullHeightPinTests {
             }
         }
 
-        // Initial handshake: a real render exists and its bottom edge sits on
-        // the dock top.
+        // Initial handshake: a real render exists and its bottom edge sits at
+        // the designed seat — `dockSeamPadding` above the dock top while the
+        // chrome is visible, so content never presses into the toolbar.
         #expect(await pump { !delegate.reports.isEmpty }, "no natural-grid report after attach")
-        #expect(await pump { gap() <= 1 }, "render bottom never attached to the dock top; gap=\(gap())")
+        #expect(
+            await pump { abs(gap() - view.hostedDockSeamPadding) <= 1 },
+            "render bottom never attached to its padded dock seat; gap=\(gap())"
+        )
 
         // Hand the seat to the plain bottom constraint and ride a keyboard.
         view.setChromeHidden(true)
