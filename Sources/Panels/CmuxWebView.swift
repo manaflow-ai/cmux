@@ -47,6 +47,7 @@ final class CmuxWebView: WKWebView {
 
     @MainActor
     func failTrustedInternalNavigation() {
+        trustedInternalNavigationURLs.removeAll()
         pendingTrustedInternalDocumentURL = nil
     }
 
@@ -67,6 +68,7 @@ final class CmuxWebView: WKWebView {
     @MainActor
     func clearTrustedInternalDocumentIfNeeded(for url: URL) {
         guard !isTrustedInternalDocument(url) else { return }
+        trustedInternalNavigationURLs.removeAll()
         pendingTrustedInternalDocumentURL = nil
         trustedInternalDocumentURL = nil
     }
