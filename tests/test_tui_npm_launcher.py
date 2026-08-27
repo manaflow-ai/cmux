@@ -194,6 +194,34 @@ def test_launcher_rejects_negative_tar_size_without_hanging(tmp_path: Path) -> N
     assert "could not obtain the native binary" in result.stderr
 
 
+def test_launcher_refetches_a_tampered_cached_binary(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry()
+    try:
+        first = run_launcher(launcher, cache, registry, "--version")
+        arch = {
+            "aarch64": "arm64",
+            "arm64": "arm64",
+            "amd64": "x64",
+            "x86_64": "x64",
+        }[platform.machine().lower()]
+        binary = cache / f"{sys.platform}-{arch}/v/1.2.3/bin/cmux-tui"
+        binary.write_text("#!/bin/sh\nprintf '%s\\n' 'tampered binary'\n")
+        binary.chmod(0o755)
+        second = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert second.stdout == "fake cmux-tui 1.2.3\n"
+    assert RegistryHandler.metadata_requests == 2
+    assert RegistryHandler.tarball_requests == 2
+
+
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -226,6 +254,41 @@ def test_launcher_reads_registry_token_from_npmrc(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert RegistryHandler.authorization_headers
     assert all(value == "Bearer fixture-token" for value in RegistryHandler.authorization_headers)
+
+
+def test_launcher_scopes_registry_token_to_npmrc_path(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry()
+    npmrc = tmp_path / ".npmrc"
+    npmrc.write_text(f"//127.0.0.1:{server.server_port}/private/:_authToken=fixture-token\n")
+    try:
+        result = run_launcher(
+            launcher,
+            cache,
+            registry,
+            env_extra={"npm_config_userconfig": str(npmrc)},
+            timeout_seconds=3,
+        )
+        assert result.returncode == 0, result.stderr
+        assert RegistryHandler.authorization_headers
+        assert all(value is None for value in RegistryHandler.authorization_headers)
+
+        RegistryHandler.authorization_headers = []
+        scoped = run_launcher(
+            launcher,
+            cache / "private",
+            f"{registry}/private",
+            env_extra={"npm_config_userconfig": str(npmrc)},
+            timeout_seconds=3,
+        )
+        assert scoped.returncode == 0, scoped.stderr
+        assert RegistryHandler.authorization_headers == ["Bearer fixture-token", None]
+    finally:
+        server.shutdown()
+        thread.join()
 
 
 def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> None:
@@ -320,8 +383,10 @@ def main() -> None:
         root = Path(directory)
         test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
+        test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
+        test_launcher_scopes_registry_token_to_npmrc_path(root / "npmrc-scope")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
         test_managed_launcher_honors_development_binary_override(root / "override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
