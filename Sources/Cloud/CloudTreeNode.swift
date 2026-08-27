@@ -215,8 +215,8 @@ struct CloudTreeLocalWorkspace: Equatable {
 /// Pure assembly of outline nodes from the fleet rows and the catalog snapshot.
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
 /// cloud machine (Terminals pool; Displays pool; Workspaces → workspace →
-/// pointer rows; Ports; Browsers); a machine without a connected link gets a
-/// placeholder child instead of the pools.
+/// pointer rows; Browsers); ports stay out of the tree for now, and a machine
+/// without a connected link gets a placeholder child instead of the pools.
 enum CloudTreeNodeBuilder {
     /// Whether the tree shows this Mac's own terminals and browsers. On by default:
     /// every machine — this Mac included — shows the same shape. The gate stays so a
@@ -433,14 +433,9 @@ enum CloudTreeNodeBuilder {
                 ))
             }
         }
-        let ports = resources.filter { $0.kind == .browser && $0.port != nil }.sorted { ($0.port ?? 0) < ($1.port ?? 0) }
-        if !ports.isEmpty {
-            children.append(CloudTreeNode(
-                id: nodeID(portsGroup: machine),
-                kind: .portsGroup(machine: machine),
-                children: ports.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .port($0)) }
-            ))
-        }
+        // Ports are out of the tree for now (still in the catalog: the CLI and
+        // `cmux vm open <id>:port/<n>` keep working); the rows return with the
+        // pool rework if they earn their place back.
         let browsers = resources.filter { $0.kind == .browser && $0.port == nil }
         if !browsers.isEmpty {
             children.append(CloudTreeNode(

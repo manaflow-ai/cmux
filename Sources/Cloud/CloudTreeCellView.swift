@@ -11,6 +11,8 @@ final class CloudTreeCellView: NSTableCellView {
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsTopConstraint: NSLayoutConstraint?
+    private var buttonsCenterConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
@@ -40,9 +42,9 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(node: CloudTreeNode, machineActions: MachineRowActions) {
+    func configure(node: CloudTreeNode, machineActions: MachineRowActions, style: CloudTreeStyle = CloudTreeStyleStore.current) {
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind)
+            CloudTreeRowContentView(kind: node.kind, style: style)
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         if case .machine(let machine, _) = node.kind {
@@ -50,6 +52,11 @@ final class CloudTreeCellView: NSTableCellView {
             buttons.rootView = AnyView(CloudTreeMachineRowButtons(machine: machine, actions: machineActions))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
+            // Two-line machine cards pin the buttons to the name line; single-line
+            // rows center them.
+            buttonsTopConstraint?.constant = style.machineVerticalPadding
+            buttonsTopConstraint?.isActive = style.machineRowLayout == .twoLine
+            buttonsCenterConstraint?.isActive = style.machineRowLayout == .singleLine
             toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
         } else if case .localMachine(let row) = node.kind {
             buttonsHost?.isHidden = true
@@ -65,12 +72,17 @@ final class CloudTreeCellView: NSTableCellView {
         let host = NSHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
+        // Buttons sit on the name line (two-line machine cards), like the chevron
+        // and the status dot; single-line styles activate the center constraint.
+        let top = host.topAnchor.constraint(equalTo: topAnchor, constant: CloudTreeStyleStore.current.machineVerticalPadding)
+        let center = host.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
             host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
-            // Buttons sit on the name line, like the chevron and the status dot.
-            host.topAnchor.constraint(equalTo: topAnchor, constant: CloudTreeRowGrid.machineVerticalPadding),
+            top,
             displayHost.trailingAnchor.constraint(lessThanOrEqualTo: host.leadingAnchor, constant: -CloudTreeRowGrid.trailingGap),
         ])
+        buttonsTopConstraint = top
+        buttonsCenterConstraint = center
         buttonsHost = host
         return host
     }

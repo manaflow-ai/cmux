@@ -17,6 +17,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
+    /// The visual preset the rows render in (the debug gallery pins one per
+    /// column; the live panel passes the stored choice).
+    var style: CloudTreeStyle = CloudTreeStyleStore.current
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
@@ -45,6 +48,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(machines: machines, snapshot: snapshot, localWorkspaces: localWorkspaces))
     }
 
@@ -55,6 +59,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
+        private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
@@ -89,6 +94,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// selection; the structure changed (rows added/removed/reordered/re-kinded) →
         /// `reloadData` plus expansion/selection restore. During a drag everything is
         /// deferred until the session ends.
+        /// Switch the visual preset: every row's height and content change, so
+        /// this is always a full reload (cheap — the tree is small).
+        func apply(style: CloudTreeStyle) {
+            guard style != self.style else { return }
+            self.style = style
+            guard let outlineView else { return }
+            outlineView.treeStyle = style
+            withProgrammaticUpdate {
+                outlineView.reloadData()
+                restoreExpansion(in: outlineView)
+                restoreSelection(in: outlineView)
+            }
+        }
+
         func apply(nodes: [CloudTreeNode]) {
             if isDragging {
                 deferredNodes = nodes
@@ -181,7 +200,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions)
+            cell.configure(node: node, machineActions: machineActions, style: style)
             return cell
         }
 
@@ -190,15 +209,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.rowHeight) }
+            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
             switch node.kind {
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineRowHeight(hasStats: hasStats))
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats))
             case .localMachine:
-                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineRowHeight(hasStats: false))
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
             case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
-                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.rowHeight)
+                return GlobalFontMagnification.scaledSize(style.rowHeight)
             }
         }
 

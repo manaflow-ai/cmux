@@ -403,9 +403,8 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1",
             "machine:vivid-newt/ws/ws_empty",
-            "machine:vivid-newt/ports",
-            "resource:vivid-newt/browser/port:3000",
         ])
+        XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -441,7 +440,6 @@ final class MachinesPanelModelTests: XCTestCase {
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
             "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
-            "vivid-newt/browser/port:3000",
         ], "pool rows, then one drag resource per pointer row")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
@@ -634,6 +632,39 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertFalse(reloaded.isExpanded(machineNode), "machine collapse persists")
         XCTAssertFalse(reloaded.isExpanded(localNode), "This Mac's collapse persists too")
         XCTAssertTrue(reloaded.isExpanded(group), "nested collapses are panel-lifetime only")
+    }
+
+    func testMachineSubtitleNeverShowsTheFreeAccessCountdown() {
+        let active = MachineSnapshot(
+            id: "warm-owl", provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true,
+            activity: .ready, createdAt: nil, label: nil, freeAccess: .active(daysLeft: 3)
+        )
+        XCTAssertFalse(CloudTreeMachineRowContent.subtitle(active).contains("3"), "expiry is plan chrome, not a machine fact")
+        XCTAssertNil(CloudTreeMachineRowContent.inlineFact(active))
+
+        let expired = MachineSnapshot(
+            id: "warm-owl", provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true,
+            activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
+        )
+        XCTAssertTrue(CloudTreeMachineRowContent.subtitle(expired).contains("Locked"), "a dead row still explains itself")
+        XCTAssertNotNil(CloudTreeMachineRowContent.inlineFact(expired))
+    }
+
+    func testCloudTreeStylePresetsAreDistinctAndResolvable() {
+        let presets = CloudTreeStyle.presets
+        XCTAssertEqual(presets.count, 5)
+        XCTAssertEqual(Set(presets.map(\.id)).count, presets.count, "preset ids are unique")
+        for preset in presets {
+            XCTAssertEqual(CloudTreeStyle.preset(id: preset.id), preset)
+            XCTAssertGreaterThan(preset.rowHeight, 0)
+            XCTAssertGreaterThanOrEqual(preset.machineRowHeight(hasStats: true), preset.machineRowHeight(hasStats: false))
+            XCTAssertGreaterThan(preset.machineRowHeight(hasStats: false), 0)
+        }
+        XCTAssertEqual(CloudTreeStyle.defaultStyle, .compact, "the default is the compact variant")
+        XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
+        // Two-line cards grow with the stats line; single-line rows never do.
+        XCTAssertGreaterThan(CloudTreeStyle.classic.machineRowHeight(hasStats: true), CloudTreeStyle.classic.machineRowHeight(hasStats: false))
+        XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
     func testDropDestinationMapsEverySplitSideAndInserts() {
