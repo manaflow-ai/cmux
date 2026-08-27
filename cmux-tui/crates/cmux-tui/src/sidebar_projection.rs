@@ -529,7 +529,12 @@ mod tests {
         assert!(rows.is_empty());
     }
 
-    fn workspace(id: WorkspaceId, name: &str, pane: PaneId, surfaces: [SurfaceId; 2]) -> WorkspaceView {
+    fn workspace(
+        id: WorkspaceId,
+        name: &str,
+        pane: PaneId,
+        surfaces: [SurfaceId; 2],
+    ) -> WorkspaceView {
         WorkspaceView {
             id,
             resource_id: None,
@@ -643,7 +648,8 @@ mod tests {
                 updated_at_ms: 900,
             },
         ];
-        let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 1, &HashSet::new());
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 1, &HashSet::new());
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
     }

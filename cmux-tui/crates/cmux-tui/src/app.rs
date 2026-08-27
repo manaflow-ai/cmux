@@ -7998,7 +7998,11 @@ fn sidebar_layout_for(
 /// an absent machine provider drop leaves, empty splits collapse away.
 #[derive(Clone)]
 enum SidebarColumnNode {
-    Leaf { view_index: usize, kind: RailKind, priority: u16 },
+    Leaf {
+        view_index: usize,
+        kind: RailKind,
+        priority: u16,
+    },
     Split {
         id: String,
         dir: crate::config::SidebarSplitDir,
@@ -8068,9 +8072,8 @@ fn prune_sidebar_layout_node(
                 .iter()
                 .enumerate()
                 .filter_map(|(index, child)| {
-                    prune_sidebar_layout_node(child, views, hidden_views, machine_visible).map(
-                        |node| (split.weights.get(index).copied().unwrap_or(1).max(1), node),
-                    )
+                    prune_sidebar_layout_node(child, views, hidden_views, machine_visible)
+                        .map(|node| (split.weights.get(index).copied().unwrap_or(1).max(1), node))
                 })
                 .collect();
             match children.len() {
@@ -8119,15 +8122,12 @@ fn place_sidebar_column_node(
             let mut kept: Vec<&(u16, SidebarColumnNode)> = children.iter().collect();
             while kept.len() > 1 {
                 let dividers = divider_size.saturating_mul(kept.len().saturating_sub(1) as u16);
-                let needed =
-                    min_each.saturating_mul(kept.len() as u16).saturating_add(dividers);
+                let needed = min_each.saturating_mul(kept.len() as u16).saturating_add(dividers);
                 if total >= needed {
                     break;
                 }
-                let Some((drop_index, _)) = kept
-                    .iter()
-                    .enumerate()
-                    .min_by_key(|(_, (_, child))| child.priority())
+                let Some((drop_index, _)) =
+                    kept.iter().enumerate().min_by_key(|(_, (_, child))| child.priority())
                 else {
                     break;
                 };
@@ -8453,8 +8453,7 @@ fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u
     let configured_max = if column.rails.len() > 1 {
         column.max_width
     } else {
-        let view_index =
-            layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
+        let view_index = layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
         let view = config.sidebar.views.get(view_index)?;
         if config.sidebar.views_explicit {
             view.max_width
@@ -11011,17 +11010,21 @@ impl App {
                     Direction::Up
                         if candidate.y.saturating_add(candidate.height) <= rect.y
                             && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
-                    (
-                        rect.y - candidate.y.saturating_add(candidate.height),
-                        overlap(rect.x, rect.width, candidate.x, candidate.width),
-                    ),
+                    {
+                        (
+                            rect.y - candidate.y.saturating_add(candidate.height),
+                            overlap(rect.x, rect.width, candidate.x, candidate.width),
+                        )
+                    }
                     Direction::Down
                         if candidate.y >= rect.y.saturating_add(rect.height)
                             && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
-                    (
-                        candidate.y - rect.y.saturating_add(rect.height),
-                        overlap(rect.x, rect.width, candidate.x, candidate.width),
-                    ),
+                    {
+                        (
+                            candidate.y - rect.y.saturating_add(rect.height),
+                            overlap(rect.x, rect.width, candidate.x, candidate.width),
+                        )
+                    }
                     _ => return None,
                 };
                 Some((distance, std::cmp::Reverse(alignment), placement.kind))
@@ -19048,8 +19051,7 @@ impl App {
                     .unwrap_or_default();
                 let page = rail_page_size(self.sidebar_layout.workspace);
                 if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
-                    if next == current
-                        && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                    if next == current && self.continue_past_rail_boundary(RailKind::Workspace, key)
                     {
                         return Ok(RenderAction::Draw);
                     }
