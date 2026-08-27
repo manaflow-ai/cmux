@@ -21716,6 +21716,7 @@ impl App {
         // panes; otherwise typing would keep going to the plugin PTY after
         // the user clicked into a pane.
         let pointer_hit = self.hit_at(x, y);
+        let captured_tab_targets = self.sidebar_tab_targets();
         self.leave_workspace_sidebar();
         self.sidebar_focus_pending = false;
 
@@ -21751,9 +21752,10 @@ impl App {
                     self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
                 Hit::SidebarTab { surface, .. } => {
-                    let targets = self.sidebar_tab_targets();
-                    if let Some((index, target)) =
-                        targets.iter().enumerate().find(|(_, target)| target.surface == surface)
+                    if let Some((index, target)) = captured_tab_targets
+                        .iter()
+                        .enumerate()
+                        .find(|(_, target)| target.surface == surface)
                     {
                         self.tabs_rail_follow_selection = true;
                         self.tabs_rail_selection = index;
