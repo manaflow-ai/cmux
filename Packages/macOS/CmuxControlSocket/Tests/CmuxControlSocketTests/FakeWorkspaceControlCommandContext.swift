@@ -65,6 +65,12 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         feedJumpMatch && workstreamID == "known"
     }
 
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool {
+        feedJumpMatch && workstreamID == "known"
+    }
+
     nonisolated func controlResolveOnMain<T: Sendable>(
         _ body: @MainActor (any ControlCommandContext) -> T
     ) -> T {

@@ -44,6 +44,9 @@ extension ControlFeedContext {
     nonisolated func controlFeedResolvePossibleSurfaceAsync(
         workstreamID: String
     ) async -> Bool { false }
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool { false }
     @MainActor
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] { [] }
 }

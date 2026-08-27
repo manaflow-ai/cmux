@@ -357,6 +357,20 @@ struct WorkstreamStoreTests {
             requestId: "permission-1"
         ))
         #expect(store.items.last?.context?.lastUserMessage == "continue the migration")
+
+        let unknownSourceStore = WorkstreamStore(
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, source in
+                source == "grok" ? "canonical-grok" : rawValue
+            }
+        )
+        unknownSourceStore.ingest(WorkstreamEvent(
+            sessionId: "grok-session",
+            hookEventName: .userPromptSubmit,
+            source: "grok",
+            toolInputJSON: #"{"prompt":"raw source"}"#
+        ))
+        #expect(unknownSourceStore.items.first?.workstreamId == "canonical-grok")
     }
 }
 
