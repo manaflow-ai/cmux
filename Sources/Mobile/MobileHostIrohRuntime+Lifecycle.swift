@@ -557,6 +557,13 @@ extension MobileHostIrohRuntime {
             )
         }
         do {
+            try await pairedPeers.deactivate()
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh paired-peer allowlist deletion failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        do {
             try await brokerCredentials.deactivate()
         } catch {
             mobileHostIrohLog.error(

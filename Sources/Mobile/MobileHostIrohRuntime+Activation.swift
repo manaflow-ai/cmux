@@ -253,6 +253,7 @@ extension MobileHostIrohRuntime {
             broker: broker,
             configuration: configuration,
             pendingRevocations: pendingRevocations,
+            pairedPeerAllowlist: pairedPeers,
             protocolConfiguration: protocolConfiguration,
             handleTransport: { [weak self] session, isCurrent in
                 guard let self else {

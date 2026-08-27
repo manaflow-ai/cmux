@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -38,5 +39,72 @@ struct CmxIrohPairedPeerWireTests {
         let decoded = try codec.decodePrefix(frame)
         #expect(decoded.header.lane == .control)
         #expect(decoded.header.credential == nil)
+    }
+
+    /// End-to-end server admission of a credential-less control stream: the
+    /// authorizer sees credential nil bound to the TLS-proven identity, and
+    /// the ordinary admission barrier (accept frame, clientReady, serverReady)
+    /// still runs.
+    @Test
+    func serverAdmitsCredentiallessControlStreamThroughAuthorizer() async throws {
+        let peerID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let admittedPeer = CmxIrohAdmittedPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            endpointID: peerID,
+            identityGeneration: 7,
+            platform: .ios
+        )
+        let authorizer = CredentialRecordingAuthorizer(
+            authorization: .accepted(admittedPeer, onlineLease: nil)
+        )
+        let codec = try CmxIrohStreamHeaderCodec()
+        let header = try codec.encode(
+            CmxIrohStreamHeader(lane: .control, credential: nil)
+        )
+        let controlStream = CmxIrohBidirectionalStream(
+            receiveStream: TestIrohReceiveStream(
+                buffer: header + admissionFrame(status: 2)
+            ),
+            sendStream: TestIrohSendStream(
+                eventRecorder: nil,
+                eventName: "control.send"
+            )
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: peerID,
+            bidirectionalStreams: [controlStream]
+        )
+        let server = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: authorizer
+        )
+        let peer = try await server.admit()
+        #expect(peer == admittedPeer)
+        let observed = await authorizer.observedCredentials()
+        #expect(observed == [nil])
+    }
+}
+
+private actor CredentialRecordingAuthorizer: CmxIrohAdmissionAuthorizing {
+    private let authorization: CmxIrohAdmissionAuthorization
+    private var credentials: [CmxIrohAdmissionCredential?] = []
+
+    init(authorization: CmxIrohAdmissionAuthorization) {
+        self.authorization = authorization
+    }
+
+    func authorize(
+        credential: CmxIrohAdmissionCredential?,
+        authenticatedPeerID _: CmxIrohPeerIdentity
+    ) -> CmxIrohAdmissionAuthorization {
+        credentials.append(credential)
+        return authorization
+    }
+
+    func observedCredentials() -> [CmxIrohAdmissionCredential?] {
+        credentials
     }
 }

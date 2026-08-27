@@ -21,11 +21,19 @@ public struct CmxIrohOnlineAdmissionLease: Equatable, Sendable {
             initiator: CmxIrohEndpointExpectation,
             acceptor: CmxIrohEndpointExpectation
         )
+        /// A previously grant-verified pairing admitted from the Mac's local
+        /// allowlist with no in-band credential. Broker bindings are validated
+        /// exactly as for a live pair grant.
+        case pairedEndpoint(
+            initiator: CmxIrohGrantPeer,
+            acceptor: CmxIrohGrantPeer
+        )
 
         var initiatorBindingID: String {
             switch self {
             case let .pairGrant(_, initiator, _): initiator.bindingID
             case let .offlinePairing(initiator, _): initiator.bindingID
+            case let .pairedEndpoint(initiator, _): initiator.bindingID
             }
         }
 
@@ -33,6 +41,7 @@ public struct CmxIrohOnlineAdmissionLease: Equatable, Sendable {
             switch self {
             case let .pairGrant(_, _, acceptor): acceptor.bindingID
             case let .offlinePairing(_, acceptor): acceptor.bindingID
+            case let .pairedEndpoint(_, acceptor): acceptor.bindingID
             }
         }
     }
@@ -89,6 +98,18 @@ public struct CmxIrohOnlineAdmissionLease: Equatable, Sendable {
                 platform: pair.acceptor.platform
             )
         )
+        self.onlineValidatedAt = onlineValidatedAt
+    }
+
+    init(
+        pairedInitiator initiator: CmxIrohGrantPeer,
+        acceptor: CmxIrohGrantPeer,
+        expiresAt: Date,
+        onlineValidatedAt: Date?
+    ) {
+        peer = CmxIrohAdmittedPeer(peer: initiator)
+        self.expiresAt = expiresAt
+        authority = .pairedEndpoint(initiator: initiator, acceptor: acceptor)
         self.onlineValidatedAt = onlineValidatedAt
     }
 

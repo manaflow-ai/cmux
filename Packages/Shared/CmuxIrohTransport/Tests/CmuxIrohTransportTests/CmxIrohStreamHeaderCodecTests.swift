@@ -55,10 +55,10 @@ struct CmxIrohStreamHeaderCodecTests {
     }
 
     @Test
-    func controlRequiresCredentialAndOtherLanesRejectIt() throws {
-        #expect(throws: CmxIrohStreamHeaderError.missingControlCredential) {
-            try CmxIrohStreamHeader(lane: .control)
-        }
+    func controlAllowsCredentiallessAllowlistAdmissionAndOtherLanesRejectCredentials() throws {
+        // Credential-less control is the allowlist-admission request.
+        let allowlistHeader = try CmxIrohStreamHeader(lane: .control)
+        #expect(allowlistHeader.credential == nil)
 
         let credential = try CmxIrohAdmissionCredential.pairGrant("e30.e30.AA")
         #expect(throws: CmxIrohStreamHeaderError.credentialOnNonControlLane) {

@@ -27,6 +27,16 @@ public protocol CmxIrohClientContextProvider: CmxIrohPrivateFallbackValidating, 
         dialPlan: CmxIrohDialPlan,
         failure: DiagnosticFailureKind
     ) async
+
+    /// Records one fully admitted session so the provider may serve later
+    /// warm dials for the same Mac credential-less (allowlist admission),
+    /// with zero pair-grant fetches on the hot path.
+    func noteAdmissionSucceeded(for request: CmxByteTransportRequest) async
+
+    /// Records that the Mac refused a credential-less admission attempt
+    /// (allowlist miss or eviction). The next context for this peer must
+    /// carry a pair-grant credential again.
+    func noteAllowlistAdmissionRefused(for request: CmxByteTransportRequest) async
 }
 
 public extension CmxIrohClientContextProvider {
@@ -51,4 +61,10 @@ public extension CmxIrohClientContextProvider {
         dialPlan _: CmxIrohDialPlan,
         failure _: DiagnosticFailureKind
     ) async {}
+
+    /// Providers without paired-peer state always present a credential.
+    func noteAdmissionSucceeded(for _: CmxByteTransportRequest) async {}
+
+    /// Providers without paired-peer state have nothing to fall back from.
+    func noteAllowlistAdmissionRefused(for _: CmxByteTransportRequest) async {}
 }
