@@ -14,7 +14,7 @@ const stripeModule = await import("../services/billing/stripe");
 const signedInUser = {
   id: "user-pro",
   isAnonymous: false,
-  clientReadOnlyMetadata: {},
+  clientReadOnlyMetadata: {} as Record<string, unknown>,
   selectedTeam: null as null | { id: string; displayName?: string },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
   update: mock(async () => undefined),
@@ -102,6 +102,7 @@ describe("billing portal route", () => {
     customerRows = [{ id: "cus_123" }];
     stripeSubscriptionRows = [];
     signedInUser.selectedTeam = null;
+    signedInUser.clientReadOnlyMetadata = {};
     signedInUser.listTeams.mockClear();
     getUser.mockClear();
     signedInUser.update.mockClear();
@@ -127,6 +128,38 @@ describe("billing portal route", () => {
       return_url: "https://cmux.test/pricing",
     });
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
+  });
+
+  test("does not open the Stripe portal for a Founder-only entitlement", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=unavailable",
+    );
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  test("keeps the portal available when a Founder also has a real Stripe subscription", async () => {
+    signedInUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+    stripeSubscriptionRows = [{ id: "sub_founder_pro" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://billing.stripe.com/session/test",
+    );
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_123",
+      return_url: "https://cmux.test/pricing",
+    });
   });
 
   test("blocks direct portal requests from the iOS App Store distribution", async () => {

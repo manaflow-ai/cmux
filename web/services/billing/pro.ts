@@ -28,6 +28,11 @@ import {
 
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
+// Founder's Edition is a verified one-time entitlement. It is stored in the
+// operator-owned `cmuxVmPlan` metadata key because it has no Stripe
+// subscription to reconcile. The dashboard normalizes this source to Pro
+// without treating it as Stripe-managed billing.
+export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
@@ -95,6 +100,13 @@ export type FreshProMetadataUserMutation = <Result>(
 ) => Promise<Result>;
 export type BillingManagementKind = "stripe" | "none";
 
+export type NormalizedPersonalPlan = {
+  readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
+  readonly isPro: boolean;
+  /** Stripe is the only source that enables subscription-management actions. */
+  readonly billingManagement: BillingManagementKind;
+};
+
 export type ProPlanStatus = {
   readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
   readonly isPro: boolean;
@@ -103,6 +115,32 @@ export type ProPlanStatus = {
   readonly hasManualVmPlanOverride: boolean;
   readonly metadataChanged: boolean;
 };
+
+/**
+ * Collapse the account's verified entitlement sources into the user-facing
+ * personal plan. Founder access is permanent but not subscription-managed;
+ * only an active Stripe row enables Stripe billing controls.
+ */
+export function normalizePersonalPlan(
+  metadata: unknown,
+  hasActiveStripeSubscription: boolean,
+): NormalizedPersonalPlan {
+  const isPro = hasActiveStripeSubscription || hasFounderEditionEntitlement(metadata);
+  return {
+    planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+    isPro,
+    billingManagement: hasActiveStripeSubscription ? "stripe" : "none",
+  };
+}
+
+/** Resolve Founder's Edition only from verified account metadata. */
+export function hasFounderEditionEntitlement(raw: unknown): boolean {
+  const metadata = proMetadataRecord(raw);
+  // `cmuxVmPlan` is the authoritative override when present; do not let a
+  // lower-priority cmuxPlan value bypass an explicit operator override.
+  const source = metadata.cmuxVmPlan ?? metadata.cmuxPlan;
+  return normalizedPlanValue(source) === FOUNDERS_PLAN_ID;
+}
 
 /**
  * Read-time reconciliation: compares the `cmuxPlan` metadata against the
@@ -147,27 +185,29 @@ export async function resolveProPlanStatus(
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
-  const isPro = user.id
+  const hasActiveStripeSubscription = user.id
     ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
     : false;
+  const normalizedPlan = normalizePersonalPlan(
+    user.clientReadOnlyMetadata,
+    hasActiveStripeSubscription,
+  );
   let metadataChanged = false;
 
   if (
     user.id &&
     !hasManualVmPlanOverride &&
-    isPro !== (metadataPlanId === PRO_PLAN_ID)
+    hasActiveStripeSubscription !== (metadataPlanId === PRO_PLAN_ID)
   ) {
     metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
-      isPro,
+      hasActiveStripeSubscription,
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
 
   return {
-    planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
-    isPro,
-    billingManagement: isPro ? "stripe" : "none",
+    ...normalizedPlan,
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
@@ -377,6 +417,12 @@ function hasManualVmOverride(metadata: Record<string, unknown>): boolean {
 function planIdFromMetadata(metadata: Record<string, unknown>): string | null {
   const value = metadata.cmuxPlan;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizedPlanValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim()
+    ? value.trim().toLowerCase()
+    : null;
 }
 
 function isMissingDatabaseConfig(error: unknown): boolean {

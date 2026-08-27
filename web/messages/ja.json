@@ -166,6 +166,7 @@
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
         "pendingBody": "プランは{date}に終了する予定です。",
+        "entitledBody": "cmux Proアクセスは有効です。",
         "monthlyPrice": "$30/月",
         "annualPrice": "$24/月（年払い）",
         "legacyAnnualPrice": "$20/月（年払い）"

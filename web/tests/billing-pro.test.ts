@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   FREE_PLAN_ID,
   isTestflightEligible,
+  hasFounderEditionEntitlement,
+  normalizePersonalPlan,
   PRO_PLAN_ID,
   reconcileProPlanMetadata,
   resolveProPlanStatus,
@@ -101,6 +103,32 @@ describe("syncProPlanMetadata", () => {
     const user = metadataUser("bogus");
     await syncProPlanMetadata(user, true, mutationLease());
     expect(user.updates).toEqual([{ cmuxPlan: PRO_PLAN_ID }]);
+  });
+});
+
+describe("normalizePersonalPlan", () => {
+  test("accepts the verified Founder marker without trusting an email", () => {
+    expect(hasFounderEditionEntitlement({ cmuxVmPlan: " Founders " })).toBe(true);
+    expect(
+      normalizePersonalPlan({ cmuxVmPlan: "founders" }, false),
+    ).toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+    });
+  });
+
+  test("honors an explicit VM-plan override over a lower-priority Founder marker", () => {
+    expect(
+      normalizePersonalPlan(
+        { cmuxVmPlan: "free", cmuxPlan: "founders" },
+        false,
+      ),
+    ).toEqual({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "none",
+    });
   });
 });
 

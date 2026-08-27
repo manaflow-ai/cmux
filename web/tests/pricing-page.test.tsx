@@ -19,7 +19,7 @@ const proUser = {
   id: "user-pro",
   isAnonymous: false,
   primaryEmail: "pro@example.com",
-  clientReadOnlyMetadata: { cmuxPlan: "pro" },
+  clientReadOnlyMetadata: { cmuxPlan: "pro" } as Record<string, unknown>,
   update: mock(async () => undefined),
 };
 const getUser = mock(async () => proUser);

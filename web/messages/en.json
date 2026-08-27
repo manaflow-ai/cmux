@@ -166,6 +166,7 @@
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}.",
+        "entitledBody": "Your cmux Pro access is active.",
         "monthlyPrice": "$30/mo",
         "annualPrice": "$24/mo, billed annually",
         "legacyAnnualPrice": "$20/mo, billed annually"

@@ -9,7 +9,10 @@ import {
   isAppStoreDistributionMode,
 } from "../../../lib/billing";
 import { captureBillingError } from "../../../../services/errors";
-import { resolveProPlanStatus } from "../../../../services/billing/pro";
+import {
+  hasFounderEditionEntitlement,
+  resolveProPlanStatus,
+} from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
   stripe,
@@ -48,6 +51,15 @@ export async function GET(request: NextRequest) {
 
     const requestedScope = billingPortalScope(request.nextUrl.searchParams.get("scope"));
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
+    // Founder's Edition is a one-time entitlement. It can share the normal
+    // account plan, but it must not open an empty Stripe subscription portal;
+    // allow this path only when the same account also has a real Pro row.
+    if (!team && hasFounderEditionEntitlement(user.clientReadOnlyMetadata)) {
+      const status = await resolveProPlanStatus(user);
+      if (status.billingManagement !== "stripe") {
+        return pricingRedirect(request, "unavailable");
+      }
+    }
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);

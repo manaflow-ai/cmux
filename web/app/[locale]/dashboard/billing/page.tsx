@@ -127,10 +127,10 @@ export default async function DashboardBillingPage({
           t={t}
           locale={locale}
           subscription={subscription}
-          canManageBilling={hasStripeCustomer}
+          canManageBilling={status.billingManagement === "stripe" && hasStripeCustomer}
         />
       ) : (
-        <FreePlan t={t} />
+        <ProEntitlement t={t} />
       )}
 
       {billingTeam && teamSubscription ? (
@@ -225,6 +225,15 @@ function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
       >
         {t("actions.viewPricing")}
       </Link>
+    </section>
+  );
+}
+
+function ProEntitlement({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+  return (
+    <section className="border border-border p-3">
+      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">{t("pro.entitledBody")}</p>
     </section>
   );
 }
