@@ -30365,6 +30365,100 @@ mod tests {
     }
 
     #[test]
+    fn immediate_menu_press_survives_content_changed_before_surface_output() {
+        let (mux, surface) = test_mux("immediate-menu-content-test", None);
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        // Terminal content moves after the frame committed, exactly like PTY
+        // output landing between a paint and the user's press.
+        surface.scroll_delta(-3).unwrap();
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued output event has not marked the rendered route stale yet"
+        );
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
+        })))
+        .unwrap();
+
+        assert!(
+            app.menu.is_some(),
+            "a cmux-owned context menu press must not be swallowed by terminal content \
+             admission: it never forwards bytes to the terminal application"
+        );
+        assert!(app.deferred_input.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_menu_press_survives_content_repaint_before_replay() {
+        let (mux, surface) = test_mux("deferred-menu-content-test", None);
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
+        })))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(app.menu.is_none());
+
+        // Content changes while the press waits for its paint, so the
+        // repainted frame carries a newer terminal content generation than
+        // the one recorded when the press was deferred.
+        surface.scroll_delta(-3).unwrap();
+        let repaint = app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
+        app.render_action(&mut terminal, repaint).unwrap();
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            app.menu.is_some(),
+            "a replayed cmux-owned context menu press must not be dropped because terminal \
+             content changed under it while it waited for the paint"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
         let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
