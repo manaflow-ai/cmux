@@ -48,7 +48,7 @@ Repeat runs from the same directory hit the same machine (sticky binding), so sy
 
 1. `cmux vm route` — the router's answer for this directory; `--json` for scripts. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first.
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
-3. Isolation → `cmux vm new --detach --json` (desktop image) or `--base` (shell-only), then `--machine <id>`.
+3. Isolation → `cmux vm new --detach --json` (desktop machine) or `--base` (shell-only); add `--size 8g`/`--name <label>` as needed. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`.
 4. Never draft the user's own named machines without `--machine`, and respect the plan meter.
 
 ## Running work

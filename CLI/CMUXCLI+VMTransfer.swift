@@ -989,7 +989,8 @@ extension CMUXCLI {
 
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
         var params: [String: Any] = [
-            "image": Self.cloudVMBaseImage,
+            // Pool machines are shell boxes; the backend maps the kind to its image.
+            "kind": VMMachineKind.base.rawValue,
             "persistent_home": true,
             "per_machine_home": true,
             // Fresh key per run: a failed create is simply retried by the next

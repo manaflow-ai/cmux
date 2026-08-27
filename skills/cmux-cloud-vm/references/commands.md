@@ -60,7 +60,8 @@ Policy (shared with `run` and `agent`): the machine bound to the directory → a
 ```bash
 cmux vm new --detach                   # new Desktop machine (screen + shell), headless create
 cmux vm new --base --detach            # shell-only machine
-cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|32g or raw MB (disk follows memory, 16 GB max)
+cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|24g|32g or raw MB (disk follows memory, 16 GB max)
+cmux vm new --name "build box" --detach # display label; the id stays the address
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
 cmux vm rename <id> <label>            # display label; the id stays the address
 cmux vm rename <id> --clear
