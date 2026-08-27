@@ -1461,9 +1461,43 @@ fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
     }
 }
 
+const GIT_DIFF_PREFIX_BYTES: usize = 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BoundedGitDiffLine {
     Complete(String),
-    TooLong,
+    TooLong { prefix: [u8; GIT_DIFF_PREFIX_BYTES], length: u8 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GitDiffLineKind {
+    File,
+    Addition,
+    Deletion,
+    Other,
+}
+
+fn classify_git_diff_line(bytes: &[u8]) -> GitDiffLineKind {
+    if bytes.starts_with(b"diff --git ") {
+        GitDiffLineKind::File
+    } else if bytes.first() == Some(&b'+') && !bytes.starts_with(b"+++") {
+        GitDiffLineKind::Addition
+    } else if bytes.first() == Some(&b'-') && !bytes.starts_with(b"---") {
+        GitDiffLineKind::Deletion
+    } else {
+        GitDiffLineKind::Other
+    }
+}
+
+fn retain_git_diff_prefix(
+    prefix: &mut [u8; GIT_DIFF_PREFIX_BYTES],
+    length: &mut usize,
+    bytes: &[u8],
+) {
+    let available = GIT_DIFF_PREFIX_BYTES.saturating_sub(*length);
+    let take = available.min(bytes.len());
+    prefix[*length..*length + take].copy_from_slice(&bytes[..take]);
+    *length += take;
 }
 
 /// Read one diff line without allowing a missing newline to grow the buffer
@@ -1482,11 +1516,16 @@ where
 
     line.clear();
     let mut too_long = false;
+    let mut prefix = [0_u8; GIT_DIFF_PREFIX_BYTES];
+    let mut prefix_length = 0_usize;
     loop {
         let buffer = reader.fill_buf().await?;
         if buffer.is_empty() {
             if too_long {
-                return Ok(Some(BoundedGitDiffLine::TooLong));
+                return Ok(Some(BoundedGitDiffLine::TooLong {
+                    prefix,
+                    length: prefix_length as u8,
+                }));
             }
             return if line.is_empty() {
                 Ok(None)
@@ -1497,21 +1536,24 @@ where
         let newline = buffer.iter().position(|byte| *byte == b'\n');
         let take = newline.map_or(buffer.len(), |index| index + 1);
         if too_long {
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
             reader.consume(take);
         } else if line.len().saturating_add(take) > maximum {
             // Consume this chunk, including a possible newline, and then
             // report a marker instead of returning an error. This keeps the
             // stream aligned for later lines and bounds retained memory.
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
             reader.consume(take);
             line.clear();
             too_long = true;
         } else {
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
             line.extend_from_slice(&buffer[..take]);
             reader.consume(take);
         }
         if newline.is_some() {
             return if too_long {
-                Ok(Some(BoundedGitDiffLine::TooLong))
+                Ok(Some(BoundedGitDiffLine::TooLong { prefix, length: prefix_length as u8 }))
             } else {
                 decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
             };
@@ -2059,7 +2101,14 @@ async fn run_git_diff_with_cancel_until(
                 }
             },
         };
-        if matches!(line, BoundedGitDiffLine::TooLong) {
+        if let BoundedGitDiffLine::TooLong { prefix, length } = line {
+            let prefix = &prefix[..usize::from(length)];
+            match classify_git_diff_line(prefix) {
+                GitDiffLineKind::File => files += 1,
+                GitDiffLineKind::Addition => additions += 1,
+                GitDiffLineKind::Deletion => deletions += 1,
+                GitDiffLineKind::Other => {}
+            }
             if !capped {
                 // Drop the partial file: a caller must never see half a
                 // file's hunks (parsePatchFiles input). Continue reading so
@@ -2073,15 +2122,16 @@ async fn run_git_diff_with_cancel_until(
         let BoundedGitDiffLine::Complete(line) = line else {
             unreachable!("handled all bounded diff line variants");
         };
-        if line.starts_with("diff --git ") {
-            files += 1;
-            if !capped {
-                current_file_start = patch.len();
+        match classify_git_diff_line(line.as_bytes()) {
+            GitDiffLineKind::File => {
+                files += 1;
+                if !capped {
+                    current_file_start = patch.len();
+                }
             }
-        } else if line.starts_with('+') && !line.starts_with("+++") {
-            additions += 1;
-        } else if line.starts_with('-') && !line.starts_with("---") {
-            deletions += 1;
+            GitDiffLineKind::Addition => additions += 1,
+            GitDiffLineKind::Deletion => deletions += 1,
+            GitDiffLineKind::Other => {}
         }
         if !capped {
             if patch.len().saturating_add(line.len()).saturating_add(1) > DIFF_MAX_BYTES {
@@ -3034,7 +3084,7 @@ mod tests {
             .expect("oversized unterminated diff line should be consumed")
             .expect("the oversized line marker");
 
-        assert!(matches!(result, BoundedGitDiffLine::TooLong));
+        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
         assert!(line.is_empty(), "reader retained bytes past its limit");
         assert!(
             read_bounded_git_diff_line(&mut reader, &mut line, 8)
@@ -3053,13 +3103,22 @@ mod tests {
             .await
             .expect("oversized line should be consumed")
             .expect("the oversized line marker");
-        assert!(matches!(result, BoundedGitDiffLine::TooLong));
+        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
 
         let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
             .await
             .expect("short line should decode")
             .expect("short line");
         assert!(matches!(result, BoundedGitDiffLine::Complete(value) if value == "short"));
+    }
+
+    #[test]
+    fn oversized_diff_line_prefix_preserves_stat_kind() {
+        assert_eq!(classify_git_diff_line(b"+payload"), GitDiffLineKind::Addition);
+        assert_eq!(classify_git_diff_line(b"-payload"), GitDiffLineKind::Deletion);
+        assert_eq!(classify_git_diff_line(b"diff --git a/a b/a"), GitDiffLineKind::File);
+        assert_eq!(classify_git_diff_line(b"+++ b/a"), GitDiffLineKind::Other);
+        assert_eq!(classify_git_diff_line(b"--- a/a"), GitDiffLineKind::Other);
     }
 
     #[test]
