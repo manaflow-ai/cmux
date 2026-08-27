@@ -429,6 +429,32 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         #expect(result.paths.contains(branchRef.standardizedFileURL.path))
     }
 
+    @Test func hierarchicalExternalBranchWatchesNearestExistingAncestor() throws {
+        let fixture = try GitRepositoryFixture()
+        let externalRoot = fixture.root.deletingLastPathComponent()
+            .appendingPathComponent("cmuxgit-hierarchical-refs-\(UUID().uuidString)", isDirectory: true)
+        let existingHeads = externalRoot.appendingPathComponent("refs/heads", isDirectory: true)
+        try FileManager.default.createDirectory(at: existingHeads, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: externalRoot) }
+        let branch = "feature/not-created-yet"
+        try fixture.writeBranch(branch)
+        try fixture.writeConfig("""
+        [extensions]
+            refStorage = files:\(externalRoot.path)
+        """)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let result = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .resolved(branch),
+            includeConditionalPathsForWatch: true
+        ).watchPathResult()
+
+        #expect(result.paths.contains(existingHeads.standardizedFileURL.path))
+    }
+
     @Test func readsLinkedWorktreeConfigWhenPresent() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

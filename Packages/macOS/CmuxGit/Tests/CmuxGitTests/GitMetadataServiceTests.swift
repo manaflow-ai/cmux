@@ -2,6 +2,23 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
+private nonisolated struct MarkerGitReferenceReader: GitReferenceReading {
+    let markerDirectory: URL
+
+    func snapshot(repository _: ResolvedGitRepository) -> GitReferenceSnapshot {
+        try? Data().write(
+            to: markerDirectory.appendingPathComponent(UUID().uuidString),
+            options: .atomic
+        )
+        return GitReferenceSnapshot(
+            checkedOutBranch: .branch("main"),
+            headSignature: "refs/heads/main\n" + String(repeating: "f", count: 40),
+            currentCommit: String(repeating: "f", count: 40),
+            usesGitPlumbing: true
+        )
+    }
+}
+
 @Suite struct GitMetadataServiceTests {
     // MARK: Repository resolution
 
@@ -102,6 +119,26 @@ import Testing
         #expect(meta.isRepository)
         #expect(meta.branch == "feature/x")
         #expect(meta.headSignature != nil)
+    }
+
+    @Test func plumbingMetadataRefreshUsesOneFullReferenceSnapshot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: []))
+        let markerDirectory = fixture.root.appendingPathComponent("reference-markers", isDirectory: true)
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        let service = GitMetadataService(
+            fileStatusReader: SystemGitFileStatusReader(),
+            referenceReader: MarkerGitReferenceReader(markerDirectory: markerDirectory)
+        )
+
+        _ = await service.workspaceMetadata(for: fixture.root.path)
+
+        let markers = try FileManager.default.contentsOfDirectory(
+            at: markerDirectory,
+            includingPropertiesForKeys: nil
+        )
+        #expect(markers.count == 1)
     }
 
     @Test func workspaceMetadataReportsNotARepository() async {
