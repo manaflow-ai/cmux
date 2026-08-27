@@ -128,6 +128,7 @@
 //! keys.
 
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
@@ -4115,12 +4116,26 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
     let result = (|| -> anyhow::Result<()> {
-        let mut file = std::fs::File::create(&tmp_path)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+
+            // The config can contain the server authentication token. Create
+            // the staging file private from the start, independent of umask,
+            // and reject a pre-existing symlink if a concurrent writer races
+            // with this process before open(2).
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&tmp_path)?;
         serde_json::to_writer_pretty(&mut file, value)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
         drop(file);
         std::fs::rename(&tmp_path, path)?;
+        #[cfg(unix)]
+        std::fs::File::open(parent)?.sync_all()?;
         Ok(())
     })();
     if result.is_err() {
