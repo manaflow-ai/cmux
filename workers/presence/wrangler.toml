@@ -30,9 +30,17 @@ enabled = true
 name = "TEAM_PRESENCE"
 class_name = "TeamPresence"
 
+[[durable_objects.bindings]]
+name = "MAC_RELAY"
+class_name = "MacRelay"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamPresence"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["MacRelay"]
 
 # Production custom domain on the cmux.dev zone (same Cloudflare account).
 # `custom_domain = true` provisions the DNS record + TLS cert with the deploy;
