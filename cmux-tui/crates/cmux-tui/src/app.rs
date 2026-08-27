@@ -56,7 +56,7 @@ use crate::browser_input::{
 };
 use crate::config::{
     Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
-    SidebarLayoutNode, SidebarResourceKind, SidebarView, SidebarViewScope, SidebarViewSpec,
+    SidebarResourceKind, SidebarView, SidebarViewSpec,
 };
 use crate::keys;
 use crate::localization;
@@ -8174,8 +8174,9 @@ fn place_sidebar_column_node(
                 used -= 1;
             }
             let mut round_robin = 0usize;
+            let share_count = sizes.len();
             while used < available {
-                sizes[round_robin % sizes.len()] += 1;
+                sizes[round_robin % share_count] += 1;
                 used += 1;
                 round_robin += 1;
             }
@@ -27555,7 +27556,7 @@ mod tests {
         // The two rails clamp at their minimum height.
         app.drag_sidebar_split_divider(0, 0, 0, 0);
         app.sync_layout((120, 31));
-        assert_eq!(app.sidebar_layout.ordered[0].rect.height, MIN_SPLIT_RAIL_HEIGHT);
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, super::MIN_SPLIT_RAIL_HEIGHT);
     }
 
     #[test]
