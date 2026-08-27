@@ -105,10 +105,11 @@ struct VerifiedTerminalReplayStateMachineTests {
         }
     }
 
-    @Test("a compatibility fallback clears the old baseline and requires a fresh full frame")
+    @Test("a compatibility fallback retains ordering fences while requiring a fresh full frame")
     func compatibilityFallbackResetRequiresFreshFullFrame() throws {
         let machine = VerifiedTerminalReplayStateMachine()
         let original = try frame(
+            renderEpoch: "epoch-compatibility",
             renderRevision: 1,
             stateSeq: 1,
             columns: 80,
@@ -116,7 +117,24 @@ struct VerifiedTerminalReplayStateMachineTests {
         )
         commit(original, to: machine)
 
+        let generation = machine.updateExpectedViewportDimensions(
+            columns: 80,
+            rows: 3,
+            reportID: 1
+        )
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-compatibility",
+            renderRevisionFloor: 1,
+            reportID: 1,
+            negotiationGeneration: generation,
+            reportedColumns: 80,
+            reportedRows: 3,
+            grantedColumns: 80,
+            grantedRows: 3
+        )
+
         let pending = try frame(
+            renderEpoch: "epoch-compatibility",
             renderRevision: 2,
             stateSeq: 2,
             columns: 80,
@@ -127,14 +145,17 @@ struct VerifiedTerminalReplayStateMachineTests {
         )
 
         // An exhausted replay can only install a compatibility byte snapshot.
-        // That snapshot is not a verified grid, so no transaction, epoch, or
-        // pixel baseline from the previous verified presentation may survive it.
+        // The frozen layer is cleared by the surface, but the logical snapshot
+        // and producer/viewport fences remain as ordering guards until a fresh
+        // full frame verifies. This prevents a delayed old frame from becoming
+        // the first post-fallback baseline at an arbitrary grid size.
         machine.resetForCompatibilityFallback()
         #expect(machine.activeTransactionID == nil)
-        #expect(machine.visibleSnapshot == nil)
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last verified")
         #expect(machine.isFrozen)
 
         let partial = try frame(
+            renderEpoch: "epoch-compatibility",
             renderRevision: 3,
             stateSeq: 3,
             columns: 80,
@@ -146,9 +167,22 @@ struct VerifiedTerminalReplayStateMachineTests {
             return
         }
 
-        let freshFull = try frame(
+        let staleGrid = try frame(
+            renderEpoch: "epoch-compatibility",
             renderRevision: 4,
             stateSeq: 4,
+            columns: 41,
+            text: "stale grid after compatibility fallback"
+        )
+        guard case .renegotiateViewportAndKeepFrozen = machine.begin(frame: staleGrid) else {
+            Issue.record("compatibility reset must retain viewport fences for stale full frames")
+            return
+        }
+
+        let freshFull = try frame(
+            renderEpoch: "epoch-compatibility",
+            renderRevision: 5,
+            stateSeq: 5,
             columns: 80,
             text: "fresh verified baseline"
         )

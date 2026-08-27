@@ -106,6 +106,87 @@ import Testing
 }
 
 @MainActor
+@Test func overloadFollowUpBarrierPreservesAuthoritativeReplacementRequirement() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    await router.enqueueReplayRenderGrid(try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: 200,
+        text: "first-overload-replay"
+    ))
+    await router.enqueueReplayRenderGrid(try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: 201,
+        text: "follow-up-overload-replay"
+    ))
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+
+    store.deliverTerminalBytes(Data("stalled-apply".utf8), surfaceID: surfaceID)
+    _ = try #require(await iterator.next())
+    for index in 0..<TerminalOutputDeliveryQueue.maximumPendingCount {
+        #expect(store.deliverTerminalBytes(Data("queued-\(index)".utf8), surfaceID: surfaceID))
+    }
+    #expect(!store.deliverTerminalBytes(Data("overflow".utf8), surfaceID: surfaceID))
+
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
+    let firstReplacement = try #require(await iterator.next())
+    #expect(
+        String(decoding: firstReplacement.data, as: UTF8.self)
+            .contains("first-overload-replay")
+    )
+
+    // Output that arrives after the first replacement request still belongs to
+    // the overload gap. Completing the first chunk must carry that authority
+    // into the follow-up barrier instead of silently downgrading it to a normal
+    // byte-replay barrier.
+    #expect(
+        !store.deliverTerminalBytes(
+            Data("output-after-first-overload-replay".utf8),
+            surfaceID: surfaceID
+        )
+    )
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: firstReplacement.streamToken
+    )
+
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 3)
+    #expect(
+        store.terminalReplayOverloadReplacementSurfaceIDs.contains(surfaceID)
+    )
+    #expect(
+        store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID),
+        "a follow-up overload barrier must still owe the dropped output"
+    )
+    #expect(
+        (store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) > 0,
+        "a follow-up overload barrier must retain a nonzero dropped-output floor"
+    )
+
+    let followUpReplacement = try #require(await iterator.next())
+    #expect(
+        String(decoding: followUpReplacement.data, as: UTF8.self)
+            .contains("follow-up-overload-replay")
+    )
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: followUpReplacement.streamToken
+    )
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
 @Test func overloadDoesNotTreatRawTailAsAuthoritativeReplacement() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

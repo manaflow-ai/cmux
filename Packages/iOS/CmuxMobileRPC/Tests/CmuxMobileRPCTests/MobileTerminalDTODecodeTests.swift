@@ -227,6 +227,21 @@ import Testing
         #expect(response.rows == 24)
     }
 
+    @Test func replayResponseToleratesUnknownOptionalCompatibilityMetadata() throws {
+        let base64 = Data("still-valid-bytes".utf8).base64EncodedString()
+        let json = """
+        {
+          "data_b64": "\(base64)",
+          "active_screen": "future-screen",
+          "anchor": "future-anchor"
+        }
+        """
+        let response = try MobileTerminalReplayResponse.decode(Data(json.utf8))
+        #expect(response.dataBase64 == base64)
+        #expect(response.activeScreen == nil)
+        #expect(response.anchor == nil)
+    }
+
     @Test func replayResponseDecodesNestedRenderGrid() throws {
         let json = """
         {
