@@ -343,6 +343,7 @@ function readCachedManifest(version, pkg = null) {
       typeof manifest?.package !== "string" ||
       !/^[a-z0-9][a-z0-9._-]*$/i.test(manifest.package) ||
       typeof manifest?.tarballIntegrity !== "string" ||
+      !validSha512Integrity(manifest.tarballIntegrity) ||
       typeof expected !== "string" ||
       !/^[a-f0-9]{128}$/.test(expected)
     ) {
@@ -482,7 +483,7 @@ function snapshotVerifiedCachedBinary(
     }
     if (
       process.platform !== "win32" &&
-        !cachedBinaryPathIsUnchanged(candidate.bin, verified.stat)
+      !cachedBinaryPathIsUnchanged(candidate.bin, verified.stat)
     ) {
       return null;
     }
@@ -1735,6 +1736,10 @@ function verifyIntegrity(buffer, integrity) {
   }
 }
 
+function validSha512Integrity(integrity) {
+  return /^sha512-[A-Za-z0-9+/]{86}={0,2}$/.test(integrity || "");
+}
+
 // Fetch and verify one published platform package. The registry's dist
 // integrity is the authentication root for the extracted binary; local cache
 // metadata is only a consistency check and never supplies the expected digest.
@@ -2029,12 +2034,7 @@ function wantedVersion(pkg) {
   return pinned;
 }
 
-async function resolveBinary(
-  pkg,
-  wanted,
-  cachedCandidate = null,
-  { snapshotCache = false } = {}
-) {
+async function resolveBinary(pkg, wanted, cachedCandidate = null) {
   const override = process.env.CMUX_TUI_BIN;
   if (override) {
     if (!fs.existsSync(override)) fail("configured native binary override does not exist");
@@ -2227,12 +2227,10 @@ async function main() {
       if (!launchSnapshot) fail("the cached native binary changed before launch");
       binPath = launchSnapshot.path;
     } else if (!binPath) {
-      const resolved = await resolveBinary(pkg, wanted, cachedCandidate, {
-        // Resolve every cache hit into a private snapshot. This closes the
-        // replacement window after the authenticated registry check on Unix
-        // as well as the path-identity gap on Windows.
-        snapshotCache: true,
-      });
+      // Resolve every cache hit into a private snapshot. This closes the
+      // replacement window after the authenticated registry check on Unix
+      // as well as the path-identity gap on Windows.
+      const resolved = await resolveBinary(pkg, wanted, cachedCandidate);
       if (resolved && typeof resolved === "object" && resolved.snapshot) {
         launchSnapshot = resolved.snapshot;
         binPath = resolved.path;

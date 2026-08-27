@@ -9,6 +9,10 @@
 `~/Library/Caches/cmux-tui-launcher`、Linux では `$XDG_CACHE_HOME/cmux-tui-launcher`
 （未設定時は `~/.cache/cmux-tui-launcher`）にバージョン別で保存します。
 
+書き込み可能なキャッシュは起動前にレジストリの tarball と再検証するため、通常の
+キャッシュヒットでもネットワークを使用します。完全な読み取り専用キャッシュは管理者が
+用意したものとして扱い、バイナリとマニフェストを検証済みならオフラインで起動できます。
+
 ```bash
 npx cmux update           # 最新のプラットフォーム用バイナリを取得
 npx cmux update --check   # 更新の有無だけを確認

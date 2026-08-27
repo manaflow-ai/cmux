@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 
 
@@ -25,8 +26,9 @@ LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js"
 NIGHTLY_VERSION = "1.2.3-nightly.20260827.1"
 
 
-def make_tarball() -> bytes:
-    payload = b"#!/bin/sh\nprintf '%s\\n' 'fake cmux-tui 1.2.3'\n"
+def make_tarball(payload: bytes | None = None) -> bytes:
+    if payload is None:
+        payload = b"#!/bin/sh\nprintf '%s\\n' 'fake cmux-tui 1.2.3'\n"
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
         info = tarfile.TarInfo("package/bin/cmux-tui")
@@ -46,9 +48,11 @@ def make_negative_size_tarball() -> bytes:
 
 class RegistryHandler(http.server.BaseHTTPRequestHandler):
     tarball = make_tarball()
+    tarballs: dict[str, bytes] = {}
     latest_version = "1.2.3"
     nightly_version = "1.2.3-nightly.20260826.1"
     block_tarball = False
+    block_tarball_versions: set[str] = set()
     tarball_started = threading.Event()
     tarball_release = threading.Event()
     metadata_requests = 0
@@ -78,21 +82,33 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
             f"/cmux-tui-linux-x64/{NIGHTLY_VERSION}",
         )):
             type(self).metadata_requests += 1
+            version = self.path.rsplit("/", 1)[-1]
+            tarball = type(self).tarballs.get(version, type(self).tarball)
             body = json.dumps(
                 {
                     "dist": {
-                        "tarball": f"http://127.0.0.1:{self.server.server_port}/tarball.tgz",
+                        "tarball": (
+                            f"http://127.0.0.1:{self.server.server_port}/tarball.tgz?"
+                            f"version={urllib.parse.quote(version, safe='')}"
+                        ),
                         "integrity": "sha512-"
-                        + base64.b64encode(hashlib.sha512(self.tarball).digest()).decode(),
+                        + base64.b64encode(hashlib.sha512(tarball).digest()).decode(),
                     }
                 }
             ).encode()
-        elif self.path == "/tarball.tgz":
+        elif urllib.parse.urlsplit(self.path).path == "/tarball.tgz":
             type(self).tarball_requests += 1
-            if type(self).block_tarball:
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            version = query.get("version", [None])[0]
+            tarball = type(self).tarballs.get(version, type(self).tarball)
+            blocked = type(self).block_tarball and (
+                not type(self).block_tarball_versions
+                or version in type(self).block_tarball_versions
+            )
+            if blocked:
                 type(self).tarball_started.set()
                 type(self).tarball_release.wait(timeout=10)
-            body = self.tarball
+            body = tarball
         else:
             self.send_error(404)
             return
@@ -192,12 +208,16 @@ def write_cached_binary(
     binary.write_bytes(data)
     binary.chmod(0o755)
     version_dir = binary.parent.parent
+    tarball = make_tarball(data)
+    tarball_integrity = "sha512-" + base64.b64encode(
+        hashlib.sha512(tarball).digest()
+    ).decode()
     (version_dir / "manifest.json").write_text(
         json.dumps(
             {
                 "package": package,
                 "version": version,
-                "tarballIntegrity": "sha512-fixture",
+                "tarballIntegrity": tarball_integrity,
                 "binaries": {"cmux-tui": hashlib.sha512(data).hexdigest()},
             }
         )
@@ -206,6 +226,17 @@ def write_cached_binary(
     if managed:
         (version_dir / "managed").write_text("cmux\n")
     return binary
+
+
+def make_cache_read_only(cache: Path) -> None:
+    """Mark a fixture cache immutable so the launcher may use its offline path."""
+    entries = [cache, *cache.rglob("*")]
+    for entry in entries:
+        if entry.is_symlink():
+            raise AssertionError(f"fixture cache unexpectedly contains a symlink: {entry}")
+    for entry in entries:
+        if entry.exists():
+            entry.chmod(stat.S_IMODE(entry.stat().st_mode) & ~0o222)
 
 
 def write_runtime_capability_stub(tmp_path: Path) -> Path:
@@ -274,7 +305,11 @@ def write_platform_stub(tmp_path: Path, platform_name: str = "freebsd") -> Path:
     return stub
 
 
-def start_registry() -> tuple[http.server.ThreadingHTTPServer, threading.Thread, str]:
+def start_registry(
+    *,
+    tarballs: dict[str, bytes] | None = None,
+    block_tarball_versions: set[str] | None = None,
+) -> tuple[http.server.ThreadingHTTPServer, threading.Thread, str]:
     RegistryHandler.metadata_requests = 0
     RegistryHandler.tarball_requests = 0
     RegistryHandler.authorization_headers = []
@@ -282,6 +317,8 @@ def start_registry() -> tuple[http.server.ThreadingHTTPServer, threading.Thread,
     RegistryHandler.latest_version = "1.2.3"
     RegistryHandler.nightly_version = NIGHTLY_VERSION
     RegistryHandler.block_tarball = False
+    RegistryHandler.tarballs = dict(tarballs or {})
+    RegistryHandler.block_tarball_versions = set(block_tarball_versions or set())
     RegistryHandler.tarball_started = threading.Event()
     RegistryHandler.tarball_release = threading.Event()
     RegistryHandler.latest_requests = []
@@ -300,6 +337,9 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
     server, thread, registry = start_registry()
     try:
         first = run_launcher(launcher, cache, registry, "--version")
+        # Writable cache hits require a fresh registry verification. Mark this
+        # provisioned fixture read-only to exercise the documented offline path.
+        make_cache_read_only(cache)
         # A verified cache hit must remain usable when the Node network APIs
         # are unavailable. The capability guard belongs on the download path.
         second = run_launcher(
@@ -508,8 +548,8 @@ def test_launcher_repairs_non_executable_cached_binary(tmp_path: Path) -> None:
     assert second.returncode == 0, second.stderr
     assert second.stdout == "fake cmux-tui 1.2.3\n"
     assert binary.stat().st_mode & stat.S_IXUSR
-    assert RegistryHandler.metadata_requests == 1
-    assert RegistryHandler.tarball_requests == 1
+    assert RegistryHandler.metadata_requests == 2
+    assert RegistryHandler.tarball_requests == 2
 
 
 def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
@@ -527,7 +567,12 @@ def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
     unmanaged.chmod(0o644)
     write_cached_binary(cache, "1.2.3", "#!/bin/sh\nexit 0\n", managed=True)
 
-    result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
 
     assert result.returncode == 0, result.stderr
     assert unmanaged.is_file()
@@ -566,7 +611,12 @@ def test_prune_preserves_versions_selected_by_each_channel_state(
         json.dumps({"version": nightly_old, "channel": "nightly"}) + "\n"
     )
 
-    result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "fake cmux-tui 1.2.3\n"
@@ -670,6 +720,7 @@ def test_launcher_keeps_stable_and_nightly_state_channels_separate(
     (platform_root / "state.json").write_text(
         json.dumps({"version": RegistryHandler.nightly_version}) + "\n"
     )
+    make_cache_read_only(cache)
     nightly_result = run_launcher(
         nightly_launcher, cache, "http://127.0.0.1:1", "--version"
     )
@@ -707,7 +758,15 @@ def test_launcher_releases_lease_when_native_launch_fails(tmp_path: Path) -> Non
         managed=True,
     )
 
-    result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
+    bad_payload = b"#!/definitely/missing/interpreter\n"
+    server, thread, registry = start_registry(
+        tarballs={"1.2.3": make_tarball(bad_payload)}
+    )
+    try:
+        result = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
 
     assert result.returncode != 0
     assert "failed to launch the native binary" in result.stderr
@@ -995,12 +1054,15 @@ def test_launcher_reclaims_cache_lock_when_owner_pid_is_reused(tmp_path: Path) -
     )
     os.utime(lock, (stale_created_at / 1000, stale_created_at / 1000))
 
-    result = run_launcher(
-        launcher,
-        cache,
-        "http://127.0.0.1:1",
-        "--version",
+    payload = b"#!/bin/sh\nprintf '%s\\n' 'cached after pid reuse'\n"
+    server, thread, registry = start_registry(
+        tarballs={"1.2.3": make_tarball(payload)}
     )
+    try:
+        result = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "cached after pid reuse\n"
@@ -1021,6 +1083,10 @@ def test_launcher_waits_for_short_cache_lock_contention(tmp_path: Path) -> None:
     lock.mkdir(parents=True)
     (lock / "owner").write_text(f"{os.getpid()}\nfixture-owner-token\n")
 
+    payload = b"#!/bin/sh\nprintf '%s\\n' 'cached after short lock contention'\n"
+    server, thread, registry = start_registry(
+        tarballs={"1.2.3": make_tarball(payload)}
+    )
     process = subprocess.Popen(
         ["node", str(launcher), "--version"],
         stdout=subprocess.PIPE,
@@ -1029,7 +1095,7 @@ def test_launcher_waits_for_short_cache_lock_contention(tmp_path: Path) -> None:
         env={
             **os.environ,
             "CMUX_TUI_LAUNCHER_CACHE": str(cache),
-            "CMUX_NPM_REGISTRY": "http://127.0.0.1:1",
+            "CMUX_NPM_REGISTRY": registry,
             "NO_COLOR": "1",
         },
     )
@@ -1046,6 +1112,8 @@ def test_launcher_waits_for_short_cache_lock_contention(tmp_path: Path) -> None:
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=5)
+        server.shutdown()
+        thread.join()
 
     assert process.returncode == 0, stderr or stdout
     assert stdout == "cached after short lock contention\n"
@@ -1066,12 +1134,15 @@ def test_launcher_recovers_stale_empty_cache_lock(tmp_path: Path) -> None:
     stale = time.time() - 10 * 60
     os.utime(lock, (stale, stale))
 
-    result = run_launcher(
-        launcher,
-        cache,
-        "http://127.0.0.1:1",
-        "--version",
+    payload = b"#!/bin/sh\nprintf '%s\\n' 'cached after interrupted lock'\n"
+    server, thread, registry = start_registry(
+        tarballs={"1.2.3": make_tarball(payload)}
     )
+    try:
+        result = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "cached after interrupted lock\n"
@@ -1194,11 +1265,17 @@ def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Pa
     write_cached_binary(cache, "1.1.0", "#!/bin/sh\nexit 0\n", managed=True)
     write_cached_binary(cache, "1.2.3", "#!/bin/sh\nexit 0\n", managed=True)
 
+    server, thread, registry = start_registry(
+        tarballs={
+            "1.0.0": make_tarball(old_payload.encode()),
+            "1.2.3": make_tarball(b"#!/bin/sh\nexit 0\n"),
+        }
+    )
     env = os.environ.copy()
     env.update(
         {
             "CMUX_TUI_LAUNCHER_CACHE": str(cache),
-            "CMUX_NPM_REGISTRY": "http://127.0.0.1:1",
+            "CMUX_NPM_REGISTRY": registry,
             "NO_COLOR": "1",
         }
     )
@@ -1218,7 +1295,7 @@ def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Pa
         new_result = run_launcher(
             new_launcher,
             cache,
-            "http://127.0.0.1:1",
+            registry,
             "--version",
         )
         assert new_result.returncode == 0, new_result.stderr
@@ -1229,6 +1306,8 @@ def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Pa
         except subprocess.TimeoutExpired:
             old_process.kill()
             old_process.wait(timeout=5)
+        server.shutdown()
+        thread.join()
     assert old_process.returncode == 0
 
 
@@ -1253,7 +1332,11 @@ def test_update_lease_protects_download_from_concurrent_prune(tmp_path: Path) ->
         "#!/bin/sh\nprintf '%s\\n' 'fake cmux-tui 1.2.3'\n",
     )
 
-    server, thread, registry = start_registry()
+    launch_payload = b"#!/bin/sh\nprintf '%s\\n' 'cached while update is downloading'\n"
+    server, thread, registry = start_registry(
+        tarballs={"1.1.0": make_tarball(launch_payload)},
+        block_tarball_versions={"1.2.3"},
+    )
     RegistryHandler.block_tarball = True
     env = os.environ.copy()
     env.update(

@@ -122,6 +122,8 @@ Japanese: [パッケージのインストールと更新](getting-started.ja.md)
 
 The `cmux` npm package is a small launcher with no dependencies. On first run it downloads the prebuilt `cmux-tui-<platform>` package for your platform from the npm registry, verifies the registry's sha512 integrity for the tarball, and caches the binaries in a versioned launcher cache (`~/Library/Caches/cmux-tui-launcher` on macOS, `$XDG_CACHE_HOME/cmux-tui-launcher` or `~/.cache/cmux-tui-launcher` on Linux). Later runs start instantly from that cache.
 
+Writable cache entries are revalidated against the registry tarball before they run, so a normal cache hit can use the network. A fully read-only cache is treated as administrator-provisioned and can run offline after its binary and manifest have been verified.
+
 Update with the launcher itself:
 
 ```bash
