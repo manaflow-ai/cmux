@@ -10,6 +10,12 @@ workers_dev = true
 [observability]
 enabled = true
 
+# Dev builds authenticate against the shared staging web deployment (the same
+# origin AuthEnvironment.irohBrokerBaseURL resolves for Debug builds), so the
+# control-plane DO must proxy discovery/mint upstream calls there too.
+[vars]
+CMUX_WEB_BASE_URL = "https://cmux-staging.vercel.app"
+
 [[durable_objects.bindings]]
 name = "TEAM_PRESENCE"
 class_name = "TeamPresence"
