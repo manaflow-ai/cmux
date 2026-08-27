@@ -56,6 +56,14 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
     if !metadata.is_file() {
         return Err(error("Managed enrollment file is unavailable."));
     }
+    #[cfg(not(unix))]
+    {
+        // The current non-Unix toolchain does not expose a stable file
+        // identity for checking a pathname before unlinking it. Do not read
+        // or return enrollment contents unless cleanup can be tied to the
+        // validated inode; callers must fail closed instead.
+        return Err(error("Managed enrollment file is unavailable."));
+    }
     let mut validation_error = None;
     #[cfg(unix)]
     {
@@ -414,6 +422,16 @@ mod tests {
                 .0,
             "Managed enrollment file is unavailable."
         );
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn non_unix_enrollment_fails_closed_before_accepting_contents() {
+        let path = fixture(&enrollment(), 0, "non-unix-identity");
+        let error = load_managed_enrollment_file(&path, NOW)
+            .expect_err("enrollment must be rejected when cleanup identity is unavailable");
+        assert_eq!(error.0, "Managed enrollment file is unavailable.");
+        assert!(Path::new(&path).exists(), "failed-closed enrollment remains for operator cleanup");
     }
 
     #[cfg(unix)]
