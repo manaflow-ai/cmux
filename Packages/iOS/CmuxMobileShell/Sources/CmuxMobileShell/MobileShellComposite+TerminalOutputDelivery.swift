@@ -19,6 +19,7 @@ extension MobileShellComposite {
 
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
         terminalActiveScreenUnknownSurfaceIDs.remove(renderGrid.surfaceID)
+        terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
         if renderGrid.full,
            terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID),
            let streamToken = terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] {
@@ -524,7 +525,8 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        if terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID[surfaceID] == streamToken {
+        if terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID[surfaceID] == streamToken,
+           queue.currentInFlightDelivery?.sourceRenderGridFrame?.full == true {
             // The UI calls this only after the full frame's verified
             // transaction has completed. End the shell-level legacy escape now
             // that a trustworthy grid is visible again.

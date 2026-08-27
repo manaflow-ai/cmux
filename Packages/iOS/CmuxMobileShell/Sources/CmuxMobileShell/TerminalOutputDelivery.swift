@@ -125,6 +125,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
     static let maximumPendingCount = 32
 
     private var inFlight = false
+    private var inFlightDelivery: TerminalOutputDelivery? = nil
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
 
@@ -136,9 +137,17 @@ struct TerminalOutputDeliveryQueue: Sendable {
         pending.count - pendingHeadIndex
     }
 
+    /// The delivery currently represented by the yielded chunk. The stream
+    /// token alone is shared by every queued chunk, so lifecycle code uses this
+    /// identity to wait for a particular full-frame acknowledgement.
+    var currentInFlightDelivery: TerminalOutputDelivery? {
+        inFlightDelivery
+    }
+
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> EnqueueResult {
         guard inFlight else {
             inFlight = true
+            inFlightDelivery = delivery
             return .immediate(delivery)
         }
         appendPending(delivery)
@@ -151,24 +160,28 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     mutating func completeInFlight() -> TerminalOutputDelivery? {
         guard inFlight else {
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: false)
             pendingHeadIndex = 0
             return nil
         }
         guard pendingHeadIndex < pending.count else {
             inFlight = false
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: true)
             pendingHeadIndex = 0
             return nil
         }
         let next = pending[pendingHeadIndex]
         pendingHeadIndex += 1
+        inFlightDelivery = next
         compactPendingStorageIfNeeded()
         return next
     }
 
     mutating func reset() {
         inFlight = false
+        inFlightDelivery = nil
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
     }
