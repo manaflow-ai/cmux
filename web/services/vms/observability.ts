@@ -108,7 +108,10 @@ export function captureVmProvisionOutcome(
     signal: AbortSignal.timeout(2_000),
   }).then(() => undefined).catch(() => undefined);
   try {
-    after(task);
+    // Callback form keeps the capture inside the request lifecycle; outside a
+    // request scope (tests) `after` throws and the fire-and-forget task above
+    // still runs.
+    after(() => task);
   } catch {
     void task;
   }
