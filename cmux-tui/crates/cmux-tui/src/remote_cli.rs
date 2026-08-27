@@ -953,18 +953,14 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
         let mut finished = connected.runtime.subscribe_finished();
+        let mut wait_error = None;
         if !crate::shutdown_requested() && !*finished.borrow() {
             #[cfg(unix)]
             tokio::select! {
                 biased;
                 shutdown = crate::wait_for_shutdown_signal_async() => {
                     if shutdown.is_err() {
-                        let signal_wait =
-                            tokio::task::spawn_blocking(crate::wait_for_shutdown_signal);
-                        tokio::select! {
-                            _ = signal_wait => {}
-                            _ = finished.changed() => {}
-                        }
+                        wait_error = shutdown.err();
                     }
                 }
                 _ = finished.changed() => {}
@@ -976,6 +972,9 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
         }
         forward.shutdown().await;
         let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        if let Some(error) = wait_error {
+            return Err(error.into());
+        }
         Ok::<_, anyhow::Error>(())
     });
     let shutdown = connected.runtime.shutdown();
