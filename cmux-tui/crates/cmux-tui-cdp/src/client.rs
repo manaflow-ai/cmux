@@ -2047,6 +2047,11 @@ mod tests {
     use super::*;
 
     fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
+        test_inner_with_capacity(256)
+    }
+
+    fn test_inner_with_capacity(capacity: usize) -> (Arc<Inner>, Receiver<Outbound>) {
+        let _ = capacity;
         let (outbound, outbound_rx) = channel();
         (
             Arc::new(Inner {
@@ -2062,6 +2067,23 @@ mod tests {
             }),
             outbound_rx,
         )
+    }
+
+    #[test]
+    fn outbound_commands_fail_fast_at_the_queue_bound() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(1);
+        let client = CdpClient { inner };
+
+        client.send_value(&json!({"id": 1})).unwrap();
+        let error = client.send_value(&json!({"id": 2})).unwrap_err();
+        assert!(error.to_string().contains("outbound queue is full"));
+    }
+
+    #[test]
+    fn screencast_ack_queue_overflow_closes_the_connection() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(0);
+        ack_screencast_frame(&inner, "session-1", 7);
+        assert!(inner.closed.load(Ordering::Acquire));
     }
 
     #[test]
