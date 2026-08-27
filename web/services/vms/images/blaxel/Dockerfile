@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-26-r6
+ENV CMUX_IMAGE_EPOCH=2026-08-27-r7
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -139,6 +139,13 @@ RUN mkdir -p /etc/cmux/icons \
   && cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png \
   && cp "$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)" /etc/cmux/icons/thunar.png \
   && test -s /etc/cmux/icons/thunar.png
+# The same slimming strips imlib2's image loaders down to ico.so, which leaves
+# tint2 unable to load the PNG launcher icons (the 2026-08-27 invisible-toolbar
+# regression: an empty dark sliver instead of the dock). Park the loaders under
+# /etc/cmux too; start-vnc.sh points IMLIB2_LOADER_PATH at them.
+RUN mkdir -p /etc/cmux/imlib2-loaders \
+  && cp /usr/lib/*/imlib2/*/loaders/*.so /etc/cmux/imlib2-loaders/ \
+  && ls /etc/cmux/imlib2-loaders | grep -q '^png'
 
 # Ghostty, pinned community .deb for trixie (github.com/mkasberg/ghostty-ubuntu;
 # no official upstream .deb exists). libgl1-mesa-dri above is the software GL its
