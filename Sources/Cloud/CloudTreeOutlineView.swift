@@ -252,6 +252,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
             guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+#if DEBUG
+            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
+#endif
             open(node)
         }
 
@@ -305,6 +308,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         private func toggle(_ node: CloudTreeNode) {
             guard let outlineView else { return }
+#if DEBUG
+            cmuxDebugLog("cloudTree.toggle kind=\(node.structureTag) expanded=\(outlineView.isItemExpanded(node))")
+#endif
             if outlineView.isItemExpanded(node) {
                 outlineView.collapseItem(node)
             } else {
