@@ -87,12 +87,23 @@ extension FeedCoordinator {
         for event: WorkstreamEvent,
         resolved: (ownerId: UUID, surfaceId: UUID?)?
     ) -> (ownerID: UUID, surfaceID: UUID?)? {
-        let claimedWorkspaceID = event.workspaceId.flatMap {
-            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        let claimedWorkspaceID: UUID?
+        if let rawWorkspaceID = event.workspaceId {
+            guard let workspaceID = UUID(
+                uuidString: rawWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            ) else {
+                return nil
+            }
+            claimedWorkspaceID = workspaceID
+        } else {
+            claimedWorkspaceID = nil
         }
-        if let claimedSurfaceID = event.surfaceId.flatMap({
-            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-        }) {
+        if let rawSurfaceID = event.surfaceId {
+            guard let claimedSurfaceID = UUID(
+                uuidString: rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            ) else {
+                return nil
+            }
             guard let live = AppDelegate.shared?.liveSurfaceOwner(
                 surfaceID: claimedSurfaceID,
                 preferredTabID: claimedWorkspaceID

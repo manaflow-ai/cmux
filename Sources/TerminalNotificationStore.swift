@@ -434,6 +434,9 @@ final class TerminalNotificationStore: ObservableObject {
     /// operations until they finish.
     private static let maxNotificationFeedbackTasks = 32
     private var notificationFeedbackTasks: [UUID: Task<Void, Never>] = [:]
+    /// FIFO admission order for the bounded task owner. Dictionary key order
+    /// is intentionally not used as an age signal.
+    private var notificationFeedbackTaskOrder: [UUID] = []
     /// Maps request-scoped feedback owners to their currently admitted task so
     /// a resolved Feed request can cancel only its own pending sound work.
     private var notificationFeedbackTaskIDsByOwner: [String: UUID] = [:]
@@ -501,8 +504,14 @@ final class TerminalNotificationStore: ObservableObject {
         // Sound preparation is serialized by NotificationSoundStager. Bound
         // the retained backlog so a burst cannot keep every title/body alive
         // for the lifetime of a slow conversion.
+        while notificationFeedbackTaskOrder.first.map({ notificationFeedbackTasks[$0] == nil }) == true {
+            notificationFeedbackTaskOrder.removeFirst()
+        }
         while notificationFeedbackTasks.count >= Self.maxNotificationFeedbackTasks,
-              let evictedID = notificationFeedbackTasks.keys.first {
+              let evictedID = notificationFeedbackTaskOrder.first {
+            // Drop the oldest admitted operation deterministically when the
+            // bounded owner is saturated; newer requests never cancel an
+            // arbitrary dictionary entry.
             removeNotificationFeedbackTask(taskID: evictedID)?.cancel()
         }
         let taskID = UUID()
@@ -514,6 +523,7 @@ final class TerminalNotificationStore: ObservableObject {
             await operation()
         }
         notificationFeedbackTasks[taskID] = task
+        notificationFeedbackTaskOrder.append(taskID)
         if let ownerID {
             notificationFeedbackTaskIDsByOwner[ownerID] = taskID
         }
@@ -525,12 +535,13 @@ final class TerminalNotificationStore: ObservableObject {
         guard let taskID = notificationFeedbackTaskIDsByOwner.removeValue(forKey: ownerID) else {
             return
         }
-        notificationFeedbackTasks.removeValue(forKey: taskID)?.cancel()
+        removeNotificationFeedbackTask(taskID: taskID)?.cancel()
     }
 
     private func removeNotificationFeedbackTask(
         taskID: UUID
     ) -> Task<Void, Never>? {
+        notificationFeedbackTaskOrder.removeAll { $0 == taskID }
         if let owner = notificationFeedbackTaskIDsByOwner.first(where: { $0.value == taskID })?.key {
             notificationFeedbackTaskIDsByOwner.removeValue(forKey: owner)
         }
@@ -538,7 +549,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func finishNotificationFeedback(taskID: UUID, ownerID: String?) {
-        notificationFeedbackTasks.removeValue(forKey: taskID)
+        _ = removeNotificationFeedbackTask(taskID: taskID)
         if let ownerID,
            notificationFeedbackTaskIDsByOwner[ownerID] == taskID {
             notificationFeedbackTaskIDsByOwner.removeValue(forKey: ownerID)
@@ -2509,41 +2520,48 @@ final class TerminalNotificationStore: ObservableObject {
                 let commandSubtitle = content.subtitle
                 let commandBody = content.body
 
-                let scheduleError = await nativeDeliveryHooks.schedule(request)
-                guard self.isNotificationDeliveryAdmitted(
-                    notificationID: notificationId,
-                    recordsNotification: effects.record
-                ) else {
-                    await NotificationSoundSettings.releasePendingNotificationSound(
-                        referenceID: notificationIdentifier
-                    )
-                    return
-                }
-                if let scheduleError {
-                    terminalNotificationLogger.error(
-                        "Failed to schedule notification error=\(scheduleError.localizedDescription, privacy: .private)"
-                    )
-                    await NotificationSoundSettings.deferPendingNotificationSound(
-                        referenceID: notificationIdentifier
-                    )
-                    guard self.isNotificationDeliveryAdmitted(
-                        notificationID: notificationId,
-                        recordsNotification: effects.record
-                    ) else { return }
-                    await nativeDeliveryHooks.playUnavailableFeedback(
-                        effects: effects,
-                        soundContext: notificationSoundContext
-                    )
-                } else if effects.command {
-                    guard self.isNotificationDeliveryAdmitted(
-                        notificationID: notificationId,
-                        recordsNotification: effects.record
-                    ) else { return }
-                    nativeDeliveryHooks.runCommand(
-                        title: commandTitle,
-                        subtitle: commandSubtitle,
-                        body: commandBody
-                    )
+                nativeDeliveryHooks.schedule(request) { [weak self] scheduleError in
+                    if let scheduleError {
+                        terminalNotificationLogger.error(
+                            "Failed to schedule notification error=\(scheduleError.localizedDescription, privacy: .private)"
+                        )
+                        Task {
+                            await NotificationSoundSettings.deferPendingNotificationSound(
+                                referenceID: notificationIdentifier
+                            )
+                        }
+                        Task { @MainActor [weak self] in
+                            guard let self,
+                                  self.isNotificationDeliveryAdmitted(
+                                      notificationID: notificationId,
+                                      recordsNotification: effects.record
+                                  ) else { return }
+                            self.enqueueNotificationFeedback(ownerID: fallbackOwnerID) {
+                                guard let self,
+                                      self.isNotificationDeliveryAdmitted(
+                                          notificationID: notificationId,
+                                          recordsNotification: effects.record
+                                      ) else { return }
+                                await nativeDeliveryHooks.playUnavailableFeedback(
+                                    effects: effects,
+                                    soundContext: notificationSoundContext
+                                )
+                            }
+                        }
+                    } else if effects.command {
+                        Task { @MainActor [weak self] in
+                            guard let self,
+                                  self.isNotificationDeliveryAdmitted(
+                                      notificationID: notificationId,
+                                      recordsNotification: effects.record
+                                  ) else { return }
+                            nativeDeliveryHooks.runCommand(
+                                title: commandTitle,
+                                subtitle: commandSubtitle,
+                                body: commandBody
+                            )
+                        }
+                    }
                 }
             }
         }

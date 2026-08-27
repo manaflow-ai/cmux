@@ -222,7 +222,8 @@ nonisolated enum NotificationSoundSettings {
         }
         guard !Task.isCancelled else { return false }
         return await MainActor.run {
-            guard playbackAdmission?() ?? true else { return false }
+            guard !Task.isCancelled,
+                  playbackAdmission?() ?? true else { return false }
             return playPreparedSound(prepared)
         }
     }

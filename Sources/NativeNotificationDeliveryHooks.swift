@@ -54,28 +54,23 @@ struct NativeNotificationDeliveryHooks: Sendable {
     }
 
     func schedule(
-        _ request: UNNotificationRequest
-    ) async -> Error? {
-        let result: Result<Void, UserNotificationCenterFailure>
-        if let scheduler {
-            result = await userNotificationCenter.add(request, using: scheduler)
-        } else {
-            result = await userNotificationCenter.add(request)
-        }
-        switch result {
-        case .success:
-            return nil
-        case .failure(let error):
-            return error
-        }
-    }
-
-    func schedule(
         _ request: UNNotificationRequest,
         completion: @escaping @Sendable (Error?) -> Void
     ) {
+        let scheduler = scheduler
         Task {
-            completion(await schedule(request))
+            let result: Result<Void, UserNotificationCenterFailure>
+            if let scheduler {
+                result = await userNotificationCenter.add(request, using: scheduler)
+            } else {
+                result = await userNotificationCenter.add(request)
+            }
+            switch result {
+            case .success:
+                completion(nil)
+            case .failure(let error):
+                completion(error)
+            }
         }
     }
 
