@@ -989,12 +989,98 @@ function installedPackage(pkg) {
   }
 }
 
+function normalizeRegistryValue(value) {
+  if (!configValueIsPresent(value)) return null;
+  let raw = String(value).trim();
+  // npm accepts quoted ini values and environment substitutions in .npmrc.
+  if (
+    raw.length >= 2 &&
+    ((raw.startsWith('"') && raw.endsWith('"')) ||
+      (raw.startsWith("'") && raw.endsWith("'")))
+  ) {
+    raw = raw.slice(1, -1).trim();
+  }
+  raw = raw.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] || "");
+  if (!configValueIsPresent(raw)) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function npmrcRegistry(contents) {
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+    const match = /^registry\s*=\s*(.*?)\s*$/i.exec(line);
+    if (!match) continue;
+    // Keep URL fragments intact, but accept the inline comment form used by
+    // npm's ini parser when a comment is separated by whitespace.
+    const value = match[1].replace(/\s+[;#].*$/, "").trim();
+    const registry = normalizeRegistryValue(value);
+    if (registry) return registry;
+  }
+  return null;
+}
+
+function readNpmrcRegistry(configPath) {
+  try {
+    return npmrcRegistry(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function npmRegistryFromConfigFiles() {
+  // npm's precedence is project, user, then global. A project file nearest to
+  // the launch cwd wins over broader project files, which also covers nested
+  // workspaces without requiring npm to be installed on PATH.
+  const projectPaths = [];
+  let directory = process.cwd();
+  while (true) {
+    projectPaths.push(path.join(directory, ".npmrc"));
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  for (const configPath of projectPaths) {
+    const registry = readNpmrcRegistry(configPath);
+    if (registry) return registry;
+  }
+
+  const userConfig = npmConfigEnvironmentValue("userconfig");
+  const userPaths = userConfig
+    ? [userConfig]
+    : [path.join(os.homedir(), ".npmrc")];
+  for (const configPath of userPaths) {
+    const registry = readNpmrcRegistry(configPath);
+    if (registry) return registry;
+  }
+
+  const nodePrefix = path.dirname(path.dirname(process.execPath));
+  const globalConfig = npmConfigEnvironmentValue("globalconfig");
+  const globalPaths = globalConfig
+    ? [globalConfig]
+    : [path.join(nodePrefix, "etc", "npmrc")];
+  if (process.platform !== "win32") globalPaths.push("/etc/npmrc");
+  for (const configPath of globalPaths) {
+    const registry = readNpmrcRegistry(configPath);
+    if (registry) return registry;
+  }
+  return null;
+}
+
 function registryBase() {
-  const raw =
-    process.env.CMUX_NPM_REGISTRY ||
-    process.env.npm_config_registry ||
-    "https://registry.npmjs.org";
-  return raw.replace(/\/+$/, "");
+  const explicit = normalizeRegistryValue(process.env.CMUX_NPM_REGISTRY);
+  if (explicit) return explicit;
+  const environment = normalizeRegistryValue(
+    npmConfigEnvironmentValue("registry")
+  );
+  if (environment) return environment;
+  return npmRegistryFromConfigFiles() || "https://registry.npmjs.org";
 }
 
 // Node's built-in fetch does not consume npm's proxy, CA, or client
@@ -1612,6 +1698,35 @@ function isManagedCacheVersion(versionRoot) {
   }
 }
 
+function stateVersionsByChannel() {
+  const versions = new Map();
+  const add = (state) => {
+    const channel = stateVersionChannel(state);
+    if (!channel) return;
+    let channelVersions = versions.get(channel);
+    if (!channelVersions) {
+      channelVersions = new Set();
+      versions.set(channel, channelVersions);
+    }
+    channelVersions.add(state.version);
+  };
+  add(readLegacyState());
+  const stateRoot = path.join(platformRoot(), "state");
+  let entries;
+  try {
+    entries = fs.readdirSync(stateRoot, { withFileTypes: true });
+  } catch {
+    return versions;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    try {
+      add(readStateFile(path.join(stateRoot, entry.name)));
+    } catch {}
+  }
+  return versions;
+}
+
 function pruneCache(keepVersion) {
   const lock = tryAcquireCacheLock();
   if (!lock) return false;
@@ -1621,10 +1736,33 @@ function pruneCache(keepVersion) {
       .readdirSync(root)
       .filter((version) => isManagedCacheVersion(path.join(root, version)))
       .sort(compareVersions);
-    const previous = managed
-      .filter((version) => version !== keepVersion)
-      .slice(-MAX_PREVIOUS_MANAGED_VERSIONS);
-    const keep = new Set([keepVersion, ...previous]);
+    const keep = new Set([keepVersion]);
+    // Every channel state file is a durable promise that its selected binary
+    // remains available for an offline launch. Keep those versions even when
+    // another channel is being updated.
+    for (const channelVersions of stateVersionsByChannel().values()) {
+      for (const version of channelVersions) keep.add(version);
+    }
+    // Retain one rollback predecessor per release channel. A global
+    // predecessor is insufficient when stable and nightly caches coexist.
+    const managedByChannel = new Map();
+    for (const version of managed) {
+      const channel = versionChannel(version);
+      if (!channel) continue;
+      let channelVersions = managedByChannel.get(channel);
+      if (!channelVersions) {
+        channelVersions = [];
+        managedByChannel.set(channel, channelVersions);
+      }
+      channelVersions.push(version);
+    }
+    for (const channelVersions of managedByChannel.values()) {
+      const predecessors = channelVersions
+        .filter((version) => version !== keepVersion)
+        .sort(compareVersions)
+        .slice(-MAX_PREVIOUS_MANAGED_VERSIONS);
+      for (const version of predecessors) keep.add(version);
+    }
     for (const version of fs.readdirSync(root)) {
       if (keep.has(version)) continue;
       const versionRoot = path.join(root, version);
