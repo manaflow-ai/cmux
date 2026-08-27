@@ -57,6 +57,11 @@ final class VerifiedTerminalReplayStateMachine {
     /// each negotiation gets a fresh budget.
     private var renegotiationHeldFrames = 0
     static let maxRenegotiationHeldFrames = 4
+    /// Set after a best-effort byte replacement. While active, fresh
+    /// render-grid deltas may use the legacy path so a host that cannot capture
+    /// a full frame does not make the consumer churn replay barriers forever.
+    /// The first successfully verified full frame clears this escape.
+    private var compatibilityFallbackActive = false
 
     private(set) var visibleSnapshot: MobileTerminalRenderGridVisualSnapshot?
 
@@ -243,6 +248,7 @@ final class VerifiedTerminalReplayStateMachine {
         lastVerifiedRenderRevision = transaction.renderRevision
         lastVerifiedStateSeq = transaction.stateSeq
         activeTransaction = nil
+        compatibilityFallbackActive = false
         phase = .ready
         return .reveal
     }
@@ -280,7 +286,37 @@ final class VerifiedTerminalReplayStateMachine {
         }
         nextTransactionID &+= 1
         activeTransaction = nil
+        compatibilityFallbackActive = true
         phase = .recovering
+    }
+
+    /// Admits a fresh partial frame through the compatibility path after a
+    /// best-effort byte replacement.
+    ///
+    /// The frame still has to belong to the current producer epoch and advance
+    /// every retained revision floor. It is deliberately not added to
+    /// ``visibleSnapshot``: only a later full frame can restore verified mode.
+    /// Returning `true` tells the mounted surface to apply the frame's VT bytes
+    /// without opening another replay barrier. This is an explicit escape from
+    /// a persistent capture failure; the mode ends when a full frame verifies.
+    func admitCompatibilityFallbackFrame(
+        _ frame: MobileTerminalRenderGridFrame
+    ) -> Bool {
+        guard compatibilityFallbackActive,
+              phase != .invalidated,
+              !frame.full,
+              !frame.renderEpoch.isEmpty,
+              frame.renderRevision > 0,
+              frame.renderEpoch == activeRenderEpoch,
+              activeTransaction == nil,
+              frame.renderRevision > lastVerifiedRenderRevision,
+              frame.renderRevision > (viewportRenderRevisionFloors[frame.renderEpoch] ?? 0)
+        else {
+            return false
+        }
+        lastVerifiedRenderRevision = frame.renderRevision
+        lastVerifiedStateSeq = max(lastVerifiedStateSeq, frame.stateSeq)
+        return true
     }
 
     /// Orders viewport acknowledgements against frame captures from the same
@@ -371,6 +407,7 @@ final class VerifiedTerminalReplayStateMachine {
         negotiationGeneration &+= 1
         lastVerifiedRenderRevision = 0
         lastVerifiedStateSeq = 0
+        compatibilityFallbackActive = false
     }
 
     private func isNewerThanPresentationFloor(

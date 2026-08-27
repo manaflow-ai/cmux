@@ -1419,6 +1419,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalInputDroppedRenderGridSurfaceIDs: Set<String>
     var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
+    /// Surfaces whose latest compatibility fallback omitted an authoritative
+    /// screen discriminator. Raw hybrid bytes stay suppressed until a
+    /// structured frame or metadata-bearing fallback resolves the state.
+    var terminalActiveScreenUnknownSurfaceIDs: Set<String>
+    /// Surfaces using the bounded legacy escape after an exhausted verified
+    /// replay. Render-grid deltas stay deliverable until a full frame is
+    /// actually processed and re-establishes the verified baseline.
+    var terminalCompatibilityFallbackSurfaceIDs: Set<String>
+    var terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID: [String: UUID]
     /// History-row count of the last DELIVERED screen-anchored frame. Deltas
     /// carry the producer's previous history count as their diff base; a
     /// mismatch here means a frame was missed and dirty-row patching can no
@@ -1822,6 +1831,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
+        self.terminalActiveScreenUnknownSurfaceIDs = []
+        self.terminalCompatibilityFallbackSurfaceIDs = []
+        self.terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
         self.terminalMirrorHydrationNeededSurfaceIDs = []
         self.terminalReplaySurfaceIDsInFlight = []
@@ -10680,6 +10692,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
+        terminalActiveScreenUnknownSurfaceIDs = []
+        terminalCompatibilityFallbackSurfaceIDs = []
+        terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
         terminalMirrorHydrationNeededSurfaceIDs = []
@@ -13085,8 +13100,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
+        if terminalOutputTransport == .hybrid,
+           terminalActiveScreenUnknownSurfaceIDs.contains(surfaceID) {
+            // Do not turn an unknown-screen compatibility fallback into a
+            // repeated replay request for every input acknowledgement. A
+            // structured render-grid frame must resolve the state first.
+            MobileDebugLog.anchormux(
+                "sync.input_seq_wait_unknown_screen surface=\(surfaceID) remote=\(remoteSeq)"
+            )
+            return
+        }
         let canRenderGridAdvancePendingSeq = terminalOutputTransport == .renderGrid
-            || (terminalOutputTransport == .hybrid && terminalActiveScreenBySurfaceID[surfaceID] == .alternate)
+            || (
+                terminalOutputTransport == .hybrid
+                    && !terminalActiveScreenUnknownSurfaceIDs.contains(surfaceID)
+                    && terminalActiveScreenBySurfaceID[surfaceID] == .alternate
+            )
         if canRenderGridAdvancePendingSeq, terminalEventListenerTask != nil {
             let previousPendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
             let targetSeq = max(remoteSeq, pendingTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0)
@@ -13315,7 +13344,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // in place for hybrid raw-byte suppression.
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
-        guard let activeScreen else { return }
+        guard let activeScreen else {
+            terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+            terminalActiveScreenUnknownSurfaceIDs.insert(surfaceID)
+            return
+        }
+        terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
         if terminalActiveScreenBySurfaceID[surfaceID] != activeScreen {
             terminalActiveScreenBySurfaceID[surfaceID] = activeScreen
             recordAppEvent(
@@ -13360,6 +13394,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
+        terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
+        terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
         cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
@@ -13415,6 +13451,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+        terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
+        terminalCompatibilityFallbackSurfaceIDs.remove(surfaceID)
+        terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         diagnosedTerminalOutputSurfaceIDs.remove(surfaceID)
@@ -13490,6 +13529,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
+        if terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID) {
+            // The UI's bounded compatibility mode owns ordering for this
+            // episode; dropping every delta here would re-enter replay churn
+            // before a full frame can reclaim verification.
+            return false
+        }
         if source == "replay",
            let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            renderGrid.stateSeq >= pendingSeq { return false }
@@ -13948,6 +13993,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.rebaseTerminalSequenceForCompatibilityFallback(
                         surfaceID: surfaceID
                     )
+                    self.terminalCompatibilityFallbackSurfaceIDs.insert(surfaceID)
+                    self.terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID.removeValue(
+                        forKey: surfaceID
+                    )
                 }
                 if accepted {
                     self.recordTerminalReplayFallbackScreen(
@@ -14188,10 +14237,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let debugSeq = payload.sequence ?? 0
         mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
         #endif
-        if terminalOutputTransport == .hybrid,
-           terminalActiveScreenBySurfaceID[surfaceID] == .alternate {
-            MobileDebugLog.anchormux("sync.bytes_suppressed_alt surface=\(surfaceID) bytes=\(bytes.count)")
-            return
+        if terminalOutputTransport == .hybrid {
+            if terminalActiveScreenUnknownSurfaceIDs.contains(surfaceID) {
+                // A compatibility fallback without a screen discriminator may
+                // have crossed an alternate/primary transition. Do not let raw
+                // bytes paint onto a guessed buffer; wait for a structured
+                // render-grid frame to resolve the state.
+                MobileDebugLog.anchormux(
+                    "sync.bytes_suppressed_unknown_screen surface=\(surfaceID) bytes=\(bytes.count)"
+                )
+                return
+            }
+            if terminalActiveScreenBySurfaceID[surfaceID] == .alternate {
+                MobileDebugLog.anchormux("sync.bytes_suppressed_alt surface=\(surfaceID) bytes=\(bytes.count)")
+                return
+            }
         }
         guard let seq = payload.sequence else {
             deliverTerminalBytes(bytes, surfaceID: surfaceID)

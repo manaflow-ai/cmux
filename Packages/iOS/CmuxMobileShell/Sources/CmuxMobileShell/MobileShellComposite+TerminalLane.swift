@@ -116,6 +116,10 @@ extension MobileShellComposite {
             return .stop
         }
         if terminalOutputTransport == .hybrid,
+           terminalActiveScreenUnknownSurfaceIDs.contains(surfaceID) {
+            return .suspendUntilAuthoritativeOutput
+        }
+        if terminalOutputTransport == .hybrid,
            terminalActiveScreenBySurfaceID[surfaceID] == .alternate {
             return .accepted(outputReady: true)
         }

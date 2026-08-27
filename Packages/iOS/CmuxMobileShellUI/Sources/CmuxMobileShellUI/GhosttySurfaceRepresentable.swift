@@ -532,10 +532,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
-                    switch terminalOutputApplicationPath(
+                    var outputApplicationPath = terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID
-                    ) {
+                    )
+                    if outputApplicationPath == .verifiedReplay,
+                       let frame = chunk.sourceRenderGridFrame,
+                       self.verifiedReplayState.admitCompatibilityFallbackFrame(frame) {
+                        // A best-effort compatibility replacement leaves the
+                        // verifier without a trustworthy cell baseline. Keep
+                        // subsequent deltas live through the legacy VT path
+                        // until a full frame can verify and reclaim it.
+                        outputApplicationPath = .legacy
+                        MobileDebugLog.anchormux(
+                            "verified_replay.compatibility_delta surface=\(surfaceID) " +
+                                "revision=\(frame.renderRevision)"
+                        )
+                    }
+                    switch outputApplicationPath {
                     case .verifiedReplay:
                         guard let frame = chunk.sourceRenderGridFrame else {
                             // Routing is supposed to reject this shape before
