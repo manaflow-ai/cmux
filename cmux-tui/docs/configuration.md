@@ -21,13 +21,12 @@ Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
 Selection colors are resolved in this order: explicit cmux-tui config, Ghostty config keys `selection-background` and `selection-foreground`, then built-in defaults. Ghostty configs are read from `$XDG_CONFIG_HOME/ghostty/config` (when set), `~/.config/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`; later entries in the file win.
 
-`theme.chrome` controls cmux-owned interface colors. `auto` selects light or dark chrome from this client's host background reported by OSC 11 and falls back to dark when no reply is available. `light` and `dark` select a fixed chrome theme. Host OSC 10/11 replies are local compatibility input for the attaching frontend; they do not replace shared session or application-authored terminal defaults.
+`theme.chrome` controls cmux-owned interface colors. `auto` selects light or dark chrome from this client's host background reported by OSC 11, then the configured Ghostty terminal background when the host does not report one, and uses dark when neither is available. `light` and `dark` select a fixed chrome theme. Host OSC 10/11 replies are local compatibility input for the attaching frontend; they do not replace shared session or application-authored terminal defaults.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `theme.chrome` | `auto`, `light`, or `dark` | `auto` | cmux-owned chrome theme for this client |
 | `theme.selection_background` | color | `#3a3a3a`, seeded from Ghostty when present | Selection background in PTY panes |
-| `theme.chrome` | `"auto"`, `"light"`, or `"dark"` | `"auto"` | Selects the chrome palette; `auto` follows the terminal/system appearance |
 | `theme.selection_foreground` | color or null | `null`, seeded from Ghostty when present | Selection foreground; `null` keeps each cell's foreground |
 | `theme.sidebar_rail` | color | `110` | Rail color for the active workspace rows |
 | `theme.sidebar_active_bg` | color | `236` | Background for the active workspace rows |
