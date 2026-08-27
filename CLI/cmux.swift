@@ -798,6 +798,7 @@ final class ClaudeHookSessionStore {
             let active = state.activeSessionsBySurface[normalizedSurfaceId]
             let existing = state.sessions[normalizedSessionId]
             let normalizedSource = normalizeOptional(source)?.lowercased()
+            let startsReadyConversation = normalizedSource == "startup" || normalizedSource == "clear"
             let replacesCurrentOwner = active?.sessionId != normalizedSessionId
             let acceptsReplacement = active?.allowsNewSessionReplacement == true
             let incomingProcessIsNewer = active
@@ -829,7 +830,17 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: false,
-                agentLifecycle: .running,
+                // Mirrors what the journal reduces this same event to. A
+                // SessionStart is not a turn start: the agent is sitting at an
+                // empty prompt. Writing `.running` here made the record and the
+                // reduced lifecycle disagree about one event, milliseconds
+                // apart, and the record is what every out-of-app reader sees.
+                //
+                // Only a genuinely fresh conversation asserts ready; `resume`
+                // and `compact` continue a session whose phase already stands,
+                // and overwriting it would blank a pending question or a spent
+                // quota the moment the agent came back.
+                agentLifecycle: startsReadyConversation ? .idle : nil,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
