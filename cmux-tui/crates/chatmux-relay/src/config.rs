@@ -369,12 +369,13 @@ mod tests {
 
         let (sender, receiver) = mpsc::channel();
         let worker_path = path.clone();
-        std::thread::spawn(move || {
+        let worker = std::thread::spawn(move || {
             sender.send(load_config_checked(&worker_path)).unwrap();
         });
         let result = receiver
             .recv_timeout(Duration::from_secs(1))
             .expect("FIFO config validation must not block");
+        worker.join().expect("FIFO config worker should exit");
         assert!(result.is_err(), "FIFO must be rejected as non-regular");
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
