@@ -7901,34 +7901,56 @@ fn sidebar_layout_for_state(
         })
         .collect::<Vec<_>>();
 
+    // Mark collapsed entries first, then retain once. Repeated `remove(index)`
+    // calls shift every later entry and make narrow layouts unnecessarily
+    // quadratic. `min_by_key` still chooses the first entry on equal priority,
+    // so the configured order remains the tie breaker.
+    let mut retained = vec![true; specs.len()];
+    let mut retained_count = specs.len();
     while width
-        < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
+        < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
     {
-        let Some((index, _)) = specs.iter().enumerate().min_by_key(|(_, spec)| spec.priority)
+        let Some((index, _)) = specs
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| retained[*index])
+            .min_by_key(|(_, spec)| spec.priority)
         else {
             break;
         };
-        specs.remove(index);
+        retained[index] = false;
+        retained_count -= 1;
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
+        while specs
+            .iter()
+            .enumerate()
+            .any(|(index, spec)| retained[index] && previous.rail(spec.kind).is_none())
             && width
                 < MIN_CONTENT_WIDTH
-                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
+                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
                     .saturating_add(RAIL_REVEAL_HYSTERESIS)
         {
             let Some((index, _)) = specs
                 .iter()
                 .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
+                .filter(|(index, spec)| retained[*index] && previous.rail(spec.kind).is_none())
                 .min_by_key(|(_, spec)| spec.priority)
             else {
                 break;
             };
-            specs.remove(index);
+            retained[index] = false;
+            retained_count -= 1;
         }
     }
+
+    let mut index = 0;
+    specs.retain(|_| {
+        let keep = retained[index];
+        index += 1;
+        keep
+    });
 
     let mut layout = SidebarLayout::default();
     let mut x = 0u16;
@@ -26257,6 +26279,37 @@ mod tests {
         assert_eq!(narrow.tabs, None);
         assert_eq!(narrow.workspace.map(|rect| rect.width), Some(10));
         assert_eq!(narrow.content.width, 40);
+    }
+
+    #[test]
+    fn sidebar_collapse_equal_priorities_keep_first_configured_rail() {
+        let mut config = Config::default();
+        config.sidebar.views_explicit = true;
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 18, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
+        ];
+        for view in &mut config.sidebar.views {
+            view.collapse_priority = 10;
+        }
+
+        // 50 columns cannot fit three minimum rails and the content area.
+        // Equal priorities must collapse the first configured rail, matching
+        // the previous `min_by_key` plus `remove(index)` behavior.
+        let layout = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (50, 30),
+            SidebarWidthOverrides::default(),
+        );
+        assert_eq!(layout.machine, None);
+        assert_eq!(
+            layout.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
     }
 
     #[test]
