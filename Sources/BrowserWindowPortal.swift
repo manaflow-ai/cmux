@@ -694,6 +694,15 @@ final class WindowBrowserHostView: NSView {
             return false
         }
 
+        // The portal is installed above the SwiftUI content, so its cached slot
+        // frames can lag the native divider while a right-sidebar resize is in
+        // flight. Ask the live view hierarchy underneath the portal first. This
+        // delegates ownership to the actual synchronous tracker whenever the
+        // AppKit sidebar path is active, independent of portal geometry timing.
+        if shouldPassThroughToLiveSidebarDivider(at: point) {
+            return true
+        }
+
         // Browser portal host sits above SwiftUI content. Allow pointer/mouse events
         // to reach the SwiftUI sidebar divider resizer zone.
         let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
@@ -762,6 +771,37 @@ final class WindowBrowserHostView: NSView {
         let trailingGap = bounds.maxX - dividerX
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
+    }
+
+    private func shouldPassThroughToLiveSidebarDivider(at point: NSPoint) -> Bool {
+        guard let rootView = dividerSearchRootView(),
+              let hostIndex = rootView.subviews.firstIndex(where: { $0 === self }),
+              let window else {
+            return false
+        }
+
+        let windowPoint = convert(point, to: nil)
+        for sibling in rootView.subviews[..<hostIndex].reversed() {
+            guard sibling.window === window,
+                  !sibling.isHidden,
+                  sibling.alphaValue > 0 else {
+                continue
+            }
+            let pointInSibling = sibling.convert(windowPoint, from: nil)
+            guard sibling.bounds.contains(pointInSibling),
+                  let hitView = sibling.hitTest(pointInSibling) else {
+                continue
+            }
+
+            var current: NSView? = hitView
+            while let view = current {
+                if view is SidebarDividerTrackingView {
+                    return true
+                }
+                current = view.superview
+            }
+        }
+        return false
     }
 
     private func updateDividerCursor(
@@ -3320,7 +3360,14 @@ final class WindowBrowserPortal: NSObject {
             containerView.setSearchOverlay(nil)
             containerView.setDesignComposer(nil)
             containerView.setOmnibarSuggestions(nil)
-            containerView.clearPaneDropContext()
+            if entry.visibleInUI {
+                // Anchor/geometry recovery can hide a still-owned slot for one
+                // pass. Keep its Dock classification through that transient
+                // state; an explicit visibility update or release clears it.
+                containerView.setPaneDropContext(nil)
+            } else {
+                containerView.clearPaneDropContext()
+            }
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
             // Tab/workspace visibility changes should hide the portal slot without forcing
@@ -3765,7 +3812,13 @@ final class WindowBrowserPortal: NSObject {
         containerView.setDesignComposer(shouldHide ? nil : entry.designComposer)
         containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
         if containerView.isHidden {
-            containerView.clearPaneDropContext()
+            if entry.visibleInUI {
+                // The hidden slot may be waiting for a transient anchor/window
+                // recovery. Preserve ownership until the slot is truly released.
+                containerView.setPaneDropContext(nil)
+            } else {
+                containerView.clearPaneDropContext()
+            }
         } else {
             containerView.setPaneDropContext(entry.paneDropContext)
         }
