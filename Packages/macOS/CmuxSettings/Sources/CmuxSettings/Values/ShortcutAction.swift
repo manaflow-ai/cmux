@@ -39,6 +39,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
+    /// Shows the beta-gated Source Control panel in the right sidebar.
     case switchRightSidebarToSourceControl
     case triggerFlash
 

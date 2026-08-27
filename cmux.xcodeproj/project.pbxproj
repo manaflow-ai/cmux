@@ -1250,6 +1250,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */; };
 		FE001107 /* GitFileStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001007 /* GitFileStatus.swift */; };
 		FE001106 /* GitStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001006 /* GitStatusProvider.swift */; };
+		10202A000000000000000009 /* GitStatusSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000A /* GitStatusSnapshot.swift */; };
+		10202A00000000000000000B /* GitStatusSnapshotEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000C /* GitStatusSnapshotEntry.swift */; };
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		8561A0018561A0018561A001 /* GlobalSearchInputOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */; };
@@ -1843,10 +1845,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
+		10202A00000000000000000D /* RightSidebarDockPanelContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000E /* RightSidebarDockPanelContent.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
 		10202A000000000000000001 /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000002 /* RightSidebarMode.swift */; };
 		46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */; };
 		468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */; };
+		10202A00000000000000000F /* RightSidebarPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000010 /* RightSidebarPanelContext.swift */; };
 		10202A000000000000000003 /* RightSidebarPanelDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */; };
 		10202A000000000000000005 /* RightSidebarPanelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000006 /* RightSidebarPanelRegistry.swift */; };
 		10202B000000000000000001 /* RightSidebarPanelRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202B000000000000000002 /* RightSidebarPanelRegistryTests.swift */; };
@@ -2184,7 +2188,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		F87920000000000000000001 /* SocketReloadConfigurationWaiterAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000002 /* SocketReloadConfigurationWaiterAdmission.swift */; };
 		F87920000000000000000003 /* SocketReloadConfigurationWaiterLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000004 /* SocketReloadConfigurationWaiterLease.swift */; };
+		10202A000000000000000011 /* SourceControlGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000012 /* SourceControlGroup.swift */; };
+		10202A000000000000000013 /* SourceControlGroupSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000014 /* SourceControlGroupSection.swift */; };
+		10202A000000000000000015 /* SourceControlGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000016 /* SourceControlGroupView.swift */; };
+		10202A000000000000000017 /* SourceControlKeyboardFocusBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000018 /* SourceControlKeyboardFocusBridge.swift */; };
+		10202A000000000000000019 /* SourceControlKeyboardFocusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000001A /* SourceControlKeyboardFocusView.swift */; };
 		10202A000000000000000007 /* SourceControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000008 /* SourceControlPanelView.swift */; };
+		10202A00000000000000001B /* SourceControlResourceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000001C /* SourceControlResourceRow.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A6AC72050000000000000001 /* SpinnerCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72050000000000000002 /* SpinnerCard.swift */; };
 		A6AC72090000000000000001 /* SpinnerEnergy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72090000000000000002 /* SpinnerEnergy.swift */; };
@@ -4071,6 +4081,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceState.swift; sourceTree = "<group>"; };
 		FE001007 /* GitFileStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitFileStatus.swift; sourceTree = "<group>"; };
 		FE001006 /* GitStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusProvider.swift; sourceTree = "<group>"; };
+		10202A00000000000000000A /* GitStatusSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshot.swift; sourceTree = "<group>"; };
+		10202A00000000000000000C /* GitStatusSnapshotEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshotEntry.swift; sourceTree = "<group>"; };
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchInputOwnershipTests.swift; sourceTree = "<group>"; };
@@ -4656,10 +4668,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
+		10202A00000000000000000E /* RightSidebarDockPanelContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarDockPanelContent.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
 		10202A000000000000000002 /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarMode.swift; sourceTree = "<group>"; };
 		46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutEntry.swift; sourceTree = "<group>"; };
 		468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutMatcher.swift; sourceTree = "<group>"; };
+		10202A000000000000000010 /* RightSidebarPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelContext.swift; sourceTree = "<group>"; };
 		10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelDescriptor.swift; sourceTree = "<group>"; };
 		10202A000000000000000006 /* RightSidebarPanelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelRegistry.swift; sourceTree = "<group>"; };
 		10202B000000000000000002 /* RightSidebarPanelRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelRegistryTests.swift; sourceTree = "<group>"; };
@@ -4994,7 +5008,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		F87920000000000000000002 /* SocketReloadConfigurationWaiterAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketReloadConfigurationWaiterAdmission.swift; sourceTree = "<group>"; };
 		F87920000000000000000004 /* SocketReloadConfigurationWaiterLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketReloadConfigurationWaiterLease.swift; sourceTree = "<group>"; };
+		10202A000000000000000012 /* SourceControlGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlGroup.swift; sourceTree = "<group>"; };
+		10202A000000000000000014 /* SourceControlGroupSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlGroupSection.swift; sourceTree = "<group>"; };
+		10202A000000000000000016 /* SourceControlGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlGroupView.swift; sourceTree = "<group>"; };
+		10202A000000000000000018 /* SourceControlKeyboardFocusBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlKeyboardFocusBridge.swift; sourceTree = "<group>"; };
+		10202A00000000000000001A /* SourceControlKeyboardFocusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlKeyboardFocusView.swift; sourceTree = "<group>"; };
 		10202A000000000000000008 /* SourceControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlPanelView.swift; sourceTree = "<group>"; };
+		10202A00000000000000001C /* SourceControlResourceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlResourceRow.swift; sourceTree = "<group>"; };
 		A6AC72050000000000000002 /* SpinnerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerCard.swift; sourceTree = "<group>"; };
 		A6AC72090000000000000002 /* SpinnerEnergy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerEnergy.swift; sourceTree = "<group>"; };
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
@@ -7579,6 +7599,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE001002 /* FileExplorerView.swift */,
 				FE001007 /* GitFileStatus.swift */,
 				FE001006 /* GitStatusProvider.swift */,
+				10202A00000000000000000A /* GitStatusSnapshot.swift */,
+				10202A00000000000000000C /* GitStatusSnapshotEntry.swift */,
 				469201000000000000000007 /* SessionDragCoordinator.swift */,
 				46920100000000000000000D /* SessionDragSource.swift */,
 				46920100000000000000000B /* SessionDragSourceView.swift */,
@@ -7633,12 +7655,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				10202A000000000000000002 /* RightSidebarMode.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */,
+				10202A000000000000000010 /* RightSidebarPanelContext.swift */,
 				10202A000000000000000006 /* RightSidebarPanelRegistry.swift */,
+				10202A00000000000000000E /* RightSidebarDockPanelContent.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
 				46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */,
 				468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
 				10202A000000000000000008 /* SourceControlPanelView.swift */,
+				10202A000000000000000012 /* SourceControlGroup.swift */,
+				10202A000000000000000014 /* SourceControlGroupSection.swift */,
+				10202A000000000000000016 /* SourceControlGroupView.swift */,
+				10202A000000000000000018 /* SourceControlKeyboardFocusBridge.swift */,
+				10202A00000000000000001A /* SourceControlKeyboardFocusView.swift */,
+				10202A00000000000000001C /* SourceControlResourceRow.swift */,
 				DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */,
 				DCDC1000000000000000B004 /* DockConfigFile.swift */,
 				DCDC1000000000000000B006 /* DockConfigIdentity.swift */,
@@ -9782,6 +9812,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */,
 				FE001107 /* GitFileStatus.swift in Sources */,
 				FE001106 /* GitStatusProvider.swift in Sources */,
+				10202A000000000000000009 /* GitStatusSnapshot.swift in Sources */,
+				10202A00000000000000000B /* GitStatusSnapshotEntry.swift in Sources */,
 					3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 					8561A0058561A0058561A005 /* GlobalSearchKeyEvent+QueryEditing.swift in Sources */,
@@ -10171,10 +10203,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7C5FAF2145342F395DB4C40 /* RestoredAgentLifecycleCoordinator.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
+				10202A00000000000000000D /* RightSidebarDockPanelContent.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
 				10202A000000000000000001 /* RightSidebarMode.swift in Sources */,
 				46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */,
 				468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */,
+				10202A00000000000000000F /* RightSidebarPanelContext.swift in Sources */,
 				10202A000000000000000003 /* RightSidebarPanelDescriptor.swift in Sources */,
 				10202A000000000000000005 /* RightSidebarPanelRegistry.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
@@ -10413,7 +10447,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A5001226 /* SocketControlMode+Display.swift in Sources */,
 				F87920000000000000000001 /* SocketReloadConfigurationWaiterAdmission.swift in Sources */,
 				F87920000000000000000003 /* SocketReloadConfigurationWaiterLease.swift in Sources */,
+				10202A000000000000000011 /* SourceControlGroup.swift in Sources */,
+				10202A000000000000000013 /* SourceControlGroupSection.swift in Sources */,
+				10202A000000000000000015 /* SourceControlGroupView.swift in Sources */,
+				10202A000000000000000017 /* SourceControlKeyboardFocusBridge.swift in Sources */,
+				10202A000000000000000019 /* SourceControlKeyboardFocusView.swift in Sources */,
 				10202A000000000000000007 /* SourceControlPanelView.swift in Sources */,
+				10202A00000000000000001B /* SourceControlResourceRow.swift in Sources */,
 					A6AC72050000000000000001 /* SpinnerCard.swift in Sources */,
 					A6AC72090000000000000001 /* SpinnerEnergy.swift in Sources */,
 					5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */,

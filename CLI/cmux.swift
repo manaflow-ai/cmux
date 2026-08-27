@@ -17957,11 +17957,11 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock|source-control>
+              set|set-mode <files|find|vault|sessions|feed|dock|source-control>
                                              Show, switch mode, and focus
               mode                           Print {"visible":bool,"mode":string}
               files|find|vault|sessions|feed|dock|source-control
-                                             Alias for show + set + focus
+                                             Alias for show + set|set-mode + focus
 
             Flags:
               --workspace <id|ref|index>     Target the window containing a workspace
@@ -36907,7 +36907,7 @@ export default CMUXSessionRestore;
           restore-session
           \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
-          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--file <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -37035,7 +37035,7 @@ export default CMUXSessionRestore;
           display-message [-p|--print] <text>
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
-          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--file <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

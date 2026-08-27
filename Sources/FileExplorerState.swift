@@ -36,6 +36,11 @@ final class FileExplorerState: ObservableObject {
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
 
+    /// Registry used to resolve mode availability and persistence fallbacks for
+    /// this window. Keeping it on the state object gives all sidebar consumers
+    /// one injected metadata source instead of a process-global switchboard.
+    let panelRegistry: RightSidebarPanelRegistry
+
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {
         get { storedMode }
@@ -46,7 +51,8 @@ final class FileExplorerState: ObservableObject {
         storedCustomSidebarName
     }
 
-    init() {
+    init(panelRegistry: RightSidebarPanelRegistry = RightSidebarPanelRegistry()) {
+        self.panelRegistry = panelRegistry
         let defaults = UserDefaults.standard
         self.isVisible = defaults.bool(forKey: "fileExplorer.isVisible")
         let storedWidth = defaults.double(forKey: "fileExplorer.width")
@@ -58,7 +64,9 @@ final class FileExplorerState: ObservableObject {
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
         let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
-        self.storedMode = Self.availableMode(storedMode, defaults: defaults)
+        self.storedMode = panelRegistry.descriptor(for: storedMode)?.isAvailable(defaults) == true
+            ? storedMode
+            : .files
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
     }
 
@@ -100,7 +108,7 @@ final class FileExplorerState: ObservableObject {
     }
 
     private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults = .standard) {
-        let nextMode = Self.availableMode(mode, defaults: defaults)
+        let nextMode = availableMode(mode, defaults: defaults)
         guard storedMode != nextMode else {
             if defaults.string(forKey: Self.modeKey) != nextMode.rawValue {
                 defaults.set(nextMode.rawValue, forKey: Self.modeKey)
@@ -111,10 +119,14 @@ final class FileExplorerState: ObservableObject {
         defaults.set(nextMode.rawValue, forKey: Self.modeKey)
     }
 
-    private static func availableMode(
+    private func availableMode(
         _ mode: RightSidebarMode,
         defaults: UserDefaults
     ) -> RightSidebarMode {
-        return mode.isAvailable(defaults: defaults) ? mode : .files
+        guard let descriptor = panelRegistry.descriptor(for: mode),
+              descriptor.isAvailable(defaults) else {
+            return .files
+        }
+        return mode
     }
 }

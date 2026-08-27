@@ -756,8 +756,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: beta,
                 keywords: ["betaFeatures.sourceControl", "source control", "git", "scm", "commit", "stage", "diff"],
-                defaultValue: BetaFeaturesCatalogSection().sourceControl.defaultValue,
-                defaultsKey: BetaFeaturesCatalogSection().sourceControl.userDefaultsKey
+                defaultValue: RightSidebarBetaFeatureSettings.defaultSourceControlEnabled,
+                defaultsKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",

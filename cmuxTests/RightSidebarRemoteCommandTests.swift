@@ -159,13 +159,24 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar", "Usage: right_sidebar"),
             ("right_sidebar set", "Usage: right_sidebar set"),
             ("right_sidebar set unknown", "Unknown right sidebar mode"),
-            ("right_sidebar set-mode source-control", "sourceControl.beta.enabled"),
+            ("right_sidebar set-mode source-control", "enable Source Control in Settings"),
             ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
             ("right_sidebar files --no-focus", "--no-focus is only valid"),
             ("right_sidebar --bad", "Unknown right sidebar option"),
             ("right_sidebar show --tab not-a-uuid", "Invalid right sidebar --tab id"),
             ("right_sidebar show --window", "--window requires an id"),
         ]
+
+        let defaults = UserDefaults.standard
+        let previousSourceControlEnabled = defaults.object(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+        defer {
+            if let previousSourceControlEnabled {
+                defaults.set(previousSourceControlEnabled, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+            } else {
+                defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+            }
+        }
 
         for (line, expectedMessage) in invalidCases {
             switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line) {

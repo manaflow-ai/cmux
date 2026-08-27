@@ -57,6 +57,7 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    private weak var sourceControlHost: SourceControlKeyboardFocusView?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -139,6 +140,11 @@ final class MainWindowFocusController {
     func registerDockHost(_ host: DockKeyboardFocusView) {
         dockHost = host
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
+    }
+
+    func registerSourceControlHost(_ host: SourceControlKeyboardFocusView) {
+        sourceControlHost = host
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .sourceControl)
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
@@ -236,6 +242,9 @@ final class MainWindowFocusController {
             return true
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if sourceControlHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         return false
@@ -745,7 +754,7 @@ final class MainWindowFocusController {
         if mode == .find {
             return .searchField
         }
-        if mode == .feed || mode == .dock {
+        if mode == .feed || mode == .dock || mode == .sourceControl {
             return focusFirstItem ? .firstItem : .host
         }
         return .host
@@ -772,6 +781,12 @@ final class MainWindowFocusController {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
+        }
+        if mode == .sourceControl {
+            if target == .firstItem {
+                return sourceControlHost?.focusFirstItemFromCoordinator() == true
+            }
+            return sourceControlHost?.focusHostFromCoordinator() == true
         }
         // Vault and future host-backed panels use the fallback right-sidebar
         // responder. The coordinator still records the requested mode.
@@ -838,6 +853,9 @@ final class MainWindowFocusController {
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
+        }
+        if sourceControlHost?.ownsKeyboardFocus(responder) == true {
+            return .sourceControl
         }
         return nil
     }

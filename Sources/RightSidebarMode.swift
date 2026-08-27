@@ -23,12 +23,10 @@ struct RightSidebarMode: RawRepresentable, CaseIterable, Codable, Hashable, Iden
     static let sessions = Self("sessions")
     static let feed = Self("feed")
     static let dock = Self("dock")
-    // Source Control's identifier is declared with its panel descriptor so a
-    // future panel can add its ID alongside its content rather than editing a
-    // central enum.
+    static let sourceControl = Self("sourceControl")
 
     static var allCases: [RightSidebarMode] {
-        RightSidebarPanelRegistry.descriptors().compactMap { RightSidebarMode(rawValue: $0.id) }
+        RightSidebarPanelRegistry().descriptors.compactMap { RightSidebarMode(rawValue: $0.id) }
     }
 
     var id: String { rawValue }
@@ -50,23 +48,23 @@ struct RightSidebarMode: RawRepresentable, CaseIterable, Codable, Hashable, Iden
     }
 
     var label: String {
-        RightSidebarPanelRegistry.descriptor(for: self)?.title ?? rawValue
+        RightSidebarPanelRegistry().descriptor(for: self)?.title ?? rawValue
     }
 
     var symbolName: String {
-        RightSidebarPanelRegistry.descriptor(for: self)?.symbolName ?? "square"
+        RightSidebarPanelRegistry().descriptor(for: self)?.symbolName ?? "square"
     }
 
     var shortcutAction: KeyboardShortcutSettings.Action? {
-        RightSidebarPanelRegistry.descriptor(for: self)?.shortcutAction
+        RightSidebarPanelRegistry().descriptor(for: self)?.shortcutAction
     }
 
     var canOpenAsPane: Bool {
-        RightSidebarPanelRegistry.descriptor(for: self)?.supportsTearOffPane == true
+        RightSidebarPanelRegistry().descriptor(for: self)?.supportsTearOffPane == true
     }
 
     static var paneModes: [RightSidebarMode] {
-        RightSidebarPanelRegistry.descriptors().compactMap { descriptor in
+        RightSidebarPanelRegistry().descriptors.compactMap { descriptor in
             guard descriptor.supportsTearOffPane else { return nil }
             return RightSidebarMode(rawValue: descriptor.id)
         }

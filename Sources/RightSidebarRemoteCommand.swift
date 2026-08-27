@@ -133,12 +133,12 @@ extension RightSidebarRemoteRequest {
             return .success(.init(command: .getState, target: target))
         case "set", "set-mode":
             guard positional.count == 2 else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set|set-mode <files|find|vault|sessions|feed|dock|source-control> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             let rawMode = positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             if let mode = RightSidebarMode.from(cliArgument: rawMode) {
                 if mode == .sourceControl, !mode.isAvailable() {
-                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.sourceControlUnavailable", defaultValue: "ERROR: Right sidebar mode 'source-control' is unavailable; enable sourceControl.beta.enabled")))
+                    return .failure(.init(message: "ERROR: Right sidebar mode 'source-control' is unavailable; enable Source Control in Settings"))
                 }
                 return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
             }
@@ -152,7 +152,7 @@ extension RightSidebarRemoteRequest {
             }
             if let mode = RightSidebarMode.from(cliArgument: action) {
                 if mode == .sourceControl, !mode.isAvailable() {
-                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.sourceControlUnavailable", defaultValue: "ERROR: Right sidebar mode 'source-control' is unavailable; enable sourceControl.beta.enabled")))
+                    return .failure(.init(message: "ERROR: Right sidebar mode 'source-control' is unavailable; enable Source Control in Settings"))
                 }
                 return .success(.init(command: .setMode(mode, focus: true), target: target))
             }

@@ -711,6 +711,11 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    /// The latest immutable Git status result, including entries that are safe
+    /// to render as files without probing the filesystem from a view body.
+    /// Projection kept alongside ``gitStatusByPath``. The published map remains
+    /// the store's single observation signal for existing Files consumers.
+    private(set) var gitStatusSnapshot: GitStatusSnapshot = .empty
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
@@ -753,6 +758,7 @@ final class FileExplorerStore: ObservableObject {
     private var remoteHomeResolutionKey: String?
 
     private let gitStatusProvider: GitStatusProvider
+    private var gitStatusRequestGeneration: UInt64 = 0
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
         self.gitStatusProvider = gitStatusProvider
@@ -822,8 +828,15 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func refreshGitStatus() {
+        gitStatusRequestGeneration &+= 1
+        let requestGeneration = gitStatusRequestGeneration
+        let requestedRootPath = rootPath
+        let requestedWorkspaceRootIdentity = workspaceRootIdentity
+        let requestedProviderIdentity = provider.map(ObjectIdentifier.init)
+        gitStatusByPath = [:]
+        gitStatusSnapshot = .empty
+
         guard !rootPath.isEmpty else {
-            gitStatusByPath = [:]
             return
         }
         let path = rootPath
@@ -834,20 +847,36 @@ final class FileExplorerStore: ObservableObject {
             let opts = sshProvider.sshOptions
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatusSSH(
+                let snapshot = gitStatusProvider.fetchSnapshotSSH(
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    guard let self,
+                          self.gitStatusRequestGeneration == requestGeneration,
+                          self.rootPath == requestedRootPath,
+                          self.workspaceRootIdentity == requestedWorkspaceRootIdentity,
+                          self.provider.map(ObjectIdentifier.init) == requestedProviderIdentity else {
+                        return
+                    }
+                    self.gitStatusSnapshot = snapshot
+                    self.gitStatusByPath = snapshot.statusesByPath
                 }
             }
         } else {
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatus(directory: path)
+                let snapshot = gitStatusProvider.fetchSnapshot(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    guard let self,
+                          self.gitStatusRequestGeneration == requestGeneration,
+                          self.rootPath == requestedRootPath,
+                          self.workspaceRootIdentity == requestedWorkspaceRootIdentity,
+                          self.provider.map(ObjectIdentifier.init) == requestedProviderIdentity else {
+                        return
+                    }
+                    self.gitStatusSnapshot = snapshot
+                    self.gitStatusByPath = snapshot.statusesByPath
                 }
             }
         }

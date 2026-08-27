@@ -3,19 +3,18 @@ import Foundation
 
 extension RightSidebarMode {
     static func from(cliArgument rawValue: String) -> RightSidebarMode? {
-        let argument = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if argument == "vault" || argument == "sessions" { return .sessions }
-        return RightSidebarPanelRegistry.descriptors().first {
-            $0.cliArgument.lowercased() == argument || $0.id.lowercased() == argument
-        }.flatMap { RightSidebarMode(rawValue: $0.id) }
+        RightSidebarPanelRegistry().mode(forCLIArgument: rawValue)
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        RightSidebarPanelRegistry.availableModes(defaults: defaults)
+        RightSidebarPanelRegistry().availableModes(defaults: defaults)
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        RightSidebarPanelRegistry.descriptor(for: self, defaults: defaults)?.isAvailable() == true
+        guard let descriptor = RightSidebarPanelRegistry().descriptor(for: self) else {
+            return false
+        }
+        return descriptor.isAvailable(defaults)
     }
 }
 

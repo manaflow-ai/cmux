@@ -19,9 +19,13 @@ enum RightSidebarContentMountPolicy {
 }
 
 enum FileExplorerRootSyncPolicy {
-    static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
+    static func shouldSyncFileExplorerStore(
+        isRightSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        registry: RightSidebarPanelRegistry = RightSidebarPanelRegistry()
+    ) -> Bool {
         guard isRightSidebarVisible else { return false }
-        return RightSidebarPanelRegistry.descriptor(for: mode)?.syncsFileExplorerRoot == true
+        return registry.descriptor(for: mode)?.syncsFileExplorerRoot == true
     }
 }
 
@@ -32,10 +36,11 @@ extension RightSidebarMode {
 
     static func modeShortcut(
         for event: NSEvent,
-        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
+        allowingAction: (KeyboardShortcutSettings.Action) -> Bool,
+        registry: RightSidebarPanelRegistry = RightSidebarPanelRegistry()
     ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
-        for mode in RightSidebarMode.availableModes() {
+        for mode in registry.availableModes() {
             guard let action = mode.shortcutAction,
                   allowingAction(action),
                   KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
@@ -90,7 +95,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes()
+        fileExplorerState.panelRegistry.availableModes()
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -217,7 +222,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var sourceControlChangeCount: Int {
-        fileExplorerStore.gitStatusByPath.count
+        fileExplorerStore.gitStatusSnapshot.displayableEntries.count
     }
 
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {
@@ -344,10 +349,18 @@ struct RightSidebarPanelView: View {
                 onResumeSession: onResumeSession,
                 onOpenFilePreview: onOpenFilePreview,
                 onOpenAsPane: onOpenAsPane,
-                onOpenDiffViewer: { _ = AppDelegate.shared?.openDiffViewerForFocusedWorkspace(for: tabManager) },
+                onOpenDiffViewer: { path in
+                    _ = AppDelegate.shared?.openDiffViewerForWorkspacePath(
+                        path,
+                        tabManager: tabManager
+                    )
+                },
                 onClose: onClose
             )
-            RightSidebarPanelRegistry.makeContent(for: fileExplorerState.mode, context: context)
+            fileExplorerState.panelRegistry.makeContent(
+                for: fileExplorerState.mode,
+                context: context
+            )
         } else {
             Color.clear
         }

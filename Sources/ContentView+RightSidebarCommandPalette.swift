@@ -140,7 +140,7 @@ extension ContentView {
     }
 
     static func commandPaletteRightSidebarModeCommandID(_ mode: RightSidebarMode) -> String {
-        RightSidebarPanelRegistry.descriptor(for: mode)?.commandPaletteCommandID
+        RightSidebarPanelRegistry().descriptor(for: mode)?.commandPaletteCommandID
             ?? "palette.showRightSidebar\(mode.rawValue.capitalized)"
     }
 
@@ -155,11 +155,11 @@ extension ContentView {
     }
 
     private static func commandPaletteRightSidebarToolPaneCommandID(_ mode: RightSidebarMode) -> String? {
-        RightSidebarPanelRegistry.descriptor(for: mode)?.paneCommandID
+        RightSidebarPanelRegistry().descriptor(for: mode)?.paneCommandID
     }
 
     private static func commandPaletteRightSidebarToolPaneTitle(_ mode: RightSidebarMode) -> String? {
-        RightSidebarPanelRegistry.descriptor(for: mode)?.paneTitle
+        RightSidebarPanelRegistry().descriptor(for: mode)?.paneTitle
     }
 
     func handleCommandPaletteRightSidebarMode(_ mode: RightSidebarMode, observedWindow: NSWindow?) {

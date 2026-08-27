@@ -163,6 +163,7 @@ extension CMUXCLI {
         var cwd: String?
         var branchBase: String?
         var sessionId: String?
+        var filePath: String?
         var source: DiffSource?
         var inputs: [String] = []
     }
@@ -187,6 +188,7 @@ extension CMUXCLI {
         var sessionId: String?
         var repoRoot: String?
         var branchBaseRef: String?
+        var filePath: String? = nil
     }
 
     struct DiffViewerWriteResult {
@@ -910,6 +912,9 @@ extension CMUXCLI {
         if parsedArgs.source != nil, !parsedArgs.inputs.isEmpty {
             throw CLIError(message: "diff accepts either a patch file or a git source, not both")
         }
+        if parsedArgs.filePath != nil, parsedArgs.source == nil {
+            throw CLIError(message: "--file requires a git diff source")
+        }
 
         let focus: Bool
         if parsedArgs.noFocus {
@@ -970,7 +975,8 @@ extension CMUXCLI {
             surfaceId: nil,
             sessionId: parsedArgs.sessionId,
             repoRoot: nil,
-            branchBaseRef: parsedArgs.branchBase
+            branchBaseRef: parsedArgs.branchBase,
+            filePath: parsedArgs.filePath
         )
         if let cwd = parsedArgs.cwd {
             diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
@@ -992,6 +998,7 @@ extension CMUXCLI {
             sourceContext.repoRoot = diffSourceContext.repoRoot
             sourceContext.sessionId = diffSourceContext.sessionId
             sourceContext.branchBaseRef = diffSourceContext.branchBaseRef
+            sourceContext.filePath = diffSourceContext.filePath
             diffSourceContext = sourceContext
             workspaceHandle = sourceContext.workspaceId ?? workspaceHandle
             surfaceHandle = sourceContext.surfaceId ?? surfaceHandle
@@ -1343,6 +1350,10 @@ extension CMUXCLI {
                     parsed.cwd = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--file":
+                    parsed.filePath = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
                 case "--base", "--branch-base":
                     parsed.branchBase = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
@@ -1373,7 +1384,7 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--file <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
                     }
                 }
             }
@@ -1566,19 +1577,29 @@ extension CMUXCLI {
 
     func readGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
         let repoRoot = try gitRepoRootForDiff(context)
+        let pathArguments: [String]
+        if let filePath = context.filePath {
+            let normalizedFilePath = URL(fileURLWithPath: filePath).standardizedFileURL.path
+            guard normalizedFilePath == repoRoot || normalizedFilePath.hasPrefix(repoRoot + "/") else {
+                throw CLIError(message: "Diff file path is outside the Git repository")
+            }
+            pathArguments = ["--", normalizedFilePath]
+        } else {
+            pathArguments = ["--"]
+        }
         let patch: String
         let sourceLabel: String
         switch source {
         case .unstaged:
-            patch = try gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)
+            patch = try gitStdout(gitDiffPatchArguments(pathArguments), in: repoRoot)
             sourceLabel = "git unstaged"
         case .staged:
-            patch = try gitStdout(gitDiffPatchArguments(["--cached", "--"]), in: repoRoot)
+            patch = try gitStdout(gitDiffPatchArguments(["--cached"] + pathArguments), in: repoRoot)
             sourceLabel = "git staged"
         case .branch:
             let baseRef = try resolvedGitBranchDiffBaseRef(context.branchBaseRef, in: repoRoot)
             let mergeBase = try gitSingleLine(["merge-base", "HEAD", baseRef], in: repoRoot)
-            patch = try gitStdout(gitDiffPatchArguments([mergeBase, "--"]), in: repoRoot)
+            patch = try gitStdout(gitDiffPatchArguments([mergeBase] + pathArguments), in: repoRoot)
             sourceLabel = "git branch \(baseRef)"
         case .lastTurn:
             guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
@@ -1597,7 +1618,7 @@ extension CMUXCLI {
             ) {
                 _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
                 patch = try joinedGitDiffPatches([
-                    gitStdout(gitDiffPatchArguments([record.baseCommit, "--"]), in: repoRoot),
+                    gitStdout(gitDiffPatchArguments([record.baseCommit] + pathArguments), in: repoRoot),
                     gitUntrackedPatchSinceBaseline(record: record, in: repoRoot, storePath: baselineStorePath)
                 ])
             } else {
@@ -7909,6 +7930,7 @@ extension CMUXCLI {
           --session <id>               Scope --last-turn to one agent session
           --window <id|ref|index>      Target window
           --cwd, --repo <path>          Git repository or worktree path for git sources
+          --file <path>                 Limit a git diff source to one file
           --base <ref>                  Base ref for --branch (default: origin/HEAD or main)
           --focus <true|false>         Focus the diff browser split (default: false)
           --no-focus                   Do not focus the opened diff browser split

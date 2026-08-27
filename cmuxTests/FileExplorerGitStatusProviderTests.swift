@@ -81,6 +81,27 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
+    func statusSnapshotExcludesSynthesizedDeletedDirectoriesFromFileEntries() throws {
+        let repoURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        try Self.initializeRepo(at: repoURL)
+
+        let deletedDirectoryURL = repoURL.appendingPathComponent("deleted-dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: deletedDirectoryURL, withIntermediateDirectories: true)
+        let deletedFileURL = deletedDirectoryURL.appendingPathComponent("file.txt")
+        try "one\n".write(to: deletedFileURL, atomically: true, encoding: .utf8)
+        try Self.runGit(["add", "."], in: repoURL)
+        try Self.runGit(["commit", "-m", "initial"], in: repoURL)
+        try FileManager.default.removeItem(at: deletedDirectoryURL)
+
+        let snapshot = GitStatusProvider().fetchSnapshot(directory: repoURL.path)
+
+        #expect(snapshot.statusesByPath[deletedFileURL.path] == .some(.deleted))
+        #expect(snapshot.statusesByPath[deletedDirectoryURL.path] == .some(.modified))
+        #expect(snapshot.displayableEntries.map(\.path) == [deletedFileURL.path])
+    }
+
+    @Test
     func statusQueryMapsTypeChangedAndUnmergedEntries() throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }

@@ -4,19 +4,21 @@ import SwiftUI
 
 /// First-party registry for right-sidebar panels.
 ///
-/// Availability closures read the beta catalog section directly. This keeps
-/// synchronous paths cheap and avoids reconstructing the full setting catalog
-/// while still giving SwiftUI live setting bindings the authority to trigger a
-/// mode refresh.
-enum RightSidebarPanelRegistry {
-    static func descriptors(defaults: UserDefaults = .standard) -> [RightSidebarPanelDescriptor] {
+/// The registry is an injected value rather than a global namespace. Its
+/// descriptors are built once at construction, while availability remains
+/// backed by the caller-provided defaults store so tests and windows can use a
+/// scoped settings source.
+struct RightSidebarPanelRegistry {
+    let descriptors: [RightSidebarPanelDescriptor]
+
+    init() {
         let beta = BetaFeaturesCatalogSection()
         let feedKey = beta.rightSidebarFeed
         let dockKey = beta.rightSidebarDock
         let sourceControlKey = beta.sourceControl
 
-        return [
-            descriptor(
+        self.descriptors = [
+            Self.descriptor(
                 id: RightSidebarMode.files.rawValue,
                 title: String(localized: "rightSidebar.mode.files", defaultValue: "Files"),
                 symbolName: "folder",
@@ -38,7 +40,7 @@ enum RightSidebarPanelRegistry {
                     )
                 )
             },
-            descriptor(
+            Self.descriptor(
                 id: RightSidebarMode.find.rawValue,
                 title: String(localized: "rightSidebar.mode.find", defaultValue: "Find"),
                 symbolName: "magnifyingglass",
@@ -60,7 +62,7 @@ enum RightSidebarPanelRegistry {
                     )
                 )
             },
-            descriptor(
+            Self.descriptor(
                 id: RightSidebarMode.sessions.rawValue,
                 title: String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault"),
                 symbolName: "books.vertical",
@@ -84,12 +86,12 @@ enum RightSidebarPanelRegistry {
                     }
                 )
             },
-            descriptor(
+            Self.descriptor(
                 id: RightSidebarMode.feed.rawValue,
                 title: String(localized: "rightSidebar.mode.feed", defaultValue: "Feed"),
                 symbolName: "dot.radiowaves.left.and.right",
                 order: 40,
-                isAvailable: { Self.isEnabled(feedKey, defaults: defaults) },
+                isAvailable: { defaults in Self.isEnabled(feedKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToFeed,
                 cliArgument: "feed",
                 commandPaletteCommandID: "palette.showRightSidebarFeed",
@@ -100,12 +102,12 @@ enum RightSidebarPanelRegistry {
             ) { context in
                 AnyView(FeedPanelView(chromeBackgroundColor: context.windowAppearance.resolvedChromeBackgroundColor))
             },
-            descriptor(
+            Self.descriptor(
                 id: RightSidebarMode.dock.rawValue,
                 title: String(localized: "rightSidebar.mode.dock", defaultValue: "Dock"),
                 symbolName: "dock.rectangle",
                 order: 50,
-                isAvailable: { Self.isEnabled(dockKey, defaults: defaults) },
+                isAvailable: { defaults in Self.isEnabled(dockKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToDock,
                 cliArgument: "dock",
                 commandPaletteCommandID: "palette.showRightSidebarDock",
@@ -116,12 +118,12 @@ enum RightSidebarPanelRegistry {
             ) { context in
                 AnyView(RightSidebarDockPanelContent(context: context))
             },
-            descriptor(
+            Self.descriptor(
                 id: RightSidebarMode.sourceControl.rawValue,
                 title: String(localized: "rightSidebar.mode.sourceControl", defaultValue: "Source Control"),
                 symbolName: "arrow.triangle.branch",
                 order: 60,
-                isAvailable: { Self.isEnabled(sourceControlKey, defaults: defaults) },
+                isAvailable: { defaults in Self.isEnabled(sourceControlKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToSourceControl,
                 cliArgument: "source-control",
                 commandPaletteCommandID: "palette.showRightSidebarSourceControl",
@@ -135,16 +137,22 @@ enum RightSidebarPanelRegistry {
         ].sorted { $0.order < $1.order }
     }
 
-    static func descriptor(
-        for mode: RightSidebarMode,
-        defaults: UserDefaults = .standard
-    ) -> RightSidebarPanelDescriptor? {
-        descriptors(defaults: defaults).first { $0.id == mode.rawValue }
+    func descriptor(for mode: RightSidebarMode) -> RightSidebarPanelDescriptor? {
+        descriptors.first { $0.id == mode.rawValue }
     }
 
-    static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        descriptors(defaults: defaults).compactMap { descriptor in
-            guard descriptor.isAvailable(), let mode = RightSidebarMode(rawValue: descriptor.id) else {
+    /// Resolves a user-facing CLI alias against descriptor metadata.
+    func mode(forCLIArgument rawValue: String) -> RightSidebarMode? {
+        let argument = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return descriptors.first { descriptor in
+            descriptor.cliArgument.lowercased() == argument
+                || descriptor.id.lowercased() == argument
+        }.flatMap { RightSidebarMode(rawValue: $0.id) }
+    }
+
+    func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
+        descriptors.compactMap { descriptor in
+            guard descriptor.isAvailable(defaults), let mode = RightSidebarMode(rawValue: descriptor.id) else {
                 return nil
             }
             return mode
@@ -152,12 +160,12 @@ enum RightSidebarPanelRegistry {
     }
 
     @MainActor
-    static func makeContent(
+    func makeContent(
         for mode: RightSidebarMode,
         context: RightSidebarPanelContext,
         defaults: UserDefaults = .standard
     ) -> AnyView {
-        guard let descriptor = descriptor(for: mode, defaults: defaults), descriptor.isAvailable() else {
+        guard let descriptor = descriptor(for: mode), descriptor.isAvailable(defaults) else {
             return AnyView(Color.clear)
         }
         return descriptor.makeContent(context)
@@ -168,7 +176,7 @@ enum RightSidebarPanelRegistry {
         title: String,
         symbolName: String,
         order: Int,
-        isAvailable: @escaping () -> Bool = { true },
+        isAvailable: @escaping (UserDefaults) -> Bool = { _ in true },
         shortcutAction: KeyboardShortcutSettings.Action?,
         cliArgument: String,
         commandPaletteCommandID: String,
@@ -203,27 +211,5 @@ enum RightSidebarPanelRegistry {
             return key.defaultValue
         }
         return defaults.bool(forKey: key.userDefaultsKey)
-    }
-}
-
-private struct RightSidebarDockPanelContent: View {
-    let context: RightSidebarPanelContext
-
-    var body: some View {
-        if let app = AppDelegate.shared,
-           let dock = app.windowDock(for: context.tabManager) {
-            DockPanelView(
-                store: dock,
-                isSidebarVisible: context.fileExplorerState.isVisible,
-                mode: context.fileExplorerState.mode,
-                rootDirectory: nil,
-                windowAppearance: context.windowAppearance,
-                rightSidebarOwnsInputFocus: context.fileExplorerState.rightSidebarOwnsInputFocus,
-                unreadSource: TerminalNotificationStore.shared.sidebarUnread
-            )
-            .id("dock.window.\(dock.workspaceId.uuidString)")
-        } else {
-            Color.clear
-        }
     }
 }
