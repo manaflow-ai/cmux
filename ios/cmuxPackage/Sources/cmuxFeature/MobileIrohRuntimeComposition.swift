@@ -1765,7 +1765,7 @@ public final class MobileIrohRuntimeComposition:
     nonisolated static func relayOnlyRestoredPolicyIsUsable(
         _ policy: CmxIrohEffectiveRelayPolicy
     ) -> Bool {
-        !policy.endpointRelayProfile.activeRelays.isEmpty
+        policy.endpointRelayProfile.hasDialableRelays
     }
 
     private func activate(accountID: String, revision: UInt64) async throws {

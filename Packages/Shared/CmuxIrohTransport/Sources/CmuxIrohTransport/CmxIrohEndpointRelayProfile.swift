@@ -19,6 +19,12 @@ public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
     /// Exact relay origins accepted in peer reachability hints.
     public let allowedRelayURLs: Set<String>
 
+    /// Whether this profile installs at least one dialable relay (an
+    /// unavailable or empty selection dials none). Composition roots use
+    /// this to decide whether a restored cached policy can carry a
+    /// relay-only activation.
+    public var hasDialableRelays: Bool { !activeRelays.isEmpty }
+
     let source: Source
     let activeRelays: [Relay]
 
