@@ -468,8 +468,21 @@ async function downloadVersion(pkg, version) {
     fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
   } catch (error) {
     // A concurrent launcher won the race; its extraction is byte-identical
-    // because both verified the same registry integrity.
-    if (!cachedBinary(version)) throw error;
+    // only when the existing binary matches the entry we verified above.
+    const expected = entries.find((entry) => entry.name === BIN_NAME);
+    const existing = cachedBinary(version);
+    if (!existing || !expected) throw error;
+    const existingDigest = crypto
+      .createHash("sha512")
+      .update(fs.readFileSync(existing))
+      .digest();
+    const expectedDigest = crypto.createHash("sha512").update(expected.data).digest();
+    if (
+      existingDigest.length !== expectedDigest.length ||
+      !crypto.timingSafeEqual(existingDigest, expectedDigest)
+    ) {
+      throw new Error("cached platform binary failed integrity verification");
+    }
     try {
       fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
     } catch {}

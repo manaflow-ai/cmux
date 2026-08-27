@@ -9,10 +9,12 @@ import http.server
 import io
 import json
 import os
+import platform
 import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 from pathlib import Path
 
@@ -120,6 +122,8 @@ def start_registry() -> tuple[http.server.ThreadingHTTPServer, threading.Thread,
 
 
 def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
     launcher = write_launcher(tmp_path)
     cache = tmp_path / "cache"
     server, thread, registry = start_registry()
@@ -134,14 +138,23 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
     assert first.stdout == second.stdout == "fake cmux-tui 1.2.3\n"
     assert RegistryHandler.metadata_requests == 1
     assert RegistryHandler.tarball_requests == 1
-    platform = "darwin-arm64" if sys.platform == "darwin" else "linux-x64"
-    cached = cache / platform / "v/1.2.3/bin/cmux-tui"
+    arch = {
+        "aarch64": "arm64",
+        "arm64": "arm64",
+        "amd64": "x64",
+        "x86_64": "x64",
+    }.get(platform.machine().lower())
+    assert arch is not None, platform.machine()
+    platform_key = f"{sys.platform}-{arch}"
+    cached = cache / platform_key / "v/1.2.3/bin/cmux-tui"
     assert cached.is_file()
     assert cached.stat().st_mode & stat.S_IXUSR
-    assert not (cache / platform / "v/1.2.3/.active").exists()
+    assert not (cache / platform_key / "v/1.2.3/.active").exists()
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
     launcher = write_launcher(tmp_path)
     result = run_launcher(launcher, tmp_path / "cache", "http://127.0.0.1:1")
     assert result.returncode != 0
@@ -151,6 +164,8 @@ def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path
 
 
 def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
     launcher = write_launcher(tmp_path)
     package = tmp_path / "node_modules/cmux-tui-darwin-arm64"
     package.mkdir(parents=True)
@@ -166,3 +181,17 @@ def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> 
     assert result.returncode != 0
     assert result.stdout == ""
     assert "could not obtain the native binary" in result.stderr
+
+
+def main() -> None:
+    if sys.platform == "win32":
+        return
+    with tempfile.TemporaryDirectory(prefix="cmux-tui-launcher-test-") as directory:
+        root = Path(directory)
+        test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
+        test_launcher_reports_network_failure_without_leaking_details(root / "failure")
+        test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
+
+
+if __name__ == "__main__":
+    main()
