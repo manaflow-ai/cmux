@@ -594,6 +594,34 @@ final class SharedLiveAgentIndex {
         }
     }
 
+    /// Returns the owner-maintained index for a session-persistence pass.
+    ///
+    /// Persistence must fold in any hook-store change observed since the last
+    /// reload, so a cached index is served only while the hook-store watcher is
+    /// installed, no refresh is in flight, no watcher event is pending, and the
+    /// cache is within TTL. Anything else coalesces onto ``indexRefreshingNow()``.
+    /// A refresh that fails closed returns the last published index instead:
+    /// that is never older than what the previous persistence pass observed,
+    /// and the failure path re-queues any pending hook change for the next
+    /// coalesced reload.
+    func indexForSessionPersistence() async -> RestorableAgentSessionIndex? {
+        ensureWatchingHookStoreDirectory()
+        if let index,
+           let loadedAt,
+           directoryWatchSource != nil,
+           refreshTask == nil,
+           forkAvailabilityRefreshTask == nil,
+           !changePending,
+           deferredReloadTimer == nil,
+           dateProvider().timeIntervalSince(loadedAt) < Self.cacheTTL {
+            return index
+        }
+        if let refreshed = await indexRefreshingNow() {
+            return refreshed
+        }
+        return index
+    }
+
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
         isRemoteContext: Bool = false
