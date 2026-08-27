@@ -62,4 +62,33 @@ struct WorkspaceCustomSidebarAgentStatusTests {
         let surface = try #require(snapshot.surfaces.first { $0.panelId == panelId })
         #expect(surface.agentStatus == .none)
     }
+
+    /// A pane reused by a second agent still carries the first agent's
+    /// restored error (startup replay keeps `error` and drops `running`).
+    /// Reporting the new occupant has to drop that leftover, or the border
+    /// stays red after the turn ends too — idle does not outrank error.
+    @MainActor
+    @Test("A live agent reporting clears a previous agent's leftover error")
+    func aLiveAgentReportingClearsAPreviousAgentsLeftoverError() throws {
+        let workspace = Workspace()
+
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let tab = try #require(workspace.bonsplitController.tabs(inPane: paneId).first)
+        let panelId = try #require(workspace.panelIdFromSurfaceId(tab.id))
+
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .error)
+        workspace.setAgentLifecycle(key: "cursor", panelId: panelId, lifecycle: .running)
+
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["cursor"] == .running)
+
+        let snapshot = workspace.customSidebarWorkspaceSnapshot(index: 0, selectedId: workspace.id, unreadCount: 0)
+        let surface = try #require(snapshot.surfaces.first { $0.panelId == panelId })
+        #expect(surface.agentStatus == .running)
+
+        workspace.setAgentLifecycle(key: "cursor", panelId: panelId, lifecycle: .idle)
+        let idleSnapshot = workspace.customSidebarWorkspaceSnapshot(index: 0, selectedId: workspace.id, unreadCount: 0)
+        let idleSurface = try #require(idleSnapshot.surfaces.first { $0.panelId == panelId })
+        #expect(idleSurface.agentStatus == .idle)
+    }
 }

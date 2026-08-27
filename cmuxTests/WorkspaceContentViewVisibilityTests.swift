@@ -773,6 +773,23 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(AgentStatus.resolve(lifecycles: lifecycles).tintHex == AgentStatus.error.tintHex)
     }
 
+    /// The Cinephile pane: Claude hit a spend-limit (or replay restored that
+    /// error) and Cursor then started working in the same terminal. Error is
+    /// the loudest signal *for one agent*, but a leftover error from an agent
+    /// that is no longer the occupant must not paint the pane red over the
+    /// one that is actually running. `MAX · 10.9%` in Cursor's footer is
+    /// context usage, not a quota banner.
+    @Test
+    func agentStatusResolveDoesNotLetAPreviousAgentsErrorPaintOverTheOccupant() {
+        let lifecycles: [String: AgentHibernationLifecycleState] = [
+            "claude_code": .error,
+            "cursor": .running,
+        ]
+
+        #expect(AgentStatus.resolve(lifecycles: lifecycles) == .running)
+        #expect(AgentStatus.resolve(lifecycles: lifecycles).tintHex == AgentStatus.running.tintHex)
+    }
+
     @Test
     func agentStatusResolveRanksRunningOverIdle() {
         #expect(
