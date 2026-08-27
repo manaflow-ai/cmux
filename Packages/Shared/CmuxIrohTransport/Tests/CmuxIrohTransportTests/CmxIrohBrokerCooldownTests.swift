@@ -101,7 +101,7 @@ struct CmxIrohBrokerCooldownTests {
             for: CmxIrohTrustBrokerClientError.rejected(statusCode: 503, code: nil)
         ) == nil)
         #expect(CmxIrohBrokerCooldown.directiveSeconds(
-            for: CmxIrohTrustBrokerClientError.connectivity
+            for: CmxIrohTrustBrokerClientError.connectivity(nil)
         ) == nil)
     }
 
