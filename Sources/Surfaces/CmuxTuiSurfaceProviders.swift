@@ -207,6 +207,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             catalog.replaceResources(resources, on: machine, info: info)
             return
         }
+        // The display opens over the HTTPS preview and never needs the link, so a
+        // machine with no resources yet gets it published before the link attempt —
+        // a slow or hanging connect must not leave the desktop unopenable.
+        if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
+            catalog.replaceResources(resources, on: machine, info: info)
+        }
         async let stats = try? client.stats(id: machineID)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?

@@ -73,6 +73,40 @@ import Testing
         #expect(detached.lifecycle == .running)
     }
 
+    @Test func snapshotBrowsersJoinTheirWorkspaces() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["browsers"] = [
+            ["id": "browser_1", "tab_id": "tab_3", "url": "http://localhost:3000/app", "title": "Vite", "status": "live"],
+            ["id": "browser_2", "tab_id": "tab_missing", "url": "https://example.com", "title": "Docs", "status": "live"],
+        ]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+
+        // A daemon browser is workspace tab content like a terminal: it carries the
+        // view of the tab that shows it and projects through its localhost port.
+        let browser = try #require(resources.first { $0.id.key == "browser_1" })
+        #expect(browser.kind == .browser)
+        #expect(browser.title == "Vite")
+        #expect(browser.url == "http://localhost:3000/app")
+        #expect(browser.port == 3000)
+        #expect(browser.remoteWorkspace?.id == "ws_main")
+        #expect(browser.remoteViews?.map(\.tabID) == ["tab_3"])
+
+        // An unresolvable tab chain leaves the browser in the pool; a non-localhost
+        // URL has no port to project through.
+        let detached = try #require(resources.first { $0.id.key == "browser_2" })
+        #expect(detached.remoteViews == [])
+        #expect(detached.remoteWorkspace == nil)
+        #expect(detached.port == nil)
+    }
+
+    @Test func localhostPortParsesOnlyMachineLocalURLs() {
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "http://localhost:5173/x?y=1") == 5173)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "http://127.0.0.1:8080") == 8080)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "http://localhost/") == 80)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "https://cmux.com") == nil)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "not a url") == nil)
+    }
+
     @Test func snapshotListsEveryWorkspaceIncludingEmptyOnes() {
         let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: Self.sessionSnapshot)
         #expect(workspaces == [

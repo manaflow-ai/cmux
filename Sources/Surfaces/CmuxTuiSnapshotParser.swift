@@ -71,10 +71,52 @@ struct CmuxTuiSnapshotParser: Sendable {
             terminal.remoteWorkspace = terminal.remoteViews?.first?.workspace
             resources.append(terminal)
         }
+        // Daemon browsers are workspace tab content just like terminals
+        // (`browsers[{id,tab_id,url,title,status}]`) — a workspace holds more than
+        // terminals, and the tree shows a browser inside the workspace that views it.
+        for raw in (snapshot["browsers"] as? [[String: Any]]) ?? [] {
+            guard let id = raw["id"] as? String, !id.isEmpty else { continue }
+            let urlString = (raw["url"] as? String) ?? ""
+            let title = (raw["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? urlString
+            var views: [SurfaceRemoteView] = []
+            if let tabID = raw["tab_id"] as? String,
+               let paneID = paneOfTab[tabID],
+               let screenID = screenOfPane[paneID],
+               let workspaceID = workspaceOfScreen[screenID],
+               let workspace = workspaceByID[workspaceID] {
+                views = [SurfaceRemoteView(tabID: tabID, workspace: workspace)]
+            }
+            var browser = SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .browser, key: id),
+                title: title,
+                detail: urlString.isEmpty ? nil : urlString,
+                lifecycle: (raw["status"] as? String) == "failed" ? .exited : .running,
+                agent: nil,
+                remoteWorkspace: views.first?.workspace,
+                port: localhostPort(fromURL: urlString),
+                url: urlString.isEmpty ? nil : urlString
+            )
+            browser.remoteViews = views
+            resources.append(browser)
+        }
         // Workspace order first; zero-view terminals (the pool) trail.
         return resources.sorted { lhs, rhs in
             let li = lhs.remoteWorkspace?.index ?? Int.max, ri = rhs.remoteWorkspace?.index ?? Int.max
             return li != ri ? li < ri : false
+        }
+    }
+
+    /// The machine-local port a daemon browser's URL points at, when it does —
+    /// `http://localhost:3000/...` and equivalents. A remote browser projects through the
+    /// machine's port preview, so only localhost URLs are projectable today.
+    static func localhostPort(fromURL urlString: String) -> Int? {
+        guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return nil }
+        guard ["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"].contains(host) else { return nil }
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
         }
     }
 
