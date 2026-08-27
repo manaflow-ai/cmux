@@ -52,16 +52,21 @@ struct ArtifactExactPathResolver {
         guard values.isRegularFile == true, values.isSymbolicLink != true else {
             return nil
         }
+        let fileKind = ArtifactFileKind(fileURL: current)
+        let fileIdentity: ArtifactFileIdentity? = switch fileKind {
+        case .image, .video: try? ArtifactFileIdentity.read(at: current)
+        default: nil
+        }
         return ArtifactNode(
             id: relativePath,
             name: current.lastPathComponent,
             relativePath: relativePath,
             absolutePath: current.path,
             isDirectory: false,
-            fileKind: ArtifactFileKind(fileURL: current),
+            fileKind: fileKind,
             size: values.fileSize.map(Int64.init),
             modifiedAt: values.contentModificationDate,
-            fileIdentity: try? ArtifactFileIdentity.read(at: current),
+            fileIdentity: fileIdentity,
             children: []
         )
     }

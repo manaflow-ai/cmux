@@ -6,6 +6,24 @@ import Testing
 
 @Suite("Artifact import staging recovery")
 struct ArtifactImportStagingRecoveryTests {
+    @Test("A second import staging lease cannot overlap the first batch")
+    func serializesStagingLeases() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let first = try ArtifactImportStagingLease(
+            root: root,
+            fileManager: .default
+        )
+        defer { first.finish() }
+
+        #expect(throws: ArtifactStoreError.storeBusy(root.path)) {
+            _ = try ArtifactImportStagingLease(
+                root: root,
+                fileManager: .default
+            )
+        }
+    }
+
     @Test("Reads preserve staging while preparation reclaims only unlocked batches")
     func reclaimsOrphanWhilePreservingActiveBatch() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

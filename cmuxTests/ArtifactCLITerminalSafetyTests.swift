@@ -81,9 +81,20 @@ struct ArtifactCLITerminalSafetyTests {
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+        let agentIdentityKeys = Set([
+            "CODEX_THREAD_ID",
+            "CODEX_SESSION_ID",
+            "CMUX_CODEX_SESSION_ID",
+            "CLAUDE_CODE_SESSION_ID",
+            "CMUX_CLAUDE_SESSION_ID",
+            "OPENCODE_SESSION_ID",
+        ])
+        for key in Array(environment.keys)
+            where key.hasPrefix("CMUX_") || agentIdentityKeys.contains(key) {
             environment.removeValue(forKey: key)
         }
+        environment["CMUX_AGENT_SESSION_ID"] = "artifact-cli-terminal-safety"
+        environment["CMUX_AGENT_NAME"] = "codex"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice

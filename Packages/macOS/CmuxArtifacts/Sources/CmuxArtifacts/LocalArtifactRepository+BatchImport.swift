@@ -30,6 +30,8 @@ extension LocalArtifactRepository {
                 fileManager: fileManager,
                 expectedCanonicalPath: expectedStagingRootPath
             )
+        } catch let error as ArtifactStoreError {
+            return candidates.map { _ in .rejected(error) }
         } catch {
             return candidates.map { _ in .rejected(.pathOutsideStore(paths.importStagingRoot.path)) }
         }

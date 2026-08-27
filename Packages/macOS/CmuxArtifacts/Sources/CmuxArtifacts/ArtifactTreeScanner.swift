@@ -79,11 +79,10 @@ struct ArtifactTreeScanner {
                 nested = []
                 if isDirectory, depth >= maximumDepth { truncated = true }
             }
-            let fileIdentity: ArtifactFileIdentity?
-            if isDirectory {
-                fileIdentity = nil
-            } else {
-                fileIdentity = try? ArtifactFileIdentity.read(at: url)
+            let fileKind = isDirectory ? nil : ArtifactFileKind(fileURL: url)
+            let fileIdentity: ArtifactFileIdentity? = switch fileKind {
+            case .image?, .video?: try? ArtifactFileIdentity.read(at: url)
+            default: nil
             }
             nodes.append(ArtifactNode(
                 id: relativePath,
@@ -91,7 +90,7 @@ struct ArtifactTreeScanner {
                 relativePath: relativePath,
                 absolutePath: url.path,
                 isDirectory: isDirectory,
-                fileKind: isDirectory ? nil : ArtifactFileKind(fileURL: url),
+                fileKind: fileKind,
                 size: isDirectory ? nil : values.fileSize.map(Int64.init),
                 modifiedAt: values.contentModificationDate,
                 fileIdentity: fileIdentity,

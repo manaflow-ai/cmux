@@ -48,6 +48,23 @@ final class ArtifactImportStagingLease {
             if rootDescriptor >= 0 { _ = Darwin.close(rootDescriptor) }
             throw CocoaError(.fileWriteUnknown)
         }
+        // The staging-root descriptor is also a cross-process reservation.
+        // Holding this non-blocking lock for the lease lifetime prevents
+        // multiple bounded batches from accumulating while one waits for the
+        // store mutation lease.
+        let reservationError: Int32
+        if flock(rootDescriptor, LOCK_EX | LOCK_NB) == 0 {
+            reservationError = 0
+        } else {
+            reservationError = errno
+        }
+        guard reservationError == 0 else {
+            _ = Darwin.close(rootDescriptor)
+            if reservationError == EWOULDBLOCK || reservationError == EAGAIN {
+                throw ArtifactStoreError.storeBusy(root.path)
+            }
+            throw CocoaError(.fileWriteUnknown)
+        }
         var claimDescriptor: Int32 = -1
         var descriptor: Int32 = -1
         var keepsLease = false
@@ -69,6 +86,7 @@ final class ArtifactImportStagingLease {
                 _ = claimName.withCString { pointer in
                     Darwin.unlinkat(rootDescriptor, pointer, AT_REMOVEDIR)
                 }
+                _ = flock(rootDescriptor, LOCK_UN)
                 _ = Darwin.close(rootDescriptor)
             }
         }
@@ -164,6 +182,7 @@ final class ArtifactImportStagingLease {
         _ = Darwin.fsync(directoryDescriptor)
         _ = Darwin.close(directoryDescriptor)
         _ = Darwin.unlinkat(rootDescriptor, directoryName, AT_REMOVEDIR)
+        _ = flock(rootDescriptor, LOCK_UN)
         _ = flock(descriptor, LOCK_UN)
         _ = close(descriptor)
         _ = Darwin.close(rootDescriptor)
