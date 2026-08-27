@@ -1162,6 +1162,9 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     while index < args.len() {
         match args[index].as_str() {
             "--socket" | "--session" | "--machine" => {
+                if args.get(index + 1).is_none() {
+                    return;
+                }
                 index = startup_option_value_end(args, index).unwrap_or(args.len());
             }
             "--json" | "--jsonl" | "--quiet" => {
@@ -1222,7 +1225,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
 fn startup_option_value_end(args: &[String], index: usize) -> Option<usize> {
     let option = args.get(index)?.as_str();
     if STARTUP_VALUE_OPTIONS.contains(&option) {
-        return Some(index + 2);
+        return args.get(index + 1).map(|_| index + 2);
     }
     if option == "--machine-provider-command" {
         let mut end = index + 1;
@@ -2818,6 +2821,20 @@ mod tests {
                 .map(str::to_string)
         ));
         assert!(server_start_has_cli_routing_flag(&["--json"].map(str::to_string)));
+    }
+
+    #[test]
+    fn startup_value_scanner_rejects_missing_values() {
+        for option in STARTUP_VALUE_OPTIONS.iter().copied() {
+            let args = [option].map(str::to_string);
+            assert_eq!(startup_option_value_end(&args, 0), None, "{option} accepted no value");
+        }
+
+        for option in ["--socket", "--session", "--machine"] {
+            let mut args = [option].map(str::to_string).to_vec();
+            rewrite_server_start(&mut args);
+            assert_eq!(args, [option].map(str::to_string));
+        }
     }
 
     #[test]
