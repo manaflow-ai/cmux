@@ -329,6 +329,30 @@ struct SurfaceCatalogTests {
         #expect(provider.discarded.count == 1)
     }
 
+    @Test func `A removed local resource is not resurrected by a late materialization`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .local)
+        provider.materializationPreserved = true
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.local, "term_1")
+        catalog.replaceResources([term], on: .local)
+
+        provider.onMaterialize = { catalog.remove(term.id) }
+        let project = Task { @MainActor in
+            try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
+        }
+        await gate.waitUntilEntered()
+        gate.release()
+
+        await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) {
+            try await project.value
+        }
+        #expect(catalog.projections.isEmpty)
+        #expect(provider.discardInvocations.count == 1)
+    }
+
     @Test func `A preserving materialization remains recorded when its caller cancels`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .local)
