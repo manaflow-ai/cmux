@@ -543,8 +543,9 @@ final class CmuxSettingsFileStore {
             }
         }
         if let raw = section["soundOverrides"] {
-            if JSONSerialization.isValidJSONObject(raw),
-               let data = try? JSONSerialization.data(withJSONObject: raw),
+            if let data = NotificationSoundOverrides.boundedJSONData(
+                fromJSONObject: raw
+            ),
                let overrides = try? NotificationSoundOverrides(jsonData: data) {
                 snapshot.managedUserDefaults[
                     NotificationsCatalogSection().soundOverrides.userDefaultsKey

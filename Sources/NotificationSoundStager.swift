@@ -757,7 +757,10 @@ actor NotificationSoundStager {
         }
         defer { producer.cancel() }
         guard let result = try await withTaskCancellationHandler(
-            operation: { try await stream.first },
+            operation: {
+                var iterator = stream.makeAsyncIterator()
+                return try await iterator.next()
+            },
             onCancel: { continuation.finish(throwing: CancellationError()) }
         ) else {
             throw CancellationError()

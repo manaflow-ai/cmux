@@ -7,10 +7,8 @@ import SwiftUI
 /// discovery, file validation, and persistence remain host/catalog concerns.
 @MainActor
 struct NotificationSoundOverridesView: View {
-    /// Immutable JSON snapshot for this render.  The parent owns the live
-    /// DefaultsValueModel above the grid boundary and supplies this view's
-    /// single mutation closure.
-    let currentJSON: String
+    /// Bounded matrix parsed by the parent-owned cache.
+    let parsedOverrides: NotificationSoundOverrides
     /// Applies one cell mutation against the parent's live settings snapshot.
     /// Keeping this closure at the parent boundary prevents an async file
     /// validation result from overwriting a newer edit in another cell.
@@ -30,7 +28,7 @@ struct NotificationSoundOverridesView: View {
     private let alertTypes = NotificationSoundAlertType.allCases
     private let soundCatalog = NotificationSoundOptionCatalog()
     init(
-        currentJSON: String,
+        parsedOverrides: NotificationSoundOverrides,
         isPersistedValueMalformed: Bool = false,
         onChange: @escaping @MainActor (
             NotificationSoundOverride?,
@@ -40,7 +38,7 @@ struct NotificationSoundOverridesView: View {
         hostActions: SettingsHostActions,
         agents: [NotificationSoundAgentOption]
     ) {
-        self.currentJSON = currentJSON
+        self.parsedOverrides = parsedOverrides
         self.isPersistedValueMalformed = isPersistedValueMalformed
         self.onChange = onChange
         self.hostActions = hostActions
@@ -51,7 +49,6 @@ struct NotificationSoundOverridesView: View {
     }
 
     var body: some View {
-        let overrides = NotificationSoundOverrides(jsonString: currentJSON) ?? .empty
         VStack(alignment: .leading, spacing: 8) {
             if isPersistedValueMalformed {
                 Text(String(
@@ -95,7 +92,7 @@ struct NotificationSoundOverridesView: View {
                                 cell(
                                     for: agent,
                                     alertType: alertType,
-                                    overrides: overrides
+                                    overrides: parsedOverrides
                                 )
                             }
                         }

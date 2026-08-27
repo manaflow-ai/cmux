@@ -3,11 +3,6 @@ import Foundation
 import UserNotifications
 
 extension NotificationSoundSettings {
-    /// Upper bound for the declarative matrix accepted by the playback path.
-    /// Keeping the raw value bounded prevents malformed configuration from
-    /// turning a notification into an unbounded main-actor decode.
-    private static let maximumOverrideJSONBytes = 256 * 1024
-
     /// Caches the last validated matrix off the main actor. The raw JSON is
     /// the invalidation token, so a settings write automatically selects a new
     /// snapshot without a second observation channel.
@@ -21,7 +16,7 @@ extension NotificationSoundSettings {
                 cachedOverrides = .empty
                 return .empty
             }
-            guard rawValue.utf8.count <= NotificationSoundSettings.maximumOverrideJSONBytes else {
+            guard rawValue.utf8.count <= NotificationSoundOverrides.maximumJSONBytes else {
                 cachedRawValue = rawValue
                 cachedOverrides = nil
                 return nil
@@ -139,7 +134,7 @@ extension NotificationSoundSettings {
         guard let rawValue, !rawValue.isEmpty else {
             return .empty
         }
-        guard rawValue.utf8.count <= maximumOverrideJSONBytes else {
+        guard rawValue.utf8.count <= NotificationSoundOverrides.maximumJSONBytes else {
             return nil
         }
         return NotificationSoundOverrides(jsonString: rawValue)

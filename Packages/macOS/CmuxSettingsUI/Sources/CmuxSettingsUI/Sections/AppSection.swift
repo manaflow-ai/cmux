@@ -57,6 +57,7 @@ public struct AppSection: View {
     @State private var soundCommand: DefaultsValueModel<String>
     @State private var customSoundFile: DefaultsValueModel<String>
     @State private var soundOverrides: DefaultsValueModel<String>
+    @State private var soundOverridesModel: NotificationSoundOverridesModel
     @State private var soundAgents: [NotificationSoundAgentOption] = []
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
@@ -113,6 +114,9 @@ public struct AppSection: View {
         _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
         _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
         _soundOverrides = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.soundOverrides))
+        _soundOverridesModel = State(initialValue: NotificationSoundOverridesModel(
+            initialJSON: defaultsStore.initialValue(for: catalog.notifications.soundOverrides)
+        ))
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
@@ -146,6 +150,9 @@ public struct AppSection: View {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
+        .onChange(of: soundOverrides.current) { _, newValue in
+            soundOverridesModel.accept(newValue)
         }
     }
 
@@ -669,10 +676,8 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.notifications.soundOverrides.subtitle", defaultValue: "Override the sound for a specific agent and alert type.")
             ) {
                 NotificationSoundOverridesView(
-                    currentJSON: soundOverrides.current,
-                    isPersistedValueMalformed: NotificationSoundOverrides(
-                        jsonString: soundOverrides.current
-                    ) == nil,
+                    parsedOverrides: soundOverridesModel.parsed ?? .empty,
+                    isPersistedValueMalformed: soundOverridesModel.isMalformed,
                     onChange: { value, agentID, alertType in
                         guard var overrides = NotificationSoundOverrides(
                             jsonString: soundOverrides.current

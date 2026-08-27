@@ -30,8 +30,9 @@ final class NotificationSoundProcessCancellation: @unchecked Sendable {
     }
 
     /// Marks a reaped child so a late cancellation cannot signal a recycled PID.
-    func markFinished() {
+    func markFinished(processIdentifier: pid_t) {
         state.withLock { state in
+            guard state.processIdentifier == processIdentifier else { return }
             state.finished = true
             state.processIdentifier = nil
         }
@@ -51,16 +52,11 @@ final class NotificationSoundProcessCancellation: @unchecked Sendable {
     private func terminate(processIdentifier: pid_t) {
         guard processIdentifier > 1 else { return }
         let groupResult = Darwin.kill(-processIdentifier, SIGTERM)
-        let groupError = errno
+        guard groupResult == 0 else { return }
         // The child was spawned with POSIX_SPAWN_SETPGROUP, so descendants
         // inherit this group before they can execute. Escalate immediately to
         // keep cancellation bounded even when a shell ignores SIGTERM.
         _ = Darwin.kill(-processIdentifier, SIGKILL)
-        if groupResult == -1, groupError == ESRCH {
-            // Defensive fallback for a platform/runtime that reaped the group
-            // before the signal arrived; never leave the leader un-reaped.
-            _ = Darwin.kill(processIdentifier, SIGKILL)
-        }
     }
 }
 
@@ -251,7 +247,10 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
         // already requested, registration kills the still-suspended child and
         // this single waiter still owns the required reap.
         let terminationTask: Task<Int32, Error> = Task {
-            switch await Self.waitForProcess(processIdentifier) {
+            switch await Self.waitForProcess(
+                processIdentifier,
+                cancellation: cancellation
+            ) {
             case .success(let terminationStatus):
                 return terminationStatus
             case .failure(let waitError):
@@ -287,7 +286,6 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
             closeReadDescriptor(&pipeDescriptors)
             throw error
         }
-        cancellation.markFinished()
         let errorData = await errorReaderTask.value
         closeReadDescriptor(&pipeDescriptors)
         try Task.checkCancellation()
@@ -493,7 +491,8 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
     }
 
     private static func waitForProcess(
-        _ processIdentifier: pid_t
+        _ processIdentifier: pid_t,
+        cancellation: NotificationSoundProcessCancellation
     ) async -> ProcessWaitResult {
         await withCheckedContinuation { continuation in
             blockingIOQueue.async {
@@ -504,12 +503,20 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
                 } while waitResult == -1 && errno == EINTR
                 guard waitResult == processIdentifier else {
                     let waitError = errno
+                    // A non-EINTR waitpid error means this waiter no longer
+                    // owns a waitable child; never retain a PID that could be
+                    // recycled while the error travels back to the caller.
+                    cancellation.markFinished(processIdentifier: processIdentifier)
                     continuation.resume(returning: .failure(waitError))
                     return
                 }
                 let terminationStatus = (rawStatus & 0x7f) == 0
                     ? (rawStatus >> 8) & 0xff
                     : rawStatus & 0x7f
+                // Reaping and clearing cancellation ownership must happen in
+                // this blocking callback, before the continuation resumes and
+                // a concurrent cancellation callback can run.
+                cancellation.markFinished(processIdentifier: processIdentifier)
                 continuation.resume(returning: .success(terminationStatus))
             }
         }
