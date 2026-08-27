@@ -10,8 +10,8 @@ Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.c
 `2b61ecafceb4b1c008b6f07345270615a0fb4286`, and [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
 `af31628f7b0b2f6c34e184049254fa2fe91f285d`. This is a docs-only update.
 
-Strict auditable session turns are unknown and recorded as `0`, because no
-durable session identifiers were found. The practical floor is five documented
+Strict auditable session turns are `unknown` (not zero), because no durable
+session identifiers were found. The practical floor is five documented
 substantive owner workstreams. A branch proxy shows 96 TUI references and 78
 substantive non-merge commits; it is not a turn count. Unresolved Claude IDs
 are `1787650444261`, `1787650724161` (state ownership, manual I/O, reconnect),

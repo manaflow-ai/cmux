@@ -12,8 +12,8 @@ cmux-tui merge log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)
 `af31628f7b0b2f6c34e184049254fa2fe91f285d`. The working branch remains documentation only.
 
 The latest session reconciliation found no durable session identifiers for a
-strict turn count, so the strict auditable count is unknown and recorded as
-`0`. It found five documented substantive owner workstreams. A branch proxy
+strict turn count, so the strict auditable count is `unknown` (not zero). It
+found five documented substantive owner workstreams. A branch proxy
 has 96 TUI references and 78 substantive non-merge commits; this is not a turn
 count. Unresolved Claude history intent IDs are `1787650444261` and
 `1787650724161` (state ownership, manual I/O, reconnect), `1787722163382` and

@@ -10,8 +10,8 @@ Audit basis: 2026-08-27T19:39:39Z. The current merged cmux-tui log is
 [#10985](https://github.com/manaflow-ai/cmux/pull/10985) `2b61ecafceb4b1c008b6f07345270615a0fb4286`, and
 [#10612](https://github.com/manaflow-ai/cmux/pull/10612) `af31628f7b0b2f6c34e184049254fa2fe91f285d`.
 
-The strict auditable session-turn count is unknown, recorded as `0`, because
-the latest evidence has no durable session identifiers. The practical ledger
+The strict auditable session-turn count is `unknown` (not zero), because the
+latest evidence has no durable session identifiers. The practical ledger
 floor is five documented substantive owner workstreams. The branch proxy is
 96 TUI references and 78 substantive non-merge commits, not a turn count.
 Unresolved Claude IDs are `1787650444261`, `1787650724161` (state ownership,

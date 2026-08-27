@@ -11,8 +11,8 @@ Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.c
 `af31628f7b0b2f6c34e184049254fa2fe91f285d`. This branch changes documentation only.
 
 Session evidence is now reported conservatively. The strict auditable turn
-count is unknown and recorded as `0` because durable session identifiers are
-absent. The practical floor is five documented substantive owner workstreams.
+count is `unknown` (not zero) because durable session identifiers are absent.
+The practical floor is five documented substantive owner workstreams.
 The branch proxy is 96 TUI references, 78 with substantive non-merge commits;
 it is not a turn count. Unresolved Claude intents are IDs
 `1787650444261`, `1787650724161` (state ownership, manual I/O, reconnect),
