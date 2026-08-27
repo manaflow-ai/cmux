@@ -10911,7 +10911,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focus: Bool? = nil,
         initialInput: String? = nil
     ) -> TerminalPanelCreationOutcome {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return .failed }
+        guard let focusedPaneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return .failed
+        }
         return newTerminalSurfaceInPaneOutcome(
             inPane: focusedPaneId,
             focus: focus,
