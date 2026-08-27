@@ -63,7 +63,7 @@ use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
 #[cfg(unix)]
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -138,6 +138,7 @@ fn install_signal_handlers() -> io::Result<()> {
             return Err(io::Error::last_os_error());
         }
     }
+    wake_reader.set_nonblocking(true)?;
     wake_writer.set_nonblocking(true)?;
     SIGNAL_WAKE_READER.store(wake_reader.as_raw_fd(), Ordering::Release);
     SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
@@ -188,8 +189,62 @@ pub(crate) fn wait_for_shutdown_signal() {
         if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
             continue;
         }
+        if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
+            let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
+            let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
+            if polled > 0
+                || (polled < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted)
+            {
+                continue;
+            }
+        }
         return;
     }
+}
+
+#[cfg(unix)]
+pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
+    if shutdown_requested() {
+        return Ok(());
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "shutdown wake reader unavailable",
+        ));
+    }
+    let duplicate = unsafe { libc::dup(reader) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
+    let stream = match tokio::net::UnixStream::from_std(stream) {
+        Ok(stream) => stream,
+        Err(error) => return Err(error),
+    };
+    loop {
+        if shutdown_requested() {
+            return Ok(());
+        }
+        stream.readable().await?;
+        let mut byte = [0_u8; 1];
+        match stream.try_read(&mut byte) {
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
+    if shutdown_requested() {
+        return Ok(());
+    }
+    tokio::signal::ctrl_c().await?;
+    SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+    Ok(())
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
