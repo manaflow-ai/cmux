@@ -271,6 +271,9 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(&path, serde_json::to_string(&raw).unwrap()).unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+            .unwrap();
         let mut config = load_config(&path).expect("valid config loads");
         assert_eq!(config.device_id, "dev_abc");
         assert_eq!(config.extra.get("futureField"), raw.get("futureField"));
@@ -306,6 +309,19 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&target, r#"{"deviceId":"dev_link","token":"tok_link"}"#).unwrap();
         symlink(&target, &path).unwrap();
+        assert!(load_config(&path).is_none());
+        assert!(load_config_checked(&path).is_err());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn loose_config_permissions_are_rejected_before_credentials_load() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = scratch("loose-perms/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"deviceId":"dev_loose","token":"tok_loose"}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(load_config(&path).is_none());
         assert!(load_config_checked(&path).is_err());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
