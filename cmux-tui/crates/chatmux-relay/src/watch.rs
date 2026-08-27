@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -41,12 +42,44 @@ const WATCH_SETUP_CONCURRENCY: usize = 2;
 /// All fallible watcher setup happens before a watch is published in the
 /// registry. A failed replacement therefore leaves the existing watch intact.
 struct PreparedWatch {
-    watcher: notify::RecommendedWatcher,
+    watcher: WatcherOwner,
     event_rx: Receiver<Result<notify::Event, notify::Error>>,
     overflowed: Arc<AtomicBool>,
     overflow_notify: Arc<Notify>,
     latched_error: Arc<Mutex<Option<String>>>,
     matcher: ignore::gitignore::Gitignore,
+}
+
+/// Owns a notify watcher on a dedicated thread because some backends perform
+/// synchronous thread joins from `Drop`. The relay task only sends the bounded
+/// shutdown signal and never drops the backend itself.
+struct WatcherOwner {
+    shutdown: Option<SyncSender<()>>,
+}
+
+impl WatcherOwner {
+    fn new(watcher: notify::RecommendedWatcher) -> Result<Self, String> {
+        let (shutdown, wait) = sync_channel(1);
+        std::thread::Builder::new()
+            .name("cmux-watch-teardown".to_owned())
+            .spawn(move || {
+                let watcher = watcher;
+                let _ = wait.recv();
+                drop(watcher);
+            })
+            .map_err(|error| format!("could not start watcher teardown: {error}"))?;
+        Ok(Self { shutdown: Some(shutdown) })
+    }
+}
+
+impl Drop for WatcherOwner {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            // The channel has one slot and only this owner sends, so this
+            // cannot block the relay task even if teardown is still running.
+            let _ = shutdown.try_send(());
+        }
+    }
 }
 
 struct ActiveWatch {
@@ -558,6 +591,7 @@ fn prepare_watch(root: &Path) -> Result<PreparedWatch, String> {
     watcher
         .watch(root, notify::RecursiveMode::Recursive)
         .map_err(|error| format!("could not watch {}: {error}", root.display()))?;
+    let watcher = WatcherOwner::new(watcher)?;
     Ok(PreparedWatch {
         watcher,
         event_rx,
