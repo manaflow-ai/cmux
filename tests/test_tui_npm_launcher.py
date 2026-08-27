@@ -661,6 +661,40 @@ def test_launcher_runs_read_only_cache_when_access_reports_root(tmp_path: Path) 
     assert not (cache / host_platform_key() / ".update.lock").exists()
 
 
+def test_launcher_rejects_symlinked_cache_version_before_writing(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel"
+    sentinel.write_text("unchanged\n")
+    version = cache / host_platform_key() / "v/1.2.3"
+    version.parent.mkdir(parents=True)
+    version.symlink_to(outside, target_is_directory=True)
+
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(
+            launcher,
+            cache,
+            registry,
+            "--version",
+            timeout_seconds=4,
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert result.returncode != 0
+    assert "could not reserve the native binary for launch" in result.stderr
+    assert sentinel.read_text() == "unchanged\n"
+    assert list(outside.iterdir()) == [sentinel]
+    assert RegistryHandler.metadata_requests == 0
+    assert RegistryHandler.tarball_requests == 0
+
+
 def test_launcher_requires_network_runtime_capabilities(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -2064,6 +2098,9 @@ def main() -> None:
         )
         test_launcher_runs_read_only_cache_when_access_reports_root(
             root / "root-read-only"
+        )
+        test_launcher_rejects_symlinked_cache_version_before_writing(
+            root / "symlinked-cache"
         )
         test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
