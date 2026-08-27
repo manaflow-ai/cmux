@@ -377,8 +377,9 @@ import Testing
                     // capture metadata.
                     "prepared_arguments": ["codex", "resume", checkpointID],
                 ],
-                // This binding models a pre-#10100 snapshot: it has no durable
-                // provenance, but it still claims the stale Codex checkpoint.
+                // This binding models a verified TUI checkpoint that was later
+                // deleted. Restore must retire it rather than preserving a
+                // permanently stale binding.
                 "resume_binding": [
                     "name": "Codex",
                     "kind": "codex",
@@ -386,6 +387,7 @@ import Testing
                     "cwd": workingDirectory.path,
                     "checkpoint_id": checkpointID,
                     "source": "agent-hook",
+                    "resume_evidence_provenance": "tui",
                     "auto_resume": true,
                 ],
             ],

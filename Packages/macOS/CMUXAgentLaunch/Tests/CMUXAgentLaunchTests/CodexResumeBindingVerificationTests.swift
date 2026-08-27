@@ -184,6 +184,37 @@ struct CodexResumeBindingVerificationTests {
         )
     }
 
+    @Test func indexedMissingCanBridgeAnExactLegacyRolloutForRestore() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9a6-cbe1-7231-9478-0c55a8c44560"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionID,
+                transcriptPath: nil,
+                codexHome: fixture.codexHome.path
+            ) == .missing
+        )
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path,
+            allowLegacyFallbackForIndexedMissing: true
+        ) else {
+            Issue.record("restore-mode verification should bridge a rollout/index write race")
+            return
+        }
+        #expect(evidence.sessionId == sessionID)
+        #expect(URL(fileURLWithPath: evidence.rolloutPath).lastPathComponent == rollout.lastPathComponent)
+    }
+
     @Test func readableIndexWithoutThreadAcceptsExactTranscript() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

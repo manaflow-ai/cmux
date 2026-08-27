@@ -456,7 +456,7 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
                 ]
             ),
         ]
-        let retainedNoiseCount = CodexSessionResumeVerificationLimits.maximumBatchRequests - 1
+        let retainedNoiseCount = CodexSessionResumeVerificationLimits.maximumBatchRequests
         for index in 0..<retainedNoiseCount {
             let sessionID = "noise-\(index)"
             sessions[sessionID] = codexHookRecord(
@@ -466,6 +466,8 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
                 cwd: repo.path,
                 transcriptPath: nil,
                 updatedAt: TimeInterval(index + 1),
+                pid: 10_000 + index,
+                agentLifecycle: "running",
                 launchCommand: nil
             )
         }
@@ -510,6 +512,8 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
         cwd: String,
         transcriptPath: String?,
         updatedAt: TimeInterval,
+        pid: Int? = nil,
+        agentLifecycle: String? = nil,
         isRestorable: Bool? = nil,
         launchCommand: [String: Any]?
     ) -> [String: Any] {
@@ -518,9 +522,16 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
             "workspaceId": workspaceId.uuidString,
             "surfaceId": panelId.uuidString,
             "cwd": cwd,
-            "pid": NSNull(),
             "updatedAt": updatedAt,
         ]
+        if let pid {
+            record["pid"] = pid
+        } else {
+            record["pid"] = NSNull()
+        }
+        if let agentLifecycle {
+            record["agentLifecycle"] = agentLifecycle
+        }
         if let transcriptPath { record["transcriptPath"] = transcriptPath }
         if let isRestorable { record["isRestorable"] = isRestorable }
         if let launchCommand { record["launchCommand"] = launchCommand }
