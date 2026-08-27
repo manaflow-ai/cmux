@@ -2,6 +2,9 @@ import CmuxCore
 import Foundation
 
 /// A single host-based rule for the embedded-browser URL allowlist.
+///
+/// Local `file:` URLs are a policy-level exemption and are not represented by
+/// this host-based grammar.
 public struct BrowserURLAllowlistPattern: Equatable, Hashable, Sendable {
     /// The normalized rule text used for diagnostics and persistence.
     public let rawValue: String
@@ -202,9 +205,10 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
         case managed
     }
 
-    /// Schemes that app-owned loads may use without an origin rule. Page-
-    /// initiated navigations to these schemes still go through ``allows(_:)``
-    /// and are denied while a managed list is active.
+    /// Schemes that app-owned loads may use without an origin rule. Local
+    /// absolute `file:` URLs are also exempt in ``allows(_:)`` because they are
+    /// documents rather than remote web origins; the other schemes here remain
+    /// restricted to app-owned loads while a managed list is active.
     public static let trustedInternalSchemes: Set<String> = [
         "about", "applewebdata", "blob", "cmux-browser-action", "cmux-diff-viewer",
         "data", "file", "javascript"
@@ -287,9 +291,15 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     }
 
     /// Whether a URL may be loaded in the embedded browser.
+    ///
+    /// A local absolute `file:` URL (with no host or with the `localhost` host)
+    /// is always allowed while the web-origin list is active. Network-host and
+    /// relative `file:` URLs still fail closed, as do non-HTTP(S) schemes that
+    /// are not cmux-owned document URLs.
     public func allows(_ url: URL) -> Bool {
         guard isActive else { return true }
         guard let scheme = url.scheme?.lowercased() else { return false }
+        if scheme == "file", Self.isLocalFileURL(url) { return true }
         if Self.alwaysAllowedDocumentSchemes.contains(scheme) { return true }
         return patterns.contains { $0.matches(url) }
     }
@@ -309,6 +319,12 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     private static func patterns(from values: [String]) -> [BrowserURLAllowlistPattern] {
         var seen = Set<BrowserURLAllowlistPattern>()
         return values.compactMap { BrowserURLAllowlistPattern($0) }.filter { seen.insert($0).inserted }
+    }
+
+    private static func isLocalFileURL(_ url: URL) -> Bool {
+        guard url.isFileURL, url.path.hasPrefix("/") else { return false }
+        guard let host = url.host?.lowercased() else { return true }
+        return host.isEmpty || host == "localhost"
     }
 
     private static func stringValues(from rawValue: Any?) -> [String] {

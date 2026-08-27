@@ -21,7 +21,8 @@ public enum ManagedDevicePolicyKey: String, CaseIterable, Sendable {
     case disableRemoteControl = "DisableRemoteControl"
 
     /// Restricts embedded-browser top-level navigations to the administrator's
-    /// URL patterns. An empty forced array denies every external URL while
-    /// preserving cmux-owned internal documents.
+    /// URL patterns. An empty forced array denies every external web origin
+    /// while preserving local `file:` documents and cmux-owned internal
+    /// documents.
     case browserURLAllowlist = "BrowserURLAllowlist"
 }
