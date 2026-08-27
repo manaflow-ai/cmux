@@ -7,7 +7,9 @@ import Bonsplit
 /// Portal and pane hit testing runs for every pointer event. The pasteboard's
 /// change count is stable throughout a drag, so the injected transfer resolver
 /// runs once per generation. Registry validation remains the authority because
-/// revocation does not always advance AppKit's change count.
+/// revocation does not always advance AppKit's change count. The registry owns
+/// a bounded token/liveness cache, so this validation does not re-decode the
+/// pasteboard payload on each pointer event.
 @MainActor
 final class LiveTabDragCapabilityResolver {
     typealias RegistryProvider = @MainActor () -> TabDragTransferRegistry?
@@ -57,8 +59,11 @@ final class LiveTabDragCapabilityResolver {
             // generation. AppKit can leave the same change count in place when
             // a source ends (or when a replacement writes the same value), so
             // validate the cached result against the authoritative registry on
-            // every cache hit. A cache miss is also re-opened when a new live
-            // registration appears without a pasteboard-generation change.
+            // every cache hit. Registry resolution is generation-cached and
+            // weak-lease-aware, keeping this check bounded without decoding
+            // the payload per pointer event. A cache miss is also re-opened
+            // when a new live registration appears without a pasteboard-
+            // generation change.
             let liveTransfer = registry.resolve(from: pasteboard)
             guard let liveTransfer else {
                 self.cache = Cache(
