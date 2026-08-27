@@ -510,6 +510,7 @@ fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
             let runtime = tokio_runtime()?;
             runtime.block_on(async {
                 let mut previous = None;
+                let mut finished = connected.runtime.subscribe_finished();
                 while !crate::shutdown_requested() && !connected.runtime.is_finished() {
                     let snapshot = connected.runtime.connection_snapshot().await;
                     let mut topology = snapshot.clone();
@@ -528,7 +529,10 @@ fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
                         io::stdout().flush()?;
                         previous = Some(topology);
                     }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::select! {
+                        _ = finished.changed() => {},
+                        _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                    }
                 }
                 Ok::<_, io::Error>(())
             })?;
