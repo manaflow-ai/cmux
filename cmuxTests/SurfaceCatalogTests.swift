@@ -12,6 +12,18 @@ import Testing
 struct SurfaceCatalogTests {
     private struct TestTimeout: Error {}
 
+    /// Lets timeout behavior be tested without waiting on wall-clock time.
+    private struct ImmediateClock: Clock, Sendable {
+        typealias Instant = ContinuousClock.Instant
+
+        var now: Instant { .now }
+        var minimumResolution: Duration { .zero }
+
+        func sleep(until _: Instant, tolerance _: Duration?) async throws {
+            await Task.yield()
+        }
+    }
+
     /// Await a test signal without allowing a broken setup to hang the test process.
     private nonisolated func awaitFirst<T: Sendable>(
         _ stream: AsyncStream<T>,
@@ -226,6 +238,49 @@ struct SurfaceCatalogTests {
         await observer.value
         #expect(catalog.projections.isEmpty)
         #expect(provider.discarded.count == 1, "a late provider result must close the pane after the last caller cancels")
+    }
+
+    @Test func `An abandoned materialization deadline allows a replacement operation`() async throws {
+        let catalog = SurfaceCatalog(
+            abandonedMaterializationTimeout: .seconds(30),
+            materializationClock: ImmediateClock()
+        )
+        let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        oldProvider.materializeGate = gate
+        catalog.register(oldProvider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+
+        let first = Task { try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)) }
+        await gate.waitUntilEntered()
+        first.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await first.value
+        }
+
+        let replacementProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        catalog.register(replacementProvider)
+        let replacement = Task {
+            try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
+        }
+        defer {
+            replacement.cancel()
+            gate.release()
+        }
+
+        let result = try await withThrowingTaskGroup(of: SurfaceProjectionMaterialization.Result.self) { group in
+            group.addTask { try await replacement.value }
+            group.addTask {
+                try await ContinuousClock().sleep(for: .seconds(1))
+                throw TestTimeout()
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw TestTimeout() }
+            return result
+        }
+        #expect(result.reused == false)
+        #expect(replacementProvider.materialized.count == 1)
     }
 
     @Test func `Unregistering cancels in-flight materialization`() async throws {
