@@ -115,7 +115,7 @@ public actor FileWatcher {
         path: String,
         throttle: Duration? = nil,
         clock: any FileWatchClock = SystemFileWatchClock(),
-        allowsFilesystemRootAncestor: Bool = true,
+        allowsFilesystemRootAncestor: Bool = false,
         fileManager: FileManager = .default,
         startsAsynchronously: Bool = false
     ) {

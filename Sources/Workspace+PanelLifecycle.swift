@@ -511,6 +511,13 @@ extension Workspace {
 
         panelDirectories.removeValue(forKey: panelId)
         panelDirectoryDisplayLabels.removeValue(forKey: panelId)
+        let sidebarGitManager = owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+            ?? AppDelegate.shared?.tabManager
+        sidebarGitManager?.sidebarGitMetadataService.clearWorkspaceGitProbeTracking(
+            workspaceId: id,
+            panelId: panelId
+        )
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         clearPanelRepositoryLink(panelId: panelId)
