@@ -120,7 +120,8 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
 
 /// The one place the active style lives (a UserDefaults-backed debug tuning
 /// value while the variants are dogfooded; the winner becomes the only style).
-@MainActor
+/// Nonisolated on purpose: UserDefaults is thread-safe and the value feeds
+/// default arguments, which evaluate outside the main actor.
 enum CloudTreeStyleStore {
     static let defaultsKey = "cloudTree.style"
     static let didChangeNotification = Notification.Name("cmux.cloudTree.styleDidChange")
