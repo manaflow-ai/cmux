@@ -41798,7 +41798,8 @@ mod tests {
         let mux = Mux::new("workspace-preview-child-exit-test", SurfaceOptions::default());
         mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
         mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
-        let mut app = test_app(Session::Local(mux));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
         app.workspace_preview = Some(WorkspacePreview {
             origin: app.tree.workspaces[0].id,
             target: app.tree.workspaces[1].id,
