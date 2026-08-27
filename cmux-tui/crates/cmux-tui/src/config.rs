@@ -8818,4 +8818,41 @@ mod tests {
         assert_eq!(value["future"]["unknown"], json!(true));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidebar_plugin_write_replaces_config_with_private_permissions() {
+        use std::os::unix::fs::{PermissionsExt, OpenOptionsExt};
+
+        let dir = TestDirectory::new("private-permissions");
+        let path = dir.path.join("cmux-tui.json");
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true).mode(0o644);
+        let file = options.open(&path).unwrap();
+        drop(file);
+
+        write_sidebar_plugin_at_path(
+            &path,
+            Some(&SidebarPluginConfig { command: vec!["/tmp/plugin".to_string()], cwd: None }),
+        )
+        .unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "config permissions must not expose server.ws_token");
+    }
+
+    #[test]
+    fn config_write_failure_cleans_staging_file() {
+        let dir = TestDirectory::new("failure-cleanup");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::create_dir(&path).unwrap();
+
+        let error = write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}}))
+            .expect_err("replacing a directory must fail");
+        assert!(!error.to_string().is_empty());
+
+        let entries = std::fs::read_dir(&dir.path).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(entries.len(), 1, "failed writes must remove their staging file");
+        assert_eq!(entries[0].path(), path);
+    }
 }
