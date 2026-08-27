@@ -337,6 +337,12 @@ mod tests {
             let error = load_managed_enrollment_file(&path, NOW).expect_err("perms refused");
             assert_eq!(error.0, "Managed enrollment file permissions must be 0600.");
             assert!(!Path::new(&path).exists(), "file is deleted even on refusal");
+
+            let path = fixture(&enrollment(), 0o700, "owner-only-perms");
+            let error = load_managed_enrollment_file(&path, NOW)
+                .expect_err("non-0600 owner-only permissions must be refused");
+            assert_eq!(error.0, "Managed enrollment file permissions must be 0600.");
+            assert!(!Path::new(&path).exists(), "file is deleted even on refusal");
         }
 
         let mut short_token = enrollment();
