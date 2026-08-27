@@ -690,6 +690,11 @@ extension FeedCoordinator {
                 #endif
                 return nil
             }
+            // Workspace mute is an admission gate for every notification
+            // effect, including the earlier in-app attention and reorder path.
+            // Window-owned Docks have no workspace mute state and continue
+            // through the separate branch above.
+            guard !tab.isMuted else { return nil }
             reorderWorkspaceId = tab.id
             if let surfaceId = resolved.surfaceId,
                let target = tab.surfaceOwnershipTarget(for: surfaceId) {

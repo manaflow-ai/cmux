@@ -430,7 +430,8 @@ final class TerminalNotificationStore: ObservableObject {
         store.scheduleUserNotification(notification, effects: effects)
     }
     private var nativeNotificationDeliveryHooks: NativeNotificationDeliveryHooks
-    /// Owns admitted local sound/feedback operations until they finish.
+    /// Owns admitted sound, feedback, and native-delivery preparation
+    /// operations until they finish.
     private static let maxNotificationFeedbackTasks = 32
     private var notificationFeedbackTasks: [UUID: Task<Void, Never>] = [:]
     /// Maps request-scoped feedback owners to their currently admitted task so
@@ -544,10 +545,30 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    private func nativeDeliveryTaskOwnerID(for identifier: String) -> String {
+        "notification.delivery.\(identifier)"
+    }
+
+    private func nativeFallbackTaskOwnerID(for identifier: String) -> String {
+        "notification.fallback.\(identifier)"
+    }
+
+    private func cancelNotificationEffectTasks(withIdentifiers identifiers: [String]) {
+        for identifier in identifiers {
+            cancelNotificationFeedback(
+                ownerID: nativeDeliveryTaskOwnerID(for: identifier)
+            )
+            cancelNotificationFeedback(
+                ownerID: nativeFallbackTaskOwnerID(for: identifier)
+            )
+        }
+    }
+
     private func removeNotificationRequestsAndReleaseSoundReferences(
         withIdentifiers identifiers: [String]
     ) {
         guard !identifiers.isEmpty else { return }
+        cancelNotificationEffectTasks(withIdentifiers: identifiers)
         Task { [userNotificationCenter] in
             let deliveredResult = await userNotificationCenter.removeDeliveredNotifications(
                 withIdentifiers: identifiers
@@ -2357,6 +2378,15 @@ final class TerminalNotificationStore: ObservableObject {
         return notification.title.isEmpty ? appName : notification.title
     }
 
+    private func isNotificationDeliveryAdmitted(
+        notificationID: UUID,
+        recordsNotification: Bool
+    ) -> Bool {
+        guard !Task.isCancelled else { return false }
+        return !recordsNotification
+            || notifications.contains(where: { $0.id == notificationID })
+    }
+
     private func scheduleUserNotification(
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
@@ -2385,9 +2415,17 @@ final class TerminalNotificationStore: ObservableObject {
         let categoryIdentifier = notification.replyShape == .text
             ? Self.textReplyCategoryIdentifier
             : Self.categoryIdentifier
+        let notificationIdentifier = notificationId.uuidString
+        let deliveryOwnerID = nativeDeliveryTaskOwnerID(for: notificationIdentifier)
+        let fallbackOwnerID = nativeFallbackTaskOwnerID(for: notificationIdentifier)
         let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { [weak self] authorized, effectiveAuthorizationState in
             guard authorized else {
-                self?.enqueueNotificationFeedback {
+                self?.enqueueNotificationFeedback(ownerID: fallbackOwnerID) { [weak self] in
+                    guard let self,
+                          self.isNotificationDeliveryAdmitted(
+                              notificationID: notificationId,
+                              recordsNotification: effects.record
+                          ) else { return }
                     await nativeDeliveryHooks.playUnavailableFeedback(
                         effects: Self.fallbackEffects(
                             effects,
@@ -2398,12 +2436,14 @@ final class TerminalNotificationStore: ObservableObject {
                 }
                 return
             }
-            Task { @MainActor in
-                guard let self else { return }
-                if effects.record,
-                   !self.notifications.contains(where: { $0.id == notificationId }) {
+            self?.enqueueNotificationFeedback(ownerID: deliveryOwnerID) { [weak self] in
+                guard let self,
+                      self.isNotificationDeliveryAdmitted(
+                          notificationID: notificationId,
+                          recordsNotification: effects.record
+                      ) else {
                     await NotificationSoundSettings.releasePendingNotificationSound(
-                        referenceID: notificationId.uuidString
+                        referenceID: notificationIdentifier
                     )
                     return
                 }
@@ -2415,21 +2455,32 @@ final class TerminalNotificationStore: ObservableObject {
                     content.sound = await NotificationSoundSettings.nativeNotificationSound(
                         context: notificationSoundContext,
                         // Effects-only desktop requests are not retained in
-                        // `notifications`, so they cannot be released by a
+                        // the notification array, so they cannot be released by a
                         // later clear path. Give them the same finite
                         // reference and downgrade it to a short lease below.
-                        pendingReferenceID: notificationId.uuidString
+                        pendingReferenceID: notificationIdentifier
                     )
+                }
+                guard self.isNotificationDeliveryAdmitted(
+                    notificationID: notificationId,
+                    recordsNotification: effects.record
+                ) else {
+                    await NotificationSoundSettings.releasePendingNotificationSound(
+                        referenceID: notificationIdentifier
+                    )
+                    return
                 }
                 if !effects.record {
                     await NotificationSoundSettings.deferPendingNotificationSound(
-                        referenceID: notificationId.uuidString
+                        referenceID: notificationIdentifier
                     )
                 }
-                if effects.record,
-                   !self.notifications.contains(where: { $0.id == notificationId }) {
+                guard self.isNotificationDeliveryAdmitted(
+                    notificationID: notificationId,
+                    recordsNotification: effects.record
+                ) else {
                     await NotificationSoundSettings.releasePendingNotificationSound(
-                        referenceID: notificationId.uuidString
+                        referenceID: notificationIdentifier
                     )
                     return
                 }
@@ -2458,31 +2509,41 @@ final class TerminalNotificationStore: ObservableObject {
                 let commandSubtitle = content.subtitle
                 let commandBody = content.body
 
-                nativeDeliveryHooks.schedule(request) { [weak self] error in
-                    if let error {
-                        terminalNotificationLogger.error(
-                            "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
-                        )
-                        Task {
-                            await NotificationSoundSettings.deferPendingNotificationSound(
-                                referenceID: notificationId.uuidString
-                            )
-                        }
-                        Task { @MainActor [weak self] in
-                            self?.enqueueNotificationFeedback {
-                                await nativeDeliveryHooks.playUnavailableFeedback(
-                                    effects: effects,
-                                    soundContext: notificationSoundContext
-                                )
-                            }
-                        }
-                    } else if effects.command {
-                        nativeDeliveryHooks.runCommand(
-                            title: commandTitle,
-                            subtitle: commandSubtitle,
-                            body: commandBody
-                        )
-                    }
+                let scheduleError = await nativeDeliveryHooks.schedule(request)
+                guard self.isNotificationDeliveryAdmitted(
+                    notificationID: notificationId,
+                    recordsNotification: effects.record
+                ) else {
+                    await NotificationSoundSettings.releasePendingNotificationSound(
+                        referenceID: notificationIdentifier
+                    )
+                    return
+                }
+                if let scheduleError {
+                    terminalNotificationLogger.error(
+                        "Failed to schedule notification error=\(scheduleError.localizedDescription, privacy: .private)"
+                    )
+                    await NotificationSoundSettings.deferPendingNotificationSound(
+                        referenceID: notificationIdentifier
+                    )
+                    guard self.isNotificationDeliveryAdmitted(
+                        notificationID: notificationId,
+                        recordsNotification: effects.record
+                    ) else { return }
+                    await nativeDeliveryHooks.playUnavailableFeedback(
+                        effects: effects,
+                        soundContext: notificationSoundContext
+                    )
+                } else if effects.command {
+                    guard self.isNotificationDeliveryAdmitted(
+                        notificationID: notificationId,
+                        recordsNotification: effects.record
+                    ) else { return }
+                    nativeDeliveryHooks.runCommand(
+                        title: commandTitle,
+                        subtitle: commandSubtitle,
+                        body: commandBody
+                    )
                 }
             }
         }

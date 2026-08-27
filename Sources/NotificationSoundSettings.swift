@@ -259,7 +259,11 @@ nonisolated enum NotificationSoundSettings {
             overrideSelection: nil
         )
         let prepared = await prepareNotificationSound(snapshot: snapshot)
-        return await MainActor.run { playPreparedSound(prepared) }
+        guard !Task.isCancelled else { return false }
+        return await MainActor.run {
+            guard !Task.isCancelled else { return false }
+            return playPreparedSound(prepared)
+        }
     }
 
     private static func activeFocusSuppression(
