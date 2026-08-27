@@ -301,7 +301,10 @@ fn append_level(
                         }
                         for (tab_index, tab) in pane.tabs.iter().enumerate() {
                             let agent = agents.get(&tab.surface).copied();
-                            if agent_only && agent.is_none() {
+                            if agent_only
+                                && (agent.is_none()
+                                    || agent.is_some_and(|agent| agent.state == "unknown"))
+                            {
                                 continue;
                             }
                             let name = tab
@@ -526,6 +529,20 @@ mod tests {
     #[test]
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
         let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn agent_projection_hides_unknown_records_at_its_boundary() {
+        let agents = vec![AgentInfo {
+            surface: 5,
+            state: "unknown".into(),
+            source: "hook".into(),
+            session: None,
+            updated_at_ms: 1,
+        }];
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &agents, 0, &HashSet::new());
         assert!(rows.is_empty());
     }
 
