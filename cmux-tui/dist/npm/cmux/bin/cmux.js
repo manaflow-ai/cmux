@@ -332,19 +332,29 @@ function openCachedBinary(bin) {
   }
 }
 
-function readCachedManifest(version) {
+function readCachedManifest(version, pkg = null) {
   const bin = path.join(cachedBinDir(version), BIN_NAME);
   try {
     const manifest = JSON.parse(fs.readFileSync(cacheManifestPath(version), "utf8"));
     const expected = manifest?.binaries?.[BIN_NAME];
     if (
       manifest?.version !== version ||
+      (pkg && manifest?.package !== pkg) ||
+      typeof manifest?.package !== "string" ||
+      !/^[a-z0-9][a-z0-9._-]*$/i.test(manifest.package) ||
+      typeof manifest?.tarballIntegrity !== "string" ||
       typeof expected !== "string" ||
       !/^[a-f0-9]{128}$/.test(expected)
     ) {
       return null;
     }
-    return { bin, expected };
+    return {
+      bin,
+      expected,
+      package: manifest.package,
+      version: manifest.version,
+      tarballIntegrity: manifest.tarballIntegrity,
+    };
   } catch {
     return null;
   }
@@ -373,8 +383,8 @@ function cachedBinaryPathIsUnchanged(bin, expectedStat) {
   return finalStat.isFile() && sameFileIdentity(finalStat, expectedStat);
 }
 
-function cachedBinary(version, candidate = null) {
-  const resolvedCandidate = candidate || readCachedManifest(version);
+function cachedBinary(version, candidate = null, pkg = null) {
+  const resolvedCandidate = candidate || readCachedManifest(version, pkg);
   if (!resolvedCandidate) return null;
   let opened = null;
   try {
@@ -412,15 +422,24 @@ function cachedBinary(version, candidate = null) {
 
 // Check only cheap metadata before lease setup. Full digest verification is
 // performed once after the lease, or while making a private read-only snapshot.
-function cachedBinaryCandidate(version) {
-  const candidate = readCachedManifest(version);
+function cachedBinaryCandidate(version, pkg = null) {
+  const candidate = readCachedManifest(version, pkg);
   if (!candidate) return null;
   try {
     const stat = fs.lstatSync(candidate.bin);
     if (!stat.isFile()) return null;
     if (process.platform !== "win32") {
-      if ((stat.mode & 0o111) === 0) return null;
-      fs.accessSync(candidate.bin, fs.constants.X_OK);
+      if ((stat.mode & 0o111) === 0) {
+        // Managed entries may have lost their mode bits during a cache copy.
+        // Keep them eligible for authenticated verification, where the mode
+        // can be repaired on the already-open descriptor. Unmanaged entries
+        // never receive a launcher-owned mode repair.
+        if (!isManagedCacheVersion(path.dirname(cachedBinDir(version)))) {
+          return null;
+        }
+      } else {
+        fs.accessSync(candidate.bin, fs.constants.X_OK);
+      }
     }
     return candidate;
   } catch {
@@ -428,7 +447,11 @@ function cachedBinaryCandidate(version) {
   }
 }
 
-function snapshotVerifiedCachedBinary(candidate) {
+function snapshotVerifiedCachedBinary(
+  candidate,
+  expected = candidate.expected,
+  repairManagedMode = false
+) {
   let opened = null;
   let snapshotDirectory = null;
   let snapshotFd;
@@ -437,17 +460,29 @@ function snapshotVerifiedCachedBinary(candidate) {
   try {
     opened = openCachedBinary(candidate.bin);
     if (!opened) return null;
-    const verified = readVerifiedCachedBinary(opened.fd, candidate.expected);
+    let verified = readVerifiedCachedBinary(opened.fd, expected);
     if (!verified) return null;
-    if (
-      process.platform !== "win32" &&
-      (verified.stat.mode & 0o111) === 0
-    ) {
-      return null;
+    if (process.platform !== "win32" && (verified.stat.mode & 0o111) === 0) {
+      const version = candidate.version;
+      const versionRoot =
+        typeof version === "string" ? path.dirname(cachedBinDir(version)) : null;
+      if (!repairManagedMode || !versionRoot || !isManagedCacheVersion(versionRoot)) {
+        return null;
+      }
+      // Repair only a launcher-owned managed entry, on the open descriptor.
+      // Reopen and revalidate after chmod so a replacement cannot inherit the
+      // repaired path into the launch snapshot.
+      fs.fchmodSync(opened.fd, 0o755);
+      fs.closeSync(opened.fd);
+      opened = null;
+      opened = openCachedBinary(candidate.bin);
+      if (!opened) return null;
+      verified = readVerifiedCachedBinary(opened.fd, expected);
+      if (!verified || (verified.stat.mode & 0o111) === 0) return null;
     }
     if (
       process.platform !== "win32" &&
-      !cachedBinaryPathIsUnchanged(candidate.bin, verified.stat)
+        !cachedBinaryPathIsUnchanged(candidate.bin, verified.stat)
     ) {
       return null;
     }
@@ -1700,6 +1735,60 @@ function verifyIntegrity(buffer, integrity) {
   }
 }
 
+// Fetch and verify one published platform package. The registry's dist
+// integrity is the authentication root for the extracted binary; local cache
+// metadata is only a consistency check and never supplies the expected digest.
+async function fetchVerifiedPackage(pkg, version, purpose = "download") {
+  const meta = await fetchJson(`${registryBase()}/${pkg}/${version}`, {
+    packageName: pkg,
+    selector: version,
+    field: "dist",
+  });
+  // `npm view ... dist --json` returns the dist object directly, while the
+  // raw registry document wraps it under `dist`. Accept both shapes so the
+  // npm-configured and direct transports share one validation path.
+  const dist = meta && meta.dist ? meta.dist : meta;
+  const tarballUrl = dist && dist.tarball;
+  const integrity = dist && dist.integrity;
+  if (!integrity || (!tarballUrl && !hasNpmNetworkConfig())) {
+    throw new Error("registry metadata is incomplete");
+  }
+  if (purpose) console.error(`cmux: ${purpose} ${pkg}@${version}...`);
+  let tgz;
+  if (hasNpmNetworkConfig()) {
+    tgz = npmPack(pkg, version);
+  } else {
+    const response = await fetch(tarballUrl, {
+      headers: registryHeaders(tarballUrl, "application/octet-stream"),
+      signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error("platform package download failed");
+    }
+    tgz = await readResponseBody(response, MAX_TARBALL_BYTES);
+  }
+  verifyIntegrity(tgz, integrity);
+  let tar;
+  try {
+    tar = zlib.gunzipSync(tgz, { maxOutputLength: MAX_TARBALL_BYTES });
+  } catch {
+    throw new Error("platform package is invalid or too large");
+  }
+  const entries = extractBinEntries(tar);
+  const native = entries.find((entry) => entry.name === BIN_NAME);
+  if (!native) {
+    throw new Error("platform package does not contain the native binary");
+  }
+  return { integrity, entries, native };
+}
+
+function cacheManifestMatchesPackage(candidate, pkg, version, verified) {
+  if (!candidate || !verified || candidate.package !== pkg) return false;
+  if (candidate.version !== version) return false;
+  if (candidate.tarballIntegrity !== verified.integrity) return false;
+  return candidate.expected === digestHex(verified.native.data);
+}
+
 function writeCacheManifest(pkg, version, integrity, entries) {
   const target = cacheManifestPath(version);
   const tmp = `${target}.${process.pid}.tmp`;
@@ -1728,47 +1817,11 @@ function removeCachedPayload(version) {
 async function downloadVersion(
   pkg,
   version,
-  { verifyCache = true, returnCandidate = false } = {}
+  { verifyCache = true, returnCandidate = false, verifiedPackage = null } = {}
 ) {
-  const meta = await fetchJson(`${registryBase()}/${pkg}/${version}`, {
-    packageName: pkg,
-    selector: version,
-    field: "dist",
-  });
-  // `npm view ... dist --json` returns the dist object directly, while the
-  // raw registry document wraps it under `dist`. Accept both shapes so the
-  // npm-configured and direct transports share one validation path.
-  const dist = meta && meta.dist ? meta.dist : meta;
-  const tarballUrl = dist && dist.tarball;
-  const integrity = dist && dist.integrity;
-  if (!integrity || (!tarballUrl && !hasNpmNetworkConfig())) {
-    throw new Error("registry metadata is incomplete");
-  }
-  console.error(`cmux: downloading ${pkg}@${version}...`);
-  let tgz;
-  if (hasNpmNetworkConfig()) {
-    tgz = npmPack(pkg, version);
-  } else {
-    const response = await fetch(tarballUrl, {
-      headers: registryHeaders(tarballUrl, "application/octet-stream"),
-      signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      throw new Error("platform package download failed");
-    }
-    tgz = await readResponseBody(response, MAX_TARBALL_BYTES);
-  }
-  verifyIntegrity(tgz, integrity);
-  let tar;
-  try {
-    tar = zlib.gunzipSync(tgz, { maxOutputLength: MAX_TARBALL_BYTES });
-  } catch {
-    throw new Error("platform package is invalid or too large");
-  }
-  const entries = extractBinEntries(tar);
-  if (!entries.some((entry) => entry.name === BIN_NAME)) {
-    throw new Error("platform package does not contain the native binary");
-  }
+  const verified =
+    verifiedPackage || (await fetchVerifiedPackage(pkg, version, "downloading"));
+  const { integrity, entries, native } = verified;
 
   const finalDir = cachedBinDir(version);
   const stagingDir = path.join(
@@ -1833,15 +1886,19 @@ async function downloadVersion(
       throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
     }
   } else {
-    const binPath = cachedBinary(version);
+    const binPath = cachedBinary(version, null, pkg);
     if (!binPath) throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
   }
   if (returnCandidate) {
-    const expected = entries.find((entry) => entry.name === BIN_NAME);
-    if (!expected) throw new Error(`extraction did not produce ${finalDir}/${BIN_NAME}`);
     return {
       path: finalPath,
-      candidate: { bin: finalPath, expected: digestHex(expected.data) },
+      candidate: {
+        bin: finalPath,
+        expected: digestHex(native.data),
+        package: pkg,
+        version,
+        tarballIntegrity: integrity,
+      },
     };
   }
   return finalPath;
@@ -1989,24 +2046,37 @@ async function resolveBinary(
   if (installed && installed.version === wanted) {
     return installed.binPath;
   }
-  if (snapshotCache && cachedCandidate) {
-    const snapshot = snapshotVerifiedCachedBinary(cachedCandidate);
-    if (snapshot) return { path: snapshot.path, snapshot };
-  } else {
-    const cached = cachedBinary(wanted, cachedCandidate);
-    if (cached) return cached;
-  }
 
   // Check the runtime before entering the generic download error boundary so
   // an unsupported Node version gets a useful, actionable message instead of
   // being flattened into a network failure.
   requireNetworkRuntime();
   try {
+    let verifiedPackage = null;
+    if (cachedCandidate) {
+      // A writable cache is untrusted. Fetch the package metadata and tarball
+      // again, then derive the expected binary digest from those authenticated
+      // bytes. The local manifest can only confirm that the cache matches that
+      // registry result; it is never an integrity root.
+      verifiedPackage = await fetchVerifiedPackage(pkg, wanted, "verifying");
+      if (cacheManifestMatchesPackage(cachedCandidate, pkg, wanted, verifiedPackage)) {
+        const expected = digestHex(verifiedPackage.native.data);
+        const snapshot = snapshotVerifiedCachedBinary(
+          cachedCandidate,
+          expected,
+          true
+        );
+        if (snapshot) return { path: snapshot.path, snapshot };
+      }
+    }
     const downloaded = await downloadVersion(pkg, wanted, {
-      verifyCache: !snapshotCache,
-      returnCandidate: snapshotCache,
+      // The caller receives a private snapshot below, so a second path lookup
+      // is unnecessary. Reuse the authenticated tarball when the cache was
+      // stale or its manifest was tampered with.
+      verifyCache: false,
+      returnCandidate: true,
+      verifiedPackage,
     });
-    if (!snapshotCache) return downloaded;
     const snapshot = snapshotVerifiedCachedBinary(downloaded.candidate);
     if (!snapshot) fail("the cached native binary changed before launch");
     return { path: snapshot.path, snapshot };
@@ -2133,7 +2203,7 @@ async function main() {
     // read-only, pre-populated cache cannot publish `.active` or `.update.lock`;
     // it is safe to launch that verified binary when pruning is skipped.
     const cachedCandidate =
-      wanted && !installedBin ? cachedBinaryCandidate(wanted) : null;
+      wanted && !installedBin ? cachedBinaryCandidate(wanted, pkg) : null;
     const readOnlyCached = Boolean(
       cachedCandidate && cacheVersionIsReadOnly(wanted)
     );
@@ -2158,10 +2228,10 @@ async function main() {
       binPath = launchSnapshot.path;
     } else if (!binPath) {
       const resolved = await resolveBinary(pkg, wanted, cachedCandidate, {
-        // Windows does not guarantee path identity through every supported
-        // Node filesystem build. Resolve cache hits into a private snapshot
-        // so the spawned path cannot be replaced after digest verification.
-        snapshotCache: process.platform === "win32",
+        // Resolve every cache hit into a private snapshot. This closes the
+        // replacement window after the authenticated registry check on Unix
+        // as well as the path-identity gap on Windows.
+        snapshotCache: true,
       });
       if (resolved && typeof resolved === "object" && resolved.snapshot) {
         launchSnapshot = resolved.snapshot;
