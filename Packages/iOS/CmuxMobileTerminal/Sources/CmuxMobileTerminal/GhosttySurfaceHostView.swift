@@ -45,7 +45,11 @@ import UIKit
 /// dock, whichever authority is seating it. `chrome` and `blank` change only
 /// on chrome mutations and content measurements. There is no settle-fold and
 /// no presentation rebasing: with no grid renegotiation there is nothing to
-/// mask.
+/// mask. While the chrome is visible the grid container additionally
+/// reserves `TerminalLetterboxGeometry.dockSeamPadding`, so the render's
+/// bottom edge rides that many points ABOVE the dock top instead of flush
+/// against the toolbar — the seam lives in the grid, not in these
+/// constraints, so the cap arithmetic above is unchanged.
 @MainActor
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
@@ -598,15 +602,17 @@ public final class GhosttySurfaceHostView: UIView {
         maximumTerminalDockPresentationGap
     }
 
-    /// The pixel seam between the render's bottom edge and the dock's top
-    /// edge. Both derive from one constraint system laid out in one pass, so
-    /// on every frame of every keyboard transition this must equal the
-    /// blank-space absorption slack (zero whenever content reaches the
+    /// The pixel deviation between the render's bottom edge and its designed
+    /// seat, `hostedDockSeamPadding` above the dock's top edge (the grid
+    /// container reserves that seam so content never sits flush against the
+    /// toolbar). Both edges derive from one constraint system laid out in one
+    /// pass, so on every frame of every keyboard transition this must equal
+    /// the blank-space absorption slack (zero whenever content reaches the
     /// composer bar).
     private var terminalDockPresentationGap: CGFloat {
         guard let terminalBottom = surfaceView.hostedTerminalPresentationBottom(in: self),
               let dockTop = surfaceView.hostedBottomDockPresentationTop(in: self) else { return 0 }
-        return abs(terminalBottom - dockTop)
+        return abs(terminalBottom - (dockTop - surfaceView.hostedDockSeamPadding))
     }
     #endif
 }
