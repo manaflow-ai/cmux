@@ -381,17 +381,23 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         #expect(descriptor.gitMetadataPaths.contains(worktreeConfigURL.path))
     }
 
-    @Test func resolvesSystemConfigFromGitExecPath() throws {
+    @Test func resolvesSystemConfigFromGitExecutablePath() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
         let prefix = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmuxgit-prefix-\(UUID().uuidString)", isDirectory: true)
-        let execPath = prefix.appendingPathComponent("libexec/git-core", isDirectory: true)
+        let binPath = prefix.appendingPathComponent("bin", isDirectory: true)
+        let executablePath = binPath.appendingPathComponent("git")
         let systemConfigURL = prefix.appendingPathComponent("etc/gitconfig")
-        try FileManager.default.createDirectory(at: execPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binPath, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: systemConfigURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
+        )
+        try Data().write(to: executablePath)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executablePath.path
         )
         defer { try? FileManager.default.removeItem(at: prefix) }
         try """
@@ -406,7 +412,7 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
             repository: repository,
             environment: [
                 "GIT_CONFIG_GLOBAL": "/dev/null",
-                "GIT_EXEC_PATH": execPath.path,
+                "PATH": binPath.path,
                 "GIT_CONFIG_NOSYSTEM": "",
             ]
         )
@@ -415,7 +421,7 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         #expect(snapshot.remoteVOutput?.contains("https://github.com/system/repo.git") == true)
     }
 
-    @Test func gitExecPathDoesNotFallThroughToPathSystemConfig() throws {
+    @Test func gitExecPathDoesNotOverridePathSystemConfig() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
         let execPrefix = FileManager.default.temporaryDirectory
@@ -429,6 +435,10 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         let execSystemConfigURL = execPrefix.appendingPathComponent("etc/gitconfig")
         try FileManager.default.createDirectory(at: execPath, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: pathBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: execSystemConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try FileManager.default.createDirectory(
             at: pathSystemConfigURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -446,6 +456,10 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         [remote "origin"]
             url = https://github.com/path-fallback/repo.git
         """.write(to: pathSystemConfigURL, atomically: true, encoding: .utf8)
+        try """
+        [remote "origin"]
+            url = https://github.com/exec-path/repo.git
+        """.write(to: execSystemConfigURL, atomically: true, encoding: .utf8)
 
         let repository = try #require(
             GitMetadataService.resolveGitRepository(containing: fixture.root.path)
@@ -460,9 +474,9 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
             ]
         )
 
-        #expect(snapshot.remoteVOutput == nil)
-        #expect(snapshot.configStatuses.keys.contains(execSystemConfigURL.standardizedFileURL.path))
-        #expect(!snapshot.configURLs.contains(pathSystemConfigURL.standardizedFileURL))
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/path-fallback/repo.git") == true)
+        #expect(snapshot.configURLs.contains(pathSystemConfigURL.standardizedFileURL))
+        #expect(!snapshot.configURLs.contains(execSystemConfigURL.standardizedFileURL))
     }
 
     @Test func readsXDGGlobalConfigBeforeHomeWhenXDGIsEmpty() throws {
@@ -665,11 +679,39 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
                 "GIT_CONFIG_NOSYSTEM": "1",
                 "GIT_CONFIG_GLOBAL": "/dev/null",
                 "GIT_CONFIG_COUNT": "",
+                "GIT_CONFIG_KEY_0": "remote.origin.url",
+                "GIT_CONFIG_VALUE_0": "https://github.com/stale-empty/repo.git",
             ]
         )
 
         #expect(snapshot.isComplete)
         #expect(snapshot.remoteVOutput?.contains("https://github.com/empty-count/repo.git") == true)
+    }
+
+    @Test func zeroRuntimeGitConfigCountIgnoresStalePairs() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/zero-count/repo.git
+        """)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_COUNT": "0",
+                "GIT_CONFIG_KEY_0": "remote.origin.url",
+                "GIT_CONFIG_VALUE_0": "https://github.com/stale/repo.git",
+            ]
+        )
+
+        #expect(snapshot.isComplete)
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/zero-count/repo.git") == true)
     }
 
     @Test func nonLocalConfigFailsClosedBeforeReadingItsContents() throws {
