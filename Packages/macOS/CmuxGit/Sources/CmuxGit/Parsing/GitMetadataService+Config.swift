@@ -378,6 +378,30 @@ extension GitMetadataService {
             repository: repository,
             environment: environment
         )
+        let hasRuntimeConfigOverrides: Bool = {
+            if let rawCount = environment["GIT_CONFIG_COUNT"] {
+                guard let count = Int(rawCount), count == 0 else { return true }
+                return environment.keys.contains {
+                    $0.hasPrefix("GIT_CONFIG_KEY_")
+                        || $0.hasPrefix("GIT_CONFIG_VALUE_")
+                        || $0 == "GIT_CONFIG_PARAMETERS"
+                }
+            }
+            return environment.keys.contains {
+                $0.hasPrefix("GIT_CONFIG_KEY_")
+                    || $0.hasPrefix("GIT_CONFIG_VALUE_")
+                    || $0 == "GIT_CONFIG_PARAMETERS"
+            }
+        }()
+        if hasRuntimeConfigOverrides {
+            return GitRemoteConfigSnapshot(
+                remoteVOutput: nil,
+                configURLs: rootConfigURLs,
+                isComplete: false,
+                watchFallbackURLs: [],
+                configStatuses: [:]
+            )
+        }
         var discoveryBudget = GitConfigTraversalBudget(
             fileStatusReader: fileStatusReader,
             commonConfigURL: commonConfigURL
