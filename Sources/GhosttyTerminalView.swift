@@ -4006,6 +4006,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredGhosttyMouseButtonRepairForceButtonGenerations: [TrackedMouseButton: UInt64] = [:]
     private var deferredGhosttyMouseButtonRepairReason: String?
     private var hasPendingLeftMouseRelease = false
+    private var pendingLeftMouseReleaseGeneration: UInt64?
     let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -4250,13 +4251,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return event
     }
 
-    private func markGhosttyMouseButtonPressed(_ button: TrackedMouseButton) {
+    @discardableResult
+    private func markGhosttyMouseButtonPressed(_ button: TrackedMouseButton) -> UInt64 {
         nextGhosttyMouseButtonGeneration &+= 1
         ghosttyPressedMouseButtons.insert(button)
         ghosttyPressedMouseButtonGenerations[button] = nextGhosttyMouseButtonGeneration
+        return nextGhosttyMouseButtonGeneration
     }
 
-    private func markGhosttyMouseButtonReleased(_ button: TrackedMouseButton) {
+    private func markGhosttyMouseButtonReleased(
+        _ button: TrackedMouseButton,
+        expectedGeneration: UInt64
+    ) {
+        guard ghosttyPressedMouseButtonGenerations[button] == expectedGeneration else { return }
+        if button == .left, pendingLeftMouseReleaseGeneration == expectedGeneration {
+            hasPendingLeftMouseRelease = false
+            pendingLeftMouseReleaseGeneration = nil
+        }
         ghosttyPressedMouseButtons.remove(button)
         ghosttyPressedMouseButtonGenerations[button] = nil
     }
@@ -4264,6 +4275,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func resetGhosttyMouseButtonTracking() {
         ghosttyPressedMouseButtons.removeAll()
         ghosttyPressedMouseButtonGenerations.removeAll()
+        hasPendingLeftMouseRelease = false
+        pendingLeftMouseReleaseGeneration = nil
     }
 
     func attachSurface(_ surface: TerminalSurface) {
@@ -6970,13 +6983,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         for button in buttonsToRelease {
+            guard let generation = ghosttyPressedMouseButtonGenerations[button] else { continue }
             _ = sendGhosttyMouseButton(
                 surface,
                 state: GHOSTTY_MOUSE_RELEASE,
                 button: button.ghosttyButton,
                 mods: ghosttyLastMouseMods
             )
-            markGhosttyMouseButtonReleased(button)
+            markGhosttyMouseButtonReleased(button, expectedGeneration: generation)
         }
     }
 
@@ -7259,8 +7273,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_LEFT,
             mods: mouseState.mods
         )
-        markGhosttyMouseButtonPressed(.left)
+        let generation = markGhosttyMouseButtonPressed(.left)
         hasPendingLeftMouseRelease = true
+        pendingLeftMouseReleaseGeneration = generation
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -7285,12 +7300,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
         if routeInputDuringClipboardRead(event) { return true }
         guard hasPendingLeftMouseRelease else { return false }
+        let pendingGeneration = pendingLeftMouseReleaseGeneration
         hasPendingLeftMouseRelease = false
+        pendingLeftMouseReleaseGeneration = nil
         let mouseState = rememberGhosttyMouseState(from: event)
         guard let surface else {
             // A portal can detach the runtime between the press and release.
             // Clear our mirror even when there is no surface left to receive it.
-            markGhosttyMouseButtonReleased(.left)
+            if let pendingGeneration {
+                markGhosttyMouseButtonReleased(.left, expectedGeneration: pendingGeneration)
+            }
             return false
         }
         let point = mouseState.localPoint
@@ -7300,7 +7319,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             modifierFlags: event.modifierFlags,
             mouseMods: mouseState.mods
         )
-        markGhosttyMouseButtonReleased(.left)
+        if let pendingGeneration {
+            markGhosttyMouseButtonReleased(.left, expectedGeneration: pendingGeneration)
+        }
         return true
     }
 
@@ -8109,18 +8130,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if routeInputDuringClipboardRead(event) { return }
         let mouseState = rememberGhosttyMouseState(from: event)
         guard let surface else {
-            markGhosttyMouseButtonReleased(.right)
+            if let generation = ghosttyPressedMouseButtonGenerations[.right] {
+                markGhosttyMouseButtonReleased(.right, expectedGeneration: generation)
+            }
             return
         }
         let mouseCaptured = ghostty_surface_mouse_captured(surface)
         if mouseCaptured || ghosttyPressedMouseButtons.contains(.right) {
+            let generation = ghosttyPressedMouseButtonGenerations[.right]
             _ = sendGhosttyMouseButton(
                 surface,
                 state: GHOSTTY_MOUSE_RELEASE,
                 button: GHOSTTY_MOUSE_RIGHT,
                 mods: mouseState.mods
             )
-            markGhosttyMouseButtonReleased(.right)
+            if let generation {
+                markGhosttyMouseButtonReleased(.right, expectedGeneration: generation)
+            }
         }
         if !mouseCaptured {
             super.rightMouseUp(with: event)
@@ -8162,16 +8188,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if routeInputDuringClipboardRead(event) { return }
         let mouseState = rememberGhosttyMouseState(from: event)
         guard let surface else {
-            markGhosttyMouseButtonReleased(.middle)
+            if let generation = ghosttyPressedMouseButtonGenerations[.middle] {
+                markGhosttyMouseButtonReleased(.middle, expectedGeneration: generation)
+            }
             return
         }
+        let generation = ghosttyPressedMouseButtonGenerations[.middle]
         _ = sendGhosttyMouseButton(
             surface,
             state: GHOSTTY_MOUSE_RELEASE,
             button: GHOSTTY_MOUSE_MIDDLE,
             mods: mouseState.mods
         )
-        markGhosttyMouseButtonReleased(.middle)
+        if let generation {
+            markGhosttyMouseButtonReleased(.middle, expectedGeneration: generation)
+        }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
