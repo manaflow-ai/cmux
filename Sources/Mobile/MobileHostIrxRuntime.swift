@@ -370,7 +370,6 @@ final class MobileHostIrxRuntime {
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
                 journal: journal)
         }
-        let runtime = self
         let controlTransport = IrxControlByteTransport(
             connection: irx, control: control, closeCode: .hostShutdown)
         let exit = await MobileHostService.acceptTransport(
@@ -378,8 +377,8 @@ final class MobileHostIrxRuntime {
             authorization: .irohAdmission(admittedPeer),
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
-            isCurrent: { [weak runtime] in
-                await MainActor.run { runtime?.generationToken == token }
+            isCurrent: { @MainActor [weak self] in
+                self?.generationToken == token
             }
         )
         journal.record(
