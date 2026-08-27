@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import CmuxMobileTerminalKit
 import Testing
 
@@ -98,4 +97,3 @@ struct ScrollTopRevealResolutionTests {
         #expect(resolved.revealPx == 0)
     }
 }
-#endif
