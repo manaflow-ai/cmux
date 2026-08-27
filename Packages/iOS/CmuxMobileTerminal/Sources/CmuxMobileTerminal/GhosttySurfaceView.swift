@@ -1455,12 +1455,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         Double(hostedScrollTopRevealBudget * max(preferredScreenScale, 1))
     }
 
-    /// Drops any granted reveal without disturbing the held scroll anchor.
-    /// Called on every keyboard leg: the budget the reveal was granted
-    /// against changes with the keyboard, and a stale reveal on the next
-    /// raise would cover the newest rows the user never scrolled away from.
+    /// Drops any granted reveal. Called on every keyboard leg: the budget
+    /// the reveal was granted against changes with the keyboard, and a stale
+    /// reveal on the next raise would cover the newest rows the user never
+    /// scrolled away from.
+    ///
+    /// A nonzero reveal clears like every other pixel-authority clear, with
+    /// an epoch bump, so a batch already in flight (whose captured budget
+    /// predates this keyboard leg) cannot re-commit the cleared reveal after
+    /// the leg seats the cap. Dropping the held anchor is free here: reveal
+    /// is only ever granted at scrollback-top, where the anchor is
+    /// (row 0, position 0) and the live viewport says the same thing. When
+    /// no reveal is granted (the common keyboard toggle) this is a no-op so
+    /// an active gesture's scroll authority is never perturbed.
     func clearHostedScrollTopReveal() {
-        localPixelScrollState.withLock { $0.topRevealPx = 0 }
+        localPixelScrollState.withLock {
+            guard $0.topRevealPx != 0 else { return }
+            $0.epoch &+= 1
+            $0.remainderPx = 0
+            $0.lastApplied = nil
+            $0.topRevealPx = 0
+        }
     }
 
     func hostedTerminalPresentationBottom(in host: UIView) -> CGFloat? {
