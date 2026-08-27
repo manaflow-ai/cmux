@@ -1991,11 +1991,15 @@ public final class MobileIrohRuntimeComposition:
         // hint-dial filter: debug override first, then the endpoint
         // generation's own profile (frozen per generation, like hint dials).
         let addressLookup: CmxIrohRegistryAddressLookup?
-        if CmxIrohDebugAddressLookupFlag.isEnabled() {
+        // The client broker abstraction does not require endpoint-record
+        // support; the concrete brokers provide it. Same downcast-or-degrade
+        // as CmxIrohBackpressuredClientBroker's record forwarding.
+        if CmxIrohDebugAddressLookupFlag.isEnabled(),
+           let recordBroker = broker as? any CmxIrohEndpointRecordBroker {
             let allowlistProfile = endpointRelayProfile
             let allowlistManaged = managedRelayURLs
             addressLookup = CmxIrohRegistryAddressLookup(
-                broker: broker,
+                broker: recordBroker,
                 allowedRelayURLs: {
                     if let overrideURL =
                         CmxIrohDebugRelayOverrideDiagnostics().activeRelayURL {
