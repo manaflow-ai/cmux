@@ -124921,6 +124921,40 @@
         }
       }
     },
+    "machines.empty.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to use more than %d machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードすると %d 台を超えるマシンを利用できます"
+          }
+        }
+      }
+    },
+    "machines.empty.upgrade.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to use more than 1 machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレードすると複数のマシンを利用できます"
+          }
+        }
+      }
+    },
     "machines.freeAccess.countdown.daysHours": {
       "extractionState": "manual",
       "localizations": {

@@ -352,7 +352,19 @@ struct MachinesPanelView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .padding(.top, 2)
-                if let plan = viewModel.plan {
+                if let plan = viewModel.plan, !plan.isPaidPlan {
+                    // The upgrade nudge under the create button: same Pro flow
+                    // as the meter's at-limit hint and the ＋ at the ceiling.
+                    Button {
+                        ProUpgradePresenter.present()
+                    } label: {
+                        Text(upgradeNudgeLabel(plan))
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                } else if let plan = viewModel.plan {
                     Text(planIncludesLabel(plan))
                         .cmuxFont(size: 11)
                         .foregroundColor(.secondary.opacity(0.7))
@@ -367,8 +379,23 @@ struct MachinesPanelView: View {
         .accessibilityIdentifier("CloudMachinesEmptyState")
     }
 
-    /// "Your plan includes 5 machines" under the create button, so the empty
-    /// state answers "what do I get" before the meter ever shows a count.
+    /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
+    /// way past it in one line.
+    private func upgradeNudgeLabel(_ plan: MachinePlanSnapshot) -> String {
+        if plan.isSingleMachinePlan {
+            return String(
+                localized: "machines.empty.upgrade.single",
+                defaultValue: "Upgrade to use more than 1 machine"
+            )
+        }
+        return String(
+            format: String(localized: "machines.empty.upgrade", defaultValue: "Upgrade to use more than %d machines"),
+            plan.maxActiveVms
+        )
+    }
+
+    /// Paid plans: "Your plan includes 5 machines" under the create button, so
+    /// the empty state answers "what do I get" before the meter shows a count.
     private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
         if plan.isSingleMachinePlan {
             return String(
