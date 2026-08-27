@@ -140,4 +140,44 @@ struct SurfaceResumeRestoreClaimTests {
 
         #expect(workspace.surfaceResumeRestoreClaimsByPanelId.isEmpty)
     }
+
+    @Test
+    func workspaceReconciliationCannotReplaceClaimedCodexBinding() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let parent = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume parent-session",
+            checkpointId: "parent-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui",
+            updatedAt: 50
+        )
+        let detectedChild = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume child-session",
+            checkpointId: "child-session",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 51
+        )
+
+        #expect(workspace.setSurfaceResumeBinding(parent, panelId: panelID))
+        #expect(workspace.claimSurfaceResumeBinding(
+            panelId: panelID,
+            expectedCheckpointID: "parent-session",
+            expectedSource: "agent-hook",
+            expectedUpdatedAt: 50
+        ))
+        workspace.reconcileSurfaceResumeBindings(
+            using: SurfaceResumeBindingIndex(bindingsByPanel: [
+                .init(workspaceId: workspace.id, panelId: panelID): detectedChild,
+            ]),
+            restorableAgentIndex: .empty
+        )
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelID) == parent)
+    }
 }
