@@ -138,7 +138,8 @@ struct NativeNotificationFallbackCommandTests {
                 surfaceId: nil,
                 title: "Real title",
                 subtitle: "",
-                body: "Real message"
+                body: "Real message",
+                retargetsToLiveSurfaceOwner: false
             )
         }
 
