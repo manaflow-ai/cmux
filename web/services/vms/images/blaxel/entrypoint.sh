@@ -5,12 +5,26 @@ set -u
 
 # Supervise the sandbox API: it is the machine's control plane, and without a
 # restart a crashed API leaves a "running" machine whose filesystem/process
-# operations all fail.
+# operations all fail. Backoff is capped so a crash-looping binary cannot spin
+# the CPU, and the log is truncated so it cannot grow without bound.
 (
+  api_log=/var/log/cmux-sandbox-api.log
+  backoff=1
   while true; do
-    /usr/local/bin/sandbox-api >>/var/log/cmux-sandbox-api.log 2>&1
-    echo "sandbox-api exited (rc=$?); restarting" >>/var/log/cmux-sandbox-api.log
-    sleep 1
+    started=$(date +%s)
+    /usr/local/bin/sandbox-api >>"$api_log" 2>&1
+    rc=$?
+    [ "$(wc -c <"$api_log" 2>/dev/null || echo 0)" -gt 1048576 ] && {
+      tail -c 65536 "$api_log" > "$api_log.tmp" && mv "$api_log.tmp" "$api_log"
+    }
+    if [ $(( $(date +%s) - started )) -ge 60 ]; then
+      backoff=1
+    else
+      backoff=$((backoff * 2))
+      [ "$backoff" -gt 30 ] && backoff=30
+    fi
+    echo "sandbox-api exited (rc=$rc); restarting in ${backoff}s" >>"$api_log"
+    sleep "$backoff"
   done
 ) &
 
