@@ -29,13 +29,8 @@ fi
 mkdir -p "$(dirname "$DEST_PATH")"
 install -m 755 "$HELPER_PATH" "$DEST_PATH"
 
-archs="$(lipo -archs "$DEST_PATH")"
-case " $archs " in
-  *" arm64 "* ) ;;
-  *) echo "error: $DEST_PATH is missing arm64 (architectures: ${archs:-<none>})" >&2; exit 1 ;;
-esac
-case " $archs " in
-  *" x86_64 "* ) ;;
-  *) echo "error: $DEST_PATH is missing x86_64 (architectures: ${archs:-<none>})" >&2; exit 1 ;;
-esac
+# One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
+# arch after -verify_arch and read the second as an extra input file, failing
+# with "requires exactly one input file".
+for arch in arm64 x86_64; do lipo "$DEST_PATH" -verify_arch "$arch"; done
 echo "Installed universal Ghostty CLI helper at $DEST_PATH"

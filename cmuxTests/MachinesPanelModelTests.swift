@@ -1,5 +1,6 @@
 import Foundation
 import Bonsplit
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -688,5 +689,50 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         let terminalRow = CloudTreeNodeBuilder.flattened(existing).first { $0.id == "resource:m/terminal/term_1" }
         if case .terminal(let row)? = terminalRow?.kind { XCTAssertEqual(row.resource.title, "make") } else { XCTFail("terminal row missing") }
         XCTAssertEqual(CloudTreeNodeBuilder.contentSignature(existing), CloudTreeNodeBuilder.contentSignature(replacement))
+    }
+}
+
+/// Regression: a signed-in account with no cloud machines rendered a blank
+/// panel instead of the empty state, because the panel judged emptiness from
+/// the raw catalog (whose This Mac entry counted as a row) while the
+/// cloud-only tree drew nothing. The emptiness decision must match what
+/// `nodes` actually renders.
+@Suite struct CloudTreeEmptyDecisionTests {
+    private func info(_ machine: SurfaceMachineID) -> SurfaceMachineInfo {
+        SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: "blaxel/xfce-vnc:latest", hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: machine.isLocal ? .notApplicable : .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
+    }
+
+    private func terminal(_ machine: SurfaceMachineID, _ key: String) -> SurfaceResource {
+        SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: "shell", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: SurfaceRemoteWorkspace(id: "ws_0", name: "0", index: 0, focused: true), port: nil, url: nil)
+    }
+
+    private func machine(_ id: String) -> MachineSnapshot {
+        MachineSnapshot(id: id, provider: "blaxel", image: "blaxel/xfce-vnc:latest", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
+    }
+
+    @Test func emptyDecisionMatchesWhatTheTreeRenders() {
+        let localOnly = SurfaceCatalogSnapshot(machines: [info(.local)], resources: [terminal(.local, "AAA")], projections: [])
+        #expect(
+            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).isEmpty,
+            "precondition: the cloud-only tree renders nothing for a local-only catalog"
+        )
+        #expect(
+            CloudTreeNodeBuilder.isEmpty(machines: [], snapshot: localOnly),
+            "no cloud machines anywhere must show the empty state, even with This Mac in the catalog"
+        )
+        #expect(
+            !CloudTreeNodeBuilder.isEmpty(machines: [], snapshot: localOnly, includeLocalMachine: true),
+            "once the tree shows This Mac again, the local entry is a row"
+        )
+
+        #expect(
+            !CloudTreeNodeBuilder.isEmpty(machines: [machine("vivid-newt")], snapshot: .empty),
+            "a fleet machine is a row before the catalog hears about it"
+        )
+        let catalogOnly = SurfaceCatalogSnapshot(machines: [info(.cloud("quiet-owl"))], resources: [], projections: [])
+        #expect(
+            !CloudTreeNodeBuilder.isEmpty(machines: [], snapshot: catalogOnly),
+            "a catalog-known cloud machine gets a placeholder row even while the fleet list lags"
+        )
     }
 }

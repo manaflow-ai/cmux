@@ -56,10 +56,19 @@ public enum IrxRelayCredentialPolicy {
 public struct IrxRelayCredentialSnapshot: Codable, Equatable, Sendable {
     public var credentials: [IrxRelayCredential]
     public var mintedAt: Date
+    /// The endpoint the tokens are bound to. The relay SILENTLY refuses a
+    /// wrong-key token (the link just never comes up), so a cached snapshot
+    /// from a different identity must never be reused.
+    public var endpointIDHex: String?
 
-    public init(credentials: [IrxRelayCredential], mintedAt: Date) {
+    public init(
+        credentials: [IrxRelayCredential],
+        mintedAt: Date,
+        endpointIDHex: String? = nil
+    ) {
         self.credentials = credentials
         self.mintedAt = mintedAt
+        self.endpointIDHex = endpointIDHex
     }
 
     public func usable(at now: Date) -> [IrxRelayCredential] {

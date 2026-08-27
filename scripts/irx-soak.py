@@ -117,16 +117,20 @@ CLIENT_FATAL = {
     ("admission", "denied-or-timeout"),
     ("client-events", "lane-missing"),
 }
-MAC_FATAL = {
+# Session-scoped events fail the soak ONLY for the focus device's sessions,
+# so a human dogfooding another device (phone lock/unlock churn) in parallel
+# never poisons the verdict. Endpoint/credential events are host-global.
+MAC_FATAL_SESSION_SCOPED = {
     ("host-runtime", "connection-exit"),
     ("registry", "superseded"),
+}
+MAC_FATAL = {
     ("endpoint", "closed-unexpectedly"),
     ("endpoint", "relay-credential-rotation-failed"),
-    ("admission", "denied"),
-    ("admission", "rejected"),
     ("host-events", "writer-reset"),
     ("host-terminal", "cursor-gap"),
 }
+focus_sessions = set()
 
 sim_path = sim_journal_path()
 print(f"[soak] round dir: {round_dir}")
@@ -170,6 +174,8 @@ while time.time() < deadline:
 
     for event in client_events:
         key = (event.get("component"), event.get("event"))
+        if key == ("admission", "admitted") and event.get("a_session"):
+            focus_sessions.add(event["a_session"])
         if key in CLIENT_FATAL:
             failures.append({"side": "client", "at_s": int(now - t0), "event": event})
         if key == ("keepalive", "pong"):
@@ -188,6 +194,11 @@ while time.time() < deadline:
     for event in mac_events:
         key = (event.get("component"), event.get("event"))
         if key in MAC_FATAL:
+            failures.append({"side": "mac", "at_s": int(now - t0), "event": event})
+        if key in MAC_FATAL_SESSION_SCOPED and (
+            event.get("a_session") in focus_sessions
+            or event.get("a_old_session") in focus_sessions
+        ):
             failures.append({"side": "mac", "at_s": int(now - t0), "event": event})
         if key == ("endpoint", "relay-credential-rotated"):
             observations["mac_rotations"] += 1
