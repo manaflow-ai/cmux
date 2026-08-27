@@ -9016,6 +9016,24 @@ mod tests {
         assert_eq!(value["server"]["ws_token"], json!("secret"));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn config_write_does_not_warn_for_unsupported_parent_sync() {
+        let dir = TestDirectory::new("unsupported-parent-sync");
+        let path = dir.path.join("cmux-tui.json");
+        let sync_parent = |_parent: &Path| {
+            Err(anyhow::Error::new(std::io::Error::from_raw_os_error(libc::EINVAL)))
+        };
+
+        let outcome = write_config_value_atomic_with_sync(
+            &path,
+            &json!({"server": {"ws_token": "secret"}}),
+            &sync_parent,
+        )
+        .expect("a committed rename must not be reported as a write failure");
+        assert!(outcome.into_unsynced_error().is_none());
+    }
+
     #[cfg(unix)]
     #[test]
     fn config_write_syncs_parents_of_new_directories() {
