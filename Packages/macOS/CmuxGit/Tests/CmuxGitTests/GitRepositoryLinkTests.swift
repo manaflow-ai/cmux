@@ -18,6 +18,13 @@ import Testing
         #expect(link?.url.absoluteString == url)
     }
 
+    @Test func rejectsOversizedBrowsableRemotePayload() {
+        let oversizedRepository = String(repeating: "r", count: 5_000)
+        let output = "origin\thttps://github.com/owner/\(oversizedRepository).git (fetch)\n"
+
+        #expect(GitMetadataService.repositoryLink(fromGitRemoteVOutput: output) == nil)
+    }
+
     @Test(arguments: [
         ("git@192.168.1.20:username/repo.git", "http://192.168.1.20/username/repo"),
         ("ssh://git@10.0.0.1:22/group/repo.git", "http://10.0.0.1/group/repo"),
