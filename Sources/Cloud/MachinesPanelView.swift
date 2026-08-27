@@ -22,13 +22,15 @@ enum CloudVMPanelAuthState: Equatable {
     }
 }
 
-/// Right-sidebar Machines tab: the user's cloud machine fleet. Matches the
+/// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
+/// tree (machine → cmux-tui workspaces → terminals, desktop, ports). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
-/// backgrounds, chrome-pill control bar. Rows receive immutable
-/// `MachineSnapshot`s plus a closure bundle only (snapshot-boundary rule);
-/// every mutation routes through the shared Cloud VM action path.
+/// backgrounds, chrome-pill control bar. Outline rows receive immutable
+/// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
+/// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
+    @State private var expansionStore = CloudTreeExpansionStore()
     let chromeBackgroundColor: NSColor
 
     private var accountFlow: HostAccountFlow? {
@@ -69,6 +71,14 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
+            MachinesFreeAccessBanner(
+                text: text,
+                isExpired: plan.freeAccessBanner == .expired,
+                windowDays: plan.freeAccessWindowDays,
+                backgroundColor: chromeBackgroundColor
+            )
+        }
         content
     }
 
@@ -84,39 +94,54 @@ struct MachinesPanelView: View {
 
     private var controlBar: some View {
         HStack(spacing: 6) {
-            if let operation = viewModel.activeOperation {
-                HStack(spacing: 5) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text(operation)
-                        .cmuxFont(size: 11)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            Group {
+                if let operation = viewModel.activeOperation {
+                    HStack(spacing: 5) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text(operation)
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                } else if viewModel.lastErrorDescription != nil, !viewModel.machines.isEmpty {
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
+                            .cmuxFont(size: 11)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundColor(.orange.opacity(0.9))
+                    .help(viewModel.lastErrorDescription ?? "")
+                } else if let treeError = viewModel.treeErrorDescription {
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(String(localized: "machines.tree.error", defaultValue: "Cloud tree error"))
+                            .cmuxFont(size: 11)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundColor(.orange.opacity(0.9))
+                    .help(treeError)
+                } else if let plan = viewModel.plan {
+                    MachinePlanMeter(plan: plan)
                 }
-                .padding(.leading, 8)
-            } else if viewModel.lastErrorDescription != nil, !viewModel.machines.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
-                        .cmuxFont(size: 11)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundColor(.orange.opacity(0.9))
-                .padding(.leading, 8)
-                .help(viewModel.lastErrorDescription ?? "")
-            } else if let plan = viewModel.plan {
-                MachinePlanMeter(plan: plan)
             }
+            // Bar leading is 8pt; +4 puts the leading text at 12pt — the same
+            // column as the mode-bar pill glyphs (4pt bar + 8pt pill inset)
+            // and the Files header icon.
+            .padding(.leading, 4)
             Spacer(minLength: 4)
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
                 accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
                 isBusy: viewModel.isLoading
             ) {
-                viewModel.refresh()
+                viewModel.refresh(tree: true)
             }
             MachinesChromeIconButton(
                 symbolName: "plus",
@@ -132,7 +157,13 @@ struct MachinesPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.machines.isEmpty {
+        // Show the empty state exactly when the outline would render zero
+        // rows. The builder owns that decision (the tree is cloud-only while
+        // `includesLocalMachine` is off); deciding it here from the raw
+        // catalog previously left a blank panel for a signed-in account with
+        // no machines, because the catalog's This Mac entry counted as a row
+        // the tree never drew.
+        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, snapshot: viewModel.catalog) {
             emptyState
         } else {
             machinesList
@@ -237,19 +268,36 @@ struct MachinesPanelView: View {
         }
     }
 
+    /// The Finder-like tree over the surface catalog: This Mac, then every
+    /// machine, with their workspaces, terminals, screens, browsers, and ports
+    /// underneath. Both closure bundles are bound here, above the outline; rows
+    /// never see the store.
     private var machinesList: some View {
-        let actions = MachineRowActions.bound(
+        let machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
-        return ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(viewModel.machines) { machine in
-                    MachineRow(machine: machine, actions: actions)
-                }
-            }
-            .padding(.vertical, 6)
-        }
+        let nodeActions = CloudTreeNodeActions.bound(
+            catalog: { SurfaceCatalog.shared },
+            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectLocalWorkspace: { workspaceID in
+                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+            },
+            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
+            onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
+            onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+        )
+        return CloudTreeOutlineView(
+            machines: viewModel.machines,
+            snapshot: viewModel.catalog,
+            localWorkspaces: viewModel.localWorkspaces,
+            machineActions: machineActions,
+            nodeActions: nodeActions,
+            expansionStore: expansionStore,
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
+        )
+        .accessibilityIdentifier("CloudMachinesTree")
     }
 
     @ViewBuilder
@@ -281,11 +329,11 @@ struct MachinesPanelView: View {
                 }
                 .padding(.top, 2)
             } else if viewModel.hasLoadedOnce {
-                Image(systemName: "server.rack")
-                    .font(.system(size: 26, weight: .light))
+                Image(systemName: "cloud")
+                    .font(.system(size: 30, weight: .light))
                     .foregroundColor(.secondary.opacity(0.55))
                 Text(String(localized: "machines.empty.title", defaultValue: "No machines yet"))
-                    .cmuxFont(size: 13)
+                    .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary.opacity(0.85))
                 Text(String(
                     localized: "machines.empty.subtitle",
@@ -294,14 +342,33 @@ struct MachinesPanelView: View {
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 28)
                 Button {
                     requestNewMachine()
                 } label: {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
                 .padding(.top, 2)
+                if let plan = viewModel.plan, !plan.isPaidPlan {
+                    // The upgrade nudge under the create button: same Pro flow
+                    // as the meter's at-limit hint and the ＋ at the ceiling.
+                    Button {
+                        ProUpgradePresenter.present()
+                    } label: {
+                        Text(upgradeNudgeLabel(plan))
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                } else if let plan = viewModel.plan {
+                    Text(planIncludesLabel(plan))
+                        .cmuxFont(size: 11)
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -309,110 +376,40 @@ struct MachinesPanelView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("CloudMachinesEmptyState")
+    }
+
+    /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
+    /// way past it in one line.
+    private func upgradeNudgeLabel(_ plan: MachinePlanSnapshot) -> String {
+        if plan.isSingleMachinePlan {
+            return String(
+                localized: "machines.empty.upgrade.single",
+                defaultValue: "Upgrade to use more than 1 machine"
+            )
+        }
+        return String(
+            format: String(localized: "machines.empty.upgrade", defaultValue: "Upgrade to use more than %d machines"),
+            plan.maxActiveVms
+        )
+    }
+
+    /// Paid plans: "Your plan includes 5 machines" under the create button, so
+    /// the empty state answers "what do I get" before the meter shows a count.
+    private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
+        if plan.isSingleMachinePlan {
+            return String(
+                localized: "machines.empty.planIncludes.single",
+                defaultValue: "Your plan includes 1 machine"
+            )
+        }
+        return String(
+            format: String(localized: "machines.empty.planIncludes", defaultValue: "Your plan includes %d machines"),
+            plan.maxActiveVms
+        )
     }
 }
 
-/// The activity-monitor line under a machine: three gauges (CPU, memory, disk)
-/// with used / total, or "Asleep · free" when the machine is hibernated.
-/// A narrow sidebar drops Disk, then Mem, instead of ever wrapping the
-/// gauges' text mid-character across lines.
-private struct MachineStatsLine: View {
-    let stats: VMStats
-
-    var body: some View {
-        switch stats.state {
-        case .awake:
-            ViewThatFits(in: .horizontal) {
-                awakeGauges(showMemory: true, showDisk: true)
-                awakeGauges(showMemory: true, showDisk: false)
-                awakeGauges(showMemory: false, showDisk: false)
-            }
-            .accessibilityElement(children: .combine)
-        case .asleep:
-            HStack(spacing: 10) {
-                Text(String(localized: "machines.stats.asleep", defaultValue: "Asleep \u{00B7} free while it sleeps"))
-                    .cmuxFont(size: 10.5)
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let total = stats.memoryTotalMb {
-                    Text(String(format: String(localized: "machines.stats.provisioned", defaultValue: "%@ GB"), Self.gb(total)))
-                        .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary.opacity(0.55))
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-            }
-            .accessibilityElement(children: .combine)
-        case .unknown:
-            EmptyView()
-        }
-    }
-
-    private func awakeGauges(showMemory: Bool, showDisk: Bool) -> some View {
-        HStack(spacing: 10) {
-            if let cpu = stats.cpuPercent {
-                gauge(
-                    label: String(localized: "machines.stats.cpu", defaultValue: "CPU"),
-                    fraction: cpu / 100,
-                    text: "\(Int(cpu.rounded()))%"
-                )
-            }
-            if showMemory, let used = stats.memoryUsedMb, let total = stats.memoryTotalMb, total > 0 {
-                gauge(
-                    label: String(localized: "machines.stats.memory", defaultValue: "Mem"),
-                    fraction: Double(used) / Double(total),
-                    text: Self.gbPair(usedMb: used, totalMb: total)
-                )
-            }
-            if showDisk, let used = stats.diskUsedMb, let total = stats.diskTotalMb, total > 0 {
-                gauge(
-                    label: String(localized: "machines.stats.disk", defaultValue: "Disk"),
-                    fraction: Double(used) / Double(total),
-                    text: Self.gbPair(usedMb: used, totalMb: total)
-                )
-            }
-        }
-    }
-
-    private func gauge(label: String, fraction: Double, text: String) -> some View {
-        let clamped = max(0, min(1, fraction))
-        return HStack(spacing: 4) {
-            Text(label)
-                .cmuxFont(size: 10)
-                .foregroundColor(.secondary.opacity(0.6))
-                .lineLimit(1)
-                .fixedSize()
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.08))
-                Capsule().fill(gaugeColor(clamped)).frame(width: 34 * clamped)
-            }
-            .frame(width: 34, height: 4)
-            Text(text)
-                .cmuxFont(size: 10)
-                .foregroundColor(.secondary.opacity(0.8))
-                .monospacedDigit()
-                .lineLimit(1)
-                .fixedSize()
-        }
-        .accessibilityLabel("\(label) \(text)")
-    }
-
-    private func gaugeColor(_ fraction: Double) -> Color {
-        if fraction >= 0.9 { return Color.red.opacity(0.8) }
-        if fraction >= 0.7 { return Color.orange.opacity(0.85) }
-        return Color.accentColor.opacity(0.75)
-    }
-
-    static func gb(_ mb: Int) -> String {
-        let value = Double(mb) / 1024
-        return value >= 10 ? String(format: "%.0f", value) : String(format: "%.1f", value)
-    }
-
-    static func gbPair(usedMb: Int, totalMb: Int) -> String {
-        "\(gb(usedMb))/\(gb(totalMb)) GB"
-    }
-}
 
 /// "2 of 3" plan meter. Turns into the upgrade hint when a free plan hits its
 /// machine ceiling — the moment of intent, and the only place we mention it.
@@ -430,21 +427,20 @@ private struct MachinePlanMeter: View {
                     .foregroundColor(.orange)
             }
         }
-        .padding(.leading, 8)
         .help(meterHelp)
         .accessibilityElement(children: .combine)
     }
 
-    private var meterText: String {
-        let format = String(
-            localized: "machines.meter.count",
-            defaultValue: "%1$d of %2$d machines"
-        )
-        return String(format: format, plan.activeCount, plan.maxActiveVms)
-    }
+    private var meterText: String { plan.countLabel }
 
     private var meterHelp: String {
         if plan.isAtLimit && !plan.isPaidPlan {
+            if plan.isSingleMachinePlan {
+                return String(
+                    localized: "machines.meter.help.atLimit.single",
+                    defaultValue: "Your plan includes 1 machine. Upgrade to create more."
+                )
+            }
             return String(
                 localized: "machines.meter.help.atLimit",
                 defaultValue: "Your plan includes %d machines. Upgrade to create more."
@@ -457,7 +453,59 @@ private struct MachinePlanMeter: View {
     }
 }
 
-private struct MachinesChromeIconButton: View {
+/// One line under the header on free plans: how long the fleet stays
+/// reachable, counting down to the earliest machine's expiry, and the way out
+/// (the whole line is the upgrade affordance — the same Pro flow the ＋ button
+/// opens at the machine ceiling).
+private struct MachinesFreeAccessBanner: View {
+    let text: String
+    let isExpired: Bool
+    let windowDays: Int
+    let backgroundColor: NSColor
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            ProUpgradePresenter.present()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: isExpired ? "lock.fill" : "clock")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(text)
+                    .cmuxFont(size: 11, monospacedDigit: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                Text(String(localized: "machines.freeAccess.upgrade", defaultValue: "Upgrade"))
+                    .cmuxFont(size: 11)
+                    .underline(isHovered)
+            }
+            .foregroundColor(isExpired ? Color.orange : .secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .background(Color(nsColor: backgroundColor))
+        .help(helpText)
+        .accessibilityLabel(text)
+        .accessibilityIdentifier("CloudMachinesFreeAccessBanner")
+    }
+
+    private var helpText: String {
+        String(
+            format: String(
+                localized: "machines.freeAccess.help",
+                defaultValue: "Free plans keep a machine reachable for %d days after it is created. Upgrade to Pro to keep using it."
+            ),
+            windowDays
+        )
+    }
+}
+
+struct MachinesChromeIconButton: View {
     let symbolName: String
     let accessibilityLabel: String
     let isBusy: Bool
@@ -499,6 +547,9 @@ struct MachineRowActions {
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
+    /// A locked (free-window-expired) machine routes here instead of a doomed
+    /// connect; the backend enforces the same boundary with 402s.
+    let promptUpgrade: @MainActor () -> Void
 
     static func bound(
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
@@ -534,6 +585,9 @@ struct MachineRowActions {
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            },
+            promptUpgrade: {
+                ProUpgradePresenter.present()
             }
         )
     }
@@ -698,157 +752,4 @@ struct MachineRowActions {
             respond(alert.runModal())
         }
     }
-}
-
-private struct MachineRow: View, Equatable {
-    let machine: MachineSnapshot
-    let actions: MachineRowActions
-    @State private var isHovered = false
-
-    static func == (lhs: MachineRow, rhs: MachineRow) -> Bool {
-        // Skip body re-eval during scroll when the snapshot is unchanged.
-        // The closure bundle isn't compared (it comes from stable parent state).
-        lhs.machine == rhs.machine
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            activityDot
-            VStack(alignment: .leading, spacing: 1) {
-                Text(machine.displayName)
-                    .cmuxFont(size: 13)
-                    .foregroundColor(.primary.opacity(0.92))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                HStack(spacing: 4) {
-                    // A box's type at a glance: a desktop machine has its screen,
-                    // a base machine is shell-only.
-                    Image(systemName: machine.isDesktop ? "display" : "terminal")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.6))
-                    Text(subtitle)
-                        .cmuxFont(size: 11)
-                        .foregroundColor(.secondary.opacity(0.75))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                if let stats = machine.stats {
-                    MachineStatsLine(stats: stats)
-                        .padding(.top, 2)
-                }
-            }
-            Spacer(minLength: 8)
-            // Hover verbs: the screen (desktop machines only) and delete. The shell is
-            // the row itself — double-click, or Open Shell in the menu. The buttons are
-            // always laid out and only fade in, so hovering never reflows the row.
-            HStack(spacing: 2) {
-                if machine.isDesktop {
-                    MachinesChromeIconButton(
-                        symbolName: "display",
-                        accessibilityLabel: String(localized: "machines.row.openDesktop", defaultValue: "Open Desktop"),
-                        isBusy: false
-                    ) {
-                        actions.openDesktop(machine.id)
-                    }
-                }
-                MachinesChromeIconButton(
-                    symbolName: "trash",
-                    accessibilityLabel: String(localized: "machines.row.delete", defaultValue: "Delete Machine"),
-                    isBusy: false
-                ) {
-                    actions.confirmDelete(machine.id)
-                }
-            }
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .accessibilityHidden(!isHovered)
-        }
-        .padding(.leading, 12)
-        .padding(.trailing, 10)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .background(rowBackground)
-        .onHover { isHovered = $0 }
-        .onTapGesture(count: 2) { actions.openShell(machine.id) }
-        .help(helpText)
-        .contextMenu { menuItems }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
-    }
-
-    private var activityDot: some View {
-        Circle()
-            .fill(dotColor)
-            .frame(width: 7, height: 7)
-    }
-
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
-            .padding(.horizontal, 6)
-    }
-
-    private var dotColor: Color {
-        switch machine.activity {
-        case .ready: return Color.green.opacity(0.85)
-        case .pending: return Color.orange.opacity(0.9)
-        case .attention: return Color.red.opacity(0.85)
-        }
-    }
-
-    private var subtitle: String {
-        var parts: [String] = []
-        if machine.label?.isEmpty == false {
-            // Labeled machines keep their address visible: the id is what CLI
-            // verbs and URLs use.
-            parts.append(machine.id)
-        }
-        parts.append(machine.kindLabel)
-        if let createdAt = machine.createdAt {
-            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private var helpText: String {
-        [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
-    }
-
-    @ViewBuilder
-    private var menuItems: some View {
-        Button(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) {
-            actions.openShell(machine.id)
-        }
-        if machine.isDesktop {
-            Button(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                actions.openDesktop(machine.id)
-            }
-        }
-        Divider()
-        Button(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) {
-            actions.promptRename(machine.id, machine.label)
-        }
-        Button(String(localized: "machines.menu.status", defaultValue: "Status")) {
-            actions.runCommand(machine.id, ["vm", "status"])
-        }
-        Button(String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) {
-            actions.runCommand(machine.id, ["vm", "snapshot"])
-        }
-        Button(String(localized: "machines.menu.fork", defaultValue: "Fork")) {
-            actions.runCommand(machine.id, ["vm", "fork"])
-        }
-        Divider()
-        Button(role: .destructive) {
-            actions.confirmDelete(machine.id)
-        } label: {
-            Text(String(localized: "machines.menu.delete", defaultValue: "Delete…"))
-        }
-    }
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
 }
