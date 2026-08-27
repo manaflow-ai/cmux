@@ -9140,9 +9140,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #if DEBUG
             rawTerminalInputLatencyBatchNumber &+= 1
             let latencyBatchNumber = rawTerminalInputLatencyBatchNumber
+            // `route` makes transport attribution part of the trace itself: a
+            // probe run can prove which path (iroh / websocket relay /
+            // tailscale) produced its numbers instead of inferring it from
+            // the connection-method setting at analysis time.
             MobileLatencyTrace.stamp(
                 "in.send",
-                "n=\(latencyBatchNumber) bytes=\(chunk.text.utf8.count)"
+                "n=\(latencyBatchNumber) bytes=\(chunk.text.utf8.count) " +
+                    "route=\(activeRoute?.kind.rawValue ?? "none")"
             )
             let latencyBatchNumberForSend: UInt64? = latencyBatchNumber
             #else

@@ -447,6 +447,19 @@ extension MobileShellComposite {
                 "terminal.output.pending surface=\(surfaceID) depth=\(pendingCount)"
             )
         }
+        #if DEBUG
+        // Splits the measured gate→ap.yield latency into its two owners: a
+        // chunk that enqueues behind an unfinished in-flight chunk (imm=0)
+        // waits for that apply plus a main-actor turn, while an immediately
+        // yielded chunk (imm=1) waits only for the consumer's next main-actor
+        // turn. `q` is the backlog depth left after this enqueue.
+        MobileLatencyTrace.stamp(
+            "dq",
+            "s=\(surfaceID.prefix(8).lowercased()) " +
+                "seq=\(delivery.sourceRenderGridFrame?.stateSeq ?? delivery.endSequence ?? 0) " +
+                "imm=\(immediate == nil ? 0 : 1) q=\(pendingCount)"
+        )
+        #endif
         if let immediate {
             continuation.yield(
                 MobileTerminalOutputChunk(
@@ -560,6 +573,16 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
+        #if DEBUG
+        // The queued chunk leaves the delivery queue only now, after its
+        // predecessor's apply completed; its own gate→ap.yield span therefore
+        // contains that entire wait. dq.next→ap.yield is the pure hop.
+        MobileLatencyTrace.stamp(
+            "dq.next",
+            "s=\(surfaceID.prefix(8).lowercased()) " +
+                "seq=\(next.sourceRenderGridFrame?.stateSeq ?? next.endSequence ?? 0)"
+        )
+        #endif
         continuation.yield(MobileTerminalOutputChunk(
             data: next.bytes,
             streamToken: streamToken,
