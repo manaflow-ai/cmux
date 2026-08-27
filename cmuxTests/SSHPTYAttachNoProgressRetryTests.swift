@@ -301,7 +301,7 @@ struct SSHPTYAttachNoProgressRetryTests {
         }
 
         let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-SSHPTYAttachNoProgressRetryTests") {
             process.waitUntilExit()
             exited.signal()
         }

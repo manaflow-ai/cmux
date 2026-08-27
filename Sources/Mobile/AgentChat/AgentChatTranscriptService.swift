@@ -704,12 +704,30 @@ final class AgentChatTranscriptService {
     }
 
     deinit {
-        // This app-owned service is created and released on the main actor.
+        // `deinit` is nonisolated: whichever thread drops the last reference
+        // runs it. The owning AppDelegate is retained by its session autosave
+        // write block on the utility persistence queue, so an instance created
+        // by a test (or any delegate released while that block is in flight)
+        // deinits there. Asserting the main actor here was a
+        // dispatch_assert_queue trap that killed the app host mid-batch.
         // `isolated deinit` still has Xcode compatibility constraints in cmux,
-        // so keep teardown synchronous while asserting that owner invariant.
-        MainActor.assumeIsolated {
-            proseWakeDriver?.stop()
-            proseStreamer?.stopAll()
+        // so tear down synchronously when already on the main actor and on the
+        // next main-queue turn otherwise; the streamer and driver are retained
+        // by the block until then.
+        let proseWakeDriver = proseWakeDriver
+        let proseStreamer = proseStreamer
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                proseWakeDriver?.stop()
+                proseStreamer?.stopAll()
+            }
+        } else {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    proseWakeDriver?.stop()
+                    proseStreamer?.stopAll()
+                }
+            }
         }
     }
 }

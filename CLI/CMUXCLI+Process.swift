@@ -232,6 +232,37 @@ func cliWriteStderr(_ text: String) {
     _ = cliWrite(text, to: FileHandle.standardError, onBrokenPipe: .ignore)
 }
 
+/// Holds the implicit socket-reroute notice until the process opens its first
+/// socket.
+///
+/// Socket discovery runs once, before command dispatch, for every invocation.
+/// Printing the reroute notice at that point put it on stderr for commands
+/// that never talk to the socket at all (`themes list`, `hooks <agent>
+/// install`, `--version`), which broke `--json` consumers that merge the two
+/// streams and confused users about a connection that was never made. The
+/// notice is therefore parked here and written by `SocketClient` immediately
+/// before the first real connection attempt.
+enum CLISocketRerouteNotice {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var pending: String?
+
+    static func `defer`(_ notice: String) {
+        lock.lock()
+        pending = notice
+        lock.unlock()
+    }
+
+    static func flushIfPending() {
+        lock.lock()
+        let notice = pending
+        pending = nil
+        lock.unlock()
+        if let notice {
+            cliWriteStderr(notice + "\n")
+        }
+    }
+}
+
 func cliWriteStderr(_ data: Data) {
     _ = cliWrite(data, to: FileHandle.standardError, onBrokenPipe: .ignore)
 }

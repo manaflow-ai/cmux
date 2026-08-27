@@ -496,7 +496,7 @@ private final class UnixLineListener: @unchecked Sendable {
             throw POSIXError(.EADDRINUSE)
         }
         let fd = serverFD
-        DispatchQueue.global().async { [weak self] in
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-ShellIntegrationSendTransportTests") { [weak self] in
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
             var data = Data()

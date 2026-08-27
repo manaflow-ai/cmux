@@ -65,16 +65,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         assertSuccessfulHook(result)
 
         let commands = context.state.snapshot()
-        let feedEventNames = commands.compactMap { command -> String? in
-            guard let data = command.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["method"] as? String == "feed.push",
-                  let params = object["params"] as? [String: Any],
-                  let event = params["event"] as? [String: Any] else {
-                return nil
-            }
-            return event["hook_event_name"] as? String
-        }
+        let feedEventNames = Harness.feedEventNames(in: context)
 
         #expect(feedEventNames.contains("SubagentStop"), "Subagent completion must stay distinct telemetry; saw \(feedEventNames)")
         #expect(!feedEventNames.contains("Stop"), "SubagentStop must not be rewritten as parent Stop; saw \(feedEventNames)")
@@ -400,6 +391,57 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(
             commands.contains { $0.hasPrefix("notify_target_async \(Self.liveWorkspaceId) \(Self.liveSurfaceId) ") },
             "Legacy routing must keep working when the resolver method is unavailable; saw \(commands)"
+        )
+    }
+
+    /// Hook feed telemetry is one-way: the CLI writes `feed.push`, closes the
+    /// socket, and exits without waiting for a reply
+    /// (`sendBestEffortFeedTelemetry`). The harness must therefore not hand a
+    /// test the command log until the mock server has drained every
+    /// connection the process opened. A reader thread scheduled a few
+    /// milliseconds late — a cold thread on a loaded CI runner — otherwise
+    /// makes the snapshot miss the event, which is exactly how
+    /// `subagentStopDoesNotPublishParentCompletionAttention` failed on
+    /// `app-host unit tests (4/4)` with `saw []`.
+    @Test func oneWayFeedTelemetryIsDrainedBeforeTheCommandLogIsRead() throws {
+        let context = try Harness.makeContext(name: "late-reader-feed-drain")
+        defer { context.cleanup() }
+        let sessionId = "late-reader-feed-drain-session"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path,
+            pid: 43210
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId),
+            readerStartDelay: 0.25
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43210"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"SubagentStop","cwd":"\#(context.root.path)","last_assistant_message":"subagent finished"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let feedEventNames = Harness.feedEventNames(in: context)
+        #expect(
+            feedEventNames == ["SubagentStop"],
+            "The one-way feed.push must be in the command log once the hook process has exited; saw \(feedEventNames)"
         )
     }
 

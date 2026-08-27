@@ -140,40 +140,20 @@ final class CMUXOpenHTMLFocusTests {
         environment: [String: String],
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ProcessRunResult(status: timedOut ? 124 : process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
+        // Runs on dedicated threads (CLITestProcessRunner) so a saturated
+        // libdispatch pool during parallel Swift Testing cannot hide the exit.
+        let outcome = CLITestProcessRunner.run(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            timeout: timeout
+        )
+        return ProcessRunResult(
+            status: outcome.timedOut ? 124 : outcome.status,
+            stdout: outcome.stdout,
+            stderr: outcome.stderr,
+            timedOut: outcome.timedOut
+        )
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {
@@ -221,7 +201,9 @@ final class CMUXOpenHTMLFocusTests {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        // The accept and read below block indefinitely; keep them off the
+        // libdispatch pool so parallel suites cannot starve each other.
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-open-html-mock") {
             var clientAddr = sockaddr_un()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
             let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in

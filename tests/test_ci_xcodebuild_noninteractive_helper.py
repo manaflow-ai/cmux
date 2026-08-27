@@ -209,6 +209,79 @@ def main() -> int:
         )
         return 1
 
+    # A cmux-unit bundle runs XCTest first and Swift Testing second. The XCTest
+    # "Selected tests" summary is therefore not terminal: Swift Testing announces
+    # "Test run started." right after it and keeps running for minutes. The
+    # post-test deadline must wait for the Swift Testing run summary instead of
+    # killing xcodebuild in the middle of that phase.
+    mixed_phase_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("\\u25c7 Test run started.", flush=True)
+        for index in range(8):
+            print(f"\\u25c7 Test swiftTesting{index}() started.", flush=True)
+            time.sleep(0.1)
+        print("\\u2714 Test run with 8 tests in 1 suite passed after 0.8 seconds.", flush=True)
+        print("swift-testing-phase-complete", flush=True)
+        """
+    )
+    mixed_phase_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", mixed_phase_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+        env=post_test_env,
+    )
+    if mixed_phase_result.returncode != 0:
+        print(mixed_phase_result.stdout, end="")
+        print(mixed_phase_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected a Swift Testing phase after the XCTest summary to finish "
+            f"normally, got {mixed_phase_result.returncode}"
+        )
+        return 1
+    if "swift-testing-phase-complete" not in mixed_phase_result.stdout:
+        print(mixed_phase_result.stdout, end="")
+        print(mixed_phase_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper terminated xcodebuild while the Swift Testing phase was still running")
+        return 1
+
+    # Once the Swift Testing run summary has been printed the deadline applies
+    # again, and a failed Swift Testing run keeps the batch red.
+    mixed_phase_failed_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("\\u25c7 Test run started.", flush=True)
+        print("\\u2718 Test run with 2 tests in 1 suite failed after 0.1 seconds with 1 issue.", flush=True)
+        time.sleep(10)
+        """
+    )
+    mixed_phase_failed_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", mixed_phase_failed_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if mixed_phase_failed_result.returncode != 125:
+        print(mixed_phase_failed_result.stdout, end="")
+        print(mixed_phase_failed_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected post-test timeout after a failed Swift Testing run summary to exit 125, "
+            f"got {mixed_phase_failed_result.returncode}"
+        )
+        return 1
+
     direct_output_child = "import sys; sys.stdout.write('x' * 262144); sys.stdout.flush()"
     direct_output_result = subprocess.run(
         [sys.executable, str(HELPER), sys.executable, "-c", direct_output_child],

@@ -525,7 +525,7 @@ struct CLIExplicitSurfaceRoutingTests {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLIExplicitSurfaceRoutingTests") {
             defer { handled.signal() }
 
             var clientAddr = sockaddr_un()
@@ -617,7 +617,7 @@ struct CLIExplicitSurfaceRoutingTests {
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLIExplicitSurfaceRoutingTests") {
             process.waitUntilExit()
             exitSignal.signal()
         }

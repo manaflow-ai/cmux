@@ -464,7 +464,7 @@ struct FishShellIntegrationTests {
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FishShellIntegrationTests") {
             process.waitUntilExit()
             exitSignal.signal()
         }

@@ -51,7 +51,7 @@ struct CLISendQueuedOutputTests {
         }
 
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLISendQueuedOutputTests") {
             defer { handled.signal() }
             var clientAddr = sockaddr_un()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -202,7 +202,7 @@ struct CLISendQueuedOutputTests {
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLISendQueuedOutputTests") {
             process.waitUntilExit()
             exitSignal.signal()
         }

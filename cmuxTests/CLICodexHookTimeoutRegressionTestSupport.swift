@@ -121,7 +121,9 @@ func startCodexHookMockSocketServerAccepting(
     surfaceId: String,
     connectionLimit: Int
 ) {
-    DispatchQueue.global(qos: .userInitiated).async {
+    // Accept and per-client loops block indefinitely; keep them off the
+    // libdispatch pool so parallel suites cannot starve each other.
+    CLITestProcessRunner.detachBlockingThread(name: "cmux-test-codex-mock-accept") {
         var accepted = 0
         while accepted < connectionLimit {
             var clientAddr = sockaddr_un()
@@ -136,7 +138,7 @@ func startCodexHookMockSocketServerAccepting(
                 return
             }
             accepted += 1
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-codex-mock-client") {
                 handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
             }
         }
@@ -210,49 +212,20 @@ func runCodexHookProcess(
     standardInput: String? = nil,
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
-    let process = Process()
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    let stdinPipe = standardInput == nil ? nil : Pipe()
-    process.executableURL = URL(fileURLWithPath: executablePath)
-    process.arguments = arguments
-    process.environment = environment
-    process.standardInput = stdinPipe ?? FileHandle.nullDevice
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-
-    do {
-        try process.run()
-    } catch {
-        return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-    }
-    if let standardInput, let stdinPipe {
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
-    }
-
-    let exitSignal = DispatchSemaphore(value: 0)
-    DispatchQueue.global(qos: .userInitiated).async {
-        process.waitUntilExit()
-        exitSignal.signal()
-    }
-
-    let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-    if timedOut {
-        process.terminate()
-        if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-            kill(process.processIdentifier, SIGKILL)
-            _ = exitSignal.wait(timeout: .now() + 1)
-        }
-    }
-
-    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    // Runs on dedicated threads (CLITestProcessRunner) so a saturated
+    // libdispatch pool during parallel Swift Testing cannot hide the exit.
+    let outcome = CLITestProcessRunner.run(
+        executablePath: executablePath,
+        arguments: arguments,
+        environment: environment,
+        standardInput: standardInput,
+        timeout: timeout
+    )
     return CodexHookProcessRunResult(
-        status: process.terminationStatus,
-        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-        stderr: String(data: stderrData, encoding: .utf8) ?? "",
-        timedOut: timedOut
+        status: outcome.status,
+        stdout: outcome.stdout,
+        stderr: outcome.stderr,
+        timedOut: outcome.timedOut
     )
 }
 

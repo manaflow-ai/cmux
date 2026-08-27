@@ -537,7 +537,7 @@ struct SSHDeepSleepReattachTests {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-SSHDeepSleepReattachTests") {
             process.waitUntilExit()
             exitSignal.signal()
         }

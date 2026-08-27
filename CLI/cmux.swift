@@ -3342,6 +3342,9 @@ final class SocketClient {
             return
         }
 
+        // The implicit-reroute notice belongs to the first real connection.
+        CLISocketRerouteNotice.flushIfPending()
+
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
@@ -5073,7 +5076,10 @@ struct CMUXCLI {
         var resolvedSocketPath = socketResolution.selectedPath ?? socketPath
         if socketPathSource == .implicitDefault,
            let rerouteNotice = socketResolution.rerouteNotice {
-            cliWriteStderr(rerouteNotice + "\n")
+            // Emitted by the first real socket connection, not here: commands
+            // that never open the socket (`themes list`, `hooks <agent>
+            // install`, `--json` consumers merging stderr) must stay silent.
+            CLISocketRerouteNotice.defer(rerouteNotice)
         }
 
         if shouldOpenAsPathArgument(command) {

@@ -445,7 +445,7 @@ struct FeedCoordinatorTests {
         let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorTests") {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 0.05
@@ -487,7 +487,7 @@ struct FeedCoordinatorTests {
         defer { releaseCommit.signal() }
         let resultBox = IngestResultBox()
         let ingestStartedAt = ContinuousClock.now
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorTests") {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 1,
@@ -540,7 +540,7 @@ struct FeedCoordinatorTests {
         )
         let resultBox = FeedV2CallResultBox()
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorTests") {
                 resultBox.value = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
                 continuation.resume()
             }
@@ -584,7 +584,7 @@ struct FeedCoordinatorTests {
 
         let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorTests") {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 0
@@ -639,7 +639,7 @@ struct FeedCoordinatorTests {
         let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorTests") {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 1
@@ -707,7 +707,7 @@ struct FeedCoordinatorTests {
 
         let done = DispatchSemaphore(value: 0)
         let resultBox = IngestResultBox()
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorTests") {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
                 waitTimeout: 1
@@ -850,7 +850,7 @@ struct FeedCoordinatorTests {
             requestId: "pi-ingress-order-second-request"
         )
         let secondDeliveryFinished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorTests") {
             _ = TerminalController.shared.v2IngestAcknowledgedFeedEvents([secondEvent])
             deliveries.record(secondEvent)
             secondDeliveryFinished.signal()

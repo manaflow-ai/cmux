@@ -3492,13 +3492,38 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
+        // The probe cache is owned by the caller (SharedLiveAgentIndex keeps one
+        // per index); the convenience `supportsFork(snapshot:)` deliberately
+        // probes fresh. Share one cache and resolver across both probes, the
+        // way the index does, to observe the cached verdict.
+        let executableIdentityResolver = AgentForkExecutableIdentityResolver()
+        let forkCapabilityProbeCache = ForkCapabilityProbeResultCache()
+
         try "opencode 1.14.48\n".write(to: versionFile, atomically: true, encoding: .utf8)
-        let unsupportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        let unsupportedVersionSupportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            executableIdentityResolver: executableIdentityResolver,
+            forkCapabilityProbeCache: forkCapabilityProbeCache
+        )
         XCTAssertFalse(unsupportedVersionSupportsFork)
 
+        // Same executable identity, so the cached "unsupported" verdict must win
+        // even though a fresh probe would now report a fork-capable version.
         try "opencode 1.14.50\n".write(to: versionFile, atomically: true, encoding: .utf8)
-        let supportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        let supportedVersionSupportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            executableIdentityResolver: executableIdentityResolver,
+            forkCapabilityProbeCache: forkCapabilityProbeCache
+        )
         XCTAssertFalse(supportedVersionSupportsFork)
+
+        // A fresh cache probes again and sees the supported version.
+        let freshProbeSupportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            executableIdentityResolver: AgentForkExecutableIdentityResolver(),
+            forkCapabilityProbeCache: ForkCapabilityProbeResultCache()
+        )
+        XCTAssertTrue(freshProbeSupportsFork)
     }
 
     func testOpenCodeVersionProbeEnvironmentIsSanitized() {

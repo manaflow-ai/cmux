@@ -437,78 +437,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         standardInput: String? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = standardInput == nil ? nil : Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = isolatedCLIChildEnvironment(environment)
-        process.standardInput = stdinPipe ?? FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-        if let standardInput, let stdinPipe {
-            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-            try? stdinPipe.fileHandleForWriting.close()
-        }
-
-        let outputLock = NSLock()
-        var stdoutData = Data()
-        var stderrData = Data()
-        let outputGroup = DispatchGroup()
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stdoutData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stderrData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        _ = outputGroup.wait(timeout: .now() + 2)
-
-        outputLock.lock()
-        let finalStdoutData = stdoutData
-        let finalStderrData = stderrData
-        outputLock.unlock()
-        let stdout = String(data: finalStdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: finalStderrData, encoding: .utf8) ?? ""
+        // Exit detection and pipe draining live on dedicated threads (see
+        // CLITestProcessRunner): a libdispatch worker parked in waitUntilExit
+        // is exactly what a saturated pool never schedules.
+        let outcome = CLITestProcessRunner.run(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: isolatedCLIChildEnvironment(environment),
+            standardInput: standardInput,
+            timeout: processTimeout(timeout)
+        )
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+            status: outcome.status,
+            stdout: outcome.stdout,
+            stderr: outcome.stderr,
+            timedOut: outcome.timedOut
         )
     }
 

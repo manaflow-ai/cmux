@@ -1796,6 +1796,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_BUNDLED_CLI_PATH": root.path,
+                // Pinned-dispatch installs embed the app socket into the hook
+                // command, so the CLI refuses to install without one.
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-agy-install-shape.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3863,6 +3866,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-notification.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3899,11 +3903,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["command"] as? String }
 
         XCTAssertTrue(
-            notificationCommands.contains { $0.contains("cmux hooks grok notification") },
+            notificationCommands.contains { $0.contains("hooks grok notification") },
             "Expected Grok Notification to dispatch to the notification handler, saw \(notificationCommands)"
         )
         XCTAssertFalse(
-            notificationCommands.contains { $0.contains("cmux hooks grok stop") },
+            notificationCommands.contains { $0.contains("hooks grok stop") },
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
         XCTAssertEqual(notificationTimeouts, [5])
@@ -4025,6 +4029,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-preserve.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4086,6 +4091,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-metadata.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4216,6 +4222,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "GROK_HOME": grokRoot.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-grok-install-file-dir.sock",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4224,7 +4231,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stdout)
         XCTAssertTrue(
-            result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path); remove or rename the conflicting file and re-run `cmux hooks setup`"),
+            result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path). Remove or rename the conflicting file, then run `cmux hooks setup` again."),
             result.stderr
         )
         XCTAssertFalse(

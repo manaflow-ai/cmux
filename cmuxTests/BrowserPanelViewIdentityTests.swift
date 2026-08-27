@@ -14,6 +14,16 @@ import WebKit
 
 @MainActor
 @Suite struct BrowserPanelViewIdentityTests {
+    // Layout-pass counting on the reference (SwiftUI-owned) hierarchy is only
+    // meaningful while the test does not yield to the run loop. As soon as it
+    // does, AppKit's display cycle (`UpdateCycle` → `CATransaction` flush →
+    // `NSDisplayCycleFlush` → `NSWindow.layoutIfNeeded`) lays out every
+    // window with pending layout, whether or not it is ordered in, on its own
+    // timer — a pass that is unrelated to the portal and that made the
+    // `layoutPassCount == 0` checks below flip per batch on CI. Every check
+    // here therefore dirties the reference view, drives the portal
+    // synchronously, and asserts before any `await`.
+
     @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() async throws {
         let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
         referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
@@ -39,18 +49,34 @@ import WebKit
         await waitForNextMainActorTurn()
         await waitForNextMainActorTurn()
         referenceView.layoutSubtreeIfNeeded()
+
+        // 1. A window-resize notification reaches the portal and its deferred
+        //    pass consumes the settled anchor geometry. The reference view is
+        //    clean while the main queue turns, so the display cycle has
+        //    nothing to lay out here.
+        anchor.frame = NSRect(x: 60, y: 50, width: 360, height: 260)
+        let resizedFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        await waitUntil {
+            portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView))?.frameInWindow == resizedFrameInWindow
+        }
+        let resizedSnapshot = try #require(
+            portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView))
+        )
+        #expect(resizedSnapshot.frameInWindow == resizedFrameInWindow)
+
+        // 2. That pass must not lay out the dirty SwiftUI hosting view. Drive
+        //    it synchronously and assert before yielding.
+        anchor.frame = NSRect(x: 80, y: 70, width: 300, height: 200)
+        let expectedFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         referenceView.layoutPassCount = 0
         referenceView.needsLayout = true
-        anchor.frame = NSRect(x: 60, y: 50, width: 360, height: 260)
-        let expectedFrameInWindow = anchor.convert(anchor.bounds, to: nil)
 
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        await waitForNextMainActorTurn()
-        await waitForNextMainActorTurn()
+        portal.synchronizeExternalGeometryNowForTesting()
 
         #expect(
             referenceView.layoutPassCount == 0,
-            "The browser portal must consume settled geometry without synchronously laying out SwiftUI's hosting view."
+            "The browser portal must consume settled geometry without laying out SwiftUI's hosting view."
         )
         #expect(referenceView.needsLayout)
         let snapshot = try #require(
@@ -91,14 +117,16 @@ import WebKit
         referenceView.needsLayout = true
         webView.layoutPassCount = 0
 
+        // The refresh pass is deferred to a main-actor turn; run it now on
+        // this stack and assert before yielding, so only the portal can have
+        // laid anything out.
         portal.forceRefreshWebView(withId: ObjectIdentifier(webView), reason: "test")
-        await waitForNextMainActorTurn()
-        await waitForNextMainActorTurn()
+        portal.flushPendingHostedWebViewRefreshesForTesting()
 
         #expect(webView.layoutPassCount > 0, "The deferred refresh must still flush the portal-owned WebKit subtree.")
         #expect(
             referenceView.layoutPassCount == 0,
-            "A portal presentation refresh must not synchronously lay out SwiftUI's hosting view."
+            "A portal presentation refresh must not lay out SwiftUI's hosting view."
         )
         #expect(referenceView.needsLayout)
     }
@@ -248,6 +276,16 @@ import WebKit
             DispatchQueue.main.async {
                 continuation.resume()
             }
+        }
+    }
+
+    /// Turns the main queue until `condition` holds or `maximumTurns` have
+    /// passed; the caller asserts the condition afterwards.
+    private func waitUntil(maximumTurns: Int = 200, _ condition: () -> Bool) async {
+        var turns = 0
+        while !condition(), turns < maximumTurns {
+            await waitForNextMainActorTurn()
+            turns += 1
         }
     }
 }
