@@ -4,6 +4,12 @@ import CmuxFoundation
 import CmuxSidebar
 import Foundation
 
+/// Native source identity and completion callbacks carried as one capability.
+typealias SidebarWorkspaceTableNativeDragLifecycle = (
+    currentSessionId: () -> UUID?,
+    finish: (UUID, String) -> Void
+)
+
 /// Accepted reorder plan for the pointer's current position. The AppKit table
 /// keeps this out of the SwiftUI drag state on purpose: writing the indicator
 /// there rebuilds every sidebar row per gap change, which is what made the
@@ -29,10 +35,7 @@ struct SidebarWorkspaceTableActions {
     ///
     /// Keeping the identity reader and terminal callback together prevents a
     /// partially wired action bundle from falling back to unscoped cleanup.
-    struct NativeWorkspaceDragLifecycle {
-        let currentSessionId: () -> UUID?
-        let finish: (UUID, String) -> Void
-    }
+    typealias NativeWorkspaceDragLifecycle = SidebarWorkspaceTableNativeDragLifecycle
 
     let attachScrollView: (NSScrollView) -> Void
     let closeWorkspace: (UUID) -> Void

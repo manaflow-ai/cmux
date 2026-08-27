@@ -2,11 +2,11 @@ import AppKit
 
 @MainActor
 final class SidebarWorkspaceReorderDropView: NSView {
-    private struct DragIdentity: Equatable {
-        let workspaceId: UUID?
-        let sessionId: UUID?
-        let sequenceNumber: Int
-    }
+    private typealias DragIdentity = (
+        workspaceId: UUID?,
+        sessionId: UUID?,
+        sequenceNumber: Int
+    )
 
     var targets: [SidebarWorkspaceReorderDropOverlay.Target] = []
     var isValidDrag: (() -> Bool)?

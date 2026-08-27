@@ -16,12 +16,13 @@ final class LiveTabDragCapabilityResolver {
         _ pasteboard: NSPasteboard
     ) -> TabDragTransfer?
 
-    private struct Cache {
-        let registryIdentity: ObjectIdentifier
-        let pasteboardName: NSPasteboard.Name
-        let pasteboardChangeCount: Int
-        let transfer: TabDragTransfer?
-    }
+    /// The bounded memoized lookup key and value stay private to this resolver.
+    private typealias Cache = (
+        registryIdentity: ObjectIdentifier,
+        pasteboardName: NSPasteboard.Name,
+        pasteboardChangeCount: Int,
+        transfer: TabDragTransfer?
+    )
 
     private let registryProvider: RegistryProvider
     private let transferResolver: TransferResolver
