@@ -47,4 +47,37 @@ import Testing
         let session = Data("session".utf8).base64EncodedString()
         #expect(FeedWorkstreamIdentifier(rawValue: "cmux-feed-v1:\(unsafe):\(session)") == nil)
     }
+
+    @Test func canonicalizesLegacyIDsWithoutSplittingHyphenatedSessions() throws {
+        let legacy = "hermes-agent-session-with-hyphens"
+        let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(
+            agentID: "hermes-agent",
+            rawValue: legacy
+        )
+        let decoded = try #require(FeedWorkstreamIdentifier(rawValue: canonical))
+
+        #expect(decoded.agentID == "hermes-agent")
+        #expect(decoded.sessionID == "session-with-hyphens")
+        #expect(
+            FeedWorkstreamIdentifier.canonicalizedRawValue(
+                agentID: "hermes-agent",
+                rawValue: canonical
+            ) == canonical
+        )
+    }
+
+    @Test func canonicalizationLeavesUnrelatedIDsUntouched() {
+        #expect(
+            FeedWorkstreamIdentifier.canonicalizedRawValue(
+                agentID: "claude",
+                rawValue: "codex-session"
+            ) == "codex-session"
+        )
+        #expect(
+            FeedWorkstreamIdentifier.canonicalizedRawValue(
+                agentID: "claude",
+                rawValue: "claude-"
+            ) == "claude-"
+        )
+    }
 }

@@ -10,6 +10,47 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test("Workspace-only blocking events retain their session surface")
+    func workspaceOnlyAttentionUsesSessionSurface() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let event = WorkstreamEvent(
+            sessionId: "cmux-feed-v1-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: workspaceID.uuidString
+        )
+
+        #expect(FeedCoordinator.explicitAttentionTarget(for: event) == nil)
+        let resolved = FeedCoordinator.mergeAttentionTarget(
+            event: event,
+            sessionMatch: (ownerId: workspaceID, surfaceId: surfaceID)
+        )
+        #expect(resolved?.ownerId == workspaceID)
+        #expect(resolved?.surfaceId == surfaceID)
+    }
+
+    @Test("A complete wire target remains authoritative over a stale session match")
+    func completeAttentionTargetWinsOverSessionSurface() {
+        let workspaceID = UUID()
+        let eventSurfaceID = UUID()
+        let staleSurfaceID = UUID()
+        let event = WorkstreamEvent(
+            sessionId: "cmux-feed-v1-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: eventSurfaceID.uuidString
+        )
+
+        let resolved = FeedCoordinator.mergeAttentionTarget(
+            event: event,
+            sessionMatch: (ownerId: workspaceID, surfaceId: staleSurfaceID)
+        )
+        #expect(resolved?.ownerId == workspaceID)
+        #expect(resolved?.surfaceId == eventSurfaceID)
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 

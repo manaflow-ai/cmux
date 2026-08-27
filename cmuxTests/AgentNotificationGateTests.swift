@@ -153,7 +153,7 @@ import Testing
         // slugs, bad flags, reordered or duplicated fields all fold the whole
         // segment back into the legacy notification body.
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=") == nil)
-        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=Claude") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=Claude")?.agentKind == "Claude")
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=cl aude") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;n=2") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;n=") == nil)
@@ -167,7 +167,7 @@ import Testing
         #expect(AgentNotificationMeta.isValidAgentKindTag("hermes-agent"))
         #expect(AgentNotificationMeta.isValidAgentKindTag("agent_2.beta"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag(""))
-        #expect(!AgentNotificationMeta.isValidAgentKindTag("Claude"))
+        #expect(AgentNotificationMeta.isValidAgentKindTag("Claude"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag("a|b"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag("a;b"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag(String(repeating: "a", count: 65)))

@@ -326,6 +326,38 @@ struct WorkstreamStoreTests {
         #expect(item.context?.allowedPrompts.first?.tool == "Bash")
         #expect(item.context?.allowedPrompts.first?.prompt == "run reload.sh --tag feedctx")
     }
+
+    @Test("Legacy workstream ids normalize before context is carried forward")
+    func legacyWorkstreamIDMigrationPreservesContext() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-identity-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let legacyID = "claude-session-with-hyphens"
+        let canonicalID = "cmux-feed-v1:canonical-session"
+        try await persistence.append(WorkstreamItem(
+            workstreamId: legacyID,
+            source: .claude,
+            kind: .userPrompt,
+            payload: .userPrompt(text: "continue the migration")
+        ))
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, _ in
+                rawValue == legacyID ? canonicalID : rawValue
+            }
+        )
+        await store.start()
+        #expect(store.items.first?.workstreamId == canonicalID)
+
+        store.ingest(.permission(
+            canonicalID,
+            requestId: "permission-1"
+        ))
+        #expect(store.items.last?.context?.lastUserMessage == "continue the migration")
+    }
 }
 
 /// Mutable clock wrapper safe to capture by a `@Sendable` closure in tests.
