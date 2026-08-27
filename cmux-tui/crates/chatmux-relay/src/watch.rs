@@ -147,6 +147,18 @@ fn watch_error_frame(watch_id: &str, code: wire::WorkspaceErrorCode, message: &s
     .unwrap_or_else(|_| String::new())
 }
 
+/// Best-effort terminal response for a watch that cannot enqueue another
+/// lossy event. The critical lane lets the client re-open the stream instead
+/// of retaining a permanently silent watch ID.
+fn report_watch_failure(watch_id: &str, outbound: &OutboundSink) {
+    let text = watch_error_frame(
+        watch_id,
+        wire::WorkspaceErrorCode::Failed,
+        WATCH_RUNTIME_FAILURE_MESSAGE,
+    );
+    let _ = outbound.try_critical_text(text);
+}
+
 impl WatchRegistry {
     pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
         WatchRegistry {
@@ -691,12 +703,7 @@ async fn run_watch(
                 // saturated. It intentionally has no lifecycle token: the
                 // runner retires its token immediately after this branch and
                 // would otherwise suppress the terminal error itself.
-                let text = watch_error_frame(
-                    watch_id,
-                    wire::WorkspaceErrorCode::Failed,
-                    WATCH_RUNTIME_FAILURE_MESSAGE,
-                );
-                let _ = outbound.try_critical_text(text);
+                report_watch_failure(watch_id, outbound);
                 break 'watch;
             }
         }
@@ -1206,6 +1213,20 @@ mod tests {
         let frame = critical.try_recv().expect("failure frame");
         assert!(frame.live.is_none(), "failure must not be fenced before delivery");
         let value: Value = serde_json::from_str(&frame.text).expect("failure json");
+        assert_eq!(value["code"], "failed");
+    }
+
+    #[test]
+    fn saturated_watch_queue_reports_a_terminal_error() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        for _ in 0..MAX_WATCH_OUTBOUND_FRAMES {
+            sink.try_watch_text("{}".to_owned()).expect("watch queue capacity");
+        }
+        report_watch_failure("saturated", &sink);
+        let frame = critical.try_recv().expect("terminal error frame");
+        let value: Value = serde_json::from_str(&frame.text).expect("error json");
+        assert_eq!(value["type"], "fs_watch_error");
+        assert_eq!(value["watchId"], "saturated");
         assert_eq!(value["code"], "failed");
     }
 
