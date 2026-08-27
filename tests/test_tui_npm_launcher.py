@@ -846,46 +846,54 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     assert RegistryHandler.metadata_requests == 1
     assert RegistryHandler.tarball_requests == 1
 
-    first = run_launcher(
-        launcher,
-        cache,
-        registry,
-        *child_args,
-        env_extra=env_extra,
-    )
-    assert first.returncode == 0, first.stderr
-    assert "windows-cache-snapshot" in first.stdout
-    assert RegistryHandler.metadata_requests == 2
-    assert RegistryHandler.tarball_requests == 2
+    # The update check above intentionally blocks the registry thread. Start a
+    # fresh local fixture for the launch checks after that process is cleaned up.
+    server, thread, registry = start_registry(tarballs={"1.2.3": tarball})
+    try:
+        first = run_launcher(
+            launcher,
+            cache,
+            registry,
+            *child_args,
+            env_extra=env_extra,
+        )
+        assert first.returncode == 0, first.stderr
+        assert "windows-cache-snapshot" in first.stdout
+        assert RegistryHandler.metadata_requests == 1
+        assert RegistryHandler.tarball_requests == 1
 
-    # A writable cache hit is authenticated by a fresh registry response. A
-    # matching local manifest cannot bless a replaced executable or tarball.
-    version_dir = binary.parent.parent
-    manifest_path = version_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    tampered = b"tampered Windows executable"
-    manifest["tarballIntegrity"] = "sha512-" + base64.b64encode(
-        hashlib.sha512(b"tampered tarball").digest()
-    ).decode()
-    manifest["binaries"]["cmux-tui.exe"] = hashlib.sha512(tampered).hexdigest()
-    manifest_path.write_text(json.dumps(manifest) + "\n")
-    binary.write_bytes(tampered)
+        # A writable cache hit is authenticated by a fresh registry response.
+        # A matching local manifest cannot bless a replaced executable or
+        # tarball.
+        version_dir = binary.parent.parent
+        manifest_path = version_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        tampered = b"tampered Windows executable"
+        manifest["tarballIntegrity"] = "sha512-" + base64.b64encode(
+            hashlib.sha512(b"tampered tarball").digest()
+        ).decode()
+        manifest["binaries"]["cmux-tui.exe"] = hashlib.sha512(tampered).hexdigest()
+        manifest_path.write_text(json.dumps(manifest) + "\n")
+        binary.write_bytes(tampered)
 
-    second = run_launcher(
-        launcher,
-        cache,
-        registry,
-        *child_args,
-        env_extra=env_extra,
-    )
-    assert second.returncode == 0, second.stderr
-    assert "windows-cache-snapshot" in second.stdout
-    assert binary.read_bytes() == payload
-    assert RegistryHandler.metadata_requests == 3
-    assert RegistryHandler.tarball_requests == 3
-    assert not (platform_root / ".update-operation.lock").exists()
-    assert not (platform_root / ".update.lock").exists()
-    assert not (platform_root / "v/1.2.3/.active").exists()
+        second = run_launcher(
+            launcher,
+            cache,
+            registry,
+            *child_args,
+            env_extra=env_extra,
+        )
+        assert second.returncode == 0, second.stderr
+        assert "windows-cache-snapshot" in second.stdout
+        assert binary.read_bytes() == payload
+        assert RegistryHandler.metadata_requests == 2
+        assert RegistryHandler.tarball_requests == 2
+        assert not (platform_root / ".update-operation.lock").exists()
+        assert not (platform_root / ".update.lock").exists()
+        assert not (platform_root / "v/1.2.3/.active").exists()
+    finally:
+        server.shutdown()
+        thread.join()
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
