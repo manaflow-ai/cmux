@@ -23,8 +23,9 @@ extension AppDelegate {
     func voiceDictationFocusedTerminalPanel() -> TerminalPanel? {
         guard let window = NSApp.keyWindow else {
             // There is no window-owned focus state to consult in this narrow
-            // startup/test state; preserve the existing app-level fallback.
-            return tabManager?.selectedWorkspace?.focusedTerminalPanel
+            // startup/test state; preserve the app-level fallback while still
+            // projecting a remote-tmux container to its active input pane.
+            return tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel
         }
 
         // The focus controller is authoritative even while AppKit's first
@@ -48,7 +49,7 @@ extension AppDelegate {
         case .some:
             return nil
         case nil:
-            return context.tabManager.selectedWorkspace?.focusedTerminalPanel
+            return context.tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel
         }
     }
 }

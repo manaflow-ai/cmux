@@ -6,6 +6,8 @@ import CoreMedia
 /// second result marked final. Keeping the audio ranges here lets the adapter
 /// commit those older hypotheses before the next volatile phrase replaces them.
 struct SpeechAnalyzerResultAccumulator: Sendable {
+    private static let committedSegmentLimit = 128
+
     /// A transcription fragment and the source-audio range it describes.
     struct Segment: Sendable, Equatable {
         let text: String
@@ -21,6 +23,7 @@ struct SpeechAnalyzerResultAccumulator: Sendable {
     private var pendingSegments: [Segment] = []
     private var finalizationTime: CMTime?
     private var transcript = DictationTranscript()
+    private var committedSegments: [Segment] = []
     private var hasPublishedVolatileText = false
 
     /// Consumes one result and returns the events that are safe to expose.
@@ -85,10 +88,26 @@ struct SpeechAnalyzerResultAccumulator: Sendable {
     }
 
     private mutating func replaceOverlappingSegment(_ segment: Segment) {
+        guard segment.range.isValid else { return }
+        if segment.text.isEmpty {
+            pendingSegments.removeAll { existing in
+                Self.rangesOverlap(existing.range, segment.range)
+            }
+            return
+        }
+        // A later result can narrow its range to the still-volatile tail.
+        // Keep the older enclosing segment so finalized text outside that
+        // tail is not erased before its boundary is emitted.
+        if pendingSegments.contains(where: { existing in
+            Self.rangesOverlap(existing.range, segment.range)
+                && Self.rangeContains(existing.range, segment.range)
+                && existing.range != segment.range
+        }) {
+            return
+        }
         pendingSegments.removeAll { existing in
             Self.rangesOverlap(existing.range, segment.range)
         }
-        guard !segment.text.isEmpty else { return }
         pendingSegments.append(segment)
         pendingSegments.sort(by: Self.segmentPrecedes)
     }
@@ -96,39 +115,75 @@ struct SpeechAnalyzerResultAccumulator: Sendable {
     private mutating func emitVolatileEvent(
         clearWhenEmpty: Bool = true
     ) -> [DictationTranscriptionEvent] {
-        let text = pendingSegments.map(\.text).joined()
+        let text = pendingSegments
+            .sorted(by: Self.segmentPrecedes)
+            .map { uncommittedText(for: $0) }
+            .joined()
         guard !text.isEmpty else {
             guard clearWhenEmpty, hasPublishedVolatileText else { return [] }
             hasPublishedVolatileText = false
             return [.partial("")]
         }
         hasPublishedVolatileText = true
-        let uncommittedText = textAfterCommittedPrefix(text)
-        if uncommittedText.isEmpty {
-            _ = transcript.apply(.partial(""))
-            return []
-        }
-        _ = transcript.apply(.partial(uncommittedText))
-        return [.partial(uncommittedText)]
+        _ = transcript.apply(.partial(text))
+        return [.partial(text)]
     }
 
     private mutating func finalEvent(for segment: Segment) -> DictationTranscriptionEvent? {
-        let text = textAfterCommittedPrefix(segment.text)
+        let text = uncommittedText(for: segment)
         guard !text.isEmpty else { return nil }
-        return transcript.apply(.final(text)).map(DictationTranscriptionEvent.final)
+        let event = transcript.apply(.final(text)).map(DictationTranscriptionEvent.final)
+        rememberCommittedSegment(segment)
+        return event
     }
 
-    private func textAfterCommittedPrefix(_ text: String) -> String {
-        let committedText = transcript.committedText
-        guard !committedText.isEmpty, text.hasPrefix(committedText) else {
-            return text
+    /// Removes only text whose audio range overlaps an already committed range.
+    /// A repeated phrase in a later, disjoint range therefore remains intact.
+    private func uncommittedText(for segment: Segment) -> String {
+        let overlaps = committedSegments
+            .filter { Self.rangesOverlap($0.range, segment.range) }
+            .sorted(by: Self.segmentPrecedes)
+        guard !overlaps.isEmpty else { return segment.text }
+
+        let candidates = [
+            overlaps.map(\.text).joined(),
+            overlaps.map(\.text).joined(separator: " "),
+        ].filter { !$0.isEmpty }
+        for prefix in candidates where segment.text.hasPrefix(prefix) {
+            return String(segment.text.dropFirst(prefix.count))
         }
-        return String(text.dropFirst(committedText.count))
+        // An exact/contained range that cannot be revised after finalization
+        // is already represented; suppress it instead of duplicating text.
+        if committedSegments.contains(where: { existing in
+            Self.rangeContains(existing.range, segment.range)
+        }) {
+            return ""
+        }
+        // If an overlapping revision does not expose a safe textual prefix,
+        // wait for a later non-overlapping result rather than duplicating an
+        // already committed audio range.
+        return ""
+    }
+
+    private mutating func rememberCommittedSegment(_ segment: Segment) {
+        committedSegments.removeAll { existing in
+            Self.rangesOverlap(existing.range, segment.range)
+                || Self.rangeContains(segment.range, existing.range)
+        }
+        committedSegments.append(segment)
+        if committedSegments.count > Self.committedSegmentLimit {
+            committedSegments.removeFirst(committedSegments.count - Self.committedSegmentLimit)
+        }
     }
 
     private static func rangesOverlap(_ lhs: CMTimeRange, _ rhs: CMTimeRange) -> Bool {
         CMTimeCompare(lhs.start, rhs.end) < 0
             && CMTimeCompare(rhs.start, lhs.end) < 0
+    }
+
+    private static func rangeContains(_ outer: CMTimeRange, _ inner: CMTimeRange) -> Bool {
+        CMTimeCompare(outer.start, inner.start) <= 0
+            && CMTimeCompare(outer.end, inner.end) >= 0
     }
 
     private static func segmentPrecedes(_ lhs: Segment, _ rhs: Segment) -> Bool {

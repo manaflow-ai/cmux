@@ -82,4 +82,36 @@ struct SpeechAnalyzerResultAccumulatorTests {
             )) == [.final("hello world")]
         )
     }
+
+    @Test func narrowingResultDoesNotEraseTextOutsideVolatileTail() {
+        var accumulator = SpeechAnalyzerResultAccumulator()
+        #expect(
+            accumulator.consume(.init(
+                segments: [.init(text: "hello world", range: range(0, 2))],
+                finalizationTime: time(0)
+            )) == [.partial("hello world")]
+        )
+        #expect(
+            accumulator.consume(.init(
+                segments: [.init(text: "world", range: range(1, 2))],
+                finalizationTime: time(2)
+            )) == [.final("hello world")]
+        )
+    }
+
+    @Test func repeatedPhraseInDisjointAudioRangeIsNotDeduplicated() {
+        var accumulator = SpeechAnalyzerResultAccumulator()
+        #expect(
+            accumulator.consume(.init(
+                segments: [.init(text: "hello", range: range(0, 1))],
+                finalizationTime: time(1)
+            )) == [.final("hello")]
+        )
+        #expect(
+            accumulator.consume(.init(
+                segments: [.init(text: "hello", range: range(2, 3))],
+                finalizationTime: time(3)
+            )) == [.final(" hello")]
+        )
+    }
 }

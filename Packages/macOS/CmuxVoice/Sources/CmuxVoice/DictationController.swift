@@ -42,6 +42,9 @@ public final class DictationController {
     private let clock: any Clock<Duration>
     private var activeTranscriber: (any SpeechTranscribing)?
     private var sessionTask: Task<Void, Never>?
+    /// Owns the sole in-flight engine finish. A non-cooperative transcriber
+    /// may retain this task after a timeout; keeping the slot occupied prevents
+    /// repeated retries from accumulating additional retained engines.
     private var finishTask: Task<Void, Never>?
     private var stopRecoveryTask: Task<Void, Never>?
     private var sessionGeneration = 0
@@ -96,9 +99,10 @@ public final class DictationController {
 
     /// Starts a new session. No-op while one is active.
     public func start() {
-        guard !isActive else { return }
-        finishTask?.cancel()
-        finishTask = nil
+        // Do not start another engine while a timed-out finish is still
+        // unwinding. This bounds retained transcribers to one and lets the
+        // existing finish task clear the slot when its underlying API returns.
+        guard !isActive, finishTask == nil else { return }
         stopRecoveryTask?.cancel()
         stopRecoveryTask = nil
         sessionGeneration += 1
@@ -298,6 +302,7 @@ public final class DictationController {
                   self.phase == .stopping else {
                 return
             }
+            self.finishTask?.cancel()
             self.fail(
                 .transcriptionFailed("dictation stop timed out"),
                 generation: generation

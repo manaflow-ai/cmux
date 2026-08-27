@@ -64,25 +64,20 @@ actor SpeechAnalyzerResultConsumer {
     ) -> SpeechAnalyzerResultAccumulator.Snapshot {
         let attributedText = result.text
         var pieces: [(text: String, range: CMTimeRange?)] = []
-        var timedSegments: [SpeechAnalyzerResultAccumulator.Segment] = []
+        var hasTimedRuns = false
         for run in attributedText.runs {
             let text = String(attributedText[run.range].characters)
             guard !text.isEmpty else { continue }
             let range = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self]
             pieces.append((text: text, range: range))
-            if let range {
-                timedSegments.append(
-                    SpeechAnalyzerResultAccumulator.Segment(
-                        text: text,
-                        range: range
-                    )
-                )
+            if range != nil {
+                hasTimedRuns = true
             } else {
                 continue
             }
         }
         var segments: [SpeechAnalyzerResultAccumulator.Segment]
-        if timedSegments.isEmpty {
+        if !hasTimedRuns {
             segments = attributedText.characters.isEmpty
                 ? []
                 : [
@@ -113,12 +108,19 @@ actor SpeechAnalyzerResultConsumer {
                     }
                     continue
                 }
-                segments.append(
-                    SpeechAnalyzerResultAccumulator.Segment(
-                        text: leadingUntimedText + piece.text,
-                        range: range
-                    )
+                let segment = SpeechAnalyzerResultAccumulator.Segment(
+                    text: leadingUntimedText + piece.text,
+                    range: range
                 )
+                if let last = segments.last, last.range == range {
+                    segments[segments.index(before: segments.endIndex)] =
+                        SpeechAnalyzerResultAccumulator.Segment(
+                            text: last.text + segment.text,
+                            range: range
+                        )
+                } else {
+                    segments.append(segment)
+                }
                 leadingUntimedText = ""
             }
             if !leadingUntimedText.isEmpty, !segments.isEmpty {

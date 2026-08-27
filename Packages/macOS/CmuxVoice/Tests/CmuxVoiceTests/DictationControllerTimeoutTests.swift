@@ -46,6 +46,7 @@ private final class NeverFinishingTranscriber: SpeechTranscribing, @unchecked Se
     private let releaseContinuation: AsyncStream<Void>.Continuation
     private var eventContinuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
     private(set) var finishStarted = false
+    private(set) var transcribeCount = 0
 
     init() {
         let (stream, continuation) = AsyncStream<Void>.makeStream()
@@ -56,6 +57,7 @@ private final class NeverFinishingTranscriber: SpeechTranscribing, @unchecked Se
     func transcribe(
         locale: Locale
     ) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        transcribeCount += 1
         let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream()
         eventContinuation = continuation
         return stream
@@ -101,6 +103,12 @@ struct DictationControllerTimeoutTests {
         }
         #expect(controller.phase == .failed(.transcriptionFailed("dictation stop timed out")))
         #expect(inserter.endCount == 1)
+
+        // A non-cooperative finish occupies the single recovery slot; a
+        // second start is refused instead of retaining another transcriber.
+        controller.start()
+        #expect(controller.phase == .failed(.transcriptionFailed("dictation stop timed out")))
+        #expect(transcriber.transcribeCount == 1)
 
         // Let the cancelled finish task unwind so this test does not leave a
         // deliberately wedged fake alive beyond the test boundary.

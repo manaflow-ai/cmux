@@ -147,7 +147,6 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             attributeOptions: [.audioTimeRange]
         )
         self.transcriber = transcriber
-
         do {
             // AssetInventory returns false when another app-owned reservation
             // already covers this locale. Only release a reservation acquired
@@ -183,6 +182,10 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             await releaseReservedLocale()
             throw error
         }
+        guard !isFinishing else {
+            await releaseReservedLocale()
+            throw CancellationError()
+        }
 
         let (rawInputSequence, rawInputContinuation) =
             AsyncThrowingStream<RawAudioInput, any Error>.makeStream(
@@ -203,13 +206,18 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
                 }
                 await self?.finishConvertedInput()
             } catch {
-                await self?.finishConvertedInput(throwing: error)
+                await self?.handleConversionFailure(error)
             }
         }
-
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         self.analyzer = analyzer
 
+        guard !isFinishing else {
+            await finishInputPipeline(cancelConversion: true)
+            await cancelAnalyzer()
+            await releaseReservedLocale()
+            throw CancellationError()
+        }
         do {
             try startAudioEngine()
         } catch is CancellationError {
@@ -237,6 +245,12 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             await cancelAnalyzer()
             await releaseReservedLocale()
             throw CancellationError()
+        } catch let failure as DictationFailure {
+            stopAudioEngine()
+            await finishInputPipeline(cancelConversion: true)
+            await cancelAnalyzer()
+            await releaseReservedLocale()
+            throw failure
         } catch {
             stopAudioEngine()
             await finishInputPipeline(cancelConversion: true)
@@ -320,6 +334,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         try Task.checkCancellation()
         guard let analyzerFormat, let continuation = convertedInputContinuation else { return }
         let buffer = input.buffer
+        guard buffer.frameLength > 0 else { return }
         if buffer.format == analyzerFormat {
             let result = continuation.yield(
                 AnalyzerInput(buffer: buffer, bufferStartTime: input.bufferStartTime)
@@ -332,11 +347,16 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         let inputFormat = buffer.format
         let inputSampleRate = inputFormat.sampleRate
         let inputFrameLength = buffer.frameLength
+        guard inputSampleRate.isFinite, inputSampleRate > 0 else {
+            throw DictationFailure.audioCaptureFailed("invalid audio input sample rate")
+        }
         if converter == nil || converter?.inputFormat != inputFormat {
             converter = AVAudioConverter(from: inputFormat, to: analyzerFormat)
             converter?.primeMethod = .none
         }
-        guard let converter else { return }
+        guard let converter else {
+            throw DictationFailure.audioCaptureFailed("audio format conversion unavailable")
+        }
         let ratio = analyzerFormat.sampleRate / inputSampleRate
         let capacity = AVAudioFrameCount(
             (Double(inputFrameLength) * ratio).rounded(.up) + 16
@@ -344,7 +364,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         guard let converted = AVAudioPCMBuffer(
             pcmFormat: analyzerFormat,
             frameCapacity: max(capacity, 1)
-        ) else { return }
+        ) else {
+            throw DictationFailure.audioCaptureFailed("audio conversion buffer unavailable")
+        }
         let feed = SingleBufferFeed(buffer)
         var conversionError: NSError?
         converter.convert(to: converted, error: &conversionError) { _, outStatus in
@@ -355,7 +377,12 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             outStatus.pointee = .haveData
             return next
         }
-        guard conversionError == nil, converted.frameLength > 0 else { return }
+        if let conversionError {
+            throw DictationFailure.audioCaptureFailed(conversionError.localizedDescription)
+        }
+        guard converted.frameLength > 0 else {
+            throw DictationFailure.audioCaptureFailed("audio conversion produced no frames")
+        }
         let result = continuation.yield(
             AnalyzerInput(buffer: converted, bufferStartTime: input.bufferStartTime)
         )
@@ -377,6 +404,19 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         inputBox.finish()
         converter = nil
         analyzerFormat = nil
+    }
+
+    /// Surfaces conversion failures through the public result stream; the
+    /// controller owns the subsequent analyzer teardown and finish task.
+    private func handleConversionFailure(_ error: any Error) {
+        finishConvertedInput(throwing: error)
+        guard !isFinishing else { return }
+        isFinishing = true
+        stopAudioEngine()
+        let failure = (error as? DictationFailure)
+            ?? .audioCaptureFailed(error.localizedDescription)
+        outputContinuation?.finish(throwing: failure)
+        cancelResultsTask()
     }
 
     private func releaseReservedLocale() async {
