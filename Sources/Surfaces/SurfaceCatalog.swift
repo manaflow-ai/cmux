@@ -49,6 +49,9 @@ final class SurfaceCatalog {
     /// detaches, so a slow but observed materialization is still allowed to finish normally.
     static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
     static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
+    /// The coordinator never allows more than this many provider tasks to remain tracked while
+    /// cancellation is still unresolved. This is backpressure for providers that ignore cancel.
+    static let defaultMaximumTrackedMaterializations = 16
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
 
@@ -64,8 +67,10 @@ final class SurfaceCatalog {
     /// not keep disconnected providers alive. Every token has one bounded eviction task.
     private var retiredMaterializationTokens: Set<UUID> = []
     private var retiredMaterializationEvictionTasks: [UUID: Task<Void, Never>] = [:]
+    private var trackedMaterializationTokens: Set<UUID> = []
     private let retiredMaterializationRetention: Duration
     private let abandonedMaterializationTimeout: Duration
+    private let maximumTrackedMaterializations: Int
     private let materializationClock: any Clock<Duration>
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
@@ -77,12 +82,15 @@ final class SurfaceCatalog {
     init(
         abandonedMaterializationTimeout: Duration = SurfaceCatalog.defaultAbandonedMaterializationTimeout,
         retiredMaterializationRetention: Duration = SurfaceCatalog.defaultRetiredMaterializationRetention,
+        maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
         materializationClock: any Clock<Duration> = ContinuousClock()
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
+        precondition(maximumTrackedMaterializations > 0)
         self.abandonedMaterializationTimeout = abandonedMaterializationTimeout
         self.retiredMaterializationRetention = retiredMaterializationRetention
+        self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
     }
 
@@ -227,7 +235,13 @@ final class SurfaceCatalog {
                 return
             }
 
+            guard trackedMaterializationTokens.count < maximumTrackedMaterializations else {
+                continuation.resume(throwing: SurfaceCatalogError.unavailable(id, reason: "materialization capacity exhausted"))
+                return
+            }
+
             let token = UUID()
+            trackedMaterializationTokens.insert(token)
             let task = Task { @MainActor [weak self] in
                 do {
                     let projection = try await provider.materialize(resource, at: destination, focus: focus)
@@ -253,6 +267,7 @@ final class SurfaceCatalog {
         result: Result<SurfaceProjection, any Error>
     ) {
         guard var inFlight = inFlightProjects[id], inFlight.token == token else {
+            trackedMaterializationTokens.remove(token)
             if retiredMaterializationTokens.remove(token) != nil {
                 retiredMaterializationEvictionTasks.removeValue(forKey: token)?.cancel()
             }
@@ -263,6 +278,7 @@ final class SurfaceCatalog {
         }
         inFlight.abandonmentDeadlineTask?.cancel()
         inFlightProjects[id] = nil
+        trackedMaterializationTokens.remove(token)
 
         switch result {
         case .success(let projection):
@@ -337,6 +353,7 @@ final class SurfaceCatalog {
     /// so `finishInFlightProject` can discard it directly with the provider captured by its task
     /// even after this token has been evicted.
     private func retireMaterialization(_ token: UUID) {
+        precondition(trackedMaterializationTokens.contains(token))
         retiredMaterializationTokens.insert(token)
         let timeout = retiredMaterializationRetention
         let clock = materializationClock
