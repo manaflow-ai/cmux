@@ -249,6 +249,14 @@ extension DockSplitStore {
         guard dockBrowserPortalAnchorReady(anchorView) else { return true }
 
         let webView = browser.webView
+        let paneDropContext = paneId(forPanelId: browser.id).map {
+            BrowserPaneDropContext(
+                workspaceId: workspaceId,
+                panelId: browser.id,
+                paneId: $0,
+                isDockHosted: true
+            )
+        }
         let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: webView)
         if snapshot?.visibleInUI == false {
             BrowserWindowPortalRegistry.updateEntryVisibility(
@@ -265,7 +273,8 @@ extension DockSplitStore {
                 webView: webView,
                 to: anchorView,
                 visibleInUI: true,
-                zPriority: 1
+                zPriority: 1,
+                paneDropContext: paneDropContext
             )
         }
 
