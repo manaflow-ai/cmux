@@ -51,6 +51,28 @@ export function listVmImageManifestEntries(): readonly VmImageManifestEntry[] {
   return typedManifest.images;
 }
 
+/**
+ * The provider that owns an explicitly requested image, when the manifest
+ * answers that unambiguously. Clients (the CLI since #10478) send provider
+ * image ids without a provider field and rely on the deployment's default
+ * provider matching; when the two disagree, the image is looked up under the
+ * wrong provider and provisioning fails closed even though the image is a
+ * known-good manifest entry (the 2026-08-26 outage). An image id or version
+ * that appears under exactly one provider names that provider; anything
+ * ambiguous or unknown returns null and leaves the caller's default in force.
+ */
+export function inferVmProviderForImage(requestedImage: string | undefined): ProviderId | null {
+  const requested = requestedImage?.trim();
+  if (!requested) return null;
+  const providers = new Set(
+    typedManifest.images
+      .filter((entry) => entry.imageId === requested || entry.version === requested)
+      .map((entry) => entry.provider),
+  );
+  if (providers.size !== 1) return null;
+  return [...providers][0] ?? null;
+}
+
 export function imageUsesBakedFreestyleSignedAdmin(provider: ProviderId, imageId: string): boolean {
   const entry = typedManifest.images.find((candidate) =>
     candidate.provider === provider && candidate.imageId === imageId

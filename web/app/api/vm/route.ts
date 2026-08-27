@@ -30,6 +30,7 @@ import {
 } from "../../../services/vms/entitlements";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
@@ -263,7 +264,10 @@ export async function POST(request: Request): Promise<Response> {
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
-        const provider = body.provider ?? defaultProviderId();
+        // An explicit manifest image names its own provider: the CLI sends
+        // provider-specific image ids without a provider field, and the
+        // deployment default must not reroute them under the wrong provider.
+        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
