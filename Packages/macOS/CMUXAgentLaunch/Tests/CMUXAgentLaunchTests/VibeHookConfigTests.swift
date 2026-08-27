@@ -197,7 +197,28 @@ struct VibeHookConfigTests {
         """)
     }
 
-    @Test("Escapes TOML basic string content")
+    @Test("Uninstall with orphaned marker, user TOML, then valid block preserves user TOML")
+    func uninstallWithOrphanedMarkerUserTOMLThenValidBlockPreservesUserTOML() {
+        let existing = """
+        active_model = "mistral-medium-3.5"
+        # cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d begin
+        theme = "auto"
+        # cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d begin
+        name = "cmux-stop"
+        type = "post_agent"
+        command = "cmux hooks vibe stop"
+        timeout = 60.0
+
+        # cmux-vibe-hooks-8a3f5c2d-1b4e-4f7a-9d6c-2e8b1a3f5c7d end
+
+        """
+
+        #expect(VibeHookConfig().uninstalling(from: existing) == """
+        active_model = "mistral-medium-3.5"
+        theme = "auto"
+
+        """)
+    }
     func escapesTOMLBasicStringContent() {
         let events = [
             VibeHookConfig.Event(
