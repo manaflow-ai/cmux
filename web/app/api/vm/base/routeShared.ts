@@ -16,6 +16,7 @@ import {
 } from "../../../../services/vms/errors";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
 } from "../../../../services/vms/images/resolver";
 import {
@@ -62,7 +63,9 @@ export async function runBaseRoute(input: {
     return vmRequiresProResponse();
   }
 
-  const provider = parsed.body.provider ?? defaultProviderId();
+  // Same provider inference as POST /api/vm: an explicit manifest image
+  // names its own provider even when the deployment default disagrees.
+  const provider = parsed.body.provider ?? inferVmProviderForImage(parsed.body.image) ?? defaultProviderId();
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
