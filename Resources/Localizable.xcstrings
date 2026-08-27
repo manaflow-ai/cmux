@@ -246379,6 +246379,23 @@
         }
       }
     },
+    "surfaceResumeApproval.awaitingDecision.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume approval is waiting for a response in the cmux window. Retry the request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元の承認は cmux ウィンドウでの応答を待っています。リクエストを再試行してください。"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.cwd.none": {
       "extractionState": "manual",
       "localizations": {

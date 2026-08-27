@@ -488,9 +488,19 @@ extension TerminalController {
         )
     }
 
+    /// The outcome of the `surface.resume.set` approval flow: the two retryable
+    /// waits (signing secret still loading, approval prompt still open) or the
+    /// resolved binding (issue #9369).
+    private enum SurfaceResumeApprovalFlowLookup {
+        case pendingSigningSecret
+        case approvalPromptPending
+        case resolved(SurfaceResumeBindingSnapshot)
+    }
+
     private func surfaceResumeBindingWithApproval(
-        _ binding: SurfaceResumeBindingSnapshot
-    ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
+        _ binding: SurfaceResumeBindingSnapshot,
+        target: ControlSurfaceResumeTarget
+    ) -> SurfaceResumeApprovalFlowLookup {
         let context: (
             effectiveBinding: SurfaceResumeBindingSnapshot,
             existingRecord: SurfaceResumeApprovalRecord?
@@ -501,7 +511,7 @@ extension TerminalController {
         case let .resolved(resolvedContext):
             context = resolvedContext
         }
-        var effectiveBinding = context.effectiveBinding
+        let effectiveBinding = context.effectiveBinding
         if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
             to: binding,
             existingRecord: context.existingRecord
@@ -516,18 +526,68 @@ extension TerminalController {
         ) else {
             return .resolved(effectiveBinding)
         }
-        let approval = surfacePromptForResumeApproval(binding: effectiveBinding)
-        guard let record = SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: approval.policy,
-            commandPrefix: approval.commandPrefix
-        ) else {
+        // issue #9369: the prompt must never run modally inside this socket
+        // main hop — that held the main actor and blocked unrelated
+        // resume.get/.clear requests until they timed out. It presents as a
+        // sheet instead; this set answers a retryable `approvalPending` until
+        // the user decides (or a clear cancels the prompt).
+        guard let window = surfaceResumeApprovalPromptWindow(for: target) else {
+            // No window can host the sheet, so nobody can be asked; keep the
+            // binding without an approval record (the same shape as a failed
+            // `approve`).
             return .resolved(effectiveBinding)
         }
-        effectiveBinding.approvalPolicy = record.policy
-        effectiveBinding.approvalRecordId = record.id
-        effectiveBinding.autoResume = record.policy == .auto
-        return .resolved(effectiveBinding)
+        let outcome = surfaceResumeApprovalPrompts.begin(
+            key: SurfaceResumeApprovalPromptCoordinator.RequestKey(
+                surfaceID: target.surfaceID,
+                binding: binding
+            ),
+            presenter: { [weak self] completion in
+                self?.presentSurfaceResumeApprovalPrompt(
+                    binding: effectiveBinding,
+                    window: window,
+                    completion: completion
+                ) ?? {}
+            },
+            onDecision: { decision in
+                // Complete the pending set when the user answers, so the
+                // binding sticks even if the caller never retries.
+                _ = target.setBinding(Self.surfaceResumeBindingApplyingApprovalDecision(
+                    decision,
+                    original: binding,
+                    effective: effectiveBinding
+                ))
+            }
+        )
+        switch outcome {
+        case .pending:
+            return .approvalPromptPending
+        case let .decided(decision):
+            return .resolved(Self.surfaceResumeBindingApplyingApprovalDecision(
+                decision,
+                original: binding,
+                effective: effectiveBinding
+            ))
+        }
+    }
+
+    private static func surfaceResumeBindingApplyingApprovalDecision(
+        _ decision: SurfaceResumeApprovalPromptCoordinator.Decision,
+        original: SurfaceResumeBindingSnapshot,
+        effective: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        guard let record = SurfaceResumeApprovalStore.approve(
+            binding: original,
+            policy: decision.policy,
+            commandPrefix: decision.commandPrefix
+        ) else {
+            return effective
+        }
+        var approved = effective
+        approved.approvalPolicy = record.policy
+        approved.approvalRecordId = record.id
+        approved.autoResume = record.policy == .auto
+        return approved
     }
 
     private var surfaceResumeApprovalPendingMessage: String {
@@ -537,9 +597,30 @@ extension TerminalController {
         )
     }
 
-    private func surfacePromptForResumeApproval(
-        binding: SurfaceResumeBindingSnapshot
-    ) -> (policy: SurfaceResumeApprovalPolicy, commandPrefix: [String]?) {
+    private var surfaceResumeApprovalAwaitingDecisionMessage: String {
+        String(
+            localized: "surfaceResumeApproval.awaitingDecision.message",
+            defaultValue: "Resume approval is waiting for a response in the cmux window. Retry the request."
+        )
+    }
+
+    private func surfaceResumeApprovalPromptWindow(
+        for target: ControlSurfaceResumeTarget
+    ) -> NSWindow? {
+        AppDelegate.shared?.mainWindowContainingWorkspace(target.workspaceID)
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+    }
+
+    /// Builds the resume-approval alert and presents it as a sheet on `window`
+    /// without blocking the main actor (issue #9369). Reports the decision (or
+    /// `nil` on programmatic dismissal) through `completion` and returns the
+    /// closure that cancels the prompt.
+    private func presentSurfaceResumeApprovalPrompt(
+        binding: SurfaceResumeBindingSnapshot,
+        window: NSWindow,
+        completion: @escaping @MainActor (SurfaceResumeApprovalPromptCoordinator.Decision?) -> Void
+    ) -> @MainActor () -> Void {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(
@@ -582,16 +663,27 @@ extension TerminalController {
             flattenedText: informativeText,
             separatingScrollableDetails: binding.command
         )
-        content.apply(to: alert, presentingWindow: nil)
+        content.apply(to: alert, presentingWindow: window)
 
-        let response = alert.runModal()
-        let commandPrefix = alert.suppressionButton?.state == .on
-            ? folderScopedGeneralizedPrefix
-            : nil
-        return switch response {
-        case .alertFirstButtonReturn: (.auto, commandPrefix)
-        case .alertSecondButtonReturn: (.prompt, commandPrefix)
-        default: (.manual, commandPrefix)
+        alert.beginSheetModal(for: window) { response in
+            let commandPrefix = alert.suppressionButton?.state == .on
+                ? folderScopedGeneralizedPrefix
+                : nil
+            switch response {
+            case .alertFirstButtonReturn:
+                completion(.init(policy: .auto, commandPrefix: commandPrefix))
+            case .alertSecondButtonReturn:
+                completion(.init(policy: .prompt, commandPrefix: commandPrefix))
+            case .alertThirdButtonReturn:
+                completion(.init(policy: .manual, commandPrefix: commandPrefix))
+            default:
+                // Programmatic dismissal (a resume.clear cancelling the
+                // pending approval): no decision, nothing recorded.
+                completion(nil)
+            }
+        }
+        return { [weak window] in
+            window?.endSheet(alert.window, returnCode: .abort)
         }
     }
 
@@ -641,9 +733,11 @@ extension TerminalController {
             return .setFailed
         }
         let effectiveBinding: SurfaceResumeBindingSnapshot
-        switch surfaceResumeBindingWithApproval(locatedBinding) {
+        switch surfaceResumeBindingWithApproval(locatedBinding, target: target) {
         case .pendingSigningSecret:
             return .approvalPending(message: surfaceResumeApprovalPendingMessage)
+        case .approvalPromptPending:
+            return .approvalPending(message: surfaceResumeApprovalAwaitingDecisionMessage)
         case let .resolved(binding):
             effectiveBinding = binding
         }
@@ -705,6 +799,10 @@ extension TerminalController {
         if let expectedSource, bindingForClear?.source != expectedSource {
             return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: false))
         }
+        // A clear wins over an in-flight approval prompt for this surface:
+        // dismiss it without a decision so the pending set never lands after
+        // the clear (issue #9369).
+        surfaceResumeApprovalPrompts.cancelPending(surfaceID: target.surfaceID)
         target.clearBinding(bindingForClear, agentSessionEnded: agentSessionEnded)
         return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: true))
     }

@@ -333,6 +333,11 @@ class TerminalController {
     /// `init`; its `context` is wired to `self` once `self` is available.
     let controlCommandCoordinator = ControlCommandCoordinator()
 
+    /// The single owner of the one in-flight `surface.resume.set` approval
+    /// prompt, so approval never blocks the main actor inside a socket hop
+    /// (issue #9369).
+    let surfaceResumeApprovalPrompts = SurfaceResumeApprovalPromptCoordinator()
+
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
         let selector: String

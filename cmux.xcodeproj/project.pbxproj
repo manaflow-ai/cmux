@@ -1314,6 +1314,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A73B20000000000000002 /* IOSScreenshotCommandResultBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B20000000000000001 /* IOSScreenshotCommandResultBox.swift */; };
 		E7B200000000000000000001 /* IrohTransportDebugMenuButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B100000000000000000001 /* IrohTransportDebugMenuButtons.swift */; };
 		875900000000000000000001 /* Issue8759FreezeRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */; };
+		936900000000000000000001 /* Issue9369ResumeApprovalPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 936900000000000000000002 /* Issue9369ResumeApprovalPromptTests.swift */; };
 		A5FB1307 /* JSONCObjectEditor+Remove.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1309 /* JSONCObjectEditor+Remove.swift */; };
 		A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1309 /* JSONCObjectEditor+Remove.swift */; };
 		A5FB1311 /* JSONCObjectEditor+Set.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1310 /* JSONCObjectEditor+Set.swift */; };
@@ -2277,6 +2278,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		3E66E7A1B2B320EC850BB174 /* SurfaceResourceDragRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627B5FB396A1BF22407E8B45 /* SurfaceResourceDragRegistry.swift */; };
 		842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */; };
 		883700000000000000000003 /* SurfaceResumeApprovalLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000004 /* SurfaceResumeApprovalLookup.swift */; };
+		936900000000000000000003 /* SurfaceResumeApprovalPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 936900000000000000000004 /* SurfaceResumeApprovalPromptCoordinator.swift */; };
 		875900000000000000000005 /* SurfaceResumeApprovalSigningSecretCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000006 /* SurfaceResumeApprovalSigningSecretCache.swift */; };
 		883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */; };
 		F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */; };
@@ -4192,6 +4194,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A73B20000000000000001 /* IOSScreenshotCommandResultBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSScreenshotCommandResultBox.swift; sourceTree = "<group>"; };
 		E7B100000000000000000001 /* IrohTransportDebugMenuButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IrohTransportDebugMenuButtons.swift; sourceTree = "<group>"; };
 		875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Issue8759FreezeRegressionTests.swift; sourceTree = "<group>"; };
+		936900000000000000000002 /* Issue9369ResumeApprovalPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Issue9369ResumeApprovalPromptTests.swift; sourceTree = "<group>"; };
 		A5FB1309 /* JSONCObjectEditor+Remove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSONCObjectEditor+Remove.swift"; sourceTree = "<group>"; };
 		A5FB1310 /* JSONCObjectEditor+Set.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JSONCObjectEditor+Set.swift"; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
@@ -5136,6 +5139,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		627B5FB396A1BF22407E8B45 /* SurfaceResourceDragRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceResourceDragRegistry.swift; sourceTree = "<group>"; };
 		842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeAgentBindingGenerationTests.swift; sourceTree = "<group>"; };
 		883700000000000000000004 /* SurfaceResumeApprovalLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalLookup.swift; sourceTree = "<group>"; };
+		936900000000000000000004 /* SurfaceResumeApprovalPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalPromptCoordinator.swift; sourceTree = "<group>"; };
 		875900000000000000000006 /* SurfaceResumeApprovalSigningSecretCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretCache.swift; sourceTree = "<group>"; };
 		883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretResolution.swift; sourceTree = "<group>"; };
 		F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingCodexUpdateCheckTests.swift; sourceTree = "<group>"; };
@@ -7586,6 +7590,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				875900000000000000000004 /* MainThreadHangWatchdog.swift */,
 				875900000000000000000008 /* MainThreadHangWatchdogState.swift */,
 				883700000000000000000004 /* SurfaceResumeApprovalLookup.swift */,
+				936900000000000000000004 /* SurfaceResumeApprovalPromptCoordinator.swift */,
 				875900000000000000000006 /* SurfaceResumeApprovalSigningSecretCache.swift */,
 				883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */,
 				F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */,
@@ -8439,6 +8444,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */,
+				936900000000000000000002 /* Issue9369ResumeApprovalPromptTests.swift */,
 				C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */,
 				7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */,
 				C8349002C8349002C8349002 /* MainWindowCloseTerminationRoutingTests.swift */,
@@ -10650,6 +10656,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F96CAE8A14774122A5F8613B /* SurfaceResourceDragPayload.swift in Sources */,
 				3E66E7A1B2B320EC850BB174 /* SurfaceResourceDragRegistry.swift in Sources */,
 				883700000000000000000003 /* SurfaceResumeApprovalLookup.swift in Sources */,
+				936900000000000000000003 /* SurfaceResumeApprovalPromptCoordinator.swift in Sources */,
 				875900000000000000000005 /* SurfaceResumeApprovalSigningSecretCache.swift in Sources */,
 				883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */,
 				F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */,
@@ -11687,6 +11694,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				C0DE71450000000000000003 /* InMemoryWorkspaceCreateIdempotencyStore.swift in Sources */,
 				875900000000000000000001 /* Issue8759FreezeRegressionTests.swift in Sources */,
+				936900000000000000000001 /* Issue9369ResumeApprovalPromptTests.swift in Sources */,
 				C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */,
