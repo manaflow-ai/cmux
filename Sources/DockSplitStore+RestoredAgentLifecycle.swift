@@ -299,6 +299,22 @@ extension DockSplitStore {
         }
     }
 
+    func agentHibernationLifecycleState(
+        panelId: UUID,
+        fallback: AgentHibernationLifecycleState?
+    ) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregate(
+            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
+            fallback: fallback
+        )
+    }
+
+    func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregateForTextBoxEscape(
+            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:]
+        )
+    }
+
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
         var didClear = false
