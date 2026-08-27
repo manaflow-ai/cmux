@@ -297,6 +297,32 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         #expect(metadata.repositoryLink?.url.absoluteString == "https://github.com/owner/repo")
     }
 
+    @Test func equalLengthInsteadOfAliasesKeepConfigOrder() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("equal-rewrites.gitconfig")
+        try """
+        [url "https://first.example/"]
+            insteadOf = corp:
+        [url "https://second.example/"]
+            insteadOf = corp:
+        [remote "origin"]
+            url = corp:owner/repo.git
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(snapshot.remoteVOutput?.contains("https://first.example/owner/repo.git") == true)
+    }
+
     @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))
