@@ -10,11 +10,34 @@ import Testing
 @MainActor
 @Suite
 struct SurfaceCatalogTests {
+    private struct TestTimeout: Error {}
+
+    /// Await a test signal without allowing a broken setup to hang the test process.
+    private nonisolated func awaitFirst<T: Sendable>(
+        _ stream: AsyncStream<T>,
+        timeout: Duration = .seconds(1)
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                guard let value = await iterator.next() else { throw TestTimeout() }
+                return value
+            }
+            group.addTask {
+                try await ContinuousClock().sleep(for: timeout)
+                throw TestTimeout()
+            }
+            defer { group.cancelAll() }
+            guard let value = try await group.next() else { throw TestTimeout() }
+            return value
+        }
+    }
+
     @MainActor
     private final class MaterializeGate {
         private(set) var entered = false
         private var enteredContinuation: CheckedContinuation<Void, Never>?
-        private var releaseContinuation: CheckedContinuation<Void, Never>?
+        private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
         func waitUntilEntered() async {
             if entered { return }
@@ -28,13 +51,14 @@ struct SurfaceCatalogTests {
             enteredContinuation?.resume()
             enteredContinuation = nil
             await withCheckedContinuation { continuation in
-                releaseContinuation = continuation
+                releaseContinuations.append(continuation)
             }
         }
 
         func release() {
-            releaseContinuation?.resume()
-            releaseContinuation = nil
+            let continuations = releaseContinuations
+            releaseContinuations.removeAll()
+            continuations.forEach { $0.resume() }
         }
     }
 
@@ -121,12 +145,15 @@ struct SurfaceCatalogTests {
         let first = Task { try await catalog.project(term.id, into: destination) }
         await gate.waitUntilEntered()
 
-        let secondStarted = BoolBox()
+        let (secondStarted, secondStartedContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         let second = Task { @MainActor in
-            secondStarted.value = true
+            secondStartedContinuation.yield(())
+            secondStartedContinuation.finish()
             return try await catalog.project(term.id, into: destination)
         }
-        while !secondStarted.value { await Task.yield() }
+        _ = try await awaitFirst(secondStarted)
         #expect(provider.materialized.count == 1, "a concurrent reuse must share the pending provider call")
 
         gate.release()
@@ -150,21 +177,23 @@ struct SurfaceCatalogTests {
         let project = Task { try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)) }
         await gate.waitUntilEntered()
 
-        let cancelledBeforeRelease = BoolBox()
+        let (cancellationResult, cancellationResultContinuation) = AsyncStream<Bool>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         let observer = Task { @MainActor in
             do {
                 _ = try await project.value
+                cancellationResultContinuation.yield(false)
             } catch is CancellationError {
-                cancelledBeforeRelease.value = true
+                cancellationResultContinuation.yield(true)
             } catch {
-                // The assertion below distinguishes prompt cancellation from provider failure.
+                cancellationResultContinuation.yield(false)
             }
+            cancellationResultContinuation.finish()
         }
         project.cancel()
-        for _ in 0..<100 where !cancelledBeforeRelease.value {
-            await Task.yield()
-        }
-        #expect(cancelledBeforeRelease.value, "cancelling the caller must not wait for the provider")
+        let cancelledBeforeRelease = try await awaitFirst(cancellationResult)
+        #expect(cancelledBeforeRelease, "cancelling the caller must not wait for the provider")
 
         gate.release()
         await observer.value
@@ -256,9 +285,4 @@ struct SurfaceCatalogTests {
         #expect(catalog.snapshot.projections.isEmpty)
         #expect(catalog.provider(for: .cloud("m")) == nil)
     }
-}
-
-@MainActor
-private final class BoolBox {
-    var value = false
 }

@@ -87,7 +87,10 @@ export function capabilityList(value: unknown): string[] | undefined {
 }
 
 export function idempotencyKeyFromRequest(request: Request): string | undefined {
-  const raw = (request.headers.get("idempotency-key") || request.headers.get("x-cmux-idempotency-key") || "").trim();
+  const raw = [
+    request.headers.get("idempotency-key"),
+    request.headers.get("x-cmux-idempotency-key"),
+  ].map((value) => value?.trim()).find(Boolean) ?? "";
   return raw ? raw.slice(0, 128) : undefined;
 }
 

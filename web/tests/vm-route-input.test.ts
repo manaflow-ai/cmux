@@ -95,6 +95,12 @@ describe("Cloud VM route input", () => {
     expect(idempotencyKeyFromRequest(new Request("https://cmux.test", {
       headers: { "idempotency-key": "", "x-cmux-idempotency-key": " fallback " },
     }))).toBe("fallback");
+    expect(idempotencyKeyFromRequest(new Request("https://cmux.test", {
+      headers: { "idempotency-key": "   ", "x-cmux-idempotency-key": " fallback " },
+    }))).toBe("fallback");
+    expect(idempotencyKeyFromRequest(new Request("https://cmux.test", {
+      headers: { "idempotency-key": "   ", "x-cmux-idempotency-key": "   " },
+    }))).toBeUndefined();
   });
 });
 
