@@ -588,6 +588,30 @@ import Testing
         #expect(snapshot.remoteVOutput == nil)
     }
 
+    @Test func emptyRuntimeGitConfigCountLeavesFileConfigActive() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/empty-count/repo.git
+        """)
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_COUNT": "",
+            ]
+        )
+
+        #expect(snapshot.isComplete)
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/empty-count/repo.git") == true)
+    }
+
     @Test func devNullIncludeDoesNotInvalidateTheConfigSnapshot() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
