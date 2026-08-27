@@ -336,11 +336,15 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         // AppKit see an offscreen positioning rect and fall back to centering
         // the popover, which disconnects the transcript from its row.
         let anchorRect = cell.convert(anchorRectInCell, to: table)
+        // NSTableView reports recycling through the row view itself. Retain
+        // that exact owner so `didRemove` can dismiss deterministically even
+        // after AppKit has detached the cell from its hierarchy.
+        let anchorOwnerView = cell.superview ?? cell
         popoverPresenter.reconcile(
             presentation,
             relativeTo: anchorRect,
             of: table,
-            ownedBy: cell
+            ownedBy: anchorOwnerView
         )
     }
 
