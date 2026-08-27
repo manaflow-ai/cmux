@@ -450,6 +450,45 @@ def test_launcher_refetches_a_tampered_cached_binary(tmp_path: Path) -> None:
     assert RegistryHandler.tarball_requests == 2
 
 
+def test_launcher_refetches_tampered_manifest_and_binary(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry()
+    try:
+        first = run_launcher(launcher, cache, registry, "--version")
+        version_dir = cache / f"{host_platform_key()}/v/1.2.3"
+        manifest_path = version_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        tampered = b"#!/bin/sh\nprintf '%s\\n' 'tampered cache'\n"
+        manifest["tarballIntegrity"] = "sha512-" + base64.b64encode(
+            hashlib.sha512(b"tampered tarball").digest()
+        ).decode()
+        manifest["binaries"]["cmux-tui"] = hashlib.sha512(tampered).hexdigest()
+        manifest_path.write_text(json.dumps(manifest) + "\n")
+        (version_dir / "bin/cmux-tui").write_bytes(tampered)
+        (version_dir / "bin/cmux-tui").chmod(0o755)
+        second = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert second.stdout == "fake cmux-tui 1.2.3\n"
+    assert RegistryHandler.metadata_requests == 2
+    assert RegistryHandler.tarball_requests == 2
+    repaired = json.loads((version_dir / "manifest.json").read_text())
+    expected_integrity = "sha512-" + base64.b64encode(
+        hashlib.sha512(RegistryHandler.tarball).digest()
+    ).decode()
+    assert repaired["tarballIntegrity"] == expected_integrity
+    expected_binary = b"#!/bin/sh\nprintf '%s\\n' 'fake cmux-tui 1.2.3'\n"
+    assert repaired["binaries"]["cmux-tui"] == hashlib.sha512(
+        expected_binary
+    ).hexdigest()
+
+
 def test_launcher_repairs_non_executable_cached_binary(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -1368,6 +1407,9 @@ def main() -> None:
         test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
         test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
+        test_launcher_refetches_tampered_manifest_and_binary(
+            root / "tampered-manifest-cache"
+        )
         test_launcher_repairs_non_executable_cached_binary(root / "non-executable-cache")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_releases_lease_when_native_launch_fails(root / "launch-failure")
