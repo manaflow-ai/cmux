@@ -331,8 +331,21 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
             _ = scan.tick() => discover_sessions(&shared, &socket_dirs, &mut tasks).await,
         }
     }
-    for (_, task) in tasks {
+    abort_and_join_tasks(tasks).await;
+}
+
+/// Stop every session worker and wait until Tokio has completed cancellation.
+/// Calling `JoinHandle::abort` only schedules cancellation; retaining the
+/// handles until they are awaited prevents worker-owned sockets and buffers
+/// from outliving the forwarder shutdown.
+#[cfg(unix)]
+async fn abort_and_join_tasks(tasks: HashMap<String, JoinHandle<()>>) {
+    let mut tasks: Vec<JoinHandle<()>> = tasks.into_values().collect();
+    for task in &tasks {
         task.abort();
+    }
+    for task in tasks.drain(..) {
+        let _ = task.await;
     }
 }
 
@@ -1214,6 +1227,8 @@ async fn persist_cursor_file(path: &Path, cursors: &HashMap<String, JournalCurso
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::sync::atomic::AtomicBool;
 
     #[cfg(unix)]
     static NEXT_CURSOR_TEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -1583,6 +1598,31 @@ mod tests {
                 .expect("request task must not panic")
                 .is_none()
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_waits_for_session_workers_to_finish() {
+        struct DropSignal(Arc<AtomicBool>);
+
+        impl Drop for DropSignal {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let stopped = Arc::new(AtomicBool::new(false));
+        let signal = Arc::clone(&stopped);
+        let worker = tokio::spawn(async move {
+            let _signal = DropSignal(signal);
+            std::future::pending::<()>().await;
+        });
+        let mut tasks = HashMap::new();
+        tasks.insert("session".to_owned(), worker);
+
+        abort_and_join_tasks(tasks).await;
+
+        assert!(stopped.load(Ordering::SeqCst));
     }
 
     #[cfg(unix)]
