@@ -605,4 +605,63 @@ mod tests {
             RpcTrafficClass::Bulk
         );
     }
+
+    #[tokio::test]
+    async fn unknown_response_fails_pending_request() {
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
+        let (sender, receiver) = oneshot::channel();
+        let expected = RequestId::from_u128(1);
+        pending_requests(&pending).insert(expected, sender);
+
+        let failure = route_response(
+            RpcResponse {
+                id: RequestId::from_u128(2),
+                result: Err(RpcError::new("server", "unexpected")),
+            },
+            &pending,
+            &ignored,
+        )
+        .expect_err("an unknown response ID must fail the channel");
+        for (_, sender) in pending_requests(&pending).drain() {
+            let _ = sender.send(Err(failure.clone()));
+        }
+
+        assert_eq!(receiver.await.unwrap().unwrap_err(), failure);
+    }
+
+    #[tokio::test]
+    async fn known_response_is_delivered_to_pending_request() {
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
+        let (sender, receiver) = oneshot::channel();
+        let id = RequestId::from_u128(1);
+        pending_requests(&pending).insert(id, sender);
+
+        route_response(
+            RpcResponse { id, result: Err(RpcError::new("server", "expected")) },
+            &pending,
+            &ignored,
+        )
+        .expect("a pending response should be delivered");
+
+        let response = receiver.await.unwrap().unwrap();
+        assert_eq!(response.id, id);
+    }
+
+    #[test]
+    fn ignored_response_is_consumed_without_failing_channel() {
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
+        let id = RequestId::from_u128(1);
+        ignored_responses(&ignored).insert(id);
+
+        route_response(
+            RpcResponse { id, result: Err(RpcError::new("server", "late")) },
+            &pending,
+            &ignored,
+        )
+        .expect("a retired response should be consumed");
+        assert!(!ignored_responses(&ignored).remove(&id));
+    }
 }
