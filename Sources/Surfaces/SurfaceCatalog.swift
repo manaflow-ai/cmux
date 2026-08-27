@@ -53,6 +53,10 @@ final class SurfaceCatalog {
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [SurfaceResourceID: SurfaceProjectionMaterialization] = [:]
+    /// A canceled provider call can still finish after its last waiter leaves because provider
+    /// cancellation is cooperative. Keep its provider by token so a late pane can be closed
+    /// without blocking a new materialization for the same resource.
+    private var abandonedMaterializations: [UUID: any SurfaceProvider] = [:]
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
@@ -195,7 +199,6 @@ final class SurfaceCatalog {
             let task = Task { @MainActor [weak self] in
                 do {
                     let projection = try await provider.materialize(resource, at: destination, focus: focus)
-                    guard !Task.isCancelled else { throw CancellationError() }
                     self?.finishInFlightProject(id, token: token, result: .success(projection))
                 } catch {
                     self?.finishInFlightProject(id, token: token, result: .failure(error))
@@ -215,7 +218,13 @@ final class SurfaceCatalog {
         token: UUID,
         result: Result<SurfaceProjection, any Error>
     ) {
-        guard let inFlight = inFlightProjects[id], inFlight.token == token else { return }
+        guard let inFlight = inFlightProjects[id], inFlight.token == token else {
+            if let provider = abandonedMaterializations.removeValue(forKey: token),
+               case .success(let projection) = result {
+                provider.discardMaterialization(projection)
+            }
+            return
+        }
         inFlightProjects[id] = nil
 
         switch result {
@@ -248,6 +257,7 @@ final class SurfaceCatalog {
               let waiter = inFlight.waiters.removeValue(forKey: waiterID) else { return }
         if inFlight.waiters.isEmpty {
             inFlightProjects[id] = nil
+            abandonedMaterializations[inFlight.token] = inFlight.provider
             inFlight.task.cancel()
         } else {
             inFlightProjects[id] = inFlight
@@ -257,6 +267,7 @@ final class SurfaceCatalog {
 
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
         guard let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
+        abandonedMaterializations[inFlight.token] = inFlight.provider
         inFlight.task.cancel()
         resume(inFlight.waiters, throwing: error)
     }
