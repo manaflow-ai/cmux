@@ -10,6 +10,7 @@ internal import CmuxCEFShim
 /// `sendDevToolsMessage`.
 @MainActor
 public final class CEFBrowser {
+    private static let devToolsMessageBufferCapacity = 512
     /// Chromium's requested destination for a popup or special-tab action.
     /// Values mirror CEF's ``cef_window_open_disposition_t`` constants while
     /// keeping the CEF headers out of Swift callers.
@@ -69,6 +70,8 @@ public final class CEFBrowser {
     private var devToolsContinuations: [UUID: AsyncStream<Data>.Continuation] = [:]
     private var closeWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var closeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    private var devToolsOverflowCloseTask: Task<Void, Never>?
+    private var didOverflowDevToolsMessages = false
     private var selfRetain: Unmanaged<CEFBrowser>?
     private var shouldBlockNavigation: ((URL, Bool, Bool, URL?) -> Bool)?
     private var onBeforePopup: ((URL, PopupDisposition, Bool, URL?) -> Void)?
@@ -76,6 +79,7 @@ public final class CEFBrowser {
 
     deinit {
         for task in closeTimeoutTasks.values { task.cancel() }
+        devToolsOverflowCloseTask?.cancel()
     }
 
     /// Creates a browser and its hosting window.
@@ -252,8 +256,10 @@ public final class CEFBrowser {
     /// Streams complete DevTools protocol messages (results and events).
     public func devToolsMessages() -> AsyncStream<Data> {
         let id = UUID()
-        return AsyncStream { continuation in
-            if isClosed {
+        return AsyncStream(
+            bufferingPolicy: .bufferingOldest(Self.devToolsMessageBufferCapacity)
+        ) { continuation in
+            if isClosed || didOverflowDevToolsMessages {
                 continuation.finish()
                 return
             }
@@ -377,6 +383,8 @@ public final class CEFBrowser {
         eventContinuations.removeAll()
         for continuation in devToolsContinuations.values { continuation.finish() }
         devToolsContinuations.removeAll()
+        devToolsOverflowCloseTask?.cancel()
+        devToolsOverflowCloseTask = nil
         if let handle {
             cmux_cef_browser_release(handle)
             self.handle = nil
@@ -404,7 +412,23 @@ public final class CEFBrowser {
     }
 
     private func publishDevToolsMessage(_ data: Data) {
-        for continuation in devToolsContinuations.values { continuation.yield(data) }
+        guard !didOverflowDevToolsMessages else { return }
+        var didDrop = false
+        for continuation in devToolsContinuations.values {
+            if case .dropped = continuation.yield(data) {
+                didDrop = true
+            }
+        }
+        guard didDrop else { return }
+        didOverflowDevToolsMessages = true
+        for continuation in devToolsContinuations.values { continuation.finish() }
+        devToolsContinuations.removeAll()
+        guard devToolsOverflowCloseTask == nil else { return }
+        devToolsOverflowCloseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.close()
+            self.devToolsOverflowCloseTask = nil
+        }
     }
 }
 

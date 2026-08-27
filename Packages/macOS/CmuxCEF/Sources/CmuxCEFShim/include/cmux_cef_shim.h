@@ -92,6 +92,12 @@ void cmux_cef_shutdown(void);
 /// Main thread only; callers may remove the path immediately after this check.
 int cmux_cef_profile_cache_is_idle(const char *cache_path);
 
+/// Atomically moves an idle named profile directory to `deletion_path` on the
+/// CEF UI thread. Returns 1 when moved, 2 when the source is already absent,
+/// and 0 when a live context or filesystem error prevents the reservation.
+int cmux_cef_profile_cache_prepare_for_deletion(const char *cache_path,
+                                                const char *deletion_path);
+
 /// Returns the loopback CDP port captured by the successful process-wide
 /// initialization, or 0 when the external endpoint is disabled.
 int cmux_cef_remote_debugging_port(void);

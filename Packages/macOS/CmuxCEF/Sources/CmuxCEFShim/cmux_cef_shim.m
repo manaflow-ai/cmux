@@ -8,10 +8,12 @@
 #import <objc/runtime.h>
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "include/cef_api_hash.h"
 #include "include/capi/cef_app_capi.h"
@@ -42,6 +44,7 @@ static void (*g_schedule_work)(int64_t delay_ms) = NULL;
 struct cmux_cef_browser;
 static struct cmux_cef_browser *g_browsers = NULL;
 static size_t g_browser_count = 0;
+static char *g_root_cache_path = NULL;
 
 // The cef_app_t and its process handler live for the process lifetime.
 static cef_app_t g_app;
@@ -681,6 +684,10 @@ int cmux_cef_initialize(const cmux_cef_init_options_t *options) {
   }
   if (!load_framework(options->framework_directory)) return 0;
 
+  free(g_root_cache_path);
+  g_root_cache_path = strdup(options->root_cache_path);
+  if (!g_root_cache_path) return 0;
+
   install_application_conformance();
 
   // Synthetic command line: cmux's own argv is irrelevant to CEF, and the
@@ -802,6 +809,8 @@ void cmux_cef_shutdown(void) {
   cef_shutdown();
   g_initialized = 0;
   g_remote_debugging_port = 0;
+  free(g_root_cache_path);
+  g_root_cache_path = NULL;
 }
 
 int cmux_cef_profile_cache_is_idle(const char *cache_path) {
@@ -813,6 +822,33 @@ int cmux_cef_profile_cache_is_idle(const char *cache_path) {
     }
   }
   return 1;
+}
+
+static int path_is_named_profile_under_root(const char *path) {
+  if (!g_root_cache_path || !path || !path[0]) return 0;
+  size_t root_length = strlen(g_root_cache_path);
+  while (root_length > 1 && g_root_cache_path[root_length - 1] == '/') {
+    root_length -= 1;
+  }
+  size_t path_length = strlen(path);
+  return path_length > root_length &&
+         strncmp(path, g_root_cache_path, root_length) == 0 &&
+         path[root_length] == '/';
+}
+
+int cmux_cef_profile_cache_prepare_for_deletion(
+    const char *cache_path, const char *deletion_path) {
+  if (!path_is_named_profile_under_root(cache_path) ||
+      !path_is_named_profile_under_root(deletion_path) ||
+      strcmp(cache_path, deletion_path) == 0) {
+    return 0;
+  }
+  if (!cmux_cef_profile_cache_is_idle(cache_path)) return 0;
+  if (access(cache_path, F_OK) != 0) {
+    return errno == ENOENT ? 2 : 0;
+  }
+  if (access(deletion_path, F_OK) == 0) return 0;
+  return rename(cache_path, deletion_path) == 0 ? 1 : 0;
 }
 
 int cmux_cef_remote_debugging_port(void) {

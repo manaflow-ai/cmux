@@ -5,6 +5,7 @@ internal import CmuxCEFShim
 /// context registry confirms that no live browser uses it.
 @MainActor
 public final class CEFRuntimeProfileDataService {
+    private let fileManager: FileManager
     private let runtimeIsInitialized: () -> Bool
     private let profileCacheIsIdle: (String) -> Bool
     private let deletionWorker: CEFRuntimeProfileDataDeletionWorker
@@ -29,6 +30,7 @@ public final class CEFRuntimeProfileDataService {
         runtimeIsInitialized: @escaping () -> Bool,
         profileCacheIsIdle: @escaping (String) -> Bool
     ) {
+        self.fileManager = fileManager
         self.runtimeIsInitialized = runtimeIsInitialized
         self.profileCacheIsIdle = profileCacheIsIdle
         deletionWorker = CEFRuntimeProfileDataDeletionWorker(
@@ -38,25 +40,49 @@ public final class CEFRuntimeProfileDataService {
 
     /// Removes `cachePath` when it is safe to do so in the current process.
     ///
-    /// The idle check runs synchronously on the CEF UI thread. Once the check
-    /// succeeds, recursive removal is awaited on a serialized utility worker
-    /// so filesystem latency never blocks the main actor. The shared CEF root
-    /// is never removed by this API.
+    /// The idle check and an atomic rename reservation run synchronously on the
+    /// CEF UI thread. Once reserved, recursive removal targets the renamed
+    /// tombstone on a serialized utility worker, so filesystem latency never
+    /// blocks the main actor and a newly-created context cannot share the tree.
+    /// The shared CEF root is never removed by this API.
     ///
     /// - Parameter cachePath: A named profile cache path below CEF's root.
     /// - Returns: `true` when the path was removed or did not exist; `false`
     ///   when a live request context still owns it.
     @discardableResult
     public func removeIfIdle(at cachePath: String) async -> Bool {
-        guard !runtimeIsInitialized() || profileCacheIsIdle(cachePath) else {
+        let isRuntimeInitialized = runtimeIsInitialized()
+        guard !isRuntimeInitialized || profileCacheIsIdle(cachePath) else {
             return false
         }
+        let deletionPath = "\(cachePath).deleting-\(UUID().uuidString)"
+        let reservation: Int32
+        if isRuntimeInitialized {
+            reservation = cmux_cef_profile_cache_prepare_for_deletion(
+                cachePath,
+                deletionPath
+            )
+        } else {
+            do {
+                try fileManager.moveItem(
+                    atPath: cachePath,
+                    toPath: deletionPath
+                )
+                reservation = 1
+            } catch CocoaError.fileNoSuchFile {
+                reservation = 2
+            } catch {
+                reservation = 0
+            }
+        }
+        guard reservation != 0 else { return false }
+        guard reservation != 2 else { return true }
         let worker = deletionWorker
         // The task is awaited before this lifecycle operation returns, so the
         // utility-priority filesystem work remains bounded by the caller and
         // cannot outlive the profile-deletion request as an unowned task.
         return await Task.detached(priority: .utility) {
-            await worker.removeIfExists(atPath: cachePath)
+            await worker.removeIfExists(atPath: deletionPath)
         }.value
     }
 }
