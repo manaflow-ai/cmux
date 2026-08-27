@@ -230,7 +230,9 @@ pub(crate) async fn wait_for_shutdown_signal_async() {
 }
 
 #[cfg(not(unix))]
-pub(crate) async fn wait_for_shutdown_signal_async() {}
+pub(crate) async fn wait_for_shutdown_signal_async() {
+    std::future::pending::<()>().await;
+}
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
 // TUI's normal quit path handles shutdown.
