@@ -10185,19 +10185,22 @@ impl App {
             .unwrap_or_default()
     }
 
+    fn can_preserve_workspace_preview_for_rail(&self, kind: RailKind) -> bool {
+        self.workspace_preview.is_some()
+            && matches!(
+                self.focus,
+                FocusTarget::WorkspaceRail | FocusTarget::TabsRail | FocusTarget::ProjectionRail(_)
+            )
+            && matches!(kind, RailKind::Workspace | RailKind::Tabs | RailKind::Projection(_))
+    }
+
     fn focus_rail(&mut self, kind: RailKind) {
         // A workspace preview is a navigation transaction across the
         // workspace-dependent rails. Keep it while moving between the
         // workspace, tabs, and projection rails so those child views follow
         // the highlighted workspace. A machine rail or pane transition ends
         // the transaction.
-        let keep_workspace_preview = self.workspace_preview.is_some()
-            && matches!(
-                self.focus,
-                FocusTarget::WorkspaceRail | FocusTarget::TabsRail | FocusTarget::ProjectionRail(_)
-            )
-            && matches!(kind, RailKind::Workspace | RailKind::Tabs | RailKind::Projection(_));
-        if !keep_workspace_preview {
+        if !self.can_preserve_workspace_preview_for_rail(kind) {
             self.cancel_workspace_preview();
         }
         self.focus = match kind {
@@ -21746,7 +21749,13 @@ impl App {
             self.sidebar_focus_pending = false;
             return Ok(RenderAction::Draw);
         }
-        self.leave_workspace_sidebar();
+        let preserve_preview_for_rail_click = matches!(
+            pointer_hit,
+            Some(Hit::RailPad(kind)) if self.can_preserve_workspace_preview_for_rail(kind)
+        );
+        if !preserve_preview_for_rail_click {
+            self.leave_workspace_sidebar();
+        }
         self.sidebar_focus_pending = false;
 
         if let Some(hit) = pointer_hit {
@@ -42028,6 +42037,58 @@ mod tests {
         assert_eq!(app.active_surface(), Some(second.id));
         assert_eq!(app.focus, FocusTarget::Pane);
         assert_ne!(first.id, second.id);
+    }
+
+    #[test]
+    fn mouse_rail_pad_keeps_workspace_preview_between_dependent_rails() {
+        let mux = Mux::new("workspace-preview-rail-pad-focus-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns_explicit = true;
+        app.config.sidebar.columns = vec![
+            crate::config::SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: 24,
+                max_width: 0,
+            },
+            crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
+        ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 0 });
+        app.focus = FocusTarget::WorkspaceRail;
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let pad = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::RailPad(RailKind::Tabs)).then_some(*rect)
+            })
+            .expect("tabs rail pad hit");
+
+        app.handle_left_down(pad.x, pad.y, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::TabsRail);
+        assert_eq!(
+            app.workspace_preview,
+            Some(WorkspacePreview { origin, target, origin_scroll: 0 })
+        );
+        assert_eq!(app.tree.active_workspace, 1);
     }
 
     #[test]
