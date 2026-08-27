@@ -13945,6 +13945,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // replay refetches history instead of treating the
                     // truncated mirror as complete.
                     self.terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+                    self.rebaseTerminalSequenceForCompatibilityFallback(
+                        surfaceID: surfaceID
+                    )
                 }
                 if accepted {
                     self.recordTerminalReplayFallbackScreen(

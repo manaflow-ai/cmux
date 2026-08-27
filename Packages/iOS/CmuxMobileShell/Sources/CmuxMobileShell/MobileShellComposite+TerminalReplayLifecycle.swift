@@ -683,6 +683,17 @@ extension MobileShellComposite {
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
     }
 
+    /// Starts a new byte-sequence epoch for an accepted best-effort
+    /// compatibility replacement. Retry exhaustion restores the pre-barrier
+    /// high-water mark because the old pixels remain visible, but the clearing
+    /// fallback then becomes the newest available screen state and may carry a
+    /// lower or no sequence at all. Drop both the restored mark and its stash so
+    /// subsequent live events from a restarted host are not rejected forever.
+    func rebaseTerminalSequenceForCompatibilityFallback(surfaceID: String) {
+        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
+    }
+
     /// Barrier released without delivering: the surface still shows the
     /// pre-barrier content, so the stashed floor IS the truthful baseline.
     /// Restores it (returning whether it did) and always drops the floor.
