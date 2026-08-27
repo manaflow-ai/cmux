@@ -561,7 +561,7 @@ import CmuxSettings
         }
     }
 
-    @Test(.timeLimit(.seconds(15)))
+    @Test(.timeLimit(.minutes(1)))
     func concurrentBlockingProcessWaitsDoNotStarveTimeoutTasks() async {
         let runner = NotificationSoundProcessRunner(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
@@ -598,7 +598,7 @@ import CmuxSettings
         #expect(ContinuousClock.now - startedAt < .seconds(3))
     }
 
-    @Test(.timeLimit(.seconds(10)))
+    @Test(.timeLimit(.minutes(1)))
     func distinctCustomSoundConversionsRespectGlobalAdmissionLimit() async throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory

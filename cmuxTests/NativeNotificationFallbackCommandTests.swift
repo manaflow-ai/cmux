@@ -59,8 +59,8 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     private final class SoundContextRecorder: Sendable {
-        private let valueLock = OSAllocatedUnfairLock(
-            initialState: NotificationSoundOverrideContext?
+        private let valueLock = OSAllocatedUnfairLock<NotificationSoundOverrideContext?>(
+            initialState: nil
         )
 
         var value: NotificationSoundOverrideContext? {
