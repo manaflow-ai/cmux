@@ -138,7 +138,10 @@ extension GitMetadataService {
                     root: repository.workTreeRoot,
                     relativePath: entry.path
                 )
-                guard let submoduleRepository = Self.resolveGitRepository(containing: gitlinkPath),
+                guard let submoduleRepository = Self.resolveGitRepository(
+                    containing: gitlinkPath,
+                    deadline: directScanDeadline
+                ),
                       submoduleRepository.workTreeRoot == gitlinkPath else {
                     return GitTrackedChangesResolution(
                         snapshot: GitTrackedChangesSnapshot(

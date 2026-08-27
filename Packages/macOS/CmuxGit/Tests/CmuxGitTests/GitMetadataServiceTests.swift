@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -64,7 +63,12 @@ import Testing
             encoding: .utf8
         )
 
-        #expect(GitMetadataService.resolveGitRepository(containing: worktree.path) == nil)
+        #expect(
+            GitMetadataService.gitDirectoryFromDotGitFile(
+                worktree.appendingPathComponent(".git"),
+                relativeTo: worktree
+            ) == nil
+        )
     }
 
     @Test(arguments: [

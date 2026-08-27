@@ -20,7 +20,12 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
 
     /// The bounded config roots and whether every reachable include was seen.
     struct WatchPathResult: Sendable {
+        /// All paths currently needed by the filesystem watcher.
         let paths: [String]
+        /// Paths whose descendants can change Git metadata and trigger a plan rebuild.
+        let metadataPaths: [String]
+        /// Existing parent roots watched only to observe creation of a missing file.
+        let watchOnlyPaths: [String]
         let isComplete: Bool
         let objectFormatSHA256: Bool?
         let metadataSentinelPaths: [String]
@@ -58,9 +63,11 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     /// Returns bounded config paths plus completion state for watcher planning.
     func watchPathResult() -> WatchPathResult {
         let result = traverse()
-        let metadataSentinelPaths = Array(Set(result.missingConfigPaths))
-            .sorted()
-            .prefix(Self.maximumIncludedFileCount)
+        var metadataSentinelPaths = Array(
+            Set(result.missingConfigPaths)
+                .sorted()
+                .prefix(Self.maximumIncludedFileCount)
+        )
         let metadataSentinelParentPaths = Array(Set(result.missingConfigParentPaths))
             .sorted()
             .prefix(Self.maximumIncludedFileCount)
@@ -70,27 +77,48 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         var rootWatchPaths = result.configURLs
             .prefix(2)
             .map { $0.standardizedFileURL.path }
+        var worktreeConfigIsMissing = false
         if result.worktreeConfigEnabled || !result.isComplete {
             if configReader.isLocalRegularFile(at: worktreeConfigURL, deadline: deadline) {
                 rootWatchPaths.append(worktreeConfigURL.path)
             } else {
                 rootWatchPaths.append(worktreeConfigURL.deletingLastPathComponent().path)
+                worktreeConfigIsMissing = true
             }
         }
+        if worktreeConfigIsMissing {
+            metadataSentinelPaths = Array(
+                Set(metadataSentinelPaths + [worktreeConfigURL.path])
+                    .sorted()
+                    .prefix(Self.maximumIncludedFileCount)
+            )
+        }
         // Keep the mandatory repository config roots ahead of optional include
-        // sentinels so the bounded path list can never evict them.
-        var paths = rootWatchPaths
+        // sentinels so the bounded path list can never evict them. Parent
+        // directories are watcher roots only; they must not become metadata
+        // overlap paths or every unrelated child event will rebuild the plan.
+        let watchOnlyCandidates = rootWatchPaths.filter { rootWatchPath in
+            metadataSentinelParentPaths.contains(rootWatchPath)
+        } + (worktreeConfigIsMissing
+            ? [worktreeConfigURL.deletingLastPathComponent().path]
+            : []) + Array(metadataSentinelParentPaths)
+        let metadataCandidates = result.configURLs.map { $0.standardizedFileURL.path }
+            + result.referenceStoragePaths
+        let paths = rootWatchPaths
             + Array(metadataSentinelParentPaths)
-            + result.configURLs.map { $0.standardizedFileURL.path }
+            + metadataCandidates
         // For an incomplete walk the caller adds its conservative root safety
         // valve; complete walks retain only these bounded exact paths.
-        paths.append(contentsOf: result.referenceStoragePaths)
         var seen: Set<String> = []
+        let boundedPaths = Array(
+            paths.filter { seen.insert($0).inserted }
+                .prefix(Self.maximumIncludedFileCount)
+        )
+        let watchOnlySet = Set(watchOnlyCandidates)
         return WatchPathResult(
-            paths: Array(
-                paths.filter { seen.insert($0).inserted }
-                    .prefix(Self.maximumIncludedFileCount)
-            ),
+            paths: boundedPaths,
+            metadataPaths: boundedPaths.filter { !watchOnlySet.contains($0) },
+            watchOnlyPaths: boundedPaths.filter { watchOnlySet.contains($0) },
             isComplete: result.isComplete,
             objectFormatSHA256: result.isComplete ? result.objectFormatSHA256 : nil,
             metadataSentinelPaths: Array(metadataSentinelPaths)

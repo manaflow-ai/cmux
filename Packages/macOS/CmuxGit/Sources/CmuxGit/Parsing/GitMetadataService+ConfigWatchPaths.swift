@@ -21,6 +21,7 @@ extension GitMetadataService {
         return GitMetadataWatchInputs(
             deadline: deadline,
             configPathsByRepository: result.paths,
+            watchOnlyPathsByRepository: result.watchOnlyPaths,
             metadataSentinelPathsByRepository: result.metadataSentinels,
             indexSnapshotsByRepository: result.indexSnapshots,
             forceWorkTreeRootRepositories: result.forceWorkTreeRoots
@@ -36,6 +37,7 @@ extension GitMetadataService {
         deadline: DispatchTime
     ) async -> (
         paths: [String: [String]],
+        watchOnlyPaths: [String: [String]],
         metadataSentinels: [String: [String]],
         indexSnapshots: [String: GitIndexSnapshot],
         forceWorkTreeRoots: Set<String>,
@@ -44,7 +46,7 @@ extension GitMetadataService {
     ) {
         guard !visitedRoots.contains(repository.workTreeRoot),
               remainingRepositoryCount > 0 else {
-            return ([:], [:], [:], [], visitedRoots, remainingRepositoryCount)
+            return ([:], [:], [:], [:], [], visitedRoots, remainingRepositoryCount)
         }
         guard DispatchTime.now() < deadline else {
             return (
@@ -52,6 +54,7 @@ extension GitMetadataService {
                     repository: repository,
                     deadline: deadline
                 )],
+                [:],
                 [:],
                 [:],
                 [repository.workTreeRoot],
@@ -63,6 +66,7 @@ extension GitMetadataService {
         visitedRoots.insert(repository.workTreeRoot)
         var remainingRepositoryCount = remainingRepositoryCount - 1
         var pathsByRepository: [String: [String]] = [:]
+        var watchOnlyPathsByRepository: [String: [String]] = [:]
         var metadataSentinelsByRepository: [String: [String]] = [:]
         var indexSnapshotsByRepository: [String: GitIndexSnapshot] = [:]
         var forceWorkTreeRoots: Set<String> = []
@@ -79,7 +83,7 @@ extension GitMetadataService {
                 deadline: deadline
             )
             forceWorkTreeRoots.insert(repository.workTreeRoot)
-            return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         let branchContext = GitConfigBranchContext.resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
@@ -88,15 +92,16 @@ extension GitMetadataService {
                 deadline: deadline
             )
             forceWorkTreeRoots.insert(repository.workTreeRoot)
-            return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         let configTraversal = await watchPathResult(
             repository: repository,
             branchContext: branchContext,
             deadline: deadline
         )
-        pathsByRepository[repository.workTreeRoot] = configTraversal.paths
+        pathsByRepository[repository.workTreeRoot] = configTraversal.metadataPaths
             + references.storageWatchPaths
+        watchOnlyPathsByRepository[repository.workTreeRoot] = configTraversal.watchOnlyPaths
         metadataSentinelsByRepository[repository.workTreeRoot] = configTraversal.metadataSentinelPaths
         if !configTraversal.isComplete {
             // An omitted include can live anywhere below the checkout (or its
@@ -106,7 +111,7 @@ extension GitMetadataService {
         }
         guard DispatchTime.now() < deadline else {
             forceWorkTreeRoots.insert(repository.workTreeRoot)
-            return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
         if configTraversal.objectFormatSHA256 != false {
@@ -121,7 +126,7 @@ extension GitMetadataService {
             forceWorkTreeRoots.formUnion(fallback.forcedRoots)
             visitedRoots.formUnion(fallback.visitedRoots)
             remainingRepositoryCount = fallback.remainingRepositoryCount
-            return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
@@ -139,7 +144,7 @@ extension GitMetadataService {
                 || (indexResult.header != nil && indexResult.snapshot == nil) {
                 forceWorkTreeRoots.insert(repository.workTreeRoot)
             }
-            return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
+            return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         // Reuse the parse in the descriptor itself. Child snapshots retain only
         // gitlink entries needed for nested watcher discovery, so a large
@@ -157,6 +162,7 @@ extension GitMetadataService {
         guard depth < safetyConfiguration.submoduleDepth else {
             return (
                 pathsByRepository,
+                watchOnlyPathsByRepository,
                 metadataSentinelsByRepository,
                 indexSnapshotsByRepository,
                 forceWorkTreeRoots,
@@ -167,19 +173,23 @@ extension GitMetadataService {
 
         let gitlinkMode: UInt32 = 0o160000
         for entry in indexSnapshot.entries where (entry.mode & 0o170000) == gitlinkMode {
+            guard depth + 1 < safetyConfiguration.submoduleDepth,
+                  remainingRepositoryCount > 1,
+                  DispatchTime.now() < deadline,
+                  !WorkspaceChangesCancellationSignal.isCurrentCancelled else {
+                forceWorkTreeRoots.insert(repository.workTreeRoot)
+                break
+            }
             let gitlinkPath = joinedPath(
                 root: repository.workTreeRoot,
                 relativePath: entry.path
             )
-            guard let submoduleRepository = Self.resolveGitRepository(containing: gitlinkPath),
+            guard let submoduleRepository = await resolveGitRepositoryBlocking(
+                containing: gitlinkPath,
+                deadline: deadline
+            ),
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
-            }
-            if depth + 1 >= safetyConfiguration.submoduleDepth
-                || remainingRepositoryCount <= 1
-                || DispatchTime.now() >= deadline {
-                forceWorkTreeRoots.insert(repository.workTreeRoot)
-                break
             }
             let childResult = await collectBranchAwareConfigPaths(
                 repository: submoduleRepository,
@@ -192,6 +202,7 @@ extension GitMetadataService {
             visitedRoots = childResult.visitedRoots
             remainingRepositoryCount = childResult.remainingRepositoryCount
             pathsByRepository.merge(childResult.paths, uniquingKeysWith: { _, new in new })
+            watchOnlyPathsByRepository.merge(childResult.watchOnlyPaths, uniquingKeysWith: { _, new in new })
             metadataSentinelsByRepository.merge(childResult.metadataSentinels, uniquingKeysWith: { _, new in new })
             if childResult.paths[submoduleRepository.workTreeRoot] == nil {
                 pathsByRepository[submoduleRepository.workTreeRoot] = conservativeRepositoryMetadataPaths(
@@ -208,6 +219,7 @@ extension GitMetadataService {
         }
         return (
             pathsByRepository,
+            watchOnlyPathsByRepository,
             metadataSentinelsByRepository,
             indexSnapshotsByRepository,
             forceWorkTreeRoots,
@@ -274,7 +286,7 @@ extension GitMetadataService {
                 continue
             }
             let childPath = childURL.path
-            guard let child = Self.resolveGitRepository(containing: childPath),
+            guard let child = Self.resolveGitRepository(containing: childPath, deadline: deadline),
                   child.workTreeRoot == childPath,
                   !visitedRoots.contains(child.workTreeRoot) else { continue }
             paths.append(contentsOf: conservativeRepositoryMetadataPaths(
@@ -417,6 +429,7 @@ extension GitMetadataService {
                             for: directory,
                             safetyConfiguration: safetyConfiguration,
                             configPathsByRepository: watchInputs.configPathsByRepository,
+                            watchOnlyPathsByRepository: watchInputs.watchOnlyPathsByRepository,
                             metadataSentinelPathsByRepository: watchInputs.metadataSentinelPathsByRepository,
                             indexSnapshotsByRepository: watchInputs.indexSnapshotsByRepository,
                             deadline: watchInputs.deadline
@@ -443,7 +456,7 @@ extension GitMetadataService {
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
         ] + GitWorktreeConfigEnablementReader()
-            .rootConfigWatchURLs(repository: repository, deadline: deadline)
+            .rootConfigURLs(repository: repository, deadline: deadline)
             .map(\.path)
     }
 }

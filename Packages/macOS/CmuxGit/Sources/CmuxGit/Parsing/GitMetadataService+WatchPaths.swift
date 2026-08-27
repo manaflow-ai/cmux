@@ -23,14 +23,28 @@ extension GitMetadataService {
         for directory: String,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         configPathsByRepository: [String: [String]]? = nil,
+        watchOnlyPathsByRepository: [String: [String]]? = nil,
         metadataSentinelPathsByRepository: [String: [String]]? = nil,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
         deadline: DispatchTime? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
-        guard let repository = resolveGitRepository(containing: directory) else {
+        guard let repository = resolveGitRepository(containing: directory, deadline: deadline) else {
             return nil
         }
 
+        let normalizedMetadataSentinelPaths = Array(
+            sortedUniqueNormalizedPaths(
+                metadataSentinelPathsByRepository?.values.flatMap { $0 } ?? []
+            ).prefix(256)
+        )
+        let metadataSentinelParentPaths = normalizedMetadataSentinelPaths.map {
+            URL(fileURLWithPath: $0).deletingLastPathComponent().standardizedFileURL.path
+        }
+        let watchOnlyPaths = sortedUniqueNormalizedPaths(
+            (watchOnlyPathsByRepository?.values.flatMap { $0 } ?? [])
+                + metadataSentinelParentPaths
+        )
+        let watchOnlyPathSet = Set(watchOnlyPaths)
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
             configPathsByRepository: configPathsByRepository
@@ -103,15 +117,6 @@ extension GitMetadataService {
         let eventCoalescingInterval = acceptsAllWorkTreeEvents
             ? safetyConfiguration.unfilteredWorkTreeEventThrottle
             : safetyConfiguration.filteredWorkTreeEventThrottle
-        let metadataSentinelPaths = metadataSentinelPathsByRepository?
-            .values
-            .flatMap { $0 } ?? []
-        let normalizedMetadataSentinelPaths = Array(
-            sortedUniqueNormalizedPaths(metadataSentinelPaths).prefix(256)
-        )
-        let metadataSentinelParentPaths = normalizedMetadataSentinelPaths.map {
-            URL(fileURLWithPath: $0).deletingLastPathComponent().standardizedFileURL.path
-        }
         let filterIdentity: String? = if normalizedMetadataSentinelPaths.isEmpty {
             indexSnapshot?.contentSignature
         } else {
@@ -121,7 +126,7 @@ extension GitMetadataService {
         }
         let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
             + gitMetadataPaths
-            + metadataSentinelParentPaths
+            + watchOnlyPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
@@ -254,7 +259,10 @@ extension GitMetadataService {
         for entry in indexSnapshot.entries where (entry.mode & 0o170000) == gitlinkMode {
             let gitlinkPath = joinedPath(root: repository.workTreeRoot, relativePath: entry.path)
             guard visitedWorkTreeRoots.insert(gitlinkPath).inserted,
-                  let submoduleRepository = resolveGitRepository(containing: gitlinkPath),
+                  let submoduleRepository = resolveGitRepository(
+                      containing: gitlinkPath,
+                      deadline: deadline
+                  ),
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }

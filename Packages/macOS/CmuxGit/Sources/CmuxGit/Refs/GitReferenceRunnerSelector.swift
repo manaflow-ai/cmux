@@ -55,8 +55,8 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
         repository: ResolvedGitRepository,
         deadline: DispatchTime? = nil
     ) -> (any WorkspaceChangesGitRunning)? {
-        guard let first = runners.first else { return nil }
-        guard probesReferenceFormat else { return first }
+        guard !runners.isEmpty else { return nil }
+        guard probesReferenceFormat else { return runners[0] }
         let deadline = deadline ?? (DispatchTime.now() + wallTimeLimit)
         for runner in runners {
             let now = DispatchTime.now()
@@ -79,32 +79,32 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
             return runner
         }
         // Older Git versions may reject `--show-ref-format` even though their
-        // ordinary symbolic-ref/rev-parse plumbing is usable. Validate those
-        // candidates with a backend-neutral command before falling back to the
-        // first path, so stale PATH entries cannot hide a later working Git.
+        // ordinary plumbing is usable. Validate each candidate with a command
+        // that must succeed for any repository, so a broken PATH entry cannot
+        // hide a later working Git. `symbolic-ref` is not suitable here because
+        // it exits 1 for a legitimate detached HEAD.
         for runner in runners {
             let now = DispatchTime.now()
             guard deadline > now else { return nil }
             let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
                 / 1_000_000_000
             guard let result = try? runner.run(
-                arguments: ["symbolic-ref", "--quiet", "HEAD"],
+                arguments: ["rev-parse", "--git-dir"],
                 in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
                 maximumOutputByteCount: Self.maximumProbeOutputByteCount,
                 wallTimeLimit: remaining
             ),
             !result.standardOutputWasTruncated,
-            result.exitCode == 0 || result.exitCode == 1 else {
+            result.exitCode == 0,
+            let output = String(data: result.output, encoding: .utf8),
+            !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
             }
             return runner
         }
-        // `--show-ref-format` is newer than the standard plumbing commands.
-        // Keep the first bounded runner as a compatibility fallback when the
-        // optional capability probe is unsupported; its process runner can
-        // still fall through to later executables on an actual backend error.
-        guard deadline > DispatchTime.now() else { return nil }
-        return first
+        // No candidate proved that it can address the requested repository.
+        // Returning nil keeps the caller's unreadable state conservative.
+        return nil
     }
 
     /// Returns the injected runner without requiring a repository probe.
