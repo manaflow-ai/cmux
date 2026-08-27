@@ -492,6 +492,32 @@ struct CodexResumeBindingVerificationTests {
         #expect(evidence.provenance == .exec)
     }
 
+    @Test func ambiguousNestedParentMetadataDoesNotClaimAncestry() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9d1-cbe1-7231-9478-0c55a8c44560"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionID,
+            nestedSource: [
+                "review": ["parent_thread_id": "first-parent"],
+                "metadata": ["parent_thread_id": "second-parent"],
+            ]
+        )
+        try fixture.insertThread(sessionId: sessionID, rolloutPath: rollout.path)
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("the rollout should still be classified as durable evidence")
+            return
+        }
+        #expect(evidence.provenance == .exec)
+        #expect(evidence.parentSessionId == nil)
+    }
+
     @Test func transcriptWithoutExactSessionMetadataIsMissing() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
