@@ -299,8 +299,9 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     /// Callers must use this only for a navigation they initiated themselves;
     /// WebKit delegate callbacks use ``allows(_:)`` so page scripts cannot
     /// turn `file:`, `data:`, `blob:`, or `javascript:` into an origin-policy
-    /// bypass. Local file URLs must be absolute and hostless (or use the
-    /// `localhost` host); network-host and relative file URLs remain denied.
+    /// bypass. Local file URLs must be absolute, have no credentials or port,
+    /// and be hostless (or use the `localhost` host); network-host and relative
+    /// file URLs remain denied.
     public func allowsTrustedInternalURL(_ url: URL) -> Bool {
         guard isActive else { return true }
         guard let scheme = url.scheme?.lowercased() else { return false }
@@ -314,7 +315,13 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     }
 
     private static func isLocalFileURL(_ url: URL) -> Bool {
-        guard url.isFileURL, url.path.hasPrefix("/") else { return false }
+        guard url.isFileURL,
+              url.path.hasPrefix("/"),
+              url.user == nil,
+              url.password == nil,
+              url.port == nil else {
+            return false
+        }
         guard let host = url.host?.lowercased() else { return true }
         return host.isEmpty || host == "localhost"
     }

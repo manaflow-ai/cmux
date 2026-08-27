@@ -121,12 +121,27 @@ import WebKit
             clearAttemptedRequest(discardPendingBypasses: true)
         }
         didCommit?(webView, navigation)
+        if let cmuxWebView = webView as? CmuxWebView {
+            if let committedURL = webView.url {
+                // The response callback consumes the one-shot delegate
+                // marker before commit; the WebView keeps the pending marker
+                // until this point so the document trust survives lifecycle
+                // callbacks.
+                cmuxWebView.commitTrustedInternalDocument(committedURL)
+                cmuxWebView.clearTrustedInternalDocumentIfNeeded(for: committedURL)
+            }
+        }
         trustedInternalNavigationURL = nil
         clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFinish?(webView)
+        if let cmuxWebView = webView as? CmuxWebView,
+           let finishedURL = webView.url {
+            cmuxWebView.commitTrustedInternalDocument(finishedURL)
+            cmuxWebView.clearTrustedInternalDocumentIfNeeded(for: finishedURL)
+        }
         trustedInternalNavigationURL = nil
         clearActiveMainFrameNavigation(ifMatching: navigation)
         if shouldPrintAfterCurrentNavigationFinishes {
@@ -141,12 +156,14 @@ import WebKit
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
         didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
+        (webView as? CmuxWebView)?.failTrustedInternalNavigation()
         trustedInternalNavigationURL = nil
         clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         trustedInternalNavigationURL = nil
+        (webView as? CmuxWebView)?.failTrustedInternalNavigation()
         let nsError = error as NSError
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
 
@@ -297,9 +314,16 @@ import WebKit
         }
 
         if let url = navigationAction.request.url {
-            let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
+            let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
+            let cmuxWebView = webView as? CmuxWebView
+            if isMainFrame, !isTrustedInternal {
+                cmuxWebView?.clearTrustedInternalDocumentIfNeeded(for: url)
+            }
+            let isTrustedDocument = isMainFrame && url.isFileURL
+                && cmuxWebView?.isTrustedInternalDocument(url) == true
             if !isTrustedInternal,
+               !isTrustedDocument,
                url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
                 decisionHandler(.cancel)
@@ -715,8 +739,16 @@ import WebKit
         ).closure
 
         if let url = navigationResponse.response.url {
+            let isMainFrame = navigationResponse.isForMainFrame
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
+            let cmuxWebView = webView as? CmuxWebView
+            if isMainFrame, !isTrustedInternal {
+                cmuxWebView?.clearTrustedInternalDocumentIfNeeded(for: url)
+            }
+            let isTrustedDocument = isMainFrame && url.isFileURL
+                && cmuxWebView?.isTrustedInternalDocument(url) == true
             if !isTrustedInternal,
+               !isTrustedDocument,
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
                 decisionHandler(.cancel)
                 if navigationResponse.isForMainFrame {
@@ -844,8 +876,13 @@ import WebKit
 
     /// Applies a newly changed policy to the currently displayed document.
     func enforceURLAllowlistPolicy(in webView: WKWebView, displayURL: URL? = nil) {
-        guard let url = displayURL ?? webView.url,
-              !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+        guard let url = displayURL ?? webView.url else { return }
+        let policy = BrowserURLAllowlistPolicy(defaults: .standard)
+        if policy.allows(url) { return }
+        if let cmuxWebView = webView as? CmuxWebView,
+           url.isFileURL,
+           cmuxWebView.isTrustedInternalDocument(url),
+           policy.allowsTrustedInternalURL(url) {
             return
         }
         blockURLAllowlistNavigation(url, in: webView)

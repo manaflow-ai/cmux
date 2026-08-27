@@ -46,11 +46,13 @@ import Testing
         let localhostFileURL = try #require(URL(string: "file://localhost/tmp/cmux-report.html"))
         let networkFileURL = try #require(URL(string: "file://build-host/tmp/cmux-report.html"))
         let relativeFileURL = try #require(URL(string: "file:relative-report.html"))
+        let credentialedFileURL = try #require(URL(string: "file://user:password@localhost/tmp/cmux-report.html"))
 
         #expect(!policy.allows(localhostFileURL))
         #expect(policy.allowsTrustedInternalURL(localhostFileURL))
         #expect(!policy.allowsTrustedInternalURL(networkFileURL))
         #expect(!policy.allowsTrustedInternalURL(relativeFileURL))
+        #expect(!policy.allowsTrustedInternalURL(credentialedFileURL))
     }
 
     @Test(arguments: ["file://", "file://*", "file:///*", "file:*", "*"])

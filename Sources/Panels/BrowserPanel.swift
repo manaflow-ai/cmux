@@ -6044,6 +6044,16 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
     }
 
+    private func markTrustedInternalNavigationIfNeeded(for url: URL?) {
+        guard let url,
+              let scheme = url.scheme?.lowercased(),
+              BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(scheme),
+              BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else {
+            return
+        }
+        (webView as? CmuxWebView)?.markTrustedInternalNavigation(url)
+    }
+
     @discardableResult
     func setMuted(_ muted: Bool) -> Bool {
         let applied = applyMuteState(muted, to: webView, reason: "setMuted")
@@ -6081,7 +6091,9 @@ extension BrowserPanel {
                     preserveRestoredSessionHistory: true
                 )
             case .nativeGoBack:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
+                let targetURL = webView.backForwardList.backItem?.url
+                markTrustedInternalNavigationIfNeeded(for: targetURL)
+                webView.applyBrowserUserAgentPolicy(for: targetURL)
                 webView.goBack()
             case .nativeGoForward, .refreshOnly:
                 refreshNavigationAvailability()
@@ -6089,7 +6101,9 @@ extension BrowserPanel {
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
+        let targetURL = webView.backForwardList.backItem?.url
+        markTrustedInternalNavigationIfNeeded(for: targetURL)
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
         webView.goBack()
     }
 
@@ -6107,7 +6121,9 @@ extension BrowserPanel {
             )
             switch decision {
             case .nativeGoForward:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
+                let targetURL = webView.backForwardList.forwardItem?.url
+                markTrustedInternalNavigationIfNeeded(for: targetURL)
+                webView.applyBrowserUserAgentPolicy(for: targetURL)
                 webView.goForward()
             case .navigate(let targetURL):
                 refreshNavigationAvailability()
@@ -6122,7 +6138,9 @@ extension BrowserPanel {
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
+        let targetURL = webView.backForwardList.forwardItem?.url
+        markTrustedInternalNavigationIfNeeded(for: targetURL)
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
         webView.goForward()
     }
 
@@ -6252,6 +6270,7 @@ extension BrowserPanel {
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
+        markTrustedInternalNavigationIfNeeded(for: webView.url ?? currentURL)
         return webView.reload()
     }
 
@@ -6260,6 +6279,7 @@ extension BrowserPanel {
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
+        markTrustedInternalNavigationIfNeeded(for: webView.url ?? currentURL)
         webView.reloadFromOrigin()
     }
 
