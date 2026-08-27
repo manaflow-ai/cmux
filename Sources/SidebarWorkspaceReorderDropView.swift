@@ -238,7 +238,9 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     private func prepareForDrag(_ sender: NSDraggingInfo) {
         let nextIdentity = dragIdentity(for: sender)
-        guard activeDragIdentity != nextIdentity else { return }
+        if let activeDragIdentity, activeDragIdentity == nextIdentity {
+            return
+        }
 
         if activeDragIdentity != nil {
             // A new native drag supersedes any deferred operation from the
