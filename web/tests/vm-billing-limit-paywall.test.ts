@@ -13,16 +13,17 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe("free plan VM allowance", () => {
-  test("free users get one full-size Cloud VM by default", () => {
-    expect(maxActiveVmsForPlan("free", {})).toBe(1);
+  test("free users get no Cloud VMs by default — machines are a paid feature", () => {
+    expect(maxActiveVmsForPlan("free", {})).toBe(0);
   });
 
   test("pro gets five machines by default", () => {
     expect(maxActiveVmsForPlan("pro", {})).toBe(5);
   });
 
-  test("the free allowance stays env-overridable", () => {
+  test("the free allowance stays env-overridable, including back to a demo allowance", () => {
     expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "7" })).toBe(7);
+    expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "0" })).toBe(0);
   });
 });
 

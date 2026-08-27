@@ -31,6 +31,9 @@ enum CloudVMPanelAuthState: Equatable {
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
     @State private var expansionStore = CloudTreeExpansionStore()
+    /// The tree's visual preset; the debug gallery's "Use" buttons write this,
+    /// and @AppStorage re-renders the live panel the moment it changes.
+    @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
 
     private var accountFlow: HostAccountFlow? {
@@ -294,6 +297,7 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore,
+            style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
@@ -385,7 +389,7 @@ struct MachinesPanelView: View {
         if plan.maxActiveVms <= 0 {
             return String(
                 localized: "machines.empty.upgrade.none",
-                defaultValue: "Upgrade to use machines"
+                defaultValue: "Upgrade to cmux Pro to use machines"
             )
         }
         if plan.isSingleMachinePlan {

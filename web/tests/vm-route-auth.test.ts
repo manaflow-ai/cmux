@@ -696,7 +696,7 @@ describe("VM REST auth", () => {
         { id: "newer", freeAccessExpiresAt: 1_777_100_000_000 + sevenDaysMs },
       ],
       limits: {
-        maxActiveVms: 1,
+        maxActiveVms: 0,
         planId: "free",
         freeAccessWindowDays: 7,
         freeAccessExpiresAt: 1_777_000_000_000 + sevenDaysMs,
@@ -819,7 +819,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 0,
     }));
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
@@ -876,7 +876,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 0,
     }));
   });
 
