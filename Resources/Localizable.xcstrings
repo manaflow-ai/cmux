@@ -186005,6 +186005,23 @@
         }
       }
     },
+    "settings.networking.irx.notConfigurable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This setting is not configurable with the current transport."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この設定は現在のトランスポートでは変更できません。"
+          }
+        }
+      }
+    },
     "settings.networking.neverUseRelays": {
       "extractionState": "manual",
       "localizations": {

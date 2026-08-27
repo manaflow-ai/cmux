@@ -471,7 +471,13 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
-        MobileHostIrohRuntime.shared
+        // Exactly one runtime owns the transport slot (gated in
+        // MobileHostService.configure); Settings must read the same one, or
+        // the Networking section reports the dormant stack's stale state.
+        if MobileHostIrxRuntime.isEnabled {
+            return MobileHostIrxRuntime.shared
+        }
+        return MobileHostIrohRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
