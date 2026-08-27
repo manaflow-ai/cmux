@@ -36222,7 +36222,7 @@ mod tests {
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
 
-        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
         app.status_message = Some("old failure".to_string());
         app.render_action(&mut terminal, RenderAction::Draw).unwrap();
         assert_eq!(
