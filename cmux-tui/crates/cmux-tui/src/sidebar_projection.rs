@@ -89,6 +89,24 @@ impl Default for ProjectionRailState {
             collapsed: HashSet::new(),
         }
     }
+
+    pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
+        if rows.is_empty() {
+            self.selected = 0;
+            self.selected_target = None;
+            return;
+        }
+        if let Some(target) = self.selected_target
+            && let Some((index, row)) =
+                rows.iter().enumerate().find(|(_, row)| row.target.same_resource(target))
+        {
+            self.selected = index;
+            self.selected_target = Some(row.target);
+            return;
+        }
+        self.selected = self.selected.min(rows.len().saturating_sub(1));
+        self.selected_target = rows.get(self.selected).map(|row| row.target);
+    }
 }
 
 impl ProjectionRailState {
@@ -669,5 +687,53 @@ mod tests {
             rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 1, &HashSet::new());
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
+    }
+
+    #[test]
+    fn selection_reconciles_by_surface_when_agent_recency_reorders_rows() {
+        let tree = TreeView {
+            workspaces: vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        let initial_agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 900,
+            },
+        ];
+        let initial = rows(&all_spec, &tree, &initial_agents, 0, &HashSet::new());
+        let selected_target = initial[1].target;
+        let mut state = ProjectionRailState {
+            selected: 1,
+            selected_target: Some(selected_target),
+            ..ProjectionRailState::default()
+        };
+
+        let updated_agents = vec![
+            AgentInfo { updated_at_ms: 1_000, ..initial_agents[0].clone() },
+            initial_agents[1].clone(),
+        ];
+        let reordered = rows(&all_spec, &tree, &updated_agents, 0, &HashSet::new());
+        assert_ne!(reordered[1].target, selected_target);
+        state.reconcile_selection(&reordered);
+        assert_eq!(state.selected_target, Some(selected_target));
+        assert_eq!(reordered[state.selected].target, selected_target);
     }
 }

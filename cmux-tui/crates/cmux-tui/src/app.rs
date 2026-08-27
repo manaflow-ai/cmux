@@ -102,138 +102,15 @@ use crate::ui::{
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const MAX_PROJECTION_ROWS_CACHE_ENTRIES: usize = 8;
 
-/// Session-local divider shares, keyed by split group and stable child id.
-/// Child ids keep a drag ratio attached to its rail when visibility pruning
-/// or layout reordering changes the current child vector.
-type SidebarSplitFractions = HashMap<String, HashMap<String, f32>>;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct ProjectionFocusKey {
-    workspace_id: Option<WorkspaceId>,
-    screen_id: Option<ScreenId>,
-    pane_id: Option<PaneId>,
-    tab_index: Option<usize>,
-    surface_id: Option<SurfaceId>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProjectionSurfaceChange {
-    Agent,
-    Title,
-}
-
-/// The part of the sidebar configuration that changes the meaning of cached
-/// projection rows. Keep this identity separate from the full config so a
-/// profile switch cannot reuse rows for a view with the same id but a new
-/// level or action definition.
-#[derive(Clone, PartialEq, Eq)]
-struct SidebarProjectionSpec {
-    profile_id: String,
-    views: Vec<SidebarViewSpec>,
-    layout: Vec<SidebarLayoutNode>,
-}
-
-impl SidebarProjectionSpec {
-    fn from_config(config: &Config) -> Self {
-        Self {
-            profile_id: config.sidebar.active_profile.clone(),
-            views: config.sidebar.views.clone(),
-            layout: config.sidebar.layout.clone(),
-        }
-    }
-}
-
 #[derive(Clone)]
 struct ProjectionRowsCache {
     view_id: String,
     workspace_revision: u64,
     pane_revision: Option<u64>,
+    agent_revision: u64,
     invalidation_revision: u64,
-    selected_workspace: Option<usize>,
-    focus: ProjectionFocusKey,
-    /// All surfaces that can contribute an agent row to this snapshot. This
-    /// includes currently hidden/filtered rows so an agent state transition
-    /// cannot leave an old empty snapshot cached.
-    agent_surfaces: Arc<HashSet<SurfaceId>>,
-    /// Surfaces whose title can affect a visible row in this snapshot.
-    title_surfaces: Arc<HashSet<SurfaceId>>,
-    rows: Arc<[ProjectionRow]>,
-}
-
-fn projection_focus_key(tree: &TreeView) -> ProjectionFocusKey {
-    let Some(workspace) = tree.active_workspace() else { return ProjectionFocusKey::default() };
-    let Some(screen) = workspace.active_screen_ref() else {
-        return ProjectionFocusKey {
-            workspace_id: Some(workspace.id),
-            ..ProjectionFocusKey::default()
-        };
-    };
-    let pane = screen.pane(screen.active_pane);
-    ProjectionFocusKey {
-        workspace_id: Some(workspace.id),
-        screen_id: Some(screen.id),
-        pane_id: Some(screen.active_pane),
-        tab_index: pane.map(|pane| pane.active_tab),
-        surface_id: pane.and_then(|pane| pane.active_surface()),
-    }
-}
-
-fn projection_cache_dependencies(
-    spec: &SidebarViewSpec,
-    tree: &TreeView,
-    rows: &[ProjectionRow],
     selected_workspace: usize,
-) -> (HashSet<SurfaceId>, HashSet<SurfaceId>) {
-    let selected_workspace = selected_workspace.min(tree.workspaces.len().saturating_sub(1));
-    let mut agent_surfaces = HashSet::new();
-    if spec.includes(SidebarResourceKind::Agents) {
-        // A nested agent level below Workspaces contributes rows from every
-        // workspace. A flat workspace-scoped level follows the selected one.
-        let agent_depth = spec.levels.iter().position(|kind| *kind == SidebarResourceKind::Agents);
-        let all_workspaces = spec.scope == SidebarViewScope::All
-            || agent_depth.is_some_and(|depth| {
-                spec.levels[..depth].contains(&SidebarResourceKind::Workspaces)
-            });
-        for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
-            if !all_workspaces && workspace_index != selected_workspace {
-                continue;
-            }
-            for screen in &workspace.screens {
-                for pane in &screen.panes {
-                    agent_surfaces.extend(pane.tabs.iter().map(|tab| tab.surface));
-                }
-            }
-        }
-    }
-
-    let active_surfaces_by_pane = if spec.includes(SidebarResourceKind::Panes) {
-        tree.workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .filter_map(|pane| pane.active_surface().map(|surface| (pane.id, surface)))
-            .collect::<HashMap<_, _>>()
-    } else {
-        HashMap::new()
-    };
-    let mut title_surfaces = HashSet::new();
-    for row in rows {
-        match (row.resource, row.target) {
-            (
-                SidebarResourceKind::Tabs | SidebarResourceKind::Agents,
-                ProjectionTarget::Surface { surface, .. },
-            ) => {
-                title_surfaces.insert(surface);
-            }
-            (SidebarResourceKind::Panes, ProjectionTarget::Pane { pane, .. }) => {
-                if let Some(surface) = active_surfaces_by_pane.get(&pane) {
-                    title_surfaces.insert(*surface);
-                }
-            }
-            _ => {}
-        }
-    }
-    (agent_surfaces, title_surfaces)
+    rows: Vec<ProjectionRow>,
 }
 
 // Projection rows are a render snapshot. Keep only the most recently used
@@ -7076,20 +6953,7 @@ pub struct App {
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_rows_cache: VecDeque<ProjectionRowsCache>,
     projection_rows_revision: u64,
-    /// Projection surfaces seen by the most recent rendered snapshots. These
-    /// sets cover caches evicted by the bounded LRU, so an update still wakes
-    /// a visible rail even when its snapshot is not retained. They are pruned
-    /// against the current tab locations after every cache/index update, so a
-    /// retired surface cannot accumulate or trigger future fanout.
-    projection_agent_surfaces: HashSet<SurfaceId>,
-    projection_title_surfaces: HashSet<SurfaceId>,
-    /// Dependencies are retained per active view, not only in a global union.
-    /// This lets hidden views be removed without losing dependencies for a
-    /// visible view whose bounded row snapshot was evicted.
-    projection_agent_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
-    projection_title_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
-    /// Coalesce surface updates until the next successful rendered frame.
-    projection_paint_pending: bool,
+    projection_agent_revision: u64,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9601,11 +9465,7 @@ fn run_with_machine_updates_inner(
         projection_rails: HashMap::new(),
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
-        projection_agent_surfaces: HashSet::new(),
-        projection_title_surfaces: HashSet::new(),
-        projection_agent_surfaces_by_view: HashMap::new(),
-        projection_title_surfaces_by_view: HashMap::new(),
-        projection_paint_pending: false,
+        projection_agent_revision: 0,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -10354,15 +10214,15 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
-            return Arc::<[ProjectionRow]>::from(Vec::new());
+            return Vec::new();
         };
         let collapsed = self
             .projection_rails
             .get(&spec.id)
-            .map(|state| &state.collapsed)
-            .unwrap_or(&empty_collapsed);
+            .map(|state| state.collapsed.clone())
+            .unwrap_or_default();
         let agents = if spec.includes(SidebarResourceKind::Agents) {
             // Finished reports are historical records, not active agents.
             // Otherwise detached "surface..." rows remain forever after exit.
@@ -10424,6 +10284,47 @@ impl App {
             self.set_projection_surface_dependencies(&spec.id, agent_surfaces, title_surfaces);
             rows
         };
+        let selected_workspace = self.sidebar_workspace_selection;
+        let workspace_revision = self.tree.workspace_revision;
+        let pane_revision = self.tree.pane_revision;
+        let agent_revision = self.projection_agent_revision;
+        let invalidation_revision = self.projection_rows_revision;
+        let cache_index = self.projection_rows_cache.iter().position(|cache| {
+            cache.view_id == spec.id
+                && cache.workspace_revision == workspace_revision
+                && cache.pane_revision == pane_revision
+                && cache.agent_revision == agent_revision
+                && cache.invalidation_revision == invalidation_revision
+                && cache.selected_workspace == selected_workspace
+        });
+        let rows = if let Some(cache_index) = cache_index {
+            let cache = self
+                .projection_rows_cache
+                .remove(cache_index)
+                .expect("projection cache index came from the cache");
+            let rows = cache.rows.clone();
+            self.projection_rows_cache.push_front(cache);
+            rows
+        } else {
+            let rows = crate::sidebar_projection::rows(
+                &spec,
+                &self.tree,
+                &agents,
+                selected_workspace,
+                &collapsed,
+            );
+            self.projection_rows_cache.push_front(ProjectionRowsCache {
+                view_id: spec.id.clone(),
+                workspace_revision,
+                pane_revision,
+                agent_revision,
+                invalidation_revision,
+                selected_workspace,
+                rows: rows.clone(),
+            });
+            self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
+            rows
+        };
         self.projection_rail_state_mut(index).reconcile_selection(&rows);
         rows
     }
@@ -10431,230 +10332,11 @@ impl App {
     fn invalidate_projection_rows_cache(&mut self) {
         self.projection_rows_revision = self.projection_rows_revision.wrapping_add(1);
         self.projection_rows_cache.clear();
-        self.projection_agent_surfaces.clear();
-        self.projection_title_surfaces.clear();
-        self.projection_agent_surfaces_by_view.clear();
-        self.projection_title_surfaces_by_view.clear();
-        self.projection_paint_pending = false;
     }
 
-    fn projection_view_is_visible(&self, view_id: &str) -> bool {
-        if !self.sidebar_visible || self.surface_only.is_some() {
-            return false;
-        }
-        if self
-            .hidden_sidebar_views
-            .get(&self.config.sidebar.active_profile)
-            .is_some_and(|hidden| hidden.contains(view_id))
-        {
-            return false;
-        }
-        // Before the first frame there is no layout yet, but direct input and
-        // tests may still build a projection snapshot. Treat active views as
-        // visible until the first concrete layout is available.
-        if self.outer_size == (0, 0) {
-            return self.config.sidebar.views.iter().any(|view| view.id == view_id);
-        }
-        let Some(index) = self.config.sidebar.views.iter().position(|view| view.id == view_id)
-        else {
-            return false;
-        };
-        self.sidebar_layout
-            .ordered
-            .iter()
-            .any(|placement| placement.kind == RailKind::Projection(index))
-    }
-
-    /// Replace one view's dependency snapshot and rebuild the global wake
-    /// union only when that snapshot changes. Per-view storage prevents a
-    /// hidden view from keeping a retired dependency alive while retaining
-    /// wake coverage for visible views whose LRU row snapshot was evicted.
-    fn set_projection_surface_dependencies(
-        &mut self,
-        view_id: &str,
-        agent_surfaces: Arc<HashSet<SurfaceId>>,
-        title_surfaces: Arc<HashSet<SurfaceId>>,
-    ) {
-        if !self.projection_view_is_visible(view_id) {
-            return;
-        }
-        let agent_changed = self
-            .projection_agent_surfaces_by_view
-            .get(view_id)
-            .is_none_or(|previous| !Arc::ptr_eq(previous, &agent_surfaces));
-        let title_changed = self
-            .projection_title_surfaces_by_view
-            .get(view_id)
-            .is_none_or(|previous| !Arc::ptr_eq(previous, &title_surfaces));
-        self.projection_agent_surfaces_by_view.insert(view_id.to_owned(), agent_surfaces);
-        self.projection_title_surfaces_by_view.insert(view_id.to_owned(), title_surfaces);
-        if agent_changed || title_changed {
-            self.rebuild_projection_surface_indexes();
-        }
-    }
-
-    /// Keep wake indexes bounded to active, visible view ids and live tab
-    /// surfaces. The operation touches only the small per-view dependency
-    /// maps, never the workspace tree.
-    fn rebuild_projection_surface_indexes(&mut self) {
-        let visible_view_ids = self
-            .config
-            .sidebar
-            .views
-            .iter()
-            .map(|view| view.id.clone())
-            .filter(|view_id| self.projection_view_is_visible(view_id))
-            .collect::<HashSet<_>>();
-        self.projection_agent_surfaces_by_view
-            .retain(|view_id, _| visible_view_ids.contains(view_id));
-        self.projection_title_surfaces_by_view
-            .retain(|view_id, _| visible_view_ids.contains(view_id));
-
-        let live_surfaces = &self.tab_locations;
-        self.projection_agent_surfaces = self
-            .projection_agent_surfaces_by_view
-            .values()
-            .flat_map(|dependencies| {
-                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
-            })
-            .collect();
-        self.projection_title_surfaces = self
-            .projection_title_surfaces_by_view
-            .values()
-            .flat_map(|dependencies| {
-                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
-            })
-            .collect();
-    }
-
-    fn prune_projection_surface_indexes(&mut self) {
-        {
-            let live_surfaces = &self.tab_locations;
-            for cache in &mut self.projection_rows_cache {
-                Arc::make_mut(&mut cache.agent_surfaces)
-                    .retain(|surface| live_surfaces.contains_key(surface));
-                Arc::make_mut(&mut cache.title_surfaces)
-                    .retain(|surface| live_surfaces.contains_key(surface));
-            }
-            for dependencies in self.projection_agent_surfaces_by_view.values_mut() {
-                let filtered = dependencies
-                    .iter()
-                    .filter(|surface| live_surfaces.contains_key(surface))
-                    .copied()
-                    .collect::<HashSet<_>>();
-                if filtered.len() != dependencies.len() {
-                    *dependencies = Arc::new(filtered);
-                }
-            }
-            for dependencies in self.projection_title_surfaces_by_view.values_mut() {
-                let filtered = dependencies
-                    .iter()
-                    .filter(|surface| live_surfaces.contains_key(surface))
-                    .copied()
-                    .collect::<HashSet<_>>();
-                if filtered.len() != dependencies.len() {
-                    *dependencies = Arc::new(filtered);
-                }
-            }
-        }
-        self.rebuild_projection_surface_indexes();
-    }
-
-    fn invalidate_projection_rows_if_sidebar_spec_changed(
-        &mut self,
-        previous: SidebarProjectionSpec,
-    ) {
-        if previous != SidebarProjectionSpec::from_config(&self.config) {
-            self.invalidate_projection_rows_cache();
-            self.cancel_sidebar_layout_drag();
-        }
-    }
-
-    fn cancel_sidebar_layout_drag(&mut self) {
-        if matches!(self.drag, Some(Drag::RailResize(_) | Drag::SidebarSplit { .. })) {
-            self.drag = None;
-        }
-    }
-
-    /// Width and divider overrides are local to the active profile. Drop both
-    /// maps together whenever a profile replacement changes that owner.
-    fn clear_profile_sidebar_geometry(&mut self) {
-        self.projection_sidebar_width_overrides.clear();
-        self.sidebar_split_fractions.clear();
-    }
-
-    /// Replace the active profile's projection specification and invalidate
-    /// snapshots in one place. View ids are profile-local, so a reused id may
-    /// describe a different resource tree after the replacement.
-    fn replace_sidebar_projection(
-        &mut self,
-        profile_id: String,
-        views: Vec<SidebarViewSpec>,
-        layout: Vec<SidebarLayoutNode>,
-    ) {
-        let previous = SidebarProjectionSpec::from_config(&self.config);
-        let profile_changed = self.config.sidebar.active_profile != profile_id;
-        self.config.sidebar.active_profile = profile_id;
-        self.config.sidebar.views = views;
-        self.config.sidebar.layout = layout;
-        if profile_changed {
-            self.clear_profile_sidebar_geometry();
-        }
-        self.invalidate_projection_rows_if_sidebar_spec_changed(previous);
-    }
-
-    /// Drop only snapshots that depend on the changed surface. The event
-    /// stream can deliver several updates before the next frame, so return
-    /// whether this surface needs to schedule the first paint boundary.
-    fn invalidate_projection_rows_for_surface(
-        &mut self,
-        surface: SurfaceId,
-        change: ProjectionSurfaceChange,
-    ) -> bool {
-        let was_affected = self.projection_rows_cache.iter().any(|cache| {
-            self.projection_view_is_visible(&cache.view_id)
-                && match change {
-                    ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
-                    ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
-                }
-        });
-        self.projection_rows_cache.retain(|cache| match change {
-            ProjectionSurfaceChange::Agent => !cache.agent_surfaces.contains(&surface),
-            ProjectionSurfaceChange::Title => !cache.title_surfaces.contains(&surface),
-        });
-        let visible = match change {
-            ProjectionSurfaceChange::Agent => self.projection_agent_surfaces.contains(&surface),
-            ProjectionSurfaceChange::Title => self.projection_title_surfaces.contains(&surface),
-        };
-        if !(was_affected || visible) || self.projection_paint_pending {
-            return false;
-        }
-        self.projection_paint_pending = true;
-        true
-    }
-
-    fn schedule_projection_paint(&mut self) -> bool {
-        if self.projection_paint_pending {
-            return false;
-        }
-        self.projection_paint_pending = true;
-        true
-    }
-
-    fn clear_pending_projection_paint(&mut self) {
-        self.projection_paint_pending = false;
-    }
-
-    fn invalidate_projection_rows_for_surfaces(
-        &mut self,
-        surfaces: impl IntoIterator<Item = SurfaceId>,
-        change: ProjectionSurfaceChange,
-    ) -> bool {
-        let mut paint_requested = false;
-        for surface in surfaces {
-            paint_requested |= self.invalidate_projection_rows_for_surface(surface, change);
-        }
-        paint_requested
+    fn invalidate_agent_projection_rows_cache(&mut self) {
+        self.projection_agent_revision = self.projection_agent_revision.wrapping_add(1);
+        self.invalidate_projection_rows_cache();
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -14475,6 +14157,7 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
+        self.invalidate_projection_rows_cache();
         let mut valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
@@ -15604,16 +15287,11 @@ impl App {
             AppEvent::HostInputReady => Ok(RenderAction::None),
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
-                let (changed_any, projection_paint_requested) = self.apply_mux_titles();
-                Ok(
-                    if changed_any
-                        && (projection_paint_requested || self.schedule_projection_paint())
-                    {
-                        RenderAction::Paint
-                    } else {
-                        RenderAction::None
-                    },
-                )
+                let changed = self.apply_mux_titles();
+                if changed {
+                    self.invalidate_projection_rows_cache();
+                }
+                Ok(if changed { RenderAction::Paint } else { RenderAction::None })
             }
             AppEvent::StatusCommandsUpdated => {
                 self.status_poke_pending.store(false, Ordering::Release);
@@ -15844,24 +15522,14 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
-            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => Ok(
-                if self
-                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Agent)
-                {
-                    RenderAction::Paint
-                } else {
-                    RenderAction::None
-                },
-            ),
-            AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
-                if self
-                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Title)
-                {
-                    RenderAction::Paint
-                } else {
-                    RenderAction::None
-                },
-            ),
+            AppEvent::Mux(MuxEvent::AgentChanged { .. }) => {
+                self.invalidate_agent_projection_rows_cache();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::TitleChanged { .. }) => {
+                self.invalidate_projection_rows_cache();
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
                 let duplicate = self
                     .pairing_dialog
@@ -45772,11 +45440,7 @@ mod tests {
             projection_rails: HashMap::new(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
-            projection_agent_surfaces: HashSet::new(),
-            projection_title_surfaces: HashSet::new(),
-            projection_agent_surfaces_by_view: HashMap::new(),
-            projection_title_surfaces_by_view: HashMap::new(),
-            projection_paint_pending: false,
+            projection_agent_revision: 0,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
