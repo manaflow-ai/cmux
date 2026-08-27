@@ -354,6 +354,16 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         )
     }
 
+    public func clearWorkspaceGitProbeTracking(workspaceId: UUID, panelId: UUID) {
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        clearWorkspaceGitProbe(key, clearRepositoryLink: false)
+        workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
+        pullRequestProbing.clearWorkspacePullRequestTracking(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+    }
+
     public func clearWorkspaceGitProbes(workspaceId: UUID) {
         let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTasksByKey.keys.filter { $0.workspaceId == workspaceId })
