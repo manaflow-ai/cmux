@@ -342,6 +342,36 @@ struct SurfaceCatalogTests {
         #expect(catalog.projections.isEmpty)
     }
 
+    @Test func `Registering a replacement provider retires its old materialization`() async throws {
+        let catalog = SurfaceCatalog()
+        let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        oldProvider.materializeGate = gate
+        catalog.register(oldProvider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+
+        let oldProject = Task {
+            try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
+        }
+        await gate.waitUntilEntered()
+
+        let replacementProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        catalog.register(replacementProvider)
+        await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) {
+            try await oldProject.value
+        }
+
+        let newProject = Task {
+            try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
+        }
+        gate.release()
+        let result = try await newProject.value
+        #expect(replacementProvider.materialized.count == 1)
+        #expect(oldProvider.discarded.count == 1)
+        #expect(result.projection == catalog.projections(of: term.id).first)
+    }
+
     @Test func `A replacement provider does not join retired materialization`() async throws {
         let catalog = SurfaceCatalog()
         let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
