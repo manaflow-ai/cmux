@@ -1089,7 +1089,10 @@ struct RemoteResumeBindingTests {
                 paneID: nil
             ),
             explicitTargetID: restoredSurfaceID,
-            hasResolvedWindowID: true
+            hasResolvedWindowID: true,
+            claimCheckpointID: nil,
+            claimSource: nil,
+            claimUpdatedAt: nil
         )
         guard case .result(let snapshot) = resolution else {
             Issue.record("surface.resume.get failed: \(resolution)")
