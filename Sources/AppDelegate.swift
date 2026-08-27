@@ -4786,6 +4786,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
+        // Capture only the store: a block that retained `self` on the
+        // persistence queue could become the delegate's last reference and
+        // deinit it — and every main-actor service it owns — off the main
+        // actor.
+        let sessionSnapshotStore = sessionSnapshotStore
         let writeBlock = {
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
@@ -4796,14 +4801,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if let snapshot {
                 Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
-                _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
+                _ = sessionSnapshotStore.save(snapshot, fileURL: nil)
             } else if removeWhenEmpty {
                 if preserveManualRestoreBackupOnMissingPrimary {
                     Self.markCrashOnlyPrimarySnapshotRemoval()
                 } else {
                     Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 }
-                self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
+                sessionSnapshotStore.removeSnapshot(fileURL: nil)
             }
         }
 
