@@ -575,6 +575,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */; };
 		89930001AABBCCDDEEFF0001 /* CLIOmpHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */; };
 		89930006AABBCCDDEEFF0001 /* CLIOmpSupersededCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930006AABBCCDDEEFF0002 /* CLIOmpSupersededCleanupTests.swift */; };
+		B2FBA2F2F8066EDF1FBEBE6C /* CLIProcessHelperStarvationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DF95E10764925A7C25CED8E /* CLIProcessHelperStarvationTests.swift */; };
 		C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */; };
 		A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */; };
 		FE89827F4FAB9F7524A38B41 /* CLISendQueuedOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85A183D9426E08846D029219 /* CLISendQueuedOutputTests.swift */; };
@@ -3532,6 +3533,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessTestSupport.swift; sourceTree = "<group>"; };
 		89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpHookBindingTests.swift; sourceTree = "<group>"; };
 		89930006AABBCCDDEEFF0002 /* CLIOmpSupersededCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpSupersededCleanupTests.swift; sourceTree = "<group>"; };
+		3DF95E10764925A7C25CED8E /* CLIProcessHelperStarvationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CLIProcessHelperStarvationTests.swift; sourceTree = "<group>"; };
 		C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemoteShellStartupPerformanceTests.swift; sourceTree = "<group>"; };
 		A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRovoDevHookPersistenceTests.swift; sourceTree = "<group>"; };
 		85A183D9426E08846D029219 /* CLISendQueuedOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISendQueuedOutputTests.swift; sourceTree = "<group>"; };
@@ -8482,6 +8484,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				6042B0016042B0016042B001 /* ShortcutHintModifierPolicyTests.swift */,
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
 				78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */,
+				3DF95E10764925A7C25CED8E /* CLIProcessHelperStarvationTests.swift */,
 				64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */,
 				BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */,
 				877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */,
@@ -11504,6 +11507,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */,
 				89930001AABBCCDDEEFF0001 /* CLIOmpHookBindingTests.swift in Sources */,
 				89930006AABBCCDDEEFF0001 /* CLIOmpSupersededCleanupTests.swift in Sources */,
+				B2FBA2F2F8066EDF1FBEBE6C /* CLIProcessHelperStarvationTests.swift in Sources */,
 				C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */,
 					A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */,
 					FE89827F4FAB9F7524A38B41 /* CLISendQueuedOutputTests.swift in Sources */,
