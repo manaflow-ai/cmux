@@ -251,21 +251,33 @@ struct MachinesPanelView: View {
 
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
+    /// Otherwise the New Machine sheet collects name, kind, and size, and its
+    /// Create runs the same `cmux vm new` path the CLI and palette use.
     private func requestNewMachine() {
         if let plan = viewModel.plan, plan.isAtLimit, !plan.isPaidPlan {
             ProUpgradePresenter.present()
             return
         }
-        viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
-        let didStart = MachineRowActions.openNewMachine { [weak viewModel] _ in
-            viewModel?.endOperation()
-        }
-        if !didStart {
-            // A sign-out can race the button click. CloudVMActionLauncher
-            // opens the shared sign-in flow and returns false; clear the
-            // panel's progress state because no completion callback follows.
-            viewModel.endOperation()
-        }
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: viewModel.plan,
+            imageKinds: viewModel.imageKinds,
+            launch: { [weak viewModel] arguments, completion in
+                viewModel?.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
+                let didStart = MachineRowActions.openNewMachine(arguments: arguments) { result in
+                    viewModel?.endOperation()
+                    completion(result)
+                }
+                if !didStart {
+                    // A sign-out can race the button click. CloudVMActionLauncher
+                    // opens the shared sign-in flow and returns false; clear the
+                    // panel's progress state because no completion callback follows.
+                    viewModel?.endOperation()
+                }
+                return didStart
+            }
+        )
+        NewMachineSheetPresenter.shared.present(model: model, preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
     /// The Finder-like tree over the surface catalog: This Mac, then every
@@ -630,7 +642,13 @@ struct MachineRowActions {
 
     @MainActor
     @discardableResult
-    static func openNewMachine(onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil) -> Bool {
+    /// `arguments` is the `cmux vm new …` invocation the New Machine sheet
+    /// built (kind, size, name). Failures come back through `onCompletion`
+    /// so the sheet can show them inline instead of a detached alert.
+    static func openNewMachine(
+        arguments: [String] = ["vm", "new"],
+        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+    ) -> Bool {
         // `vm new` mints a fresh machine with its own persistent home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
@@ -639,7 +657,8 @@ struct MachineRowActions {
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
-            arguments: ["vm", "new"],
+            arguments: arguments,
+            presentsFailureAlert: false,
             onCompletion: onCompletion
         )
     }

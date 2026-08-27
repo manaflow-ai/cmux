@@ -257,6 +257,9 @@ struct VMSummary {
     let image: String
     let createdAt: Int64
     let base: VMBaseSummary?
+    /// The backend's `kind` (desktop/base) when it reports one; older control
+    /// planes omit it and ``resolvedKind`` infers it from the image id.
+    var kind: VMMachineKind? = nil
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
     /// When the free plan's access window closes for this machine (epoch ms);
@@ -265,6 +268,9 @@ struct VMSummary {
 
     /// The name to show people: the label when set, otherwise the machine id.
     var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+
+    /// Whether the machine has a screen: the server's word first, image name second.
+    var resolvedKind: VMMachineKind { kind ?? VMMachineKind.inferred(fromImage: image) }
 }
 
 /// Plan context served alongside the machine list: how many active VMs the
@@ -277,6 +283,9 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
+    /// Which image each kind provisions on the caller's provider, for the New
+    /// Machine sheet's summary line. Empty on control planes that predate it.
+    var imageKinds: [VMImageKindOption] = []
 }
 
 struct VMListPage {
@@ -491,7 +500,8 @@ actor VMClient {
                 maxActiveVms: maxActiveVms,
                 planId: planId,
                 freeAccessWindowDays: freeAccessWindowDays,
-                freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"])
+                freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
             )
         }
         let vms = try items.enumerated().map { index, dict -> VMSummary in
@@ -509,6 +519,7 @@ actor VMClient {
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
             var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+            summary.kind = Self.decodeKind(dict["kind"])
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
@@ -516,6 +527,23 @@ actor VMClient {
             return summary
         }
         return VMListPage(vms: vms, limits: limits)
+    }
+
+    /// A valid `kind` string → the kind; anything else → nil so the image
+    /// heuristic decides.
+    private static func decodeKind(_ raw: Any?) -> VMMachineKind? {
+        guard let raw = raw as? String else { return nil }
+        return VMMachineKind(rawValue: raw.lowercased())
+    }
+
+    /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
+    private static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
+        guard let items = raw as? [[String: Any]] else { return [] }
+        return items.compactMap { item in
+            guard let kind = decodeKind(item["kind"]),
+                  let image = item["image"] as? String, !image.isEmpty else { return nil }
+            return VMImageKindOption(kind: kind, image: image)
+        }
     }
 
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
@@ -526,9 +554,12 @@ actor VMClient {
         return nil
     }
 
-    func create(image: String? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
+    /// Creates a machine. `kind` asks the backend for its desktop or shell image;
+    /// `image` is the explicit override (`vm new --image`) and wins server-side.
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let image { body["image"] = image }
+        if let kind { body["kind"] = kind.rawValue }
         if let provider { body["provider"] = provider }
         if persistentHome { body["persistentHome"] = true }
         if perMachineHome { body["perMachineHome"] = true }
@@ -561,22 +592,27 @@ actor VMClient {
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
-        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
+        var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
+        summary.kind = Self.decodeKind(obj["kind"])
+        return summary
     }
 
-    func openBase(name: String? = nil) async throws -> VMSummary {
-        try await baseRequest(path: "/api/vm/base/open", name: name, reason: nil)
+    /// Opens (creating on first use) the persistent Base machine. `kind` only
+    /// matters when Base does not exist yet; an existing Base keeps its image.
+    func openBase(name: String? = nil, kind: VMMachineKind? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/open", name: name, kind: kind, reason: nil)
     }
 
-    func resetBase(name: String? = nil, reason: String? = nil) async throws -> VMSummary {
-        try await baseRequest(path: "/api/vm/base/reset", name: name, reason: reason)
+    func resetBase(name: String? = nil, kind: VMMachineKind? = nil, reason: String? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/reset", name: name, kind: kind, reason: reason)
     }
 
-    private func baseRequest(path: String, name: String?, reason: String?) async throws -> VMSummary {
+    private func baseRequest(path: String, name: String?, kind: VMMachineKind?, reason: String?) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["name"] = name
         }
+        if let kind { body["kind"] = kind.rawValue }
         if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["reason"] = reason
         }
@@ -599,7 +635,9 @@ actor VMClient {
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
-        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        summary.kind = Self.decodeKind(obj["kind"])
+        return summary
     }
 
     func status(id: String) async throws -> VMSummary {
@@ -617,7 +655,12 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
-        return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        summary.kind = Self.decodeKind(obj["kind"])
+        if let label = obj["displayName"] as? String, !label.isEmpty {
+            summary.displayName = label
+        }
+        return summary
     }
 
     /// Sets or clears the machine's user-facing label via PATCH /api/vm/{id}.
