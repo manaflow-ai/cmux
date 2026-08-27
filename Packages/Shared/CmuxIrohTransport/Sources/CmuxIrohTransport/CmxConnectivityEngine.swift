@@ -540,37 +540,58 @@ public actor CmxConnectivityEngine {
             peerID: peerID,
             buildSession: { request in
                 let endpoint = try await supervisor.activeEndpoint()
-                let context = try await contextProvider.context(for: request)
-                let session = try CmxIrohClientSession(
-                    endpoint: endpoint,
-                    targetIdentity: peerID.identity,
-                    dialPlan: context.dialPlan,
-                    credential: context.credential,
-                    privateFallbackAuthorization: context.privateFallbackAuthorization,
-                    privateFallbackValidator: contextProvider,
-                    privateFallbackContextProvider: {
-                        try await contextProvider.contextWithPrivateFallback(
-                            for: request,
-                            basedOn: context
-                        )
-                    },
-                    dialPhaseTimeout: dialPhaseTimeout,
-                    protocolConfiguration: protocolConfiguration,
-                    diagnostics: diagnosticLog
-                )
-                do {
-                    try await session.connect()
-                    return session
-                } catch {
-                    await session.close()
-                    if !(Task.isCancelled || error is CancellationError) {
-                        await contextProvider.noteDialFailure(
-                            for: request,
-                            dialPlan: context.dialPlan,
-                            failure: DiagnosticFailureKind.classify(error)
-                        )
+                var context = try await contextProvider.context(for: request)
+                var attemptedCredentialFallback = false
+                while true {
+                    let attemptContext = context
+                    let session = try CmxIrohClientSession(
+                        endpoint: endpoint,
+                        targetIdentity: peerID.identity,
+                        dialPlan: attemptContext.dialPlan,
+                        credential: attemptContext.credential,
+                        privateFallbackAuthorization: attemptContext.privateFallbackAuthorization,
+                        privateFallbackValidator: contextProvider,
+                        privateFallbackContextProvider: {
+                            try await contextProvider.contextWithPrivateFallback(
+                                for: request,
+                                basedOn: attemptContext
+                            )
+                        },
+                        dialPhaseTimeout: dialPhaseTimeout,
+                        protocolConfiguration: protocolConfiguration,
+                        diagnostics: diagnosticLog
+                    )
+                    do {
+                        try await session.connect()
+                        await contextProvider.noteAdmissionSucceeded(for: request)
+                        return session
+                    } catch {
+                        await session.close()
+                        if !(Task.isCancelled || error is CancellationError) {
+                            await contextProvider.noteDialFailure(
+                                for: request,
+                                dialPlan: attemptContext.dialPlan,
+                                failure: DiagnosticFailureKind.classify(error)
+                            )
+                        }
+                        // A refused credential-less (allowlist) admission
+                        // falls back to the bootstrap grant path once: the
+                        // provider is told to require a credential again and
+                        // asked for a fresh context, which may fetch a grant.
+                        if case CmxIrohClientSessionError.admissionDenied = error,
+                           attemptContext.credential == nil,
+                           !attemptedCredentialFallback,
+                           !(Task.isCancelled) {
+                            attemptedCredentialFallback = true
+                            await contextProvider.noteAllowlistAdmissionRefused(
+                                for: request
+                            )
+                            context = try await contextProvider.context(for: request)
+                            guard context.credential != nil else { throw error }
+                            continue
+                        }
+                        throw error
                     }
-                    throw error
                 }
             },
             handleSnapshot: { [weak self] snapshot in

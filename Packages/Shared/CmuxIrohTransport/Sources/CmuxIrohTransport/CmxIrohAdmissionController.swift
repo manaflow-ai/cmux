@@ -1,10 +1,13 @@
 public import CMUXMobileCore
 public import Foundation
 
-/// Mac admission policy combining online grants, offline sessions, and local revoke state.
+/// Mac admission policy combining online grants, offline sessions, the paired
+/// endpoint allowlist, and local revoke state.
 public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
     private let offlineSessions: CmxIrohOfflinePairingSessions
     private let onlineRegistry: CmxIrohOnlineAdmissionRegistry
+    private let allowlist: CmxIrohPairedPeerAllowlist?
+    private let allowlistScope: CmxIrohPairedPeerAllowlistScope?
     private let now: @Sendable () -> Date
     private var acceptor: CmxIrohGrantPeer
     private var pairingEnabled: Bool
@@ -17,12 +20,16 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         pairingEnabled: Bool,
         offlineSessions: CmxIrohOfflinePairingSessions,
         onlineRegistry: CmxIrohOnlineAdmissionRegistry,
+        allowlist: CmxIrohPairedPeerAllowlist? = nil,
+        allowlistScope: CmxIrohPairedPeerAllowlistScope? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.acceptor = acceptor
         self.pairingEnabled = pairingEnabled
         self.offlineSessions = offlineSessions
         self.onlineRegistry = onlineRegistry
+        self.allowlist = allowlist
+        self.allowlistScope = allowlistScope
         self.now = now
     }
 
@@ -54,10 +61,16 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         revokedBindingIDs.insert(bindingID)
         await offlineSessions.revoke(bindingID: bindingID)
         await onlineRegistry.revoke(bindingID: bindingID)
+        if let allowlist, let allowlistScope {
+            await allowlist.removeEntries(
+                bindingID: bindingID,
+                scope: allowlistScope
+            )
+        }
     }
 
     public func authorize(
-        credential: CmxIrohAdmissionCredential,
+        credential: CmxIrohAdmissionCredential?,
         authenticatedPeerID: CmxIrohPeerIdentity
     ) async -> CmxIrohAdmissionAuthorization {
         guard policyMutationCount == 0,
@@ -67,6 +80,12 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
             return .denied(code: 1)
         }
         let revision = policyRevision
+        guard let credential else {
+            return await authorizeAllowlistedPeer(
+                authenticatedPeerID: authenticatedPeerID,
+                revision: revision
+            )
+        }
         do {
             switch credential.kind {
             case .pairGrant:
@@ -78,7 +97,9 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
                     authenticatedPeerID: authenticatedPeerID
                 ) {
                 case let .accepted(lease):
-                    return checkedAuthorization(lease, revision: revision)
+                    let authorization = checkedAuthorization(lease, revision: revision)
+                    await recordVerifiedPairing(lease, authorization: authorization)
+                    return authorization
                 case .denied:
                     return .denied(code: 1)
                 }
@@ -101,6 +122,84 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         } catch {
             return .denied(code: 1)
         }
+    }
+
+    /// Admits a TLS-proven EndpointID directly from the persisted allowlist.
+    ///
+    /// The entry pins the exact initiator and acceptor tuples the original
+    /// verified grant carried. The online registry revalidates both bindings
+    /// against this Mac account's authenticated broker view exactly as it does
+    /// for an in-band grant, so allowlist admission never bypasses the account
+    /// check the grant used to carry. A refusal evicts the entry: the phone's
+    /// grant-fetch fallback then re-establishes (or is refused) authority.
+    private func authorizeAllowlistedPeer(
+        authenticatedPeerID: CmxIrohPeerIdentity,
+        revision: UInt64
+    ) async -> CmxIrohAdmissionAuthorization {
+        guard let allowlist, let allowlistScope else { return .denied(code: 1) }
+        guard let entry = await allowlist.entry(
+            forInitiatorEndpointID: authenticatedPeerID,
+            scope: allowlistScope,
+            now: now()
+        ) else {
+            return .denied(code: 1)
+        }
+        guard policyMutationCount == 0, policyRevision == revision else {
+            return .denied(code: 1)
+        }
+        guard entry.acceptor == acceptor,
+              !revokedBindingIDs.contains(entry.initiator.bindingID) else {
+            // The Mac's own binding identity changed since pairing, or the
+            // phone binding was locally revoked: the entry is dead.
+            await allowlist.removeEntry(
+                forInitiatorEndpointID: authenticatedPeerID,
+                scope: allowlistScope
+            )
+            return .denied(code: 1)
+        }
+        switch await onlineRegistry.authorizePairedEndpoint(
+            initiator: entry.initiator,
+            acceptor: entry.acceptor,
+            expiresAt: entry.expiresAt,
+            authenticatedPeerID: authenticatedPeerID
+        ) {
+        case let .accepted(lease):
+            return checkedAuthorization(lease, revision: revision)
+        case .denied:
+            // Definitive local or registry refusal (revoked, unpaired,
+            // expired). Evict so a stale entry cannot be retried forever;
+            // the bootstrap grant path remains the recovery route.
+            await allowlist.removeEntry(
+                forInitiatorEndpointID: authenticatedPeerID,
+                scope: allowlistScope
+            )
+            return .denied(code: 1)
+        }
+    }
+
+    /// Persists the paired endpoint after its grant verified, bounded by the
+    /// grant's own signed expiry. Recording failure only costs the fast path.
+    private func recordVerifiedPairing(
+        _ lease: CmxIrohOnlineAdmissionLease,
+        authorization: CmxIrohAdmissionAuthorization
+    ) async {
+        guard case .accepted = authorization,
+              let allowlist,
+              let allowlistScope,
+              case let .pairGrant(_, initiator, grantAcceptor) = lease.authority else {
+            return
+        }
+        let clock = now()
+        await allowlist.record(
+            CmxIrohPairedPeerAllowlistEntry(
+                initiator: initiator,
+                acceptor: grantAcceptor,
+                expiresAt: lease.expiresAt,
+                recordedAt: clock
+            ),
+            scope: allowlistScope,
+            now: clock
+        )
     }
 
     private func checkedAuthorization(

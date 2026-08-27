@@ -13,7 +13,8 @@ public actor CmxIrohClientSession {
     private let dialPhaseTimeout: Duration
     private let targetIdentity: CmxIrohPeerIdentity
     private let dialPlan: CmxIrohDialPlan
-    private let credential: CmxIrohAdmissionCredential
+    /// `nil` requests allowlist admission with no in-band credential.
+    private let credential: CmxIrohAdmissionCredential?
     private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
     private let privateFallbackContextProvider: PrivateFallbackContextProvider?
@@ -49,7 +50,7 @@ public actor CmxIrohClientSession {
         endpoint: any CmxIrohEndpoint,
         targetIdentity: CmxIrohPeerIdentity,
         dialPlan: CmxIrohDialPlan,
-        credential: CmxIrohAdmissionCredential,
+        credential: CmxIrohAdmissionCredential?,
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
