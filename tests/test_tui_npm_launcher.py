@@ -22,6 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js"
+NIGHTLY_VERSION = "1.2.3-nightly.20260827.1"
 
 
 def make_tarball() -> bytes:
@@ -46,23 +47,35 @@ def make_negative_size_tarball() -> bytes:
 class RegistryHandler(http.server.BaseHTTPRequestHandler):
     tarball = make_tarball()
     latest_version = "1.2.3"
+    nightly_version = "1.2.3-nightly.20260827.1"
     block_tarball = False
     tarball_started = threading.Event()
     tarball_release = threading.Event()
     metadata_requests = 0
     tarball_requests = 0
+    latest_requests: list[str] = []
     authorization_headers: list[str | None] = []
     status = 200
 
     def do_GET(self) -> None:  # noqa: N802, required by BaseHTTPRequestHandler
         type(self).authorization_headers.append(self.headers.get("Authorization"))
-        if self.path == "/cmux/latest":
-            body = json.dumps({"version": type(self).latest_version}).encode()
+        if self.path in ("/cmux/latest", "/cmux/nightly"):
+            type(self).latest_requests.append(self.path)
+            version = (
+                type(self).nightly_version
+                if self.path == "/cmux/nightly"
+                else type(self).latest_version
+            )
+            body = json.dumps({"version": version}).encode()
         elif self.path.endswith((
             "/cmux-tui-darwin-arm64/1.2.3",
             "/cmux-tui-darwin-x64/1.2.3",
             "/cmux-tui-linux-arm64/1.2.3",
             "/cmux-tui-linux-x64/1.2.3",
+            f"/cmux-tui-darwin-arm64/{NIGHTLY_VERSION}",
+            f"/cmux-tui-darwin-x64/{NIGHTLY_VERSION}",
+            f"/cmux-tui-linux-arm64/{NIGHTLY_VERSION}",
+            f"/cmux-tui-linux-x64/{NIGHTLY_VERSION}",
         )):
             type(self).metadata_requests += 1
             body = json.dumps(
@@ -215,9 +228,11 @@ def start_registry() -> tuple[http.server.ThreadingHTTPServer, threading.Thread,
     RegistryHandler.authorization_headers = []
     RegistryHandler.status = 200
     RegistryHandler.latest_version = "1.2.3"
+    RegistryHandler.nightly_version = NIGHTLY_VERSION
     RegistryHandler.block_tarball = False
     RegistryHandler.tarball_started = threading.Event()
     RegistryHandler.tarball_release = threading.Event()
+    RegistryHandler.latest_requests = []
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RegistryHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -383,6 +398,46 @@ def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
     assert unmanaged.is_file()
     assert not unmanaged.parent.parent.joinpath("managed").exists()
     assert not (unmanaged.stat().st_mode & stat.S_IXUSR)
+
+
+def test_update_uses_channel_latest_and_persists_channel_state(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+
+    nightly_version = "1.2.3-nightly.20260826.1"
+    nightly_launcher = write_launcher(tmp_path / "nightly", nightly_version)
+    nightly_cache = tmp_path / "nightly-cache"
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(nightly_launcher, nightly_cache, registry, "update")
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert result.returncode == 0, result.stderr
+    assert RegistryHandler.latest_requests == ["/cmux/nightly"]
+    nightly_state = json.loads(
+        (nightly_cache / host_platform_key() / "state.json").read_text()
+    )
+    assert nightly_state["version"] == RegistryHandler.nightly_version
+    assert nightly_state["channel"] == "nightly"
+
+    stable_launcher = write_launcher(tmp_path / "stable", "1.2.2")
+    stable_cache = tmp_path / "stable-cache"
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(stable_launcher, stable_cache, registry, "update")
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert result.returncode == 0, result.stderr
+    assert RegistryHandler.latest_requests == ["/cmux/latest"]
+    stable_state = json.loads(
+        (stable_cache / host_platform_key() / "state.json").read_text()
+    )
+    assert stable_state["version"] == RegistryHandler.latest_version
+    assert stable_state["channel"] == "stable"
 
 
 def test_launcher_keeps_stable_and_nightly_state_channels_separate(
@@ -1059,6 +1114,9 @@ def main() -> None:
         test_update_lease_protects_download_from_concurrent_prune(root / "update-concurrent")
         test_concurrent_updates_fail_closed_while_one_downloads(root / "update-serialization")
         test_prune_preserves_unmanaged_cache_version(root / "unmanaged-cache")
+        test_update_uses_channel_latest_and_persists_channel_state(
+            root / "channel-update"
+        )
         test_launcher_keeps_stable_and_nightly_state_channels_separate(
             root / "channel-state"
         )
