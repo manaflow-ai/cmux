@@ -281,7 +281,7 @@ pub struct CdpClient {
 }
 
 struct Inner {
-    outbound: Sender<Outbound>,
+    outbound: SyncSender<Outbound>,
     pending: Mutex<HashMap<u64, PendingCall>>,
     events: Arc<EventQueue>,
     frame_epochs: Mutex<HashMap<String, FrameSession>>,
