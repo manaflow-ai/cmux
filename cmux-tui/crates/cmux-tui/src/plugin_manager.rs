@@ -157,6 +157,7 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         return Err(error.into());
     }
 
+    let mut metadata_temp_path = None;
     let result = (|| -> Result<Value, ManagerError> {
         let manifest = read_manifest(&temp_dir)
             .map_err(|error| ManagerError::validation(None, error.to_string()))?;
@@ -176,12 +177,10 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
         let metadata = PluginRegistryMetadata { id: random_plugin_id()? };
-        replace_registry_metadata(&root, &name, &metadata)?;
+        let metadata_temp = write_registry_metadata_temp(&root, &name, &metadata)?;
+        metadata_temp_path = Some(metadata_temp.clone());
         let id = metadata.id;
-        if target.exists() {
-            fs::remove_dir_all(&target)?;
-        }
-        fs::rename(&temp_dir, &target)?;
+        replace_installed_plugin(&root, &name, &temp_dir, &metadata_temp)?;
         let selected = selected_plugin_cwd()?.is_some_and(|cwd| same_path(&cwd, &target));
         if selected {
             let command = resolved_run_command(&manifest, &target)?;
@@ -199,8 +198,13 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
             selected,
         })}))
     })();
-    if result.is_err() && temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+    if result.is_err() {
+        if temp_dir.exists() {
+            let _ = fs::remove_dir_all(&temp_dir);
+        }
+        if let Some(metadata_temp) = metadata_temp_path {
+            let _ = fs::remove_file(metadata_temp);
+        }
     }
     result
 }
@@ -585,16 +589,137 @@ fn registry_metadata_path(install_root: &Path, name: &str) -> PathBuf {
     install_root.join(".registry").join(format!("{name}.json"))
 }
 
-fn replace_registry_metadata(
+trait InstallFilesystem {
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()>;
+    fn remove_dir_all(&self, path: &Path) -> std::io::Result<()>;
+    fn remove_file(&self, path: &Path) -> std::io::Result<()>;
+}
+
+struct StandardInstallFilesystem;
+
+impl InstallFilesystem for StandardInstallFilesystem {
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        fs::rename(from, to)
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> std::io::Result<()> {
+        fs::remove_dir_all(path)
+    }
+
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        fs::remove_file(path)
+    }
+}
+
+fn unique_backup_path(parent: &Path, name: &str, suffix: &str) -> PathBuf {
+    loop {
+        let path = parent.join(format!(".{name}.{}-{}{suffix}", std::process::id(), now_nanos()));
+        if !path.exists() {
+            return path;
+        }
+    }
+}
+
+fn replace_installed_plugin(
+    install_root: &Path,
+    name: &str,
+    temp_dir: &Path,
+    metadata_temp: &Path,
+) -> anyhow::Result<()> {
+    replace_installed_plugin_with_fs(
+        &StandardInstallFilesystem,
+        install_root,
+        name,
+        temp_dir,
+        metadata_temp,
+    )
+}
+
+fn replace_installed_plugin_with_fs<F: InstallFilesystem>(
+    filesystem: &F,
+    install_root: &Path,
+    name: &str,
+    temp_dir: &Path,
+    metadata_temp: &Path,
+) -> anyhow::Result<()> {
+    let target = install_root.join(name);
+    let target_exists = target.exists();
+    let metadata_path = registry_metadata_path(install_root, name);
+    let target_backup = unique_backup_path(install_root, name, ".plugin-backup");
+    let metadata_backup =
+        unique_backup_path(&install_root.join(".registry"), name, ".metadata-backup.json");
+    let metadata_exists = metadata_path.exists();
+    let mut target_backed_up = false;
+    let mut metadata_backed_up = false;
+    let mut target_installed = false;
+    let mut metadata_installed = false;
+
+    let result = (|| -> anyhow::Result<()> {
+        if target_exists {
+            filesystem.rename(&target, &target_backup).map_err(|error| {
+                anyhow::anyhow!("failed to back up {}: {error}", target.display())
+            })?;
+            target_backed_up = true;
+        }
+        if metadata_exists {
+            filesystem.rename(&metadata_path, &metadata_backup).map_err(|error| {
+                anyhow::anyhow!("failed to back up {}: {error}", metadata_path.display())
+            })?;
+            metadata_backed_up = true;
+        }
+        filesystem
+            .rename(temp_dir, &target)
+            .map_err(|error| anyhow::anyhow!("failed to install {}: {error}", target.display()))?;
+        target_installed = true;
+        filesystem.rename(metadata_temp, &metadata_path).map_err(|error| {
+            anyhow::anyhow!("failed to persist {}: {error}", metadata_path.display())
+        })?;
+        metadata_installed = true;
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        let mut rollback_errors = Vec::new();
+        if metadata_installed
+            && let Err(rollback_error) = filesystem.rename(&metadata_path, metadata_temp)
+        {
+            rollback_errors.push(format!("metadata staging: {rollback_error}"));
+        }
+        if metadata_backed_up
+            && let Err(rollback_error) = filesystem.rename(&metadata_backup, &metadata_path)
+        {
+            rollback_errors.push(format!("metadata restore: {rollback_error}"));
+        }
+        if target_installed && let Err(rollback_error) = filesystem.rename(&target, temp_dir) {
+            rollback_errors.push(format!("plugin staging: {rollback_error}"));
+        }
+        if target_backed_up && let Err(rollback_error) = filesystem.rename(&target_backup, &target)
+        {
+            rollback_errors.push(format!("plugin restore: {rollback_error}"));
+        }
+        if !rollback_errors.is_empty() {
+            anyhow::bail!("{error}; rollback failed: {}", rollback_errors.join("; "));
+        }
+        return Err(error);
+    }
+
+    // The replacement is committed once both new paths are in place. Cleanup is
+    // deliberately best effort: retaining an old same-parent backup is safe and
+    // preserves recovery data if the process loses access after commit.
+    let _ = filesystem.remove_dir_all(&target_backup);
+    let _ = filesystem.remove_file(&metadata_backup);
+    Ok(())
+}
+
+fn write_registry_metadata_temp(
     install_root: &Path,
     name: &str,
     metadata: &PluginRegistryMetadata,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<PathBuf> {
     validate_plugin_name(name)?;
     validate_plugin_id(&metadata.id)?;
     let registry = install_root.join(".registry");
     fs::create_dir_all(&registry)?;
-    let path = registry_metadata_path(install_root, name);
     let temp = registry.join(format!(".{name}.{}-{}.tmp", std::process::id(), now_nanos()));
     let encoded = serde_json::to_vec(metadata)?;
     let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
@@ -602,6 +727,16 @@ fn replace_registry_metadata(
     file.write_all(b"\n")?;
     file.sync_all()?;
     drop(file);
+    Ok(temp)
+}
+
+fn replace_registry_metadata(
+    install_root: &Path,
+    name: &str,
+    metadata: &PluginRegistryMetadata,
+) -> anyhow::Result<()> {
+    let path = registry_metadata_path(install_root, name);
+    let temp = write_registry_metadata_temp(install_root, name, metadata)?;
     if let Err(error) = fs::rename(&temp, &path) {
         let _ = fs::remove_file(&temp);
         return Err(anyhow::anyhow!("failed to persist {}: {error}", path.display()));
@@ -682,6 +817,7 @@ fn now_nanos() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     fn manifest_text(name: &str) -> String {
         format!(
@@ -827,15 +963,9 @@ mod tests {
     fn replacement_failure_after_backup_restores_plugin_and_metadata() {
         let (root, target, temp_dir, metadata_temp) = replacement_fixture("rollback");
         let filesystem = FailingRenameFilesystem { fail_at: 2, calls: Cell::new(0) };
-        let error = replace_installed_plugin_with_fs(
-            &filesystem,
-            &root,
-            "demo",
-            &temp_dir,
-            &metadata_temp,
-            true,
-        )
-        .unwrap_err();
+        let error =
+            replace_installed_plugin_with_fs(&filesystem, &root, "demo", &temp_dir, &metadata_temp)
+                .unwrap_err();
         assert!(error.to_string().contains("back up"));
         assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "old");
         assert_eq!(
@@ -850,7 +980,7 @@ mod tests {
     #[test]
     fn replacement_commits_new_plugin_and_metadata_together() {
         let (root, target, temp_dir, metadata_temp) = replacement_fixture("success");
-        replace_installed_plugin(&root, "demo", &temp_dir, &metadata_temp, true).unwrap();
+        replace_installed_plugin(&root, "demo", &temp_dir, &metadata_temp).unwrap();
         assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "new");
         assert_eq!(
             read_registry_metadata(&root, "demo").unwrap().id,
