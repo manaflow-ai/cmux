@@ -71,11 +71,15 @@ struct CodexResumeBindingVerificationTests {
         )
 
         let results = CodexSessionResumeVerifier().verifyBatch(
-            [CodexSessionResumeVerificationRequest(sessionId: metadataSessionID)],
+            [
+                CodexSessionResumeVerificationRequest(sessionId: filenameSessionID),
+                CodexSessionResumeVerificationRequest(sessionId: metadataSessionID),
+            ],
             codexHome: fixture.codexHome.path
         )
 
-        guard case .exists(let evidence) = results.first else {
+        guard results.count == 2,
+              case .exists(let evidence) = results[1] else {
             Issue.record("session_meta.id must remain authoritative after a rollout rename")
             return
         }
