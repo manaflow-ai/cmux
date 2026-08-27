@@ -67,6 +67,25 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
     request_paths: list[str] = []
     status = 200
 
+    @staticmethod
+    def binary_integrity(tarball: bytes) -> str | None:
+        """Return the fixture binary SRI carried by package metadata."""
+        try:
+            with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as archive:
+                member = next(
+                    member
+                    for member in archive.getmembers()
+                    if member.isfile() and member.name in {"package/bin/cmux-tui", "package/bin/cmux-tui.exe"}
+                )
+                payload = archive.extractfile(member)
+                if payload is None:
+                    return None
+                return "sha512-" + base64.b64encode(
+                    hashlib.sha512(payload.read()).digest()
+                ).decode()
+        except (OSError, StopIteration, tarfile.TarError):
+            return None
+
     def do_GET(self) -> None:  # noqa: N802, required by BaseHTTPRequestHandler
         type(self).authorization_headers.append(self.headers.get("Authorization"))
         metadata_path = urllib.parse.urlsplit(self.path).path
@@ -88,18 +107,21 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
             type(self).metadata_requests += 1
             version = metadata_match.group(1)
             tarball = type(self).tarballs.get(version, type(self).tarball)
-            body = json.dumps(
-                {
-                    "dist": {
-                        "tarball": (
-                            f"http://127.0.0.1:{self.server.server_port}/tarball.tgz?"
-                            f"version={urllib.parse.quote(version, safe='')}"
-                        ),
-                        "integrity": "sha512-"
-                        + base64.b64encode(hashlib.sha512(tarball).digest()).decode(),
-                    }
-                }
-            ).encode()
+            binary_integrity = type(self).binary_integrity(tarball)
+            dist = {
+                "tarball": (
+                    f"http://127.0.0.1:{self.server.server_port}/tarball.tgz?"
+                    f"version={urllib.parse.quote(version, safe='')}"
+                ),
+                "integrity": "sha512-"
+                + base64.b64encode(hashlib.sha512(tarball).digest()).decode(),
+            }
+            if binary_integrity:
+                dist["cmuxBinaryIntegrity"] = binary_integrity
+            metadata = {"dist": dist}
+            if binary_integrity:
+                metadata["cmuxBinaryIntegrity"] = binary_integrity
+            body = json.dumps(metadata).encode()
         elif metadata_path != "/tarball.tgz" and re.fullmatch(
             r"/[A-Za-z0-9._-]+", metadata_path
         ):
@@ -125,11 +147,16 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
                     "integrity": "sha512-"
                     + base64.b64encode(hashlib.sha512(tarball).digest()).decode(),
                 }
+                binary_integrity = type(self).binary_integrity(tarball)
+                if binary_integrity:
+                    dist["cmuxBinaryIntegrity"] = binary_integrity
                 version_records[version] = {
                     "name": package_name,
                     "version": version,
                     "dist": dist,
                 }
+                if binary_integrity:
+                    version_records[version]["cmuxBinaryIntegrity"] = binary_integrity
             body = json.dumps(
                 {
                     "name": package_name,
@@ -177,6 +204,7 @@ def run_launcher(
     env_extra: dict[str, str] | None = None,
     env_remove: set[str] | None = None,
     timeout_seconds: float | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     for name in env_remove or set():
@@ -199,6 +227,7 @@ def run_launcher(
         capture_output=True,
         text=True,
         env=env,
+        cwd=cwd,
         timeout=timeout_seconds,
     )
 
@@ -384,10 +413,15 @@ if (args[0] === 'view') {
     process.exit(0);
   }
   if (field === 'dist') {
-    process.stdout.write(JSON.stringify({
+    const dist = {
       tarball: 'https://registry.invalid/unused.tgz',
       integrity: process.env.FAKE_NPM_INTEGRITY,
-    }));
+    };
+    process.stdout.write(JSON.stringify(dist));
+    process.exit(0);
+  }
+  if (field === 'cmuxBinaryIntegrity') {
+    process.stdout.write(JSON.stringify(process.env.FAKE_NPM_BINARY_INTEGRITY || null));
     process.exit(0);
   }
 }
@@ -488,6 +522,42 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
     assert cached.is_file()
     assert cached.stat().st_mode & stat.S_IXUSR
     assert not (cache / platform_key / "v/1.2.3/.active").exists()
+
+
+def test_launcher_uses_authenticated_metadata_for_writable_cache_hit(
+    tmp_path: Path,
+) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry(block_tarball_versions={"1.2.3"})
+    try:
+        first = run_launcher(launcher, cache, registry, "--version")
+        RegistryHandler.block_tarball = True
+        try:
+            second = run_launcher(
+                launcher,
+                cache,
+                registry,
+                "--version",
+                timeout_seconds=3,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise AssertionError(
+                "a clean writable cache hit attempted a full tarball download"
+            ) from error
+    finally:
+        RegistryHandler.tarball_release.set()
+        server.shutdown()
+        thread.join()
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert second.stdout == "fake cmux-tui 1.2.3\n"
+    assert RegistryHandler.metadata_requests == 2
+    assert RegistryHandler.tarball_requests == 1
+    assert not RegistryHandler.tarball_started.is_set()
 
 
 def test_launcher_runs_verified_binary_from_read_only_cache(tmp_path: Path) -> None:
@@ -898,6 +968,9 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     fixture_integrity = "sha512-" + base64.b64encode(
         hashlib.sha512(tarball).digest()
     ).decode()
+    fixture_binary_integrity = "sha512-" + base64.b64encode(
+        hashlib.sha512(payload).digest()
+    ).decode()
     fake_npm = write_fake_npm(tmp_path)
     npm_log = tmp_path / "npm.log"
     env_extra.update(
@@ -910,6 +983,7 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
             "FAKE_NPM_LATEST": "1.2.3",
             "FAKE_NPM_TARBALL": str(fixture_tarball),
             "FAKE_NPM_INTEGRITY": fixture_integrity,
+            "FAKE_NPM_BINARY_INTEGRITY": fixture_binary_integrity,
             "FAKE_NPM_LOG": str(npm_log),
             "FAKE_NPM_HOST_PLATFORM": sys.platform,
         }
@@ -1002,14 +1076,17 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     assert [record["args"][0] for record in records] == [
         "view",
         "view",
-        "pack",
         "view",
         "pack",
+        "view",
+        "view",
+        "view",
         "view",
         "pack",
     ]
     assert records[0]["args"][2] == "version"
     assert records[1]["args"][2] == "dist"
+    assert records[2]["args"][2] == "cmuxBinaryIntegrity"
     expected_spec = "cmux-tui-win32-x64@1.2.3"
     assert all(expected_spec in record["args"] for record in records)
     assert all(
@@ -1081,6 +1158,126 @@ def test_launcher_reads_registry_token_from_npmrc(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert RegistryHandler.authorization_headers
     assert all(value == "Bearer fixture-token" for value in RegistryHandler.authorization_headers)
+
+
+def test_launcher_honors_explicit_userconfig_and_project_precedence(
+    tmp_path: Path,
+) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    project = tmp_path / "project"
+    project.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    server, thread, registry = start_registry()
+    port = server.server_port
+    (home / ".npmrc").write_text(
+        f"//127.0.0.1:{port}/:_authToken=home-token\n"
+    )
+    explicit = tmp_path / "explicit.npmrc"
+    explicit.write_text(f"//127.0.0.1:{port}/:_authToken=user-token\n")
+    (project / ".npmrc").write_text(
+        f"//127.0.0.1:{port}/:_authToken=project-token\n"
+    )
+    env_extra = {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "npm_config_userconfig": str(explicit),
+        "NPM_CONFIG_USERCONFIG": str(explicit),
+        "npm_config_globalconfig": str(tmp_path / "empty-global.npmrc"),
+        "NPM_CONFIG_GLOBALCONFIG": str(tmp_path / "empty-global.npmrc"),
+    }
+    (tmp_path / "empty-global.npmrc").write_text("")
+    try:
+        result = run_launcher(
+            launcher,
+            cache,
+            registry,
+            "--version",
+            env_extra=env_extra,
+            cwd=project,
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+    assert result.returncode == 0, result.stderr
+    assert RegistryHandler.authorization_headers
+    assert all(
+        value == "Bearer project-token"
+        for value in RegistryHandler.authorization_headers
+    )
+
+    # An explicit userconfig replaces the default home file when no project
+    # file is present. This prevents credentials from a broader scope leaking
+    # into a launch that selected a dedicated config file.
+    (project / ".npmrc").unlink()
+    cache = tmp_path / "explicit-cache"
+    server, thread, registry = start_registry()
+    explicit.write_text(
+        f"//127.0.0.1:{server.server_port}/:_authToken=user-token\n"
+    )
+    try:
+        result = run_launcher(
+            launcher,
+            cache,
+            registry,
+            "--version",
+            env_extra=env_extra,
+            cwd=project,
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+    assert result.returncode == 0, result.stderr
+    assert RegistryHandler.authorization_headers
+    assert all(value == "Bearer user-token" for value in RegistryHandler.authorization_headers)
+
+
+def test_launcher_reads_basic_auth_from_npmrc(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    server, thread, registry = start_registry()
+    auth = base64.b64encode(b"fixture-user:fixture-pass").decode()
+    npmrc = tmp_path / "basic-auth.npmrc"
+    npmrc.write_text(f"//127.0.0.1:{server.server_port}/:_auth={auth}\n")
+    try:
+        result = run_launcher(
+            launcher,
+            tmp_path / "cache-auth",
+            registry,
+            env_extra={"npm_config_userconfig": str(npmrc)},
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+    expected = "Basic " + base64.b64encode(b"fixture-user:fixture-pass").decode()
+    assert result.returncode == 0, result.stderr
+    assert RegistryHandler.authorization_headers
+    assert all(value == expected for value in RegistryHandler.authorization_headers)
+
+    # npm stores username/password credentials with a base64-encoded password.
+    server, thread, registry = start_registry()
+    password = base64.b64encode(b"fixture-pass").decode()
+    npmrc.write_text(
+        f"//127.0.0.1:{server.server_port}/:username=fixture-user\n"
+        f"//127.0.0.1:{server.server_port}/:_password={password}\n"
+    )
+    try:
+        result = run_launcher(
+            launcher,
+            tmp_path / "cache-user-password",
+            registry,
+            env_extra={"npm_config_userconfig": str(npmrc)},
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+    assert result.returncode == 0, result.stderr
+    assert RegistryHandler.authorization_headers
+    assert all(value == expected for value in RegistryHandler.authorization_headers)
 
 
 def test_launcher_reads_registry_from_npmrc(tmp_path: Path) -> None:
@@ -1777,6 +1974,9 @@ def main() -> None:
         if sys.platform == "win32":
             return
         test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
+        test_launcher_uses_authenticated_metadata_for_writable_cache_hit(
+            root / "metadata-cache"
+        )
         test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
         test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
@@ -1787,6 +1987,10 @@ def main() -> None:
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_releases_lease_when_native_launch_fails(root / "launch-failure")
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
+        test_launcher_honors_explicit_userconfig_and_project_precedence(
+            root / "npmrc-precedence"
+        )
+        test_launcher_reads_basic_auth_from_npmrc(root / "npmrc-basic-auth")
         test_launcher_scopes_registry_token_to_npmrc_path(root / "npmrc-scope")
         test_launcher_uses_npm_for_proxy_and_tls_config(root / "npm-network-config")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")

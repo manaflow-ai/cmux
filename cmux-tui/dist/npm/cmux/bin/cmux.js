@@ -21,8 +21,10 @@
 //   2. an installed platform package (require.resolve) whose version matches
 //      the wanted version exactly -- this keeps offline installs working:
 //      `npm install -g cmux cmux-tui-<platform>` never needs the network
-//   3. the launcher cache entry for the wanted version
-//   4. download the wanted version into the launcher cache
+//   3. the launcher cache entry for the wanted version, revalidated against
+//      authenticated package metadata when the cache is writable
+//   4. download the wanted version into the launcher cache when the cache is
+//      missing, stale, or lacks a published binary digest
 //   5. fail closed when the requested version cannot be obtained
 //
 // Wanted version = max(shim's own package version, version recorded by
@@ -1202,40 +1204,7 @@ function readNpmrcRegistry(configPath) {
 }
 
 function npmRegistryFromConfigFiles() {
-  // npm's precedence is project, user, then global. A project file nearest to
-  // the launch cwd wins over broader project files, which also covers nested
-  // workspaces without requiring npm to be installed on PATH.
-  const projectPaths = [];
-  let directory = process.cwd();
-  while (true) {
-    projectPaths.push(path.join(directory, ".npmrc"));
-    const parent = path.dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
-  }
-  for (const configPath of projectPaths) {
-    const registry = readNpmrcRegistry(configPath);
-    if (registry) return registry;
-  }
-
-  const userConfig = npmConfigEnvironmentValue("userconfig");
-  const userPaths = userConfig
-    ? [userConfig]
-    : [path.join(os.homedir(), ".npmrc")];
-  for (const configPath of userPaths) {
-    const registry = readNpmrcRegistry(configPath);
-    if (registry) return registry;
-  }
-
-  const nodePrefix = path.dirname(path.dirname(process.execPath));
-  const globalConfig = npmConfigEnvironmentValue("globalconfig");
-  const configuredPrefix = npmConfigEnvironmentValue("prefix");
-  const globalPrefix = configuredPrefix || process.env.PREFIX || nodePrefix;
-  const globalPaths = globalConfig
-    ? [globalConfig]
-    : [path.join(globalPrefix, "etc", "npmrc")];
-  if (process.platform !== "win32") globalPaths.push("/etc/npmrc");
-  for (const configPath of globalPaths) {
+  for (const configPath of npmConfigFilePaths()) {
     const registry = readNpmrcRegistry(configPath);
     if (registry) return registry;
   }
@@ -1306,22 +1275,50 @@ function npmConfigFilePaths() {
   const add = (candidate) => {
     if (candidate) paths.add(path.resolve(candidate));
   };
-  add(npmConfigEnvironmentValue("userconfig"));
-  add(npmConfigEnvironmentValue("globalconfig"));
 
-  // npm reads a project .npmrc, then the user and global files. Walking to the
-  // nearest root also covers launchers started from a nested project folder.
-  let directory = process.cwd();
+  // npm's file precedence is project, user, then global. Find the nearest
+  // local prefix (a package.json or node_modules directory), then read only
+  // that prefix's .npmrc. Do not treat every ancestor as a project file:
+  // walking through the user's home directory would defeat an explicit
+  // `npm_config_userconfig` selection by loading `~/.npmrc` twice.
+  let directory = path.resolve(process.cwd());
+  let localPrefix = null;
   while (true) {
-    add(path.join(directory, ".npmrc"));
+    try {
+      if (
+        fs.lstatSync(path.join(directory, "package.json")).isFile() ||
+        fs.lstatSync(path.join(directory, "node_modules")).isDirectory()
+      ) {
+        localPrefix = directory;
+        break;
+      }
+    } catch {}
     const parent = path.dirname(directory);
     if (parent === directory) break;
     directory = parent;
   }
-  add(path.join(os.homedir(), ".npmrc"));
-  const nodePrefix = path.dirname(path.dirname(process.execPath));
-  add(path.join(nodePrefix, "etc", "npmrc"));
-  if (process.platform !== "win32") add("/etc/npmrc");
+  const projectConfig = path.join(localPrefix || process.cwd(), ".npmrc");
+  const userConfig = npmConfigEnvironmentValue("userconfig");
+  if (!userConfig || path.resolve(projectConfig) !== path.resolve(userConfig)) {
+    add(projectConfig);
+  }
+
+  if (userConfig) {
+    add(userConfig);
+  } else {
+    add(path.join(os.homedir(), ".npmrc"));
+  }
+
+  const globalConfig = npmConfigEnvironmentValue("globalconfig");
+  if (globalConfig) {
+    add(globalConfig);
+  } else {
+    const nodePrefix = path.dirname(path.dirname(process.execPath));
+    const configuredPrefix = npmConfigEnvironmentValue("prefix");
+    const globalPrefix = configuredPrefix || process.env.PREFIX || nodePrefix;
+    add(path.join(globalPrefix, "etc", "npmrc"));
+    if (process.platform !== "win32") add("/etc/npmrc");
+  }
   return paths;
 }
 
@@ -1507,6 +1504,14 @@ function npmView(packageName, selector, field) {
   );
 }
 
+function npmViewOptional(packageName, selector, field) {
+  try {
+    return npmView(packageName, selector, field);
+  } catch {
+    return null;
+  }
+}
+
 function npmPack(packageName, version) {
   const spec = npmPackageSpec(packageName, version);
   const destination = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-tui-npm-pack-"));
@@ -1553,48 +1558,145 @@ function npmPack(packageName, version) {
   }
 }
 
-function registryHeaders(url, accept) {
-  const headers = { accept };
-  try {
-    const parsed = new URL(url);
-    const registry = new URL(registryBase());
-    if (parsed.origin !== registry.origin) return headers;
-    const tokenKeys = [
-      `npm_config_//${parsed.host}/:_authToken`,
-      `NPM_CONFIG_//${parsed.host}/:_authToken`,
-    ];
-    const token =
-      tokenKeys.map((key) => process.env[key]).find(configValueIsPresent) ||
-      npmrcAuthToken(parsed);
-    if (token) headers.authorization = `Bearer ${token}`;
-  } catch {}
-  return headers;
+const NPM_AUTH_CONFIG_KEYS = new Set([
+  "_authtoken",
+  "_auth",
+  "username",
+  "_password",
+]);
+
+function expandNpmConfigValue(value) {
+  return String(value)
+    .trim()
+    .replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] || "");
 }
 
-function npmrcAuthToken(url) {
-  const configPaths = npmConfigFilePaths();
-  const host = url.host.toLowerCase();
-  for (const configPath of configPaths) {
-    if (!configPath) continue;
+function authScopeMatches(url, host, scope) {
+  if (host.toLowerCase() !== url.host.toLowerCase()) return false;
+  const normalizedScope = scope || "/";
+  if (normalizedScope === "/") return true;
+  const prefix = normalizedScope.endsWith("/")
+    ? normalizedScope
+    : `${normalizedScope}/`;
+  return url.pathname === normalizedScope || url.pathname.startsWith(prefix);
+}
+
+function parseScopedNpmAuthLine(line) {
+  const match = /^\s*\/\/([^/]+)(\/[^:]*?)?\/:([^=\s]+)\s*=\s*(.*?)\s*$/.exec(
+    line
+  );
+  if (!match) return null;
+  const key = match[3].toLowerCase();
+  if (!NPM_AUTH_CONFIG_KEYS.has(key)) return null;
+  return {
+    host: match[1],
+    scope: match[2] || "/",
+    key,
+    value: expandNpmConfigValue(match[4]),
+  };
+}
+
+function parseScopedNpmAuthEnvironment(name, value) {
+  const match = /^npm_config_\/\/([^/]+)(\/[^:]*?)?\/:([^=]+)$/i.exec(name);
+  if (!match) return null;
+  const key = match[3].toLowerCase();
+  if (!NPM_AUTH_CONFIG_KEYS.has(key) || !configValueIsPresent(value)) return null;
+  return {
+    host: match[1],
+    scope: match[2] || "/",
+    key,
+    value: expandNpmConfigValue(value),
+  };
+}
+
+function npmrcAuthValues(url, contents) {
+  const values = {};
+  for (const line of contents.split(/\r?\n/)) {
+    const entry = parseScopedNpmAuthLine(line);
+    if (!entry || !authScopeMatches(url, entry.host, entry.scope)) continue;
+    if (configValueIsPresent(entry.value)) values[entry.key] = entry.value;
+  }
+  return values;
+}
+
+function npmEnvironmentAuthValues(url) {
+  const values = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    const entry = parseScopedNpmAuthEnvironment(name, value);
+    if (!entry || !authScopeMatches(url, entry.host, entry.scope)) continue;
+    values[entry.key] = entry.value;
+  }
+  return values;
+}
+
+function npmAuthSources(url) {
+  // Environment-scoped npm settings override every config file. Keep each
+  // source intact: npm requires username and _password to come from the same
+  // config layer, so merging partial credentials across files could create a
+  // credential that npm itself would reject or send to the wrong registry.
+  const sources = [];
+  const environmentValues = npmEnvironmentAuthValues(url);
+  if (Object.keys(environmentValues).length) sources.push(environmentValues);
+  for (const configPath of npmConfigFilePaths()) {
     let contents;
     try {
       contents = fs.readFileSync(configPath, "utf8");
     } catch {
       continue;
     }
-    for (const line of contents.split(/\r?\n/)) {
-      const match = /^\s*\/\/([^/]+)(\/[^:]*?)?\/:_authToken\s*=\s*(.*?)\s*$/.exec(line);
-      if (!match || match[1].toLowerCase() !== host) continue;
-      const scope = match[2] || "/";
-      if (scope !== "/") {
-        const prefix = scope.endsWith("/") ? scope : `${scope}/`;
-        if (url.pathname !== scope && !url.pathname.startsWith(prefix)) continue;
-      }
-      const token = match[3].replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] || "");
-      if (token) return token;
+    const fileValues = npmrcAuthValues(url, contents);
+    if (Object.keys(fileValues).length) sources.push(fileValues);
+  }
+  return sources;
+}
+
+function decodeNpmBase64(value) {
+  const encoded = expandNpmConfigValue(value);
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) return null;
+  const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4);
+  try {
+    const decoded = Buffer.from(padded, "base64").toString("utf8");
+    return decoded && Buffer.from(decoded, "utf8").toString("base64") === padded
+      ? decoded
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function npmAuthHeader(url) {
+  for (const values of npmAuthSources(url)) {
+    const token = values._authtoken;
+    if (configValueIsPresent(token)) return `Bearer ${token}`;
+
+    let pair = null;
+    if (configValueIsPresent(values._auth)) {
+      const decoded = decodeNpmBase64(values._auth);
+      if (decoded && decoded.includes(":")) pair = decoded;
     }
+    if (
+      !pair &&
+      configValueIsPresent(values.username) &&
+      configValueIsPresent(values._password)
+    ) {
+      const password = decodeNpmBase64(values._password);
+      if (password !== null) pair = `${values.username}:${password}`;
+    }
+    if (pair) return `Basic ${Buffer.from(pair, "utf8").toString("base64")}`;
   }
   return null;
+}
+
+function registryHeaders(url, accept) {
+  const headers = { accept };
+  try {
+    const parsed = new URL(url);
+    const registry = new URL(registryBase());
+    if (parsed.origin !== registry.origin) return headers;
+    const authorization = npmAuthHeader(parsed);
+    if (authorization) headers.authorization = authorization;
+  } catch {}
+  return headers;
 }
 
 function requireNetworkRuntime() {
@@ -1740,10 +1842,32 @@ function validSha512Integrity(integrity) {
   return /^sha512-[A-Za-z0-9+/]{86}={0,2}$/.test(integrity || "");
 }
 
-// Fetch and verify one published platform package. The registry's dist
-// integrity is the authentication root for the extracted binary; local cache
-// metadata is only a consistency check and never supplies the expected digest.
-async function fetchVerifiedPackage(pkg, version, purpose = "download") {
+function sha512IntegrityToHex(integrity) {
+  if (typeof integrity !== "string") return null;
+  if (/^[a-f0-9]{128}$/i.test(integrity)) return integrity.toLowerCase();
+  if (!validSha512Integrity(integrity)) return null;
+  const encoded = integrity.slice("sha512-".length);
+  try {
+    const bytes = Buffer.from(encoded, "base64");
+    if (bytes.length !== 64) return null;
+    return bytes.toString("hex");
+  } catch {
+    return null;
+  }
+}
+
+function packageBinaryIntegrity(dist, meta) {
+  // `cmuxBinaryIntegrity` is a publisher-provided field in the package
+  // metadata. It is covered by the registry response and lets a normal cache
+  // hit verify the extracted binary without downloading the tarball again.
+  // Accept the short `binaryIntegrity` spelling for older private registries.
+  const value =
+    (dist && (dist.cmuxBinaryIntegrity || dist.binaryIntegrity)) ||
+    (meta && (meta.cmuxBinaryIntegrity || meta.binaryIntegrity));
+  return sha512IntegrityToHex(value);
+}
+
+async function fetchPackageMetadata(pkg, version) {
   const meta = await fetchJson(`${registryBase()}/${pkg}/${version}`, {
     packageName: pkg,
     selector: version,
@@ -1755,9 +1879,37 @@ async function fetchVerifiedPackage(pkg, version, purpose = "download") {
   const dist = meta && meta.dist ? meta.dist : meta;
   const tarballUrl = dist && dist.tarball;
   const integrity = dist && dist.integrity;
-  if (!integrity || (!tarballUrl && !hasNpmNetworkConfig())) {
+  if (!validSha512Integrity(integrity) || (!tarballUrl && !hasNpmNetworkConfig())) {
     throw new Error("registry metadata is incomplete");
   }
+  let binaryIntegrity = packageBinaryIntegrity(dist, meta);
+  // npm's `view ... dist` projection omits package-level custom fields. Ask
+  // for the publisher's binary digest separately when npm owns the transport;
+  // private registries may expose it inside `dist` or the full JSON response.
+  if (!binaryIntegrity && hasNpmNetworkConfig()) {
+    binaryIntegrity = sha512IntegrityToHex(
+      npmViewOptional(pkg, version, "cmuxBinaryIntegrity")
+    );
+  }
+  return {
+    integrity,
+    tarballUrl,
+    binaryIntegrity,
+  };
+}
+
+// Fetch and verify one published platform package. The registry's dist
+// integrity authenticates the tarball, and the publisher's binary integrity
+// authenticates the extracted executable. Local cache metadata is only a
+// consistency check and never supplies an integrity root.
+async function fetchVerifiedPackage(
+  pkg,
+  version,
+  purpose = "download",
+  metadata = null
+) {
+  const verifiedMetadata = metadata || (await fetchPackageMetadata(pkg, version));
+  const { integrity, tarballUrl, binaryIntegrity } = verifiedMetadata;
   if (purpose) console.error(`cmux: ${purpose} ${pkg}@${version}...`);
   let tgz;
   if (hasNpmNetworkConfig()) {
@@ -1784,14 +1936,25 @@ async function fetchVerifiedPackage(pkg, version, purpose = "download") {
   if (!native) {
     throw new Error("platform package does not contain the native binary");
   }
-  return { integrity, entries, native };
+  const nativeDigest = digestHex(native.data);
+  if (binaryIntegrity && nativeDigest !== binaryIntegrity) {
+    throw new Error("platform package binary integrity check failed");
+  }
+  return {
+    integrity,
+    entries,
+    native,
+    binaryIntegrity: binaryIntegrity || nativeDigest,
+  };
 }
 
-function cacheManifestMatchesPackage(candidate, pkg, version, verified) {
-  if (!candidate || !verified || candidate.package !== pkg) return false;
+function cacheManifestMatchesMetadata(candidate, pkg, version, metadata) {
+  if (!candidate || !metadata || candidate.package !== pkg) return false;
   if (candidate.version !== version) return false;
-  if (candidate.tarballIntegrity !== verified.integrity) return false;
-  return candidate.expected === digestHex(verified.native.data);
+  if (candidate.tarballIntegrity !== metadata.integrity) return false;
+  return Boolean(
+    metadata.binaryIntegrity && candidate.expected === metadata.binaryIntegrity
+  );
 }
 
 function writeCacheManifest(pkg, version, integrity, entries) {
@@ -1822,10 +1985,16 @@ function removeCachedPayload(version) {
 async function downloadVersion(
   pkg,
   version,
-  { verifyCache = true, returnCandidate = false, verifiedPackage = null } = {}
+  {
+    verifyCache = true,
+    returnCandidate = false,
+    verifiedPackage = null,
+    metadata = null,
+  } = {}
 ) {
   const verified =
-    verifiedPackage || (await fetchVerifiedPackage(pkg, version, "downloading"));
+    verifiedPackage ||
+    (await fetchVerifiedPackage(pkg, version, "downloading", metadata));
   const { integrity, entries, native } = verified;
 
   const finalDir = cachedBinDir(version);
@@ -2052,30 +2221,45 @@ async function resolveBinary(pkg, wanted, cachedCandidate = null) {
   // being flattened into a network failure.
   requireNetworkRuntime();
   try {
-    let verifiedPackage = null;
+    let metadata = null;
     if (cachedCandidate) {
-      // A writable cache is untrusted. Fetch the package metadata and tarball
-      // again, then derive the expected binary digest from those authenticated
-      // bytes. The local manifest can only confirm that the cache matches that
-      // registry result; it is never an integrity root.
-      verifiedPackage = await fetchVerifiedPackage(pkg, wanted, "verifying");
-      if (cacheManifestMatchesPackage(cachedCandidate, pkg, wanted, verifiedPackage)) {
-        const expected = digestHex(verifiedPackage.native.data);
+      // A writable cache is untrusted. Fetch fresh package metadata and use
+      // the publisher's authenticated binary digest when it is available.
+      // The local manifest can only confirm that the cache matches that
+      // registry result; it is never an integrity root. Registries that do
+      // not expose the binary digest take the legacy full-tarball path below.
+      console.error(`cmux: verifying ${pkg}@${wanted}...`);
+      metadata = await fetchPackageMetadata(pkg, wanted);
+      if (cacheManifestMatchesMetadata(cachedCandidate, pkg, wanted, metadata)) {
         const snapshot = snapshotVerifiedCachedBinary(
           cachedCandidate,
-          expected,
+          metadata.binaryIntegrity,
           true
         );
         if (snapshot) return { path: snapshot.path, snapshot };
       }
     }
+    let verifiedPackage = null;
+    if (!metadata || !metadata.binaryIntegrity || cachedCandidate) {
+      // A missing or stale cache must be authenticated from the tarball. If
+      // metadata already proved the cache stale, reuse it to avoid a second
+      // metadata request before downloading.
+      verifiedPackage = await fetchVerifiedPackage(
+        pkg,
+        wanted,
+        "downloading",
+        metadata
+      );
+    }
     const downloaded = await downloadVersion(pkg, wanted, {
       // The caller receives a private snapshot below, so a second path lookup
       // is unnecessary. Reuse the authenticated tarball when the cache was
-      // stale or its manifest was tampered with.
+      // stale or its manifest was tampered with. For a cache miss there is no
+      // metadata preflight, so downloadVersion performs the one full fetch.
       verifyCache: false,
       returnCandidate: true,
       verifiedPackage,
+      metadata: verifiedPackage ? null : metadata,
     });
     const snapshot = snapshotVerifiedCachedBinary(downloaded.candidate);
     if (!snapshot) fail("the cached native binary changed before launch");
