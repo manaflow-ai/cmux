@@ -1435,10 +1435,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             if recognized {
                 raw_args.remove(0);
                 raw_args.insert(0, if action == "stop" { "remote-stop".into() } else { action });
+                return Ok(());
             } else {
                 raw_args.insert(1, action);
             }
-            return Ok(());
         }
     }
     match raw_args.get(1).map(String::as_str) {
