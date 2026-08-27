@@ -60,7 +60,8 @@ public final class DictationController {
     ///   - makeTranscriber: Factory producing a fresh engine per session.
     ///   - localeProvider: Supplies the dictation language at session start
     ///     (read from settings each time, so changes apply immediately).
-    ///   - clock: Clock used for the bounded stop-recovery deadline.
+    ///   - clock: Clock used for the bounded stop-recovery deadline. Defaults
+    ///     to `ContinuousClock`; tests can inject a virtual clock.
     public init(
         authorizer: any DictationAuthorizing,
         inserter: any DictationTextInserting,

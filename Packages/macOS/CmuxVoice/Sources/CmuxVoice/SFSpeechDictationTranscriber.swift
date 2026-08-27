@@ -260,8 +260,17 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
 
     private func yield(_ event: DictationTranscriptionEvent) {
         guard let continuation else { return }
-        if case .dropped = continuation.yield(event) {
-            failStream(.transcriptionFailed("recognition output backlog"))
+        switch continuation.yield(event) {
+        case .dropped(let dropped):
+            // Partials are replaceable HUD state. A dropped final would lose
+            // text that can never be reconstructed, so terminate the stream.
+            if case .final = dropped {
+                failStream(.transcriptionFailed("recognition output backlog"))
+            }
+        case .enqueued, .terminated:
+            break
+        @unknown default:
+            break
         }
     }
 

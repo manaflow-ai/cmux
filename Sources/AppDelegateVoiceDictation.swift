@@ -39,6 +39,8 @@ extension AppDelegate {
         case .dock:
             guard let dock = existingWindowDock(forWindowId: context.windowId),
                   let panelId = dock.focusedPanelId,
+                  dock.isVisibleInUI,
+                  dock.panelIsActiveInVisibleDockPane(panelId),
                   let panel = dock.panels[panelId] as? TerminalPanel else {
                 return nil
             }

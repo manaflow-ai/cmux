@@ -40,6 +40,7 @@ private final class TimeoutInserter: DictationTextInserting {
     func endSession() { endCount += 1 }
 }
 
+/// Test-only fake; the test drives its continuations serially from the main actor.
 private final class NeverFinishingTranscriber: SpeechTranscribing, @unchecked Sendable {
     private let releaseStream: AsyncStream<Void>
     private let releaseContinuation: AsyncStream<Void>.Continuation

@@ -142,7 +142,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             // Apple's volatileResults contract emits tentative results for an
             // audio range in addition to its finalized result.
             reportingOptions: [.volatileResults],
-            attributeOptions: []
+            // Preserve per-run audio ranges so finalization metadata can
+            // commit an unchanged volatile result without a second callback.
+            attributeOptions: [.audioTimeRange]
         )
         self.transcriber = transcriber
 
@@ -249,29 +251,11 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             bufferingPolicy: .bufferingNewest(Self.eventBufferCapacity)
         )
         outputContinuation = continuation
-        resultsTask = Task {
-            do {
-                for try await result in transcriber.results {
-                    let text = String(result.text.characters)
-                    let event: DictationTranscriptionEvent = result.isFinal
-                        ? .final(text)
-                        : .partial(text)
-                    if case .dropped = continuation.yield(event) {
-                        continuation.finish(
-                            throwing: DictationFailure.transcriptionFailed(
-                                "recognition output backlog"
-                            )
-                        )
-                        break
-                    }
-                }
-                continuation.finish()
-            } catch {
-                continuation.finish(
-                    throwing: DictationFailure.transcriptionFailed(error.localizedDescription)
-                )
-            }
-        }
+        let resultConsumer = SpeechAnalyzerResultConsumer(
+            transcriber: transcriber,
+            continuation: continuation
+        )
+        resultsTask = Task { await resultConsumer.run() }
         return stream
     }
 
