@@ -29,8 +29,19 @@ public struct TerminalLetterboxGeometry {
         keyboardHeight > 0 ? max(0, keyboardHeight) : max(0, bottomSafeAreaInset)
     }
 
+    /// The vertical seam kept between the rendered terminal's bottom edge and
+    /// the dock (composer bar) top while the bottom chrome is visible, in
+    /// points. Without it the last row of content sits flush against the
+    /// toolbar pills, which reads as crowding. Reserved inside the grid
+    /// container — never applied as a render offset — so the render still
+    /// rides the dock through the host's unchanged constraint system and
+    /// nothing clips; the render's bottom edge simply lands this many points
+    /// above the dock top.
+    public static let dockSeamPadding: CGFloat = 8
+
     /// The terminal grid container size after reserving the steady-state bottom
-    /// chrome (bottom safe area + composer band + persistent toolbar), in points.
+    /// chrome (bottom safe area + composer band + persistent toolbar) plus the
+    /// dock seam, in points.
     ///
     /// The keyboard is deliberately NOT an input. The grid keeps its
     /// keyboard-down size while the keyboard is up; the render is translated so
@@ -42,9 +53,9 @@ public struct TerminalLetterboxGeometry {
     /// keyboard toggles.
     ///
     /// - Chrome visible: the grid is the full bounds height minus the bottom
-    ///   safe area, the composer band, and the toolbar.
+    ///   safe area, the composer band, the toolbar, and `dockSeamPadding`.
     /// - Chrome hidden (HIDE button): the grid reclaims everything; nothing is
-    ///   reserved.
+    ///   reserved (there is no bar to keep a seam against).
     ///
     /// - Parameters:
     ///   - bounds: The host view bounds size in points.
@@ -63,6 +74,7 @@ public struct TerminalLetterboxGeometry {
         let reservedBottom: CGFloat = chromeHidden
             ? 0
             : max(0, composerBandHeight) + max(0, toolbarHeight) + max(0, bottomSafeAreaInset)
+                + dockSeamPadding
         let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
         let containerW = max(1, bounds.width)
         let containerH = max(1, bounds.height - bottomInset)
