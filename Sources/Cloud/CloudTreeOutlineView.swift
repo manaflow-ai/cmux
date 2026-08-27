@@ -197,7 +197,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineRowHeight(hasStats: hasStats))
             case .localMachine:
                 return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineRowHeight(hasStats: false))
-            case .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .desktop, .browser, .port, .placeholder:
+            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
                 return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.rowHeight)
             }
         }
@@ -245,7 +245,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             switch node.kind {
             case .machine(let machine, _):
                 openMachine(machine)
-            case .localMachine, .workspacesGroup, .portsGroup, .browsersGroup:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
                 nodeActions.openGroup(machine, node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: []), .split, workspace.id)
@@ -253,7 +253,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
                 nodeActions.project(row.resource.id, .split, true)
-            case .desktop(let resource), .port(let resource):
+            case .display(let resource), .port(let resource):
                 nodeActions.project(resource.id, .split, true)
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
@@ -357,8 +357,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(.local, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
+            case .terminalsPool(let machine, _):
+                return [
+                    item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
+                ]
+            case .displaysPool:
+                return [
+                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
+                ]
             case .workspacesGroup(let machine):
                 return [
+                    item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
@@ -384,7 +394,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .browser(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
-            case .desktop(let resource), .port(let resource):
+            case .display(let resource), .port(let resource):
                 return resourceMenuItems(resource, isLocal: false)
             case .browsersGroup, .portsGroup:
                 return [
@@ -424,9 +434,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
             } else {
                 items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
+                items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
                 if machine.isDesktop {
                     items.append(item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                        nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .screen, key: "display:1"), .split, true)
+                        nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
                     })
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })

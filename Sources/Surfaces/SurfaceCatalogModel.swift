@@ -1,6 +1,6 @@
 import Foundation
 
-// The surface model: terminals, VNC screens and browsers are *resources*; panes are
+// The surface model: terminals, VNC displays and browsers are *resources*; panes are
 // *projections* of them. A resource has exactly one identity and zero or more
 // projections, on this Mac or on a cloud machine. Every entrypoint — the right-sidebar
 // tree, drag and drop, the socket, the CLI — reads and mutates the same catalog, so
@@ -32,12 +32,35 @@ enum SurfaceMachineID: Hashable, Codable, Sendable, CustomStringConvertible {
 
 enum SurfaceResourceKind: String, Codable, Sendable, CaseIterable {
     case terminal
-    case screen
+    /// A VNC display on the machine ("display", never "screen": a cmux-tui `screen` is a
+    /// split tree inside a workspace, a different thing).
+    case display
     case browser
+
+    /// Wire-tolerant parse: pre-rename catalogs, persisted sessions, and older CLIs say
+    /// `screen` for a VNC display. Emit `display`, accept both.
+    init?(wire: String) {
+        if wire == "screen" {
+            self = .display
+            return
+        }
+        self.init(rawValue: wire)
+    }
+
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let kind = SurfaceResourceKind(wire: raw) else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unknown surface resource kind '\(raw)'"
+            ))
+        }
+        self = kind
+    }
 }
 
 /// Stable identity of a resource. `key` is the provider's own id: a local panel UUID
-/// string, a cmux-tui `term_…`/`browser_…` id, `display:1` for a VNC screen, or
+/// string, a cmux-tui `term_…`/`browser_…` id, `display:1` for a VNC display, or
 /// `port:<n>` for a forwarded port's browser.
 struct SurfaceResourceID: Hashable, Codable, Sendable, CustomStringConvertible {
     var machine: SurfaceMachineID
@@ -57,7 +80,7 @@ struct SurfaceResourceID: Hashable, Codable, Sendable, CustomStringConvertible {
 
     init?(rawValue: String) {
         let parts = rawValue.split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false)
-        guard parts.count == 3, let kind = SurfaceResourceKind(rawValue: String(parts[1])), !parts[2].isEmpty else { return nil }
+        guard parts.count == 3, let kind = SurfaceResourceKind(wire: String(parts[1])), !parts[2].isEmpty else { return nil }
         self.init(machine: SurfaceMachineID(rawValue: String(parts[0])), kind: kind, key: String(parts[2]))
     }
 }
@@ -83,6 +106,13 @@ struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var focused: Bool
 }
 
+/// One view of a remote resource: a tab in one of the daemon's workspaces. A resource
+/// has zero or more views; closing a view never kills the resource.
+struct SurfaceRemoteView: Hashable, Codable, Sendable {
+    var tabID: String
+    var workspace: SurfaceRemoteWorkspace
+}
+
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     var id: SurfaceResourceID
     var title: String
@@ -90,7 +120,13 @@ struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     var detail: String?
     var lifecycle: SurfaceLifecycle
     var agent: SurfaceAgentBadge?
+    /// The workspace of the resource's first view (compat: pre-multi-view callers read
+    /// one workspace). nil when the resource has zero views, or is local.
     var remoteWorkspace: SurfaceRemoteWorkspace?
+    /// Every view of a remote resource, in the daemon's canonical tab order. nil when the
+    /// provider does not model views (local resources, displays, port browsers); an empty
+    /// array is a live resource with zero views (it belongs in the machine's pool).
+    var remoteViews: [SurfaceRemoteView]? = nil
     /// For screens and port browsers: the port on the machine.
     var port: Int?
     /// For browsers: the URL the projection loads. Screens resolve their URL when projected
@@ -99,6 +135,21 @@ struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
 
     var machine: SurfaceMachineID { id.machine }
     var kind: SurfaceResourceKind { id.kind }
+
+    /// How many remote views (daemon tabs) show this resource; 0 when views are not modeled.
+    var remoteViewCount: Int { remoteViews?.count ?? 0 }
+
+    /// The daemon workspaces holding at least one view, first-view order, deduped.
+    /// Falls back to `remoteWorkspace` for providers that report a single workspace.
+    var remoteWorkspaces: [SurfaceRemoteWorkspace] {
+        guard let remoteViews else { return remoteWorkspace.map { [$0] } ?? [] }
+        var seen = Set<String>()
+        var result: [SurfaceRemoteWorkspace] = []
+        for view in remoteViews where seen.insert(view.workspace.id).inserted {
+            result.append(view.workspace)
+        }
+        return result
+    }
 }
 
 /// One pane showing one resource.
@@ -149,6 +200,9 @@ struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     var cpuPercent: Double?
     var memoryUsedMb: Int?
     var diskUsedMb: Int?
+    /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
+    /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
+    var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
 }
 
 enum SurfaceLinkState: String, Codable, Sendable {

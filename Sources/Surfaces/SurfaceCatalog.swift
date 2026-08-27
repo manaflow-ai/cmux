@@ -19,6 +19,15 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// Create a new, empty workspace on this machine, directly (not as a side effect of
+    /// creating a terminal). Providers without remote workspaces refuse.
+    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
+}
+
+extension SurfaceProvider {
+    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+    }
 }
 
 /// The single owner of surface identities and projections on this Mac.

@@ -49,6 +49,10 @@ struct CloudTreeRowContentView: View {
             CloudTreeMachineRowContent(machine: machine)
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row)
+        case .terminalsPool(_, let count):
+            groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
+        case .displaysPool(_, let count):
+            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
         case .workspace(_, let workspace, let terminalCount):
@@ -73,13 +77,13 @@ struct CloudTreeRowContentView: View {
             }
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row)
-        case .desktop:
+        case .display(let resource):
             leafRow(icon: CloudTreeRowIcon(systemName: "display", style: AnyShapeStyle(.secondary))) {
-                Text(String(localized: "cloudTree.node.desktop", defaultValue: "Desktop"))
+                Text(resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title)
                     .cmuxFont(size: 12)
                     .foregroundStyle(.primary)
             } detail: {
-                Text(String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC screen"))
+                Text(String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC"))
                     .cmuxFont(size: 10.5)
                     .foregroundStyle(.tertiary)
             }
@@ -129,15 +133,23 @@ struct CloudTreeRowContentView: View {
         }
     }
 
-    /// A section label ("Workspaces", "Ports"): dim text, no icon, but the icon
-    /// slot stays reserved so the label lines up with its sibling rows' titles.
-    private func groupRow(title: String) -> some View {
+    /// A section label ("Terminals", "Workspaces", "Ports"): dim text, no icon, but the
+    /// icon slot stays reserved so the label lines up with its sibling rows' titles.
+    /// Pools show their size as a dim count.
+    private func groupRow(title: String, count: Int? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.iconGap) {
             Color.clear.frame(width: CloudTreeRowGrid.iconSlot, height: 1)
-            Text(title)
-                .cmuxFont(size: 11, weight: .medium)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+                Text(title)
+                    .cmuxFont(size: 11, weight: .medium)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if let count {
+                    Text(String(count))
+                        .cmuxFont(size: 10.5, monospacedDigit: true)
+                        .foregroundStyle(.tertiary)
+                }
+            }
             Spacer(minLength: 0)
         }
         .padding(.trailing, CloudTreeRowGrid.trailingPadding)
@@ -221,6 +233,15 @@ struct CloudTreeTerminalRowContent: View {
                 }
             }
             Spacer(minLength: CloudTreeRowGrid.trailingGap)
+            if let views = row.viewBadge {
+                // Pool rows: how many daemon tabs show this terminal. 0 reads as
+                // "detached — alive with no view", the pool's whole point.
+                Text(String(views))
+                    .cmuxFont(size: 10, monospacedDigit: true)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: CloudTreeRowGrid.trailingSlot, alignment: .center)
+                    .help(Self.viewsHelp(views))
+            }
             if row.isOpen {
                 Image(systemName: "rectangle.on.rectangle")
                     .font(.system(size: 9.5, weight: .regular))
@@ -230,6 +251,14 @@ struct CloudTreeTerminalRowContent: View {
             }
         }
         .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+    }
+
+    static func viewsHelp(_ views: Int) -> String {
+        switch views {
+        case 0: return String(localized: "cloudTree.terminal.views.zero", defaultValue: "No tabs on the machine show this terminal")
+        case 1: return String(localized: "cloudTree.terminal.views.one", defaultValue: "1 tab on the machine shows this terminal")
+        default: return String(format: String(localized: "cloudTree.terminal.views.other", defaultValue: "%d tabs on the machine show this terminal"), views)
+        }
     }
 
     private var glyph: String {

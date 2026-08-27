@@ -2837,6 +2837,7 @@ class TerminalController {
             "vm.tree",
             "vm.terminal_open",
             "vm.terminal_new",
+            "vm.workspace_new",
             "vm.desktop_open",
             "vm.port_open",
             "vm.link_socket",

@@ -10,6 +10,9 @@ struct CloudTreeNodeActions {
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
     /// Start a plain terminal on a machine (in a cmux-tui workspace when given) and show it.
     let newTerminal: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) -> Void
+    /// Create a new, empty cmux-tui workspace on a machine — the direct `workspace create`
+    /// path, not the create-a-terminal fallback.
+    let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// Open a whole group (a workspace's terminals and browsers): the first at the
     /// selected workspace, the rest as tabs of that pane. An empty group starts a fresh
     /// terminal in `remoteWorkspaceID` on the machine instead.
@@ -67,6 +70,15 @@ struct CloudTreeNodeActions {
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                }
+            },
+            newWorkspace: { machine in
+                let label = String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machine.isLocal
+                    ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
+                    : machine.rawValue)
+                run(label) { catalog in
+                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
+                    _ = try await provider.createRemoteWorkspace(name: nil)
                 }
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
