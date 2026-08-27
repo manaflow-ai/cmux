@@ -20,16 +20,25 @@ struct FileWatchPathResolver: Sendable {
             var isDirectory: ObjCBool = false
             if fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory),
                isDirectory.boolValue {
-                guard allowsFilesystemRootAncestor || standardized != "/" else {
-                    return nil
+                guard !allowsFilesystemRootAncestor else {
+                    return standardized
                 }
-                return standardized
+                let resolved = URL(fileURLWithPath: standardized)
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
+                    .path
+                return resolved == "/" ? nil : resolved
             }
             let parent = (standardized as NSString).deletingLastPathComponent
             if parent == standardized || parent.isEmpty { break }
             current = parent
         }
         let fallback = (fileManager.currentDirectoryPath as NSString).standardizingPath
-        return allowsFilesystemRootAncestor || fallback != "/" ? fallback : nil
+        guard !allowsFilesystemRootAncestor else { return fallback }
+        let resolvedFallback = URL(fileURLWithPath: fallback)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        return resolvedFallback == "/" ? nil : resolvedFallback
     }
 }
