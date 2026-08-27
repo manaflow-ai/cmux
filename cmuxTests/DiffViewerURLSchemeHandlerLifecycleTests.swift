@@ -326,7 +326,7 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
         let requestLine = try #require(String(data: requestData, encoding: .utf8))
         let controller = TerminalController.shared
         let rawResponse = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-DiffViewerURLSchemeHandlerLifecycleTests") {
                 continuation.resume(returning: controller.handleSocketLine(requestLine))
             }
         }

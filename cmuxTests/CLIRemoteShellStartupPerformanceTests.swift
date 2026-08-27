@@ -124,7 +124,7 @@ struct CLIRemoteShellStartupPerformanceTests {
 
     private func startMockServer(listenerFD: Int32, state: MockSocketServerState) -> DispatchSemaphore {
         let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLIRemoteShellStartupPerformanceTests") {
             defer { done.signal() }
             var clientAddr = sockaddr_un()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -347,7 +347,7 @@ struct CLIRemoteShellStartupPerformanceTests {
 
     private func waitForProcess(_ running: RunningProcess, timeout: TimeInterval) -> ProcessRunResult {
         let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLIRemoteShellStartupPerformanceTests") {
             running.process.waitUntilExit()
             done.signal()
         }

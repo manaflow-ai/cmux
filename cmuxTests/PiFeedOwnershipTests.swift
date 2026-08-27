@@ -486,7 +486,7 @@ struct PiFeedOwnershipTests {
     ) async -> TerminalController.V2CallResult {
         let resultBox = PiFeedV2CallResultBox()
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-PiFeedOwnershipTests") {
                 resultBox.value = TerminalController.shared.v2IngestAcknowledgedFeedEvents(events)
                 continuation.resume()
             }

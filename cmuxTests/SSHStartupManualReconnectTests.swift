@@ -1076,7 +1076,7 @@ struct SSHStartupManualReconnectTests {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-SSHStartupManualReconnectTests") {
             defer { handled.signal() }
 
             var clientAddr = sockaddr_un()
@@ -1145,7 +1145,7 @@ struct SSHStartupManualReconnectTests {
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-SSHStartupManualReconnectTests") {
             process.waitUntilExit()
             exitSignal.signal()
         }

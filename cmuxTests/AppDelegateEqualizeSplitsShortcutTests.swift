@@ -5749,7 +5749,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         let responseLock = NSLock()
         nonisolated(unsafe) var response: String?
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-AppDelegateEqualizeSplitsShortcutTests") {
             let returnedResponse =
                 TerminalController.shared.handleSocketLine(
                     "reload_config"
@@ -5799,7 +5799,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
         for _ in 0..<requestCount {
             workersReady.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-AppDelegateEqualizeSplitsShortcutTests") {
                 workersReady.leave()
                 startWorkers.wait()
                 let response =

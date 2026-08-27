@@ -217,46 +217,20 @@ enum ClaudeHookLiveDeliveryHarness {
         environment: [String: String],
         standardInput: String
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: context.cliPath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        // Runs on dedicated threads (CLITestProcessRunner) so a saturated
+        // libdispatch pool during parallel Swift Testing cannot hide the exit.
+        let outcome = CLITestProcessRunner.run(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 10
+        )
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+            status: outcome.status,
+            stdout: outcome.stdout,
+            stderr: outcome.stderr,
+            timedOut: outcome.timedOut
         )
     }
 
@@ -303,7 +277,9 @@ enum ClaudeHookLiveDeliveryHarness {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Accept and per-client loops block indefinitely; keep them off the
+        // libdispatch pool so parallel suites cannot starve each other.
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-live-delivery-mock-accept") {
             while true {
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -317,7 +293,7 @@ enum ClaudeHookLiveDeliveryHarness {
                     return
                 }
 
-                DispatchQueue.global(qos: .userInitiated).async {
+                CLITestProcessRunner.detachBlockingThread(name: "cmux-test-live-delivery-mock-client") {
                     defer {
                         Darwin.close(clientFD)
                         handled.signal()

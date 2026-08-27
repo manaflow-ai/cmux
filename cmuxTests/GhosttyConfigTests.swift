@@ -1383,7 +1383,7 @@ final class GhosttyConfigTests: XCTestCase {
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-GhosttyConfigTests") {
             process.waitUntilExit()
             exitSignal.signal()
         }

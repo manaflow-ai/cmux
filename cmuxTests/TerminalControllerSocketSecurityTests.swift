@@ -936,7 +936,7 @@ final class TerminalControllerSocketSecurityTests {
         let command = "set_status build ok --tab=\(workspace.id.uuidString)"
         let replyArrived = DispatchSemaphore(value: 0)
         let replyBox = WorkerLaneReplyBox()
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-TerminalControllerSocketSecurityTests") {
             replyBox.store(Result { try self.sendV1Commands([command], to: socketPath) })
             replyArrived.signal()
         }
@@ -1437,7 +1437,7 @@ final class TerminalControllerSocketSecurityTests {
         try waitForSocket(at: socketPath)
 
         let response = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-TerminalControllerSocketSecurityTests") {
                 do {
                     let response = try self.sendV2Request(
                         method: "notification.create",
@@ -1630,7 +1630,7 @@ final class TerminalControllerSocketSecurityTests {
         try waitForSocket(at: socketPath)
 
         let response = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-TerminalControllerSocketSecurityTests") {
                 do {
                     let response = try self.sendV2Request(
                         method: "workspace.close",
@@ -2053,7 +2053,7 @@ final class TerminalControllerSocketSecurityTests {
         to socketPath: String
     ) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-TerminalControllerSocketSecurityTests") {
                 do {
                     let response = try self.sendV2Request(
                         method: method,
@@ -2088,7 +2088,7 @@ final class TerminalControllerSocketSecurityTests {
     /// awaits the result.
     private func sendV1CommandsAsync(_ commands: [String], to socketPath: String) async throws -> [String] {
         try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-TerminalControllerSocketSecurityTests") {
                 do {
                     continuation.resume(returning: try self.sendV1Commands(commands, to: socketPath))
                 } catch {

@@ -3808,7 +3808,7 @@ import Testing
         environment: [String: String]
     ) async -> ProcessRunResult {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CMUXCLIErrorOutputRegressionTests") {
                 continuation.resume(returning: self.runProcess(
                     executablePath: executablePath,
                     arguments: arguments,
@@ -4074,7 +4074,7 @@ import Testing
         private let finished = DispatchSemaphore(value: 0)
 
         init(_ handle: FileHandle) {
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
+            CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CMUXCLIErrorOutputRegressionTests") { [self] in
                 store(handle.readDataToEndOfFile())
             }
         }

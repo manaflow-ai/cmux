@@ -458,7 +458,7 @@ import Testing
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLITmuxCompatRemoteSplitTests") {
             defer { handled.signal() }
 
             var clientAddr = sockaddr_un()
@@ -549,7 +549,7 @@ import Testing
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-CLITmuxCompatRemoteSplitTests") {
             process.waitUntilExit()
             exitSignal.signal()
         }

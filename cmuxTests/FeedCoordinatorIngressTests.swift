@@ -92,7 +92,7 @@ extension FeedCoordinatorTests {
             ],
             importance: .acknowledged
         )
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorIngressTests") {
             let value = lane.perform(metadata: metadata, timeout: 0.05) { result in
                 deliveryStarted.signal()
                 releaseDelivery.wait()
@@ -396,7 +396,7 @@ extension FeedCoordinatorTests {
             source: "pi",
             requestId: "pi-bounded-ingress-batch-request"
         )
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorIngressTests") {
             batchSubmissionStarted.signal()
             _ = TerminalController.shared.v2IngestAcknowledgedFeedEvents([batchEvent])
             deliveries.record(batchEvent)
@@ -649,7 +649,7 @@ extension FeedCoordinatorTests {
             source: zeroWaitEvent.source,
             requestId: "pi-chronology-batch-request"
         )
-        DispatchQueue.global(qos: .userInitiated).async {
+        CLITestProcessRunner.detachBlockingThread(name: "cmux-test-FeedCoordinatorIngressTests") {
             batchSubmissionStarted.signal()
             _ = TerminalController.shared.v2IngestAcknowledgedFeedEvents([batchEvent])
             deliveries.record(batchEvent)
