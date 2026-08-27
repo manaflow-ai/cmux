@@ -572,4 +572,30 @@ import CmuxGit
         )
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
+
+    @Test
+    func closingPanelClearsCreationWatchTracking() throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let targetPath = fixture.root.appendingPathComponent("future.inc").path
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let service = makeService(host: host)
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+        service.workspaceGitMetadataCreationWatchPathsByProbeKey[key] = [targetPath]
+        service.workspaceGitMetadataCreationWatchAllowedRootsByProbeKey[key] = [fixture.root.path]
+        service.workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[targetPath] = [key]
+        service.workspaceGitMetadataCreationWatcherAncestorByTargetPath[targetPath] = fixture.root.path
+        service.workspaceGitMetadataCreationWatchTargetsByAncestor[fixture.root.path] = [targetPath]
+
+        service.clearWorkspaceGitProbeTracking(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+
+        #expect(service.workspaceGitMetadataCreationWatchPathsByProbeKey[key] == nil)
+        #expect(service.workspaceGitMetadataCreationWatchAllowedRootsByProbeKey[key] == nil)
+        #expect(service.workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[targetPath] == nil)
+        #expect(service.workspaceGitMetadataCreationWatchTargetsByAncestor[fixture.root.path] == nil)
+    }
 }
