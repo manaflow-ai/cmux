@@ -265,13 +265,14 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         let repository = try #require(
             GitMetadataService.resolveGitRepository(containing: fixture.root.path)
         )
-        let paths = GitConfigBranchTraversal(
+        let result = GitConfigBranchTraversal(
             repository: repository,
             branchContext: .resolved("main")
-        ).watchPaths()
+        ).watchPathResult()
 
-        #expect(paths.count == 256)
-        #expect(!paths.contains { $0.hasSuffix("missing-399.inc") })
+        #expect(result.metadataSentinelPaths.count == 255)
+        #expect(!result.metadataSentinelPaths.contains { $0.hasSuffix("missing-399.inc") })
+        #expect(result.paths.contains(fixture.gitDirectory.standardizedFileURL.path))
     }
 
     @Test func watchesGitDirectoryUntilMissingWorktreeConfigAppears() throws {
