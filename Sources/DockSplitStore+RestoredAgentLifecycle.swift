@@ -461,7 +461,7 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            guard index.isComplete else {
+            guard index.isComplete(forPanelId: restore.stablePanelID) else {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }

@@ -48,6 +48,7 @@ struct CodexLegacyRolloutScanner: Sendable {
         }
 
         var fallbackCandidates: [URL] = []
+        var fallbackCandidatesTruncated = false
         var sawUnavailable = false
         var scannedEntries = 0
         var matchingCandidatesBySessionID: [String: Int] = [:]
@@ -115,6 +116,11 @@ struct CodexLegacyRolloutScanner: Sendable {
                 }
             } else if fallbackCandidates.count < Self.maximumFallbackCandidates {
                 fallbackCandidates.append(item)
+            } else {
+                // A later legacy rollout may contain the requested identity.
+                // Once the bounded fallback list drops entries, absence is no
+                // longer authoritative for any unresolved request.
+                fallbackCandidatesTruncated = true
             }
         }
         guard found.count < sessionIDs.count else {
@@ -147,7 +153,10 @@ struct CodexLegacyRolloutScanner: Sendable {
                 break
             }
         }
-        return (found: found, sawUnavailable: sawUnavailable)
+        return (
+            found: found,
+            sawUnavailable: sawUnavailable || fallbackCandidatesTruncated
+        )
     }
 
     private func matchingSessionIDs(
@@ -266,7 +275,6 @@ struct CodexLegacyRolloutScanner: Sendable {
         let originator = normalized(payload["originator"] as? String)
         let parentSessionId = normalized(payload["parent_thread_id"] as? String)
             ?? normalized(payload["forked_from_id"] as? String)
-            ?? nestedString(forKey: "parent_thread_id", in: source)
         let isExec = sourceContainsMarker("exec", in: source)
             || sourceContainsMarker("review", in: source)
             || originator?.lowercased().contains("codex_exec") == true
@@ -292,22 +300,6 @@ struct CodexLegacyRolloutScanner: Sendable {
             sourceDescription: sourceDescription,
             parentSessionId: parentSessionId
         )
-    }
-
-    private func nestedString(forKey key: String, in value: Any?) -> String? {
-        if let dictionary = value as? [String: Any] {
-            for (childKey, child) in dictionary {
-                if childKey == key, let result = normalized(child as? String) { return result }
-                if let result = nestedString(forKey: key, in: child) { return result }
-            }
-        } else if let array = value as? [Any] {
-            for child in array {
-                if let result = nestedString(forKey: key, in: child) {
-                    return result
-                }
-            }
-        }
-        return nil
     }
 
     private func jsonObject(_ data: Data) -> [String: Any]? {

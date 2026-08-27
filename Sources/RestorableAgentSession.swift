@@ -1033,6 +1033,10 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Missing files are complete (the agent kind may not be installed); a
     /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
     let isComplete: Bool
+    /// Panel owners whose Codex hook records were outside the bounded
+    /// verification pass or had inconclusive durable evidence.
+    private let incompleteCodexPanelKeys: Set<PanelKey>
+    private let incompleteCodexPanelIds: Set<UUID>
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
@@ -1056,6 +1060,38 @@ struct RestorableAgentSessionIndex: Sendable {
 
     func hasAmbiguousPanel(_ panelId: UUID) -> Bool {
         ambiguousPanelIds.contains(panelId)
+    }
+
+    /// Whether the durable index is complete for one exact workspace/panel owner.
+    ///
+    /// A bounded Codex history can be incomplete for one panel while unrelated
+    /// verified owners remain safe to restore. A global store failure still
+    /// makes every owner incomplete through the global flag.
+    func isComplete(forWorkspaceId workspaceId: UUID, panelId: UUID) -> Bool {
+        isComplete && !incompleteCodexPanelKeys.contains(
+            PanelKey(workspaceId: workspaceId, panelId: panelId)
+        )
+    }
+
+    /// Whether the durable index is complete for a restart-stable panel identity.
+    ///
+    /// Deferred restore admission has the stable panel UUID but may not have
+    /// the pre-restart workspace UUID, so this form intentionally ignores the
+    /// workspace component.
+    func isComplete(forPanelId panelId: UUID) -> Bool {
+        isComplete && !incompleteCodexPanelIds.contains(panelId)
+    }
+
+    /// Fingerprint used by the shared index cache to publish scoped completion
+    /// changes even when process liveness is unchanged.
+    var completionFingerprint: Set<String> {
+        var values = incompleteCodexPanelKeys.map {
+            "\($0.workspaceId.uuidString)|\($0.panelId.uuidString)"
+        }
+        if !isComplete {
+            values.append("global")
+        }
+        return Set(values)
     }
 
     /// Recomputes owner ambiguity from current PID evidence.
@@ -1467,7 +1503,8 @@ struct RestorableAgentSessionIndex: Sendable {
 
         return RestorableAgentSessionIndex(
             entriesByPanel: revalidatedEntries,
-            isComplete: self.isComplete
+            isComplete: self.isComplete,
+            incompleteCodexPanelKeys: self.incompleteCodexPanelKeys
         )
     }
 
@@ -1577,13 +1614,51 @@ struct RestorableAgentSessionIndex: Sendable {
         var codexRequestsByHome: [String: [CodexSessionResumeVerificationRequest]] = [:]
         var codexRequestKeys = Set<String>()
         var codexRequestCount = 0
-        var codexPlanWasTruncated = false
+        var incompleteCodexPanelKeys = Set<PanelKey>()
+        var codexIndexedStoreByHome: [String: Bool] = [:]
         var codexHookRecordsForIndex: [RestorableAgentHookSessionRecord]?
+
+        func codexPanelKey(
+            for record: RestorableAgentHookSessionRecord
+        ) -> PanelKey? {
+            guard let workspaceId = UUID(uuidString: record.workspaceId),
+                  let panelId = UUID(uuidString: record.surfaceId) else {
+                return nil
+            }
+            return PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }
+
+        func codexRecordSelectionIdentity(
+            _ record: RestorableAgentHookSessionRecord
+        ) -> String {
+            [
+                record.workspaceId,
+                record.surfaceId,
+                record.sessionId,
+                String(record.updatedAt),
+                record.transcriptPath ?? ""
+            ].joined(separator: "\u{0}")
+        }
+
+        func codexHomeHasIndexedStore(_ home: String) -> Bool {
+            if let cached = codexIndexedStoreByHome[home] {
+                return cached
+            }
+            let databasePath = URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent("state_5.sqlite", isDirectory: false)
+                .path
+            let exists = fileManager.fileExists(atPath: databasePath)
+            codexIndexedStoreByHome[home] = exists
+            return exists
+        }
 
         func codexVerificationKey(
             for record: RestorableAgentHookSessionRecord
         ) -> (key: String, home: String, sessionID: String, transcriptPath: String?)? {
-            guard record.isRestorable == true else { return nil }
+            guard record.isRestorable != false,
+                  normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+                return nil
+            }
             let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sessionID.isEmpty else { return nil }
             let home = codexHomeResolver.resolve(
@@ -1706,7 +1781,18 @@ struct RestorableAgentSessionIndex: Sendable {
                let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) {
                 let selection = selectedCodexHookRecords(from: state.sessions.values)
                 codexHookRecordsForIndex = selection.records
-                codexPlanWasTruncated = selection.truncated
+                if selection.truncated {
+                    let selectedIdentities = Set(selection.records.map(codexRecordSelectionIdentity))
+                    for record in state.sessions.values {
+                        guard record.isRestorable != false,
+                              normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected",
+                              !selectedIdentities.contains(codexRecordSelectionIdentity(record)),
+                              let panelKey = codexPanelKey(for: record) else {
+                            continue
+                        }
+                        incompleteCodexPanelKeys.insert(panelKey)
+                    }
+                }
                 for rawRecord in selection.records {
                     var record = rawRecord
                     record.launchCommand = trustedLaunchCommand(
@@ -1719,10 +1805,17 @@ struct RestorableAgentSessionIndex: Sendable {
                            || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil {
                         record.launchCommand = nil
                     }
-                    guard let key = codexVerificationKey(for: record) else { continue }
+                    guard let key = codexVerificationKey(for: record) else {
+                        if let panelKey = codexPanelKey(for: rawRecord) {
+                            incompleteCodexPanelKeys.insert(panelKey)
+                        }
+                        continue
+                    }
                     guard !codexRequestKeys.contains(key.key) else { continue }
                     guard codexRequestCount < CodexSessionResumeVerificationLimits.maximumBatchRequests else {
-                        codexPlanWasTruncated = true
+                        if let panelKey = codexPanelKey(for: rawRecord) {
+                            incompleteCodexPanelKeys.insert(panelKey)
+                        }
                         continue
                     }
                     codexRequestKeys.insert(key.key)
@@ -1735,11 +1828,6 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 }
             }
-        }
-        if codexPlanWasTruncated {
-            // Some historical records were intentionally left unverified;
-            // preserve the current binding and retry on a later index load.
-            isComplete = false
         }
         let codexResumeVerifier = CodexSessionResumeVerifier()
         let codexHomeCount = max(1, codexRequestsByHome.count)
@@ -1767,13 +1855,6 @@ struct RestorableAgentSessionIndex: Sendable {
                     .joined(separator: "\u{0}")
                 codexVerificationByKey[key] = result
             }
-        }
-
-        func codexDurableVerification(
-            for record: RestorableAgentHookSessionRecord
-        ) -> CodexSessionResumeVerification? {
-            guard let key = codexVerificationKey(for: record) else { return nil }
-            return codexVerificationByKey[key.key]
         }
 
         for (kind, registration) in hookKinds {
@@ -1826,33 +1907,34 @@ struct RestorableAgentSessionIndex: Sendable {
                     isComplete = false
                     continue
                 }
-                let codexVerification = kind == .codex
-                    ? codexDurableVerification(for: effectiveRecord)
+                let codexKey = kind == .codex
+                    ? codexVerificationKey(for: effectiveRecord)
                     : nil
-                if kind == .codex,
-                   effectiveRecord.isRestorable == true,
-                   codexVerification == nil {
-                    // The request plan raced the hook-store read or could not
-                    // resolve this record's home. Do not claim a complete
-                    // index when durable evidence was not inspected.
-                    isComplete = false
+                let codexVerification = codexKey.flatMap {
+                    codexVerificationByKey[$0.key]
                 }
-                if case .some(.unavailable) = codexVerification {
-                    // A transient Codex store/read failure is not evidence that
-                    // the session is gone. Keep the index incomplete so
-                    // reconciliation preserves the existing binding.
-                    isComplete = false
+                let codexHasIndexedStore = codexKey.map {
+                    codexHomeHasIndexedStore($0.home)
+                } ?? false
+                if kind == .codex,
+                   codexVerification == nil || codexVerification == .some(.unavailable) {
+                    // A selected record that was not durably inspected (or
+                    // hit a transient read limit) leaves this panel
+                    // inconclusive, but must not poison unrelated owners.
+                    incompleteCodexPanelKeys.insert(
+                        PanelKey(workspaceId: workspaceId, panelId: panelId)
+                    )
                 }
                 guard hookRecordIsRestorable(
                     effectiveRecord,
                     kind: kind,
                     fileManager: fileManager,
                     claudeTranscriptLookup: claudeTranscriptLookup,
-                    codexDurableVerification: codexVerification
+                    codexDurableVerification: codexVerification,
+                    codexHasIndexedStore: codexHasIndexedStore
                 ) else {
                     continue
                 }
-
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
@@ -2083,7 +2165,11 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: resolved, isComplete: isComplete)
+        return RestorableAgentSessionIndex(
+            entriesByPanel: resolved,
+            isComplete: isComplete,
+            incompleteCodexPanelKeys: incompleteCodexPanelKeys
+        )
     }
 
     private static func matchingHookEntry(
@@ -2389,7 +2475,8 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind,
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache,
-        codexDurableVerification: CodexSessionResumeVerification?
+        codexDurableVerification: CodexSessionResumeVerification?,
+        codexHasIndexedStore: Bool
     ) -> Bool {
         if kind == .codex {
             guard record.isRestorable != false else { return false }
@@ -2404,19 +2491,26 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 return true
             }
-            let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
-            if launchSource == "default"
-                || (record.launchCommand?.arguments.isEmpty == false
-                    && (launchSource == nil || ["environment", "process"].contains(launchSource))
-                    && !(launchSource == "environment" && normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))
-                || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
-                return true
+            switch codexDurableVerification {
+            case .some(.exists(let evidence)):
+                if evidence.provenance.mayOwnBinding {
+                    return true
+                }
+                // Legacy rollout-only installs may not record producer
+                // metadata. Preserve a single explicit launch capture in that
+                // case, but never let known exec/subagent evidence own a panel.
+                return !codexHasIndexedStore
+                    && evidence.provenance == .unknown
+                    && codexLegacyLaunchHasPositiveEvidence(record, fileManager: fileManager)
+            case .some(.missing):
+                // A readable Codex index is authoritative: a missing row is
+                // not a reason to resurrect a nil-valued hook record. Older
+                // rollout-only installs retain their explicit launch fallback.
+                return !codexHasIndexedStore
+                    && codexLegacyLaunchHasPositiveEvidence(record, fileManager: fileManager)
+            case .some(.unavailable), .none:
+                return false
             }
-            guard let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else { return false }
-            return regularNonEmptyFileExists(
-                atPath: (transcriptPath as NSString).expandingTildeInPath,
-                fileManager: fileManager
-            )
         }
         guard kind == .claude else {
             return record.isRestorable != false
@@ -2429,6 +2523,30 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+    }
+
+    private static func codexLegacyLaunchHasPositiveEvidence(
+        _ record: RestorableAgentHookSessionRecord,
+        fileManager: FileManager
+    ) -> Bool {
+        let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
+        if launchSource == "default"
+            || (record.launchCommand?.arguments.isEmpty == false
+                && (launchSource == nil || ["environment", "process"].contains(launchSource))
+                && !(launchSource == "environment"
+                    && normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil
+                    && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil
+                        || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))
+            || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
+            return true
+        }
+        guard let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else {
+            return false
+        }
+        return regularNonEmptyFileExists(
+            atPath: (transcriptPath as NSString).expandingTildeInPath,
+            fileManager: fileManager
+        )
     }
 
     private static func resolvedClaudeWorkflowRecord(
@@ -3248,9 +3366,15 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(entriesByPanel: [PanelKey: Entry], isComplete: Bool = true) {
+    private init(
+        entriesByPanel: [PanelKey: Entry],
+        isComplete: Bool = true,
+        incompleteCodexPanelKeys: Set<PanelKey> = []
+    ) {
         self.entriesByPanel = entriesByPanel
         self.isComplete = isComplete
+        self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
+        self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))
         // Keep only the bounded candidate prefix while indexing. Exact owner
         // lookups still use `entriesByPanel`, but stable-panel resolution must
         // never retain or sort an unbounded owner history a second time.
