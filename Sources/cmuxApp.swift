@@ -1001,29 +1001,6 @@ struct cmuxApp: App {
                     }
                 }
                 .disabled(!browserFocusModeMenu.canToggle)
-                splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
-                    if activeBrowserActionTarget != nil {
-                        _ = performFocusedBrowserAction(.zoomIn)
-                    } else {
-                        _ = activeTabManager.zoomInFocusedBrowserOrTextFilePreview()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"), shortcut: menuShortcut(for: .browserZoomOut)) {
-                    if activeBrowserActionTarget != nil {
-                        _ = performFocusedBrowserAction(.zoomOut)
-                    } else {
-                        _ = activeTabManager.zoomOutFocusedBrowserOrTextFilePreview()
-                    }
-                }
-
-                splitCommandButton(title: String(localized: "menu.view.actualSize", defaultValue: "Actual Size"), shortcut: menuShortcut(for: .browserZoomReset)) {
-                    if activeBrowserActionTarget != nil {
-                        _ = performFocusedBrowserAction(.resetZoom)
-                    } else {
-                        _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
-                    }
-                }
 
                 Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
                     BrowserHistoryStore.shared.clearHistory()
@@ -1034,6 +1011,30 @@ struct cmuxApp: App {
                     DispatchQueue.main.async {
                         BrowserDataImportCoordinator.shared.presentImportDialog()
                     }
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
+                if activeBrowserActionTarget != nil {
+                    _ = performFocusedBrowserAction(.zoomIn)
+                } else {
+                    _ = activeTabManager.zoomInFocusedBrowserOrTextFilePreview()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"), shortcut: menuShortcut(for: .browserZoomOut)) {
+                if activeBrowserActionTarget != nil {
+                    _ = performFocusedBrowserAction(.zoomOut)
+                } else {
+                    _ = activeTabManager.zoomOutFocusedBrowserOrTextFilePreview()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.actualSize", defaultValue: "Actual Size"), shortcut: menuShortcut(for: .browserZoomReset)) {
+                if activeBrowserActionTarget != nil {
+                    _ = performFocusedBrowserAction(.resetZoom)
+                } else {
+                    _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
                 }
             }
 
