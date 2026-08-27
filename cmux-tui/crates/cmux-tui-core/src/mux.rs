@@ -2025,6 +2025,7 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    agent_hook_sequences: Mutex<HashMap<TerminalPublicId, u64>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -2402,6 +2403,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
+            agent_hook_sequences: Mutex::new(HashMap::new()),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -5245,7 +5247,7 @@ impl Mux {
             commit
         };
         if !commit.replayed {
-            self.apply_agent_hook_record(ingress);
+            self.apply_agent_hook_record(ingress, commit.sequence);
         }
         Ok(commit)
     }
@@ -5256,7 +5258,7 @@ impl Mux {
     /// reporting channel. Best effort by design: a hook may outlive its
     /// terminal (exit races, replays into closed tabs), and the journal
     /// append must never start failing because the record cannot update.
-    fn apply_agent_hook_record(&self, ingress: &crate::JournalIngress) {
+    fn apply_agent_hook_record(&self, ingress: &crate::JournalIngress, sequence: u64) {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
             return;
         }
@@ -5269,6 +5271,11 @@ impl Mux {
         else {
             return;
         };
+        let mut sequences = self.agent_hook_sequences.lock().unwrap();
+        if sequences.get(&terminal_id).is_some_and(|latest| sequence <= *latest) {
+            return;
+        }
+        sequences.insert(terminal_id.clone(), sequence);
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
@@ -5286,7 +5293,10 @@ impl Mux {
         // sequential (they follow one agent process's lifecycle), so nothing
         // races this removal.
         if state == AgentState::Done {
-            self.agent_records.lock().unwrap().remove(&terminal_id);
+            let mut records = self.agent_records.lock().unwrap();
+            if records.get(&terminal_id).is_some_and(|record| record.state == AgentState::Done) {
+                records.remove(&terminal_id);
+            }
         }
     }
 
@@ -21679,16 +21689,26 @@ mod tests {
     fn stale_same_terminal_hook_sequence_cannot_overwrite_newer_state() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
-        let terminal_id = mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
-            ContentPublicId::Terminal(id) => id.clone(),
-            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
         });
         let newer = crate::agent_hooks::agent_hook_journal_ingress(
-            "claude", "PermissionRequest", Some(&terminal_id.to_string()), serde_json::json!({}),
-        ).unwrap();
+            "claude",
+            "PermissionRequest",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
         let older = crate::agent_hooks::agent_hook_journal_ingress(
-            "claude", "UserPromptSubmit", Some(&terminal_id.to_string()), serde_json::json!({}),
-        ).unwrap();
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
         mux.apply_agent_hook_record(&newer, 2);
         mux.apply_agent_hook_record(&older, 1);
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Blocked);

@@ -60,10 +60,14 @@ pub(super) fn restore_public_projections(
 
     let mut agent_records = HashMap::with_capacity(projections.agents.len());
     for agent in projections.agents {
+        let state = agent_state(&agent.state)?;
+        if state == AgentState::Done {
+            continue;
+        }
         let previous = agent_records.insert(
             agent.terminal_id.clone(),
             TerminalAgentRecord {
-                state: agent_state(&agent.state)?,
+                state,
                 source: agent_source(&agent.source)?,
                 session: agent.source_session,
                 updated_at_ms: agent.updated_at_ms,
