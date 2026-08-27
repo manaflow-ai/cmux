@@ -98,7 +98,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 // requests the desktop image by default.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
+                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -123,6 +123,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             "kind": "password",
                             "value": "lease-token",
                         ],
+                    ]
+                )
+            case "vm.cmux_remote_info":
+                // This fixture exercises the legacy SSH fallback used by
+                // deployments that predate the cmux-tui remote daemon.
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "unsupported",
+                        "message": "cmux-tui is not enabled for this deployment",
                     ]
                 )
             case "workspace.list":
@@ -222,6 +233,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             [
                 "vm.create",
+                "vm.cmux_remote_info",
                 "vm.attach_info",
                 "workspace.list",
                 "workspace.create",
@@ -259,7 +271,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["provider"] as? String, "freestyle")
-                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
+                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
                     id: id,
@@ -503,7 +515,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 // backend chooses the provider and the CLI requests a desktop.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
+                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -526,6 +538,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             "kind": "password",
                             "value": "lease-token",
                         ],
+                    ]
+                )
+            case "vm.cmux_remote_info":
+                // Force the legacy SSH path for this workspace-reuse fixture;
+                // older deployments do not expose the cmux-tui daemon route.
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "unsupported",
+                        "message": "cmux-tui is not enabled for this deployment",
                     ]
                 )
             case "workspace.list":
@@ -637,6 +660,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             [
                 "vm.create",
+                "vm.cmux_remote_info",
                 "vm.attach_info",
                 "workspace.list",
                 "workspace.create",
@@ -680,7 +704,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 // than the legacy shared Base-slot idempotency key.
                 XCTAssertNil(params["provider"])
                 XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
-                XCTAssertEqual(params["image"] as? String, "blaxel/xfce-vnc:latest")
+                XCTAssertEqual(params["image"] as? String, "sandbox/cmux-devbox:latest")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -703,6 +727,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             "kind": "password",
                             "value": "lease-token",
                         ],
+                    ]
+                )
+            case "vm.cmux_remote_info":
+                // This title-collision case intentionally covers the legacy
+                // SSH fallback when cmux-tui is not deployed.
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "unsupported",
+                        "message": "cmux-tui is not enabled for this deployment",
                     ]
                 )
             case "workspace.list":
@@ -799,6 +834,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             [
                 "vm.create",
+                "vm.cmux_remote_info",
                 "vm.attach_info",
                 "workspace.list",
                 "workspace.create",
