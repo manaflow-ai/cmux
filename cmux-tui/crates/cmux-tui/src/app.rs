@@ -21739,6 +21739,18 @@ impl App {
         // the user clicked into a pane.
         let pointer_hit = self.hit_at(x, y);
         let captured_tab_targets = self.sidebar_tab_targets();
+
+        // A workspace row is an activation gesture. Keep the rendered target
+        // active until `activate_workspace` commits it, rather than cancelling
+        // the preview first and re-previewing the target.
+        if let Some(Hit::Workspace { index, id }) = pointer_hit {
+            self.workspace_rail_follow_selection = true;
+            self.focus = FocusTarget::Pane;
+            self.activate_workspace(index);
+            self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
+            self.sidebar_focus_pending = false;
+            return Ok(RenderAction::Draw);
+        }
         self.leave_workspace_sidebar();
         self.sidebar_focus_pending = false;
 
