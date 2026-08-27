@@ -1040,6 +1040,14 @@ async fn relay_session(
         }
     };
 
+    // Workspace requests own Git children. Give them a cooperative
+    // cancellation window so each request can kill its process group and
+    // await the direct child before the socket connection is dropped.
+    if !workspace.shutdown().await {
+        eprintln!("Workspace request shutdown exceeded its bounded cleanup window.");
+    }
+    drop(workspace);
+
     // Handlers are owned by this socket. Cancel them before returning so a
     // dropped connection cannot leave work sending into a dead session. A
     // handler may be inside a non-cooperative provider call, so retain a hard
