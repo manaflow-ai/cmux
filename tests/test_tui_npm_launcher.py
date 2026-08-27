@@ -10,6 +10,7 @@ import io
 import json
 import os
 import platform
+import re
 import stat
 import subprocess
 import sys
@@ -63,6 +64,12 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802, required by BaseHTTPRequestHandler
         type(self).authorization_headers.append(self.headers.get("Authorization"))
+        metadata_path = urllib.parse.urlsplit(self.path).path
+        metadata_match = re.fullmatch(
+            r"/cmux-tui-[A-Za-z0-9._-]+/"
+            r"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)",
+            metadata_path,
+        )
         if self.path in ("/cmux/latest", "/cmux/nightly"):
             type(self).latest_requests.append(self.path)
             version = (
@@ -71,18 +78,9 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
                 else type(self).latest_version
             )
             body = json.dumps({"version": version}).encode()
-        elif self.path.endswith((
-            "/cmux-tui-darwin-arm64/1.2.3",
-            "/cmux-tui-darwin-x64/1.2.3",
-            "/cmux-tui-linux-arm64/1.2.3",
-            "/cmux-tui-linux-x64/1.2.3",
-            f"/cmux-tui-darwin-arm64/{NIGHTLY_VERSION}",
-            f"/cmux-tui-darwin-x64/{NIGHTLY_VERSION}",
-            f"/cmux-tui-linux-arm64/{NIGHTLY_VERSION}",
-            f"/cmux-tui-linux-x64/{NIGHTLY_VERSION}",
-        )):
+        elif metadata_match:
             type(self).metadata_requests += 1
-            version = self.path.rsplit("/", 1)[-1]
+            version = metadata_match.group(1)
             tarball = type(self).tarballs.get(version, type(self).tarball)
             body = json.dumps(
                 {
