@@ -99,6 +99,22 @@ use crate::ui::{
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+const MAX_PROJECTION_ROWS_CACHE_ENTRIES: usize = 8;
+
+#[derive(Clone)]
+struct ProjectionRowsCache {
+    view_id: String,
+    workspace_revision: u64,
+    pane_revision: Option<u64>,
+    agent_revision: u64,
+    invalidation_revision: u64,
+    selected_workspace: usize,
+    rows: Vec<ProjectionRow>,
+}
+
+// Projection rows are a render snapshot. Keep only the most recently used
+// view snapshots so a large all-workspaces projection cannot retain unbounded
+// memory when configuration contains many views.
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
@@ -6924,6 +6940,9 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_rows_cache: VecDeque<ProjectionRowsCache>,
+    projection_rows_revision: u64,
+    projection_agent_revision: u64,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9433,6 +9452,9 @@ fn run_with_machine_updates_inner(
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_rows_cache: VecDeque::new(),
+        projection_rows_revision: 0,
+        projection_agent_revision: 0,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -10181,14 +10203,15 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
-        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
-        let empty_collapsed = HashSet::new();
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
+        let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
+            return Vec::new();
+        };
         let collapsed = self
             .projection_rails
             .get(&spec.id)
-            .map(|state| &state.collapsed)
-            .unwrap_or(&empty_collapsed);
+            .map(|state| state.collapsed.clone())
+            .unwrap_or_default();
         let agents = if spec.includes(SidebarResourceKind::Agents) {
             // Finished reports are historical records, not active agents.
             // Otherwise detached "surface..." rows remain forever after exit.
@@ -10207,13 +10230,59 @@ impl App {
         } else {
             Vec::new()
         };
-        crate::sidebar_projection::rows(
-            spec,
-            &self.tree,
-            &agents,
-            self.sidebar_workspace_selection,
-            collapsed,
-        )
+        let selected_workspace = self.sidebar_workspace_selection;
+        let workspace_revision = self.tree.workspace_revision;
+        let pane_revision = self.tree.pane_revision;
+        let agent_revision = self.projection_agent_revision;
+        let invalidation_revision = self.projection_rows_revision;
+        let cache_index = self.projection_rows_cache.iter().position(|cache| {
+            cache.view_id == spec.id
+                && cache.workspace_revision == workspace_revision
+                && cache.pane_revision == pane_revision
+                && cache.agent_revision == agent_revision
+                && cache.invalidation_revision == invalidation_revision
+                && cache.selected_workspace == selected_workspace
+        });
+        let rows = if let Some(cache_index) = cache_index {
+            let cache = self
+                .projection_rows_cache
+                .remove(cache_index)
+                .expect("projection cache index came from the cache");
+            let rows = cache.rows.clone();
+            self.projection_rows_cache.push_front(cache);
+            rows
+        } else {
+            let rows = crate::sidebar_projection::rows(
+                &spec,
+                &self.tree,
+                &agents,
+                selected_workspace,
+                &collapsed,
+            );
+            self.projection_rows_cache.push_front(ProjectionRowsCache {
+                view_id: spec.id.clone(),
+                workspace_revision,
+                pane_revision,
+                agent_revision,
+                invalidation_revision,
+                selected_workspace,
+                rows: rows.clone(),
+            });
+            self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
+            rows
+        };
+        self.projection_rail_state_mut(index).reconcile_selection(&rows);
+        rows
+    }
+
+    fn invalidate_projection_rows_cache(&mut self) {
+        self.projection_rows_revision = self.projection_rows_revision.wrapping_add(1);
+        self.projection_rows_cache.clear();
+    }
+
+    fn invalidate_agent_projection_rows_cache(&mut self) {
+        self.projection_agent_revision = self.projection_agent_revision.wrapping_add(1);
+        self.invalidate_projection_rows_cache();
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -11903,6 +11972,7 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        self.invalidate_projection_rows_cache();
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -13182,6 +13252,7 @@ impl App {
         self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        self.invalidate_projection_rows_cache();
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
                 self.tree.workspaces.iter().position(|workspace| workspace.id == selected)
@@ -14013,6 +14084,7 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
+        self.invalidate_projection_rows_cache();
         let mut valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
@@ -15142,7 +15214,11 @@ impl App {
             AppEvent::HostInputReady => Ok(RenderAction::None),
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
-                Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
+                let changed = self.apply_mux_titles();
+                if changed {
+                    self.invalidate_projection_rows_cache();
+                }
+                Ok(if changed { RenderAction::Paint } else { RenderAction::None })
             }
             AppEvent::StatusCommandsUpdated => {
                 self.status_poke_pending.store(false, Ordering::Release);
@@ -15352,6 +15428,14 @@ impl App {
                 } else {
                     Ok(RenderAction::Paint)
                 }
+            }
+            AppEvent::Mux(MuxEvent::AgentChanged { .. }) => {
+                self.invalidate_agent_projection_rows_cache();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::TitleChanged { .. }) => {
+                self.invalidate_projection_rows_cache();
+                Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
                 let duplicate = self
@@ -18098,6 +18182,7 @@ impl App {
                 && selected.as_ref().is_some_and(|row| row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.insert(branch);
+                self.invalidate_projection_rows_cache();
             } else {
                 self.focus_adjacent_rail(RailKind::Projection(view_index), -1);
             }
@@ -18109,6 +18194,7 @@ impl App {
                 && selected.as_ref().is_some_and(|row| !row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
+                self.invalidate_projection_rows_cache();
             } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
                 self.focus = FocusTarget::Pane;
             }
@@ -18126,6 +18212,7 @@ impl App {
             let state = self.projection_rail_state_mut(view_index);
             if next < rows.len() {
                 state.selected = next;
+                state.selected_target = rows.get(next).map(|row| row.target);
                 state.selected_action = None;
             } else {
                 state.selected_action = Some(next.saturating_sub(rows.len()));
@@ -18136,10 +18223,13 @@ impl App {
         if matches!(key.code, KeyCode::Char(' '))
             && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
         {
-            let state = self.projection_rail_state_mut(view_index);
-            if !state.collapsed.remove(&branch) {
-                state.collapsed.insert(branch);
+            {
+                let state = self.projection_rail_state_mut(view_index);
+                if !state.collapsed.remove(&branch) {
+                    state.collapsed.insert(branch);
+                }
             }
+            self.invalidate_projection_rows_cache();
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Enter {
@@ -21944,14 +22034,18 @@ impl App {
                     }
                 }
                 Hit::ProjectionToggle { view, branch } => {
-                    let state = self.projection_rail_state_mut(view);
-                    if !state.collapsed.remove(&branch) {
-                        state.collapsed.insert(branch);
+                    {
+                        let state = self.projection_rail_state_mut(view);
+                        if !state.collapsed.remove(&branch) {
+                            state.collapsed.insert(branch);
+                        }
                     }
+                    self.invalidate_projection_rows_cache();
                 }
                 Hit::ProjectionRow { view, row, target } => {
                     let state = self.projection_rail_state_mut(view);
                     state.selected = row;
+                    state.selected_target = Some(target);
                     state.selected_action = None;
                     state.follow_selection = true;
                     self.activate_projection_target(target)?;
@@ -44238,6 +44332,9 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_rows_cache: VecDeque::new(),
+            projection_rows_revision: 0,
+            projection_agent_revision: 0,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,

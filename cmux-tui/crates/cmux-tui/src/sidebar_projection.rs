@@ -34,6 +34,22 @@ pub(crate) enum ProjectionTarget {
     },
 }
 
+impl ProjectionTarget {
+    /// Compare the projected resource identity while ignoring positions that
+    /// can change when a fresh tree snapshot is rebuilt.
+    pub(crate) fn same_resource(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Workspace { id: left, .. }, Self::Workspace { id: right, .. }) => left == right,
+            (Self::Pane { pane: left, .. }, Self::Pane { pane: right, .. }) => left == right,
+            (
+                Self::Surface { surface: left, agent: left_agent, .. },
+                Self::Surface { surface: right, agent: right_agent, .. },
+            ) => left == right && left_agent == right_agent,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectionRow {
     pub resource: SidebarResourceKind,
@@ -52,6 +68,8 @@ pub(crate) struct ProjectionRailState {
     /// Selected resource-row index. Action selection is tracked separately so
     /// live resource insertions cannot retarget a pinned action.
     pub selected: usize,
+    /// Stable resource identity for preserving selection when rows reorder.
+    pub selected_target: Option<ProjectionTarget>,
     pub selected_action: Option<usize>,
     pub scroll: usize,
     pub footer_scroll: usize,
@@ -63,12 +81,31 @@ impl Default for ProjectionRailState {
     fn default() -> Self {
         Self {
             selected: 0,
+            selected_target: None,
             selected_action: None,
             scroll: 0,
             footer_scroll: 0,
             follow_selection: true,
             collapsed: HashSet::new(),
         }
+    }
+
+    pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
+        if rows.is_empty() {
+            self.selected = 0;
+            self.selected_target = None;
+            return;
+        }
+        if let Some(target) = self.selected_target
+            && let Some((index, row)) =
+                rows.iter().enumerate().find(|(_, row)| row.target.same_resource(target))
+        {
+            self.selected = index;
+            self.selected_target = Some(row.target);
+            return;
+        }
+        self.selected = self.selected.min(rows.len().saturating_sub(1));
+        self.selected_target = rows.get(self.selected).map(|row| row.target);
     }
 }
 
@@ -610,5 +647,53 @@ mod tests {
             rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 1, &HashSet::new());
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
+    }
+
+    #[test]
+    fn selection_reconciles_by_surface_when_agent_recency_reorders_rows() {
+        let tree = TreeView {
+            workspaces: vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        let initial_agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 900,
+            },
+        ];
+        let initial = rows(&all_spec, &tree, &initial_agents, 0, &HashSet::new());
+        let selected_target = initial[1].target;
+        let mut state = ProjectionRailState {
+            selected: 1,
+            selected_target: Some(selected_target),
+            ..ProjectionRailState::default()
+        };
+
+        let updated_agents = vec![
+            AgentInfo { updated_at_ms: 1_000, ..initial_agents[0].clone() },
+            initial_agents[1].clone(),
+        ];
+        let reordered = rows(&all_spec, &tree, &updated_agents, 0, &HashSet::new());
+        assert_ne!(reordered[1].target, selected_target);
+        state.reconcile_selection(&reordered);
+        assert_eq!(state.selected_target, Some(selected_target));
+        assert_eq!(reordered[state.selected].target, selected_target);
     }
 }
