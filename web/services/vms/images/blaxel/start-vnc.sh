@@ -19,6 +19,15 @@ GEOMETRY="${CMUX_VNC_GEOMETRY:-1440x900}"
 LOG_DIR="$HOME/.cmux/desktop-logs"
 mkdir -p "$LOG_DIR" 2>/dev/null || { LOG_DIR="/tmp/cmux-desktop-logs-$(id -u)"; mkdir -p "$LOG_DIR"; }
 
+# The supervisor re-runs this every 30 s, so cap each component log here: a
+# crash-looping component must not grow its log without bound.
+for log in "$LOG_DIR"/*.log; do
+  [ -f "$log" ] || continue
+  if [ "$(wc -c <"$log" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+    tail -c 65536 "$log" > "$log.tmp" 2>/dev/null && mv "$log.tmp" "$log"
+  fi
+done
+
 VNC_BIN="$(command -v Xvnc || command -v Xtigervnc)" || exit 0
 
 listening() { ss -tln 2>/dev/null | grep -q ":$1 "; }
