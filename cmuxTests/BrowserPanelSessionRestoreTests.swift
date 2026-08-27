@@ -1,4 +1,5 @@
 import Darwin
+import CmuxBrowser
 import Foundation
 import Testing
 
@@ -127,5 +128,35 @@ struct BrowserPanelSessionRestoreTests {
         let history = panel.sessionNavigationHistorySnapshot()
         #expect(history.backHistoryURLStrings == ["https://example.com/back"])
         #expect(history.forwardHistoryURLStrings == ["https://example.com/forward"])
+    }
+
+    @Test
+    func chromiumSessionSnapshotKeepsEngineHistoryURLs() throws {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            engine: .chromium
+        )
+        defer { panel.close() }
+
+        let current = try #require(URL(string: "https://example.com/current"))
+        let back = try #require(URL(string: "https://example.com/back"))
+        let forward = try #require(URL(string: "https://example.com/forward"))
+        panel.applyChromiumSnapshot(
+            ChromiumSessionSnapshot(
+                state: .running(nil),
+                currentURL: current,
+                canGoBack: true,
+                canGoForward: true,
+                backHistoryURLs: [back],
+                forwardHistoryURLs: [forward]
+            )
+        )
+
+        let history = panel.sessionNavigationHistorySnapshot()
+        #expect(history.backHistoryURLStrings == [back.absoluteString])
+        #expect(history.forwardHistoryURLStrings == [forward.absoluteString])
+        #expect(panel.canGoBack)
+        #expect(panel.canGoForward)
     }
 }

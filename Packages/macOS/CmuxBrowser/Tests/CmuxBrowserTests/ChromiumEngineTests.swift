@@ -430,6 +430,21 @@ struct ChromiumEngineTests {
         #expect(history.targetEntryID(offset: 2) == nil)
     }
 
+    @Test("Navigation history exposes URL stacks in persistence order")
+    func navigationHistoryURLs() throws {
+        let history = try ChromiumNavigationHistory(.object([
+            "currentIndex": .number(1),
+            "entries": .array([
+                .object(["id": .number(1), "url": .string("https://a.test")]),
+                .object(["id": .number(2), "url": .string("https://b.test")]),
+                .object(["id": .number(3), "url": .string("https://c.test")]),
+            ]),
+        ]))
+
+        #expect(history.backURLs == [URL(string: "https://a.test")!])
+        #expect(history.forwardURLs == [URL(string: "https://c.test")!])
+    }
+
     @Test("Navigation history rejects malformed indices and entry identifiers")
     func navigationHistoryValidation() {
         #expect(throws: CDPError.self) {

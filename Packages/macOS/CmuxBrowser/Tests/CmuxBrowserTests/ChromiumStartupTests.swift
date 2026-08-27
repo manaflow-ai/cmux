@@ -153,6 +153,25 @@ struct ChromiumScreencastFastPathTests {
     }
 }
 
+@Suite("Chromium screencast visibility")
+struct ChromiumScreencastVisibilityTests {
+    @Test("Visibility changes map to bounded start/stop transitions")
+    func transitionsAreOneShot() {
+        #expect(ChromiumScreencastTransition(
+            isPaneVisible: false,
+            isScreencastActive: false
+        ).method == nil)
+        #expect(ChromiumScreencastTransition(
+            isPaneVisible: true,
+            isScreencastActive: false
+        ).method == "Page.startScreencast")
+        #expect(ChromiumScreencastTransition(
+            isPaneVisible: false,
+            isScreencastActive: true
+        ).method == "Page.stopScreencast")
+    }
+}
+
 private actor RecordingCDPTransport: ChromiumCDPTransport {
     private let stream: AsyncStream<Result<Data, CDPError>>
     private let continuation: AsyncStream<Result<Data, CDPError>>.Continuation
