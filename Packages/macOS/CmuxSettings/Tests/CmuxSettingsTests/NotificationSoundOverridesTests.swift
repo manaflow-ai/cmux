@@ -46,6 +46,22 @@ struct NotificationSoundOverridesTests {
         #expect(NotificationSoundOverrides(jsonString: #"{"claude":{"turnDone":{"sound":"Bogus"}}}"#) == nil)
     }
 
+    @Test("oversized persisted sound matrices fail closed")
+    func oversizedJSONIsRejected() {
+        let oversizedPath = String(repeating: "a", count: 256 * 1024)
+        let raw = "{\"claude\":{\"turnDone\":{\"sound\":\"custom_file\",\"customSoundFilePath\":\"\(oversizedPath)\"}}}"
+        #expect(NotificationSoundOverrides(jsonString: raw) == nil)
+    }
+
+    @Test("sound matrices reject more than the bounded agent cardinality")
+    func oversizedAgentSetIsRejected() {
+        let entries = (0...256).map { index in
+            "\"agent\(index)\":{\"turnDone\":{\"sound\":\"Ping\"}}"
+        }
+        let raw = "{\(entries.joined(separator: ","))}"
+        #expect(NotificationSoundOverrides(jsonString: raw) == nil)
+    }
+
     @Test("invalid agent ids cannot create context or matrix cells")
     func invalidAgentIDsFailClosed() throws {
         #expect(NotificationSoundOverrideContext(agentID: "", alertType: .turnDone) == nil)
