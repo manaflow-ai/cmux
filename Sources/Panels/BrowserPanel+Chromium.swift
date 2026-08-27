@@ -64,7 +64,7 @@ extension BrowserPanel {
         let controller = browserEngineController
         chromiumIsolationTask = Task { @MainActor [weak self, controller] in
             let didStop = await controller.stopAndWait()
-            guard let self else { return didStop }
+            guard let self else { return }
             guard didStop else {
                 self.chromiumIsolationTask = nil
                 self.pageTitle = ChromiumBrowserDiagnostic.connectionClosed.message
@@ -317,7 +317,7 @@ extension BrowserPanel {
         let controller = browserEngineController
         chromiumMemoryDiscardTask = Task { @MainActor [weak self, controller] in
             let didStop = await controller.stopAndWait()
-            guard let self else { return }
+            guard let self else { return didStop }
             self.chromiumMemoryDiscardTask = nil
             self.refreshNavigationAvailability()
             self.refreshWebViewLifecycleState()
