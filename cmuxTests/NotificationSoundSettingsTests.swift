@@ -566,7 +566,7 @@ import CmuxSettings
         let runner = NotificationSoundProcessRunner(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             timeoutNanoseconds: 250_000_000,
-            argumentBuilder: { _, _ in ["-c", "sleep 3"] }
+            argumentBuilder: { _, _ in ["-c", "sleep 5"] }
         )
         let startedAt = ContinuousClock.now
         let tasks = (0..<48).map { index in
@@ -577,22 +577,68 @@ import CmuxSettings
                         to: URL(fileURLWithPath: "/tmp/cmux-sound-destination-\(index)")
                     )
                     return false
-                } catch {
+                } catch is CancellationError {
                     return true
+                } catch {
+                    return false
                 }
             }
         }
 
         var allTimedOut = true
         for task in tasks {
-            allTimedOut = await task.value && allTimedOut
+            let didTimeOut = await task.value
+            allTimedOut = didTimeOut && allTimedOut
         }
 
         // The old detached wait/read helpers occupied every cooperative worker
-        // until the three-second child exited. A dedicated blocking bridge
+        // until the five-second child exited. A dedicated blocking bridge
         // keeps the timeout tasks runnable and completes this burst promptly.
         #expect(allTimedOut)
-        #expect(ContinuousClock.now - startedAt < .seconds(2))
+        #expect(ContinuousClock.now - startedAt < .seconds(3))
+    }
+
+    @Test(.timeLimit(.seconds(10)))
+    func distinctCustomSoundConversionsRespectGlobalAdmissionLimit() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-conversion-limit-\(UUID().uuidString)", isDirectory: true)
+        let stagingDirectory = directory.appendingPathComponent("staged", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let sourceURLs = (0..<8).map { index in
+            directory.appendingPathComponent("source-\(index).m4r", isDirectory: false)
+        }
+        for sourceURL in sourceURLs {
+            try Data("synthetic sound".utf8).write(to: sourceURL)
+        }
+
+        let probe = NotificationSoundConversionProbe()
+        let stager = NotificationSoundStager(
+            processRunner: probe,
+            maximumConcurrentConversions: 2
+        )
+        let results = await withTaskGroup(of: Bool.self) { group in
+            for sourceURL in sourceURLs {
+                group.addTask {
+                    let result = await stager.prepareCustomSound(
+                        path: sourceURL.path,
+                        stagingDirectory: stagingDirectory
+                    )
+                    if case .success = result { return true }
+                    return false
+                }
+            }
+            var values: [Bool] = []
+            for await value in group {
+                values.append(value)
+            }
+            return values
+        }
+
+        #expect(results.allSatisfy { $0 })
+        #expect(await probe.maximumActiveCount() == 2)
     }
 
     @Test func customSoundConversionDrainsErrorOutputBeforeReturning() async throws {
@@ -821,5 +867,31 @@ private struct ActiveFocusFixture {
     func cleanUp() {
         defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+private actor NotificationSoundConversionProbe: NotificationSoundProcessRunning {
+    private var activeCount = 0
+    private var maximumActive = 0
+
+    func run(
+        from _: URL,
+        to destinationURL: URL
+    ) async throws -> NotificationSoundProcessRunner.Result {
+        activeCount += 1
+        maximumActive = max(maximumActive, activeCount)
+        defer { activeCount -= 1 }
+
+        try await ContinuousClock().sleep(for: .milliseconds(100))
+        try Task.checkCancellation()
+        try Data([0]).write(to: destinationURL, options: .atomic)
+        return NotificationSoundProcessRunner.Result(
+            terminationStatus: 0,
+            errorOutput: nil
+        )
+    }
+
+    func maximumActiveCount() -> Int {
+        maximumActive
     }
 }

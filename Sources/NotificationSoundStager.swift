@@ -9,9 +9,6 @@ nonisolated private let notificationSoundStagerLogger = Logger(
     category: "notification-sound"
 )
 
-/// Gives a cancellation handler a Sendable way to terminate an `afconvert`
-/// process without capturing the Foundation process directly in a concurrent
-/// closure.
 /// Sole owner of notification-sound staging artifacts.
 ///
 /// Actor isolation serializes every managed-file write, including metadata
@@ -29,7 +26,8 @@ actor NotificationSoundStager {
         cancellationRequested: Bool
     )
 
-    private let processRunner = NotificationSoundProcessRunner()
+    private let processRunner: any NotificationSoundProcessRunning
+    private let conversionLimiter: NotificationSoundConversionLimiter
     private let artifactCleaner = NotificationSoundStagingArtifactCleaner()
     private var inFlightConversions: [URL: InFlightConversion] = [:]
     private var artifactLeaseExpirations: [URL: Date] = [:]
@@ -41,6 +39,16 @@ actor NotificationSoundStager {
     private let maximumArtifactLeases = 512
     private var lastArtifactPruneAt = Date.distantPast
     private let artifactPruneInterval: TimeInterval = 60
+
+    init(
+        processRunner: any NotificationSoundProcessRunning = NotificationSoundProcessRunner(),
+        maximumConcurrentConversions: Int = 4
+    ) {
+        self.processRunner = processRunner
+        self.conversionLimiter = NotificationSoundConversionLimiter(
+            limit: maximumConcurrentConversions
+        )
+    }
 
     func stagedName(
         path rawPath: String,
@@ -696,8 +704,11 @@ actor NotificationSoundStager {
             inFlightConversions[destinationURL] = existing
         } else {
             let processRunner = self.processRunner
+            let conversionLimiter = self.conversionLimiter
             conversionTask = Task {
-                try await processRunner.run(from: sourceURL, to: destinationURL)
+                try await conversionLimiter.withPermit {
+                    try await processRunner.run(from: sourceURL, to: destinationURL)
+                }
             }
             inFlightConversions[destinationURL] = InFlightConversion(
                 id: UUID(),

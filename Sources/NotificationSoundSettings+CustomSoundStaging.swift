@@ -64,8 +64,8 @@ final class NotificationSoundProcessCancellation: @unchecked Sendable {
     }
 }
 
-/// Drains a conversion pipe on a detached task while retaining only bounded
-/// diagnostic output. The Foundation handle is confined to this reader.
+/// Drains a conversion pipe on the process-I/O bridge while retaining only
+/// bounded diagnostic output. The Foundation handle is confined to this reader.
 private final class NotificationSoundErrorPipeReader: @unchecked Sendable {
     private let handle: FileHandle
 
@@ -89,14 +89,28 @@ private final class NotificationSoundErrorPipeReader: @unchecked Sendable {
 }
 
 /// Runs `afconvert` without blocking the caller's executor.
-struct NotificationSoundProcessRunner: Sendable {
+struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable {
     private static let maximumErrorOutputBytes = 64 * 1024
     private static let defaultExecutableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
     private static let defaultTimeoutNanoseconds: UInt64 = 30_000_000_000
+    // FileHandle reads and waitpid are intentionally bridged to a private GCD
+    // queue. They can block until a child or descendant closes a descriptor;
+    // running them in Task.detached would consume Swift's cooperative workers
+    // and starve the deadline task that is responsible for cancellation.
+    private static let blockingIOQueue = DispatchQueue(
+        label: "com.cmuxterm.notification-sound.process-io",
+        qos: .utility,
+        attributes: .concurrent
+    )
 
     struct Result: Sendable {
         let terminationStatus: Int32
         let errorOutput: String?
+    }
+
+    private enum ProcessWaitResult: Sendable {
+        case success(Int32)
+        case failure(Int32)
     }
 
     private let executableURL: URL
@@ -195,13 +209,13 @@ struct NotificationSoundProcessRunner: Sendable {
 
         var pipeDescriptors: [Int32] = [-1, -1]
         guard pipe(&pipeDescriptors) == 0 else {
-            throw processError(code: errno, operation: "pipe")
+            throw Self.processError(code: errno, operation: "pipe")
         }
         guard pipeDescriptors.allSatisfy({ $0 > STDERR_FILENO }) else {
             pipeDescriptors.forEach { descriptor in
                 if descriptor >= 0 { Darwin.close(descriptor) }
             }
-            throw processError(code: EINVAL, operation: "pipe descriptors")
+            throw Self.processError(code: EINVAL, operation: "pipe descriptors")
         }
 
         let errorReader = NotificationSoundErrorPipeReader(
@@ -210,8 +224,8 @@ struct NotificationSoundProcessRunner: Sendable {
                 closeOnDealloc: false
             )
         )
-        let errorReaderTask = Task.detached(priority: .utility) {
-            errorReader.readCapped(maxBytes: Self.maximumErrorOutputBytes)
+        let errorReaderTask = Task {
+            await Self.readErrorOutput(errorReader)
         }
 
         let processIdentifier: pid_t
@@ -236,20 +250,13 @@ struct NotificationSoundProcessRunner: Sendable {
         // Start waiting before registering/resuming. If cancellation was
         // already requested, registration kills the still-suspended child and
         // this single waiter still owns the required reap.
-        let terminationTask: Task<Int32, Error> = Task.detached(priority: .utility) {
-            var rawStatus: Int32 = 0
-            var waitResult: pid_t
-            repeat {
-                waitResult = waitpid(processIdentifier, &rawStatus, 0)
-            } while waitResult == -1 && errno == EINTR
-            guard waitResult == processIdentifier else {
-                let waitError = errno
-                throw processError(code: waitError, operation: "waitpid")
+        let terminationTask: Task<Int32, Error> = Task {
+            switch await Self.waitForProcess(processIdentifier) {
+            case .success(let terminationStatus):
+                return terminationStatus
+            case .failure(let waitError):
+                throw Self.processError(code: waitError, operation: "waitpid")
             }
-            guard (rawStatus & 0x7f) == 0 else {
-                return rawStatus & 0x7f
-            }
-            return (rawStatus >> 8) & 0xff
         }
 
         guard cancellation.register(processIdentifier: processIdentifier) else {
@@ -268,7 +275,7 @@ struct NotificationSoundProcessRunner: Sendable {
             _ = await errorReaderTask.value
             closeReadDescriptor(&pipeDescriptors)
             if Task.isCancelled { throw CancellationError() }
-            throw processError(code: continueError, operation: "SIGCONT")
+            throw Self.processError(code: continueError, operation: "SIGCONT")
         }
 
         let terminationStatus: Int32
@@ -300,16 +307,16 @@ struct NotificationSoundProcessRunner: Sendable {
     ) throws -> pid_t {
         guard !arguments.isEmpty,
               arguments.allSatisfy({ !$0.utf8.contains(0) }) else {
-            throw processError(code: EINVAL, operation: "arguments")
+            throw Self.processError(code: EINVAL, operation: "arguments")
         }
         guard errorFileDescriptor > STDERR_FILENO else {
-            throw processError(code: EINVAL, operation: "stderr descriptor")
+            throw Self.processError(code: EINVAL, operation: "stderr descriptor")
         }
 
         var fileActions: posix_spawn_file_actions_t?
         var setupStatus = posix_spawn_file_actions_init(&fileActions)
         guard setupStatus == 0 else {
-            throw processError(code: setupStatus, operation: "file actions")
+            throw Self.processError(code: setupStatus, operation: "file actions")
         }
         defer { posix_spawn_file_actions_destroy(&fileActions) }
 
@@ -368,13 +375,13 @@ struct NotificationSoundProcessRunner: Sendable {
             }
         }
         guard setupStatus == 0 else {
-            throw processError(code: setupStatus, operation: "file actions")
+            throw Self.processError(code: setupStatus, operation: "file actions")
         }
 
         var attributes: posix_spawnattr_t?
         setupStatus = posix_spawnattr_init(&attributes)
         guard setupStatus == 0 else {
-            throw processError(code: setupStatus, operation: "spawn attributes")
+            throw Self.processError(code: setupStatus, operation: "spawn attributes")
         }
         defer { posix_spawnattr_destroy(&attributes) }
 
@@ -392,7 +399,7 @@ struct NotificationSoundProcessRunner: Sendable {
             setupStatus = posix_spawnattr_setflags(&attributes, spawnFlags)
         }
         guard setupStatus == 0 else {
-            throw processError(code: setupStatus, operation: "spawn attributes")
+            throw Self.processError(code: setupStatus, operation: "spawn attributes")
         }
 
         var argumentPointers = arguments.map { strdup($0) }
@@ -402,7 +409,7 @@ struct NotificationSoundProcessRunner: Sendable {
             }
         }
         guard argumentPointers.allSatisfy({ $0 != nil }) else {
-            throw processError(code: ENOMEM, operation: "argv allocation")
+            throw Self.processError(code: ENOMEM, operation: "argv allocation")
         }
         argumentPointers.append(nil)
 
@@ -412,11 +419,11 @@ struct NotificationSoundProcessRunner: Sendable {
                 .map { "\($0.key)=\($0.value)" }
                 .sorted()
             guard entries.allSatisfy({ !$0.utf8.contains(0) }) else {
-                throw processError(code: EINVAL, operation: "environment")
+                throw Self.processError(code: EINVAL, operation: "environment")
             }
             environmentPointers = entries.map { strdup($0) }
             guard environmentPointers.allSatisfy({ $0 != nil }) else {
-                throw processError(code: ENOMEM, operation: "environment allocation")
+                throw Self.processError(code: ENOMEM, operation: "environment allocation")
             }
             environmentPointers.append(nil)
         }
@@ -459,7 +466,7 @@ struct NotificationSoundProcessRunner: Sendable {
             }
         }
         guard spawnStatus == 0, processIdentifier > 1 else {
-            throw processError(
+            throw Self.processError(
                 code: spawnStatus == 0 ? ECHILD : spawnStatus,
                 operation: "posix_spawn"
             )
@@ -473,7 +480,42 @@ struct NotificationSoundProcessRunner: Sendable {
         descriptors[index] = -1
     }
 
-    private func processError(code: Int32, operation: String) -> NSError {
+    private static func readErrorOutput(
+        _ reader: NotificationSoundErrorPipeReader
+    ) async -> Data {
+        await withCheckedContinuation { continuation in
+            blockingIOQueue.async {
+                continuation.resume(
+                    returning: reader.readCapped(maxBytes: maximumErrorOutputBytes)
+                )
+            }
+        }
+    }
+
+    private static func waitForProcess(
+        _ processIdentifier: pid_t
+    ) async -> ProcessWaitResult {
+        await withCheckedContinuation { continuation in
+            blockingIOQueue.async {
+                var rawStatus: Int32 = 0
+                var waitResult: pid_t
+                repeat {
+                    waitResult = waitpid(processIdentifier, &rawStatus, 0)
+                } while waitResult == -1 && errno == EINTR
+                guard waitResult == processIdentifier else {
+                    let waitError = errno
+                    continuation.resume(returning: .failure(waitError))
+                    return
+                }
+                let terminationStatus = (rawStatus & 0x7f) == 0
+                    ? (rawStatus >> 8) & 0xff
+                    : rawStatus & 0x7f
+                continuation.resume(returning: .success(terminationStatus))
+            }
+        }
+    }
+
+    private static func processError(code: Int32, operation: String) -> NSError {
         NSError(
             domain: NSPOSIXErrorDomain,
             code: Int(code),

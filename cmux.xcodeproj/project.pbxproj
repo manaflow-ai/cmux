@@ -1569,7 +1569,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D78970000000000000000001 /* NotificationScrollRestoreState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78970000000000000000002 /* NotificationScrollRestoreState.swift */; };
 		C79010000000000000000005 /* NotificationScrollRestoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79010000000000000000006 /* NotificationScrollRestoreTestSupport.swift */; };
 		B7F101010000000000000001 /* NotificationSoundAgentRegistryLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */; };
+		B7F101020000000000000001 /* NotificationSoundConversionLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101020000000000000002 /* NotificationSoundConversionLimiter.swift */; };
 		B7F100020000000000000001 /* NotificationSoundPreparationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100020000000000000002 /* NotificationSoundPreparationPolicy.swift */; };
+		B7F101030000000000000001 /* NotificationSoundProcessRunning.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101030000000000000002 /* NotificationSoundProcessRunning.swift */; };
 		B7F100030000000000000001 /* NotificationSoundResolutionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100030000000000000002 /* NotificationSoundResolutionSnapshot.swift */; };
 		B7F0000C /* NotificationSoundSettings+CustomSoundStaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */; };
 		B7F00004 /* NotificationSoundSettings+OverrideResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00003 /* NotificationSoundSettings+OverrideResolution.swift */; };
@@ -4428,7 +4430,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D78970000000000000000002 /* NotificationScrollRestoreState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreState.swift; sourceTree = "<group>"; };
 		C79010000000000000000006 /* NotificationScrollRestoreTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreTestSupport.swift; sourceTree = "<group>"; };
 		B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundAgentRegistryLoader.swift; sourceTree = "<group>"; };
+		B7F101020000000000000002 /* NotificationSoundConversionLimiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundConversionLimiter.swift; sourceTree = "<group>"; };
 		B7F100020000000000000002 /* NotificationSoundPreparationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundPreparationPolicy.swift; sourceTree = "<group>"; };
+		B7F101030000000000000002 /* NotificationSoundProcessRunning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundProcessRunning.swift; sourceTree = "<group>"; };
 		B7F100030000000000000002 /* NotificationSoundResolutionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundResolutionSnapshot.swift; sourceTree = "<group>"; };
 		B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundSettings+CustomSoundStaging.swift"; sourceTree = "<group>"; };
 		B7F00003 /* NotificationSoundSettings+OverrideResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundSettings+OverrideResolution.swift"; sourceTree = "<group>"; };
@@ -7171,6 +7175,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B7F00003 /* NotificationSoundSettings+OverrideResolution.swift */,
 				B7F100040000000000000002 /* NotificationSoundSettings+SourceMetadata.swift */,
 				B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */,
+				B7F101020000000000000002 /* NotificationSoundConversionLimiter.swift */,
+				B7F101030000000000000002 /* NotificationSoundProcessRunning.swift */,
 				B7F101000000000000000002 /* NotificationSoundStager.swift */,
 				B7F100050000000000000002 /* NotificationSoundSourceMetadata.swift */,
 				B7F100060000000000000002 /* PreparedNotificationSound.swift */,
@@ -10133,7 +10139,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D78970000000000000000003 /* NotificationScrollRestoreGeometry.swift in Sources */,
 				D78970000000000000000001 /* NotificationScrollRestoreState.swift in Sources */,
 				B7F101010000000000000001 /* NotificationSoundAgentRegistryLoader.swift in Sources */,
+				B7F101020000000000000001 /* NotificationSoundConversionLimiter.swift in Sources */,
 				B7F100020000000000000001 /* NotificationSoundPreparationPolicy.swift in Sources */,
+				B7F101030000000000000001 /* NotificationSoundProcessRunning.swift in Sources */,
 				B7F100030000000000000001 /* NotificationSoundResolutionSnapshot.swift in Sources */,
 				B7F0000C /* NotificationSoundSettings+CustomSoundStaging.swift in Sources */,
 				B7F00004 /* NotificationSoundSettings+OverrideResolution.swift in Sources */,
