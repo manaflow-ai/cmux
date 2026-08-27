@@ -63,16 +63,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     /// Returns bounded config paths plus completion state for watcher planning.
     func watchPathResult() -> WatchPathResult {
         let result = traverse()
-        var metadataSentinelPaths = Array(
-            Set(result.missingConfigPaths + result.deferredConfigPaths)
-                .sorted()
-                .prefix(Self.maximumIncludedFileCount)
-        )
-        let metadataSentinelParentPaths = Array(
-            Set(result.missingConfigParentPaths + result.deferredConfigParentPaths)
-            .sorted()
-            .prefix(Self.maximumIncludedFileCount)
-        )
         let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
             .appendingPathComponent("config.worktree")
             .standardizedFileURL
@@ -85,16 +75,26 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
                 rootWatchPaths.append(worktreeConfigURL.path)
             } else {
                 rootWatchPaths.append(worktreeConfigURL.deletingLastPathComponent().path)
-                worktreeConfigIsMissing = true
+                worktreeConfigIsMissing = result.worktreeConfigEnabled
             }
         }
-        if worktreeConfigIsMissing {
-            metadataSentinelPaths = Array(
-                Set(metadataSentinelPaths + [worktreeConfigURL.path])
-                    .sorted()
-                    .prefix(Self.maximumIncludedFileCount)
-            )
-        }
+        let deferredPaths = Array(Set(result.deferredConfigPaths)).sorted()
+        let missingPaths = Array(Set(result.missingConfigPaths)).sorted()
+        let mandatorySentinelPaths = worktreeConfigIsMissing ? [worktreeConfigURL.path] : []
+        let availableSentinelCount = max(
+            0,
+            Self.maximumIncludedFileCount - mandatorySentinelPaths.count
+        )
+        let deferredSentinelPaths = Array(deferredPaths.prefix(availableSentinelCount))
+        let missingSentinelCount = max(0, availableSentinelCount - deferredSentinelPaths.count)
+        let metadataSentinelPaths = deferredSentinelPaths
+            + Array(missingPaths.prefix(missingSentinelCount))
+            + mandatorySentinelPaths
+        let metadataSentinelParentPaths = Array(
+            Set(result.missingConfigParentPaths + result.deferredConfigParentPaths)
+                .sorted()
+                .prefix(Self.maximumIncludedFileCount)
+        )
         // Keep the mandatory repository config roots ahead of optional include
         // sentinels so the bounded path list can never evict them. Parent
         // directories are watcher roots only; they must not become metadata
@@ -105,8 +105,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             ? [worktreeConfigURL.deletingLastPathComponent().path]
             : []) + Array(metadataSentinelParentPaths)
         let metadataCandidates = result.configURLs.map { $0.standardizedFileURL.path }
-            + result.referenceStoragePaths
-            + result.deferredConfigPaths
+            + referenceStorageWatchPaths(for: result.referenceStorageName)
+            + deferredSentinelPaths
         let paths = rootWatchPaths
             + Array(metadataSentinelParentPaths)
             + metadataCandidates
@@ -140,7 +140,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     private func traverse() -> (
         configURLs: [URL],
         referenceStorageName: String?,
-        referenceStoragePaths: [String],
         encounteredOversizedFile: Bool,
         worktreeConfigEnabled: Bool,
         objectFormatSHA256: Bool?,
@@ -177,7 +176,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         return (
             state.configURLs,
             state.referenceStorageName,
-            state.referenceStoragePaths,
             state.budget.didEncounterOversizedFile,
             state.worktreeConfigEnabled,
             isComplete ? state.objectFormatSHA256 : nil,
@@ -293,16 +291,27 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             state.referenceStorageName = value.lowercased()
             return
         }
+        // Normalize only the backend name. Preserve the path's original case
+        // because external files reference stores can be case-sensitive.
         let storageName = String(value[..<separator]).lowercased()
-        // Preserve the path-qualified form for backend selection while using
-        // the separately normalized name for path handling below.
-        state.referenceStorageName = value.lowercased()
-        guard includeConditionalPathsForWatch else { return }
+        state.referenceStorageName = storageName + String(value[separator...])
+    }
+
+    /// Computes bounded watcher paths for the final effective ref-storage
+    /// directive. Git applies repeated directives in order, so planning only
+    /// the last value keeps repository-controlled config scans bounded.
+    private func referenceStorageWatchPaths(for value: String?) -> [String] {
+        guard includeConditionalPathsForWatch,
+              let value,
+              let separator = value.firstIndex(of: ":") else {
+            return []
+        }
+        let storageName = String(value[..<separator]).lowercased()
         var payload = String(value[value.index(after: separator)...])
         if payload.hasPrefix("//") {
             payload.removeFirst(2)
         }
-        guard !payload.isEmpty else { return }
+        guard !payload.isEmpty else { return [] }
         let path = if payload.hasPrefix("/") {
             URL(fileURLWithPath: payload).standardizedFileURL.path
         } else {
@@ -316,10 +325,10 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             configReader: configReader,
             deadline: deadline
         )
-        state.referenceStoragePaths.append(contentsOf: planner.watchPaths(
+        return planner.watchPaths(
             storageName: storageName,
             path: path
-        ))
+        )
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.
