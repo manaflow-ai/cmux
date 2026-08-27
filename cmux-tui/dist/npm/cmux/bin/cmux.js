@@ -195,6 +195,117 @@ function platformRoot() {
   return path.join(cacheRoot(), `${process.platform}-${process.arch}`);
 }
 
+// Cache contents are writable by the invoking user and are not a trust root.
+// Reject symlinked directory components inside the configured cache boundary
+// before any lease, state, or payload write. Node has no portable openat(2)
+// API, so every creation is checked both before and after mkdir.
+function cacheDirectoryPathIsSafe(target, mustExist = false) {
+  const root = path.resolve(cacheRoot());
+  const resolvedTarget = path.resolve(target);
+  const relative = path.relative(root, resolvedTarget);
+  if (
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    return false;
+  }
+
+  const components = [root];
+  let current = root;
+  if (relative) {
+    for (const component of relative.split(path.sep)) {
+      current = path.join(current, component);
+      components.push(current);
+    }
+  }
+
+  let missing = false;
+  for (const component of components) {
+    if (missing) continue;
+    let stat;
+    try {
+      stat = fs.lstatSync(component);
+    } catch (error) {
+      if (error && error.code === "ENOENT") {
+        missing = true;
+        continue;
+      }
+      return false;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+  }
+  return !mustExist || !missing;
+}
+
+function ensureSafeCacheDirectory(target) {
+  if (!cacheDirectoryPathIsSafe(target)) {
+    throw new Error("launcher cache path contains an unsafe directory");
+  }
+  fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+  if (!cacheDirectoryPathIsSafe(target, true)) {
+    throw new Error("launcher cache path changed during directory creation");
+  }
+}
+
+function cacheNoFollowFlag() {
+  if (process.platform === "win32") return 0;
+  const flag = fs.constants.O_NOFOLLOW;
+  return typeof flag === "number" ? flag : null;
+}
+
+// Create a new cache file without following a file symlink. The parent is
+// checked separately because Node does not expose a portable openat(2) API.
+function writeNewCacheFile(target, data, mode = 0o600) {
+  const parent = path.dirname(target);
+  if (!cacheDirectoryPathIsSafe(parent, true)) {
+    throw new Error("launcher cache file parent is unsafe");
+  }
+  const noFollow = cacheNoFollowFlag();
+  if (process.platform !== "win32" && noFollow === null) {
+    throw new Error("launcher cannot enforce no-follow cache writes");
+  }
+  let fd;
+  try {
+    fd = fs.openSync(
+      target,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow,
+      mode
+    );
+    fs.writeFileSync(fd, data);
+    if (process.platform !== "win32") fs.fchmodSync(fd, mode);
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+  }
+}
+
+// Atomically replace a cache file through a fresh, exclusive temporary file.
+// Renaming replaces a destination symlink itself and never follows it.
+function replaceCacheFile(target, data, mode = 0o600) {
+  const parent = path.dirname(target);
+  if (!cacheDirectoryPathIsSafe(parent, true)) {
+    throw new Error("launcher cache file parent is unsafe");
+  }
+  const temp = `${target}.${process.pid}-${crypto
+    .randomBytes(8)
+    .toString("hex")}.tmp`;
+  try {
+    writeNewCacheFile(temp, data, mode);
+    if (!cacheDirectoryPathIsSafe(parent, true)) {
+      throw new Error("launcher cache file parent changed");
+    }
+    fs.renameSync(temp, target);
+  } finally {
+    try {
+      fs.rmSync(temp, { force: true });
+    } catch {}
+  }
+}
+
 const STATE_CHANNEL = /^[a-z0-9]+$/;
 
 function statePath(channel) {
@@ -208,6 +319,8 @@ function legacyStatePath() {
 
 function readStateFile(target) {
   try {
+    if (!cacheDirectoryPathIsSafe(path.dirname(target), true)) return null;
+    if (!fs.lstatSync(target).isFile()) return null;
     const state = JSON.parse(fs.readFileSync(target, "utf8"));
     if (state && validVersion(state.version)) return state;
   } catch {}
@@ -265,13 +378,11 @@ function writeState(state) {
   }
   const target = statePath(channel);
   if (!target) fail("cannot persist launcher state for an invalid release channel");
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.tmp`;
-  fs.writeFileSync(
-    tmp,
+  ensureSafeCacheDirectory(path.dirname(target));
+  replaceCacheFile(
+    target,
     JSON.stringify({ ...state, channel }, null, 2) + "\n"
   );
-  fs.renameSync(tmp, target);
 }
 
 function cachedBinDir(version) {
@@ -337,7 +448,10 @@ function openCachedBinary(bin) {
 function readCachedManifest(version, pkg = null) {
   const bin = path.join(cachedBinDir(version), BIN_NAME);
   try {
-    const manifest = JSON.parse(fs.readFileSync(cacheManifestPath(version), "utf8"));
+    const manifestPath = cacheManifestPath(version);
+    if (!cacheDirectoryPathIsSafe(path.dirname(manifestPath), true)) return null;
+    if (!fs.lstatSync(manifestPath).isFile()) return null;
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     const expected = manifest?.binaries?.[BIN_NAME];
     if (
       manifest?.version !== version ||
@@ -540,6 +654,12 @@ function cacheVersionIsReadOnly(version) {
   const versionRoot = path.dirname(cachedBinDir(version));
   const binDir = cachedBinDir(version);
   const leaseRoot = path.join(versionRoot, ".active");
+  if (
+    !cacheDirectoryPathIsSafe(versionRoot, true) ||
+    !cacheDirectoryPathIsSafe(binDir, true)
+  ) {
+    return false;
+  }
   const directories = [
     cacheRoot(),
     platformRoot(),
@@ -892,7 +1012,8 @@ function removeCacheLockIfOwned(owner, allowEmpty = false, lockPath = cacheLockP
 
 function tryAcquireCacheLock(lockPath = cacheLockPath()) {
   try {
-    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    ensureSafeCacheDirectory(path.dirname(lockPath));
+    if (!cacheDirectoryPathIsSafe(lockPath)) return null;
   } catch {
     return null;
   }
@@ -903,6 +1024,9 @@ function tryAcquireCacheLock(lockPath = cacheLockPath()) {
     try {
       fs.mkdirSync(lockPath, { recursive: false });
       created = true;
+      if (!cacheDirectoryPathIsSafe(lockPath, true)) {
+        throw new Error("launcher cache lock path is unsafe");
+      }
       // Publish the complete owner record with rename so readers never see a
       // partially written PID/token pair.
       const ownerTempPath = path.join(lockPath, `.owner-${owner.token}.tmp`);
@@ -922,6 +1046,8 @@ function tryAcquireCacheLock(lockPath = cacheLockPath()) {
         return null;
       }
     }
+
+    if (!cacheDirectoryPathIsSafe(lockPath, true)) return null;
 
     const current = readCacheLockOwner(lockPath);
     if (current) {
@@ -959,11 +1085,14 @@ function tryAcquireVersionLease(version) {
         `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
       );
       pendingLease = `${lease}.pending`;
-      fs.mkdirSync(leaseRoot, { recursive: true });
+      ensureSafeCacheDirectory(leaseRoot);
       // Build the lease away from the directory scanned by prune. Publish it
       // only after its PID record is complete, using an atomic directory
       // rename so an interruption cannot expose an empty active lease.
       fs.mkdirSync(pendingLease, { recursive: false });
+      if (!cacheDirectoryPathIsSafe(pendingLease, true)) {
+        throw new Error("launcher cache lease path is unsafe");
+      }
       const pidTemp = path.join(pendingLease, ".pid.tmp");
       fs.writeFileSync(pidTemp, leaseOwner.raw, {
         encoding: "utf8",
@@ -1120,6 +1249,7 @@ function cleanupStaging() {
   const root = path.join(platformRoot(), "tmp");
   let entries;
   try {
+    if (!cacheDirectoryPathIsSafe(root, true)) return;
     entries = fs.readdirSync(root, { withFileTypes: true });
   } catch {
     return;
@@ -1130,7 +1260,8 @@ function cleanupStaging() {
     const staging = path.join(root, entry.name);
     let stat;
     try {
-      stat = fs.statSync(staging);
+      stat = fs.lstatSync(staging);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) continue;
     } catch {
       continue;
     }
@@ -1976,19 +2107,24 @@ function cacheManifestMatchesMetadata(candidate, pkg, version, metadata) {
 
 function writeCacheManifest(pkg, version, integrity, entries) {
   const target = cacheManifestPath(version);
-  const tmp = `${target}.${process.pid}.tmp`;
+  if (!cacheDirectoryPathIsSafe(path.dirname(target), true)) {
+    throw new Error("launcher cache manifest path is unsafe");
+  }
   const binaries = {};
   for (const entry of entries) binaries[entry.name] = digestHex(entry.data);
-  fs.writeFileSync(
-    tmp,
-    JSON.stringify({ package: pkg, version, tarballIntegrity: integrity, binaries }, null, 2) + "\n",
-    { mode: 0o600 }
+  replaceCacheFile(
+    target,
+    JSON.stringify(
+      { package: pkg, version, tarballIntegrity: integrity, binaries },
+      null,
+      2
+    ) + "\n"
   );
-  fs.renameSync(tmp, target);
 }
 
 function removeCachedPayload(version) {
   const versionDir = path.dirname(cachedBinDir(version));
+  if (!cacheDirectoryPathIsSafe(versionDir, true)) return;
   for (const name of ["bin", "manifest.json", "managed"]) {
     try {
       fs.rmSync(path.join(versionDir, name), { recursive: true, force: true });
@@ -2020,15 +2156,23 @@ async function downloadVersion(
     "tmp",
     `${version}-${process.pid}-${Date.now().toString(36)}`
   );
-  fs.mkdirSync(path.join(stagingDir, "bin"), { recursive: true });
+  ensureSafeCacheDirectory(path.join(stagingDir, "bin"));
   for (const entry of entries) {
-    fs.writeFileSync(path.join(stagingDir, "bin", entry.name), entry.data, { mode: 0o755 });
+    writeNewCacheFile(
+      path.join(stagingDir, "bin", entry.name),
+      entry.data,
+      0o755
+    );
   }
-  fs.mkdirSync(path.dirname(finalDir), { recursive: true });
+  const versionDir = path.dirname(finalDir);
+  ensureSafeCacheDirectory(versionDir);
+  if (!cacheDirectoryPathIsSafe(finalDir)) {
+    throw new Error("launcher cache binary path is unsafe");
+  }
   try {
     fs.renameSync(path.join(stagingDir, "bin"), finalDir);
     writeCacheManifest(pkg, version, integrity, entries);
-    fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
+    replaceCacheFile(path.join(versionDir, "managed"), "cmux\n");
   } catch (error) {
     // A concurrent launcher won the race; its extraction is byte-identical
     // only when the existing binary matches the entry we verified above.
@@ -2052,14 +2196,14 @@ async function downloadVersion(
         removeCachedPayload(version);
         fs.renameSync(path.join(stagingDir, "bin"), finalDir);
         writeCacheManifest(pkg, version, integrity, entries);
-        fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
+        replaceCacheFile(path.join(versionDir, "managed"), "cmux\n");
       } catch {
         throw new Error("cached platform binary failed integrity verification");
       }
     } else {
       try {
         writeCacheManifest(pkg, version, integrity, entries);
-        fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
+        replaceCacheFile(path.join(versionDir, "managed"), "cmux\n");
       } catch {}
     }
   } finally {
@@ -2140,6 +2284,7 @@ function pruneCache(keepVersion) {
   if (!lock) return false;
   const root = path.join(platformRoot(), "v");
   try {
+    if (!cacheDirectoryPathIsSafe(root, true)) return false;
     const managed = fs
       .readdirSync(root)
       .filter((version) => isManagedCacheVersion(path.join(root, version)))
