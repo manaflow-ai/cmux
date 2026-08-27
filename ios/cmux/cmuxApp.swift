@@ -99,10 +99,10 @@ struct cmuxApp: App {
         // auth, so building the factory here costs nothing while the method
         // is unused; no route with this kind is ever dialed otherwise.
         let relayCoordinator = auth.coordinator
+        let relayAPIBaseURL = auth.config.apiBaseURL
         let relayTicketProvider = RelayTicketClient(
             apiBaseURL: {
-                let baseURL = auth.config.apiBaseURL
-                return baseURL.isEmpty ? nil : URL(string: baseURL)
+                relayAPIBaseURL.isEmpty ? nil : URL(string: relayAPIBaseURL)
             },
             authorizationHeaders: {
                 guard let access = try? await relayCoordinator.accessToken(),
