@@ -7286,8 +7286,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if routeInputDuringClipboardRead(event) { return true }
         guard hasPendingLeftMouseRelease else { return false }
         hasPendingLeftMouseRelease = false
-        guard let surface else { return false }
         let mouseState = rememberGhosttyMouseState(from: event)
+        guard let surface else {
+            // A portal can detach the runtime between the press and release.
+            // Clear our mirror even when there is no surface left to receive it.
+            markGhosttyMouseButtonReleased(.left)
+            return false
+        }
         let point = mouseState.localPoint
         _ = dispatchCommandClickRelease(
             surface: surface,
@@ -8103,7 +8108,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func rightMouseUp(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         let mouseState = rememberGhosttyMouseState(from: event)
-        guard let surface = surface else { return }
+        guard let surface else {
+            markGhosttyMouseButtonReleased(.right)
+            return
+        }
         let mouseCaptured = ghostty_surface_mouse_captured(surface)
         if mouseCaptured || ghosttyPressedMouseButtons.contains(.right) {
             _ = sendGhosttyMouseButton(
@@ -8153,7 +8161,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if routeInputDuringClipboardRead(event) { return }
         let mouseState = rememberGhosttyMouseState(from: event)
-        guard let surface = surface else { return }
+        guard let surface else {
+            markGhosttyMouseButtonReleased(.middle)
+            return
+        }
         _ = sendGhosttyMouseButton(
             surface,
             state: GHOSTTY_MOUSE_RELEASE,
@@ -11083,16 +11094,18 @@ final class GhosttySurfaceScrollView: NSView {
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
                 window.makeFirstResponder(nil)
             }
-        } else if !wasVisible {
+        } else {
             surfaceView.scheduleGhosttyMouseButtonRepair(reason: "setVisibleInUI.true")
-            // Workspace/sidebar selection can make an already-sized terminal visible again
-            // without a portal frame delta or a focus handoff. Nudge the Metal layer with
-            // the portal refresh path — but on the next main-queue turn: reveals arrive
-            // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
-            // geometry-callback rebind), where a synchronous display can wedge the main
-            // thread in Metal against the still-open window transaction.
-            scheduleVisibilityRevealRefresh()
-            scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
+            if !wasVisible {
+                // Workspace/sidebar selection can make an already-sized terminal visible again
+                // without a portal frame delta or a focus handoff. Nudge the Metal layer with
+                // the portal refresh path — but on the next main-queue turn: reveals arrive
+                // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
+                // geometry-callback rebind), where a synchronous display can wedge the main
+                // thread in Metal against the still-open window transaction.
+                scheduleVisibilityRevealRefresh()
+                scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
+            }
         }
     }
 
@@ -11136,10 +11149,12 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
 #endif
-        if active && !wasActive {
+        if active {
             surfaceView.scheduleGhosttyMouseButtonRepair(reason: "setActive.true")
-            scheduleAutomaticFirstResponderApply(reason: "setActive")
-        } else if !active {
+            if !wasActive {
+                scheduleAutomaticFirstResponderApply(reason: "setActive")
+            }
+        } else {
             surfaceView.scheduleForcedGhosttyMouseButtonRepair(reason: "setActive.false")
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
