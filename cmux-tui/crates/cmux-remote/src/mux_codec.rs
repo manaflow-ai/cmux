@@ -34,7 +34,7 @@ where
     read_bounded_line_with_limit(reader, line, MAX_MUX_UPLOAD_LINE_BYTES).await
 }
 
-async fn read_bounded_line_with_limit<R>(
+pub(crate) async fn read_bounded_line_with_limit<R>(
     reader: &mut R,
     line: &mut Vec<u8>,
     maximum: usize,
@@ -266,11 +266,39 @@ mod tests {
     }
 
     #[test]
-    fn relay_line_limit_rejects_oversized_input_before_packet_allocation() {
+    fn relay_line_limit_rejects_eof_line_one_byte_over_payload_limit() {
         let line = vec![b'x'; REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1];
         assert!(matches!(
             encode_line(1, &line),
             Err(MuxCodecError::LineTooLarge(size)) if size == REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn relay_download_accepts_a_line_above_the_upload_limit() {
+        let line = vec![b'x'; REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1];
+        let packets =
+            encode_line_with_limit(1, &line, MAX_MUX_DOWNLOAD_LINE_BYTES).expect("egress line");
+        let mut assembler = MuxLineAssembler::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES);
+        let mut assembled = None;
+        for packet in packets {
+            assembled = assembler.push(Lane::Bulk, packet).unwrap().or(assembled);
+        }
+        assert_eq!(assembled.expect("complete egress line").1, line.as_slice());
+    }
+
+    #[test]
+    fn relay_upload_assembler_rejects_an_eof_line_over_its_payload_limit() {
+        let line = b"12345";
+        let packets = encode_line_with_limit(1, line, 6).expect("test egress line");
+        let mut assembler = MuxLineAssembler::with_maximum(5);
+        let mut result = None;
+        for packet in packets {
+            result = Some(assembler.push(Lane::Bulk, packet));
+        }
+        assert!(matches!(
+            result,
+            Some(Err(MuxCodecError::LineTooLarge(size))) if size == line.len()
         ));
     }
 
